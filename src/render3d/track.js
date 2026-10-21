@@ -6,6 +6,7 @@
 
 import * as THREE from '../../vendor/three/three.module.min.js';
 import { posToWorld, elevationAt, trackBounds, SURFACE } from '../sim/course.js';
+import { yawForXForward } from './orient.js';
 
 /** 走路に沿って頂点を並べる刻み（m）。細かくするとコーナーがなめらかになる。 */
 const STEP = 5;
@@ -202,11 +203,11 @@ function buildStand(track, group) {
     const h = 22;
     const box = new THREE.Mesh(new THREE.BoxGeometry(segLen * 1.02, h, 40), standMat);
     box.position.set(w.x, y + h / 2, w.z);
-    box.rotation.y = -w.heading;
+    box.rotation.y = yawForXForward(w.heading);  // 長辺がローカル +X
     group.add(box);
     const roof = new THREE.Mesh(new THREE.BoxGeometry(segLen * 1.02, 1.2, 48), roofMat);
     roof.position.set(w.x, y + h + 0.6, w.z);
-    roof.rotation.y = -w.heading;
+    roof.rotation.y = yawForXForward(w.heading);
     group.add(roof);
   }
 }

@@ -6,6 +6,9 @@
 //
 // 1 完歩は約 7m。サラブレッドのギャロップは 1 完歩 6〜7.5m、
 // 1 秒あたり 2.2〜2.5 完歩なので、17m/s でだいたい合う。
+//
+// **このモデルはローカル +Z が前方**（頭が +z、尾が -z、前脚が +z）。
+// 置く側は orient.js の yawForZForward() で Y 回転を作ること。
 
 import * as THREE from '../../vendor/three/three.module.min.js';
 

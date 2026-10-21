@@ -11,6 +11,9 @@ import {
 } from '../src/sim/course.js';
 import { createWorld, advanceWeek, weekRaces } from '../src/sim/world.js';
 import { collectAncestors, inbreedings, sireLineRoot } from '../src/sim/pedigree.js';
+import {
+  yawForZForward, yawForXForward, zForwardOfYaw, xForwardOfYaw,
+} from '../src/render3d/orient.js';
 import { toJSON, fromJSON } from '../src/sim/save.js';
 import { newGame, nextWeek, racesFor, enterRace, myHorses, horseView, evaluateMating, stallions } from '../src/sim/game.js';
 import { ABILITIES, SEX, WEEKS_PER_YEAR } from '../src/sim/params.js';
@@ -82,6 +85,36 @@ check('全コースの周回が閉じている', true);
   const bb = trackBounds(tr);
   check('走路の外周が妥当な広さ', bb.maxX - bb.minX > 400 && bb.maxX - bb.minX < 1400,
     `${(bb.maxX - bb.minX).toFixed(0)}m × ${(bb.maxZ - bb.minZ).toFixed(0)}m`);
+}
+
+// 3D の向き。馬が進行方向を向いているか（真横を向いたまま走ったことがある）。
+{
+  let worstHorse = 0, worstStand = 0;
+  for (let i = 0; i <= 24; i++) {
+    const h = (i / 24) * Math.PI * 2 - Math.PI;
+    const want = { x: Math.cos(h), z: Math.sin(h) };
+    // 馬はローカル +Z が前方。
+    const f = zForwardOfYaw(yawForZForward(h));
+    worstHorse = Math.max(worstHorse, Math.hypot(f.x - want.x, f.z - want.z));
+    // スタンドの箱は長辺がローカル +X。
+    const g = xForwardOfYaw(yawForXForward(h));
+    worstStand = Math.max(worstStand, Math.hypot(g.x - want.x, g.z - want.z));
+  }
+  check('馬の正面が進行方向を向く（+Z 前方）', worstHorse < 1e-9, `ずれ ${worstHorse.toFixed(3)}`);
+  check('スタンドの長辺が走路に沿う（+X 前方）', worstStand < 1e-9, `ずれ ${worstStand.toFixed(3)}`);
+  // 走路の向きと一致しているか、実際のコースで確かめる。
+  const tr = buildTrack('tokyo', SURFACE.TURF, 2400);
+  let worst = 0;
+  for (let p = 0; p < tr.lap; p += 37) {
+    const a = posToWorld(tr, p, 5);
+    const b = posToWorld(tr, p + 1, 5);
+    const travel = Math.atan2(b.z - a.z, b.x - a.x);
+    const f = zForwardOfYaw(yawForZForward(a.heading));
+    const dot = Math.cos(travel) * f.x + Math.sin(travel) * f.z;
+    worst = Math.max(worst, 1 - dot);   // 1 - cos(角度差)
+  }
+  check('コース一周のどこでも馬が前を向く（東京芝）', worst < 1e-3,
+    `最大のずれ ${(Math.acos(1 - worst) * 180 / Math.PI).toFixed(1)} 度`);
 }
 
 // ---------------------------------------------------------------- レースの時計

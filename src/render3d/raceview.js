@@ -9,6 +9,7 @@ import { buildTrackMesh, trackPoint } from './track.js';
 import { makeHorse, makeShadowPatch, FRAME_COLORS } from './horse3d.js';
 import { buildTrack, posToWorld, elevationAt, curvatureAt, trackBounds } from '../sim/course.js';
 import { sampleLog, logDuration } from '../sim/race.js';
+import { yawForZForward } from './orient.js';
 import { clamp, lerp } from '../core/util.js';
 
 export const CAMERAS = [
@@ -134,12 +135,13 @@ export function createRaceView(canvas, race, opts = {}) {
       const p = track.start + s;
       const { point, heading, curvature } = trackPoint(track, p, x.off, tmp);
       h.group.position.copy(point);
-      h.group.rotation.y = -heading;
+      // 馬はローカル +Z が前方。-heading にすると 90 度ずれて真横を向く。
+      h.group.rotation.y = yawForZForward(heading);
       // コーナーでは内に傾ける。曲率と速度から遠心力ぶん。
       const bank = curvature * x.v * x.v * 0.0045 * (track.dir > 0 ? 1 : -1);
       h.update(s, x.v, bank);
       h.shadow.position.set(point.x, point.y + 0.02, point.z);
-      h.shadow.rotation.y = -heading;
+      h.shadow.rotation.y = yawForZForward(heading);  // 影の楕円も体の向きに合わせる
     }
   }
 
