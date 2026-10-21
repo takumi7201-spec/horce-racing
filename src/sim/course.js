@@ -201,9 +201,16 @@ export function buildTrack(courseId, surface, distance) {
     };
   }
 
-  const { lap, straight, toFirst, back, width } = spec;
-  // 両端の半円の弧長。直線 3 本（ゴール後・向正面・ゴール前）の残りを二等分する。
-  const arc = (lap - straight - toFirst - back) / 2;
+  const { lap, straight, width } = spec;
+  // 180 度のコーナーは進行方向の変位を持たないので、オーバルが幾何的に閉じるには
+  // 「ゴール前側の直線（ゴール板→1 コーナー＋4 コーナー→ゴール板）」と
+  // 「向正面」が同じ長さでなければならない。公表値は食い違うので、
+  // 直線距離（レースの性格を決める値）だけ厳密に守り、残りを均す。
+  // ここを雑にすると走路が開いた輪になり、3D でゴール板の前後が断裂する。
+  const front = (spec.toFirst + straight + spec.back) / 2;
+  const toFirst = Math.max(20, front - straight);
+  const back = toFirst + straight;
+  const arc = (lap - front - back) / 2;
   if (arc <= 40) throw new Error(`${course.name}${surface}: コーナーが短すぎる（定義値を確認）`);
   const r = arc / Math.PI;
 

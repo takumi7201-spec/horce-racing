@@ -86,13 +86,16 @@ export function effectiveAbility(horse, year, { ignoreCondition = false } = {}) 
   return out;
 }
 
-/** 距離適性（0..1）。最適距離から離れるほど落ちる。 */
+/**
+ * 距離適性（0..1）。最適距離から離れるほど落ちる。
+ * 実際の競馬では、マイラーが 2400m を使って掲示板に載ることはある。
+ * ここを急にすると適性外の馬が歩いて帰ってくる絵になり、
+ * 頭数の都合で長距離 GI に回された馬が 3000m を 4 分台で走る。
+ */
 export function distanceAptitude(horse, distance) {
   const d = Math.abs(distance - horse.dist);
-  const r = Math.max(120, horse.distRange);
-  // 二次で落ちると適性外がきつすぎるので、1.6 乗にしている。
-  const x = d / r;
-  return clamp01(1 - 0.42 * Math.pow(x, 1.6));
+  const r = Math.max(200, horse.distRange);
+  return clamp01(1 - 0.34 * Math.pow(d / r, 1.5));
 }
 
 /** 馬場適性（0..1）。 */
@@ -147,7 +150,7 @@ export function applyRaceEffect(horse, rng, { year, distance, order, field, hard
   const room = {}; // pot までの伸びしろ
   let grew = false;
   const youth = clamp01((7 - age) / 5);
-  const gain = (0.012 + 0.020 * youth) * (hard ? 1.25 : 1);
+  const gain = (0.018 + 0.030 * youth) * (hard ? 1.25 : 1);
   for (const a of ABILITIES) {
     room[a] = horse.pot[a] - horse.cur[a];
     if (room[a] > 0.001) {
@@ -158,7 +161,9 @@ export function applyRaceEffect(horse, rng, { year, distance, order, field, hard
     }
   }
   // 長距離・激戦は疲労が大きい。
-  const load = 0.26 + (distance - 1200) / 1200 * 0.14 + (hard ? 0.10 : 0);
+  // ここが重いと NPC が年 4 走しか使えず、条件戦が不成立だらけになる。
+  // JRA の平均は 1 頭あたり年 6 走前後。
+  const load = 0.20 + (distance - 1200) / 1200 * 0.12 + (hard ? 0.09 : 0);
   horse.fatigue = clamp01(horse.fatigue + load * rng.range(0.85, 1.15));
   horse.fit = clamp01(horse.fit - 0.1);
   // 掲示板内に入れると気分が上がる（調子に乗る）。
@@ -202,7 +207,7 @@ export function weeklyRecover(horse, rng) {
     horse.fatigue = clamp01(horse.fatigue - 0.07);
     return;
   }
-  const rest = horse.stable === 'pasture' ? 0.16 : 0.08;
+  const rest = horse.stable === 'pasture' ? 0.17 : 0.11;
   horse.fatigue = clamp01(horse.fatigue - rest * rng.range(0.8, 1.2));
   // 調子は 0.5 を中心にゆらぐ。放牧中は上がりやすい。
   const pull = horse.stable === 'pasture' ? 0.62 : 0.55;

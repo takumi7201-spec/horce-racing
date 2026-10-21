@@ -12,9 +12,9 @@ import { inbreedings, inbreedEffect, nicksValue, nicksKey, sireLineRoot } from '
 import { makeHorseName } from '../core/names.js';
 
 /** 競走馬全体の能力の中心。回帰の行き先。 */
-export const POP_MEAN = 0.40;
+export const POP_MEAN = 0.42;
 /** 回帰の強さ。0.30 なら両親の平均から 30% だけ全体平均に引き戻される。 */
-export const REGRESSION = 0.30;
+export const REGRESSION = 0.26;
 
 /**
  * 仔を作る。
@@ -45,7 +45,7 @@ export function breed(world, rng, sire, dam, { year, farmId = null, ownerId = nu
     const mid = sire.pot[a] * 0.5 + dam.pot[a] * 0.5;
     const regressed = lerp(mid, POP_MEAN, REGRESSION);
     // 分散は親の能力が高いほど大きい（大物も駄馬も出る）。
-    const sd = 0.085 + mid * 0.055;
+    const sd = 0.095 + mid * 0.075;
     foal.pot[a] = clamp01(regressed + rng.normal(0, sd) + bonus);
     // 初期の現在値は潜在の 2 割程度。ここから調教と出走で埋めていく。
     foal.cur[a] = clamp01(foal.pot[a] * rng.range(0.16, 0.26));

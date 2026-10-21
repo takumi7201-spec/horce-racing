@@ -46,9 +46,13 @@ function prepareRunner(entry, spec, rng) {
   const sApt = surfaceAptitude(horse, spec.surface);
   const gApt = groundAptitude(horse, gi);
 
-  // 適性は「能力をどれだけ出せるか」の係数。素の掛け算だと適性外が壊滅するので、
-  // それぞれを 0.6〜1.0 の帯に写してから掛ける。
-  const apt = lerp(0.74, 1.0, dApt) * lerp(0.80, 1.0, sApt) * lerp(0.88, 1.0, gApt);
+  // 適性は「能力をどれだけ出せるか」の係数。
+  // 三つを素に掛けると、どれも中くらいの普通の馬が 0.86 まで落ちてしまい、
+  // GI が実際より 10 秒以上遅くなる。「得意な条件なら 1.0」になるように、
+  // 一定以上の適性は頭打ちにしてから掛ける。
+  const apt = lerp(0.86, 1.0, dApt)
+    * (0.84 + 0.16 * Math.min(1, sApt / 0.85))
+    * (0.91 + 0.09 * Math.min(1, gApt / 0.85));
 
   const jk = jockey ?? { id: null, name: '—', skill: 0.45, aggression: 0.5 };
   // 騎手は最高速をわずかに、位置取りの精度を大きく左右する。
@@ -60,7 +64,7 @@ function prepareRunner(entry, spec, rng) {
 
   // 距離適性は HP にも効く。マイラーが 3200m を持たないのはこの項。
   const hp = (PHYS.HP_BASE + PHYS.HP_STAM_GAIN * eff.stamina)
-    * lerp(0.62, 1.08, dApt) / ge.stam;
+    * lerp(0.70, 1.06, dApt) / ge.stam;
 
   // 指示脚質。無指示なら馬の持ち味。素直さと騎手の腕で指示に寄る。
   const wantStyle = entry.styleOrder && STYLE_TARGET[entry.styleOrder] != null
@@ -224,6 +228,19 @@ export function simulateRace(spec, rng, opts = {}) {
       }
 
       // --- 進路 ---
+      // 前が詰まったら空いている側へ逃げる。両側が埋まっていれば前の馬に合わせて待つ。
+      // 「詰まったら必ず外へ」にすると、16 頭が走路いっぱいに広がったまま
+      // 渋滞して全馬が止まる（実際にそうなって 1600m が 4 分かかった）。
+      const occupied = (off) => {
+        for (let j = 0; j < n; j++) {
+          if (j === i) continue;
+          const o = runners[j];
+          if (o.finishT < Infinity) continue;
+          if (Math.abs(o.s - r.s) > BODY_LEN * 1.6) continue;
+          if (Math.abs(o.off - off) < BODY_W * 0.9) return true;
+        }
+        return false;
+      };
       let blocker = null;
       let minGap = Infinity;
       for (let j = 0; j < n; j++) {
@@ -235,25 +252,21 @@ export function simulateRace(spec, rng, opts = {}) {
         if (Math.abs(o.off - r.off) > BODY_W * 0.8) continue;
         if (d < minGap) { minGap = d; blocker = o; }
       }
+      const shift = PHYS.LANE_SHIFT * TICK;
       if (blocker && vDes > blocker.v) {
-        const squeeze = clamp01((PHYS.BLOCK_GAP + BODY_LEN - minGap) / (PHYS.BLOCK_GAP + BODY_LEN));
-        vDes = Math.min(vDes, blocker.v * (1 - 0.05 * squeeze));
-        r.blockT += TICK;
-        // 外へ持ち出す。賢い馬・上手い騎手は早めに動く。
-        const skill = r.eff.wit * 0.5 + r.jockey.skill * 0.5;
-        r.off = Math.min(maxOff, r.off + PHYS.LANE_SHIFT * TICK * (0.6 + skill));
-        if (k > 0) r.wideT += TICK;
-      } else if (r.off > 0) {
-        // 内が空いていれば寄せる。前後に馬が居る間は寄せられない。
-        let innerFree = true;
-        for (let j = 0; j < n; j++) {
-          if (j === i) continue;
-          const o = runners[j];
-          if (o.finishT < Infinity) continue;
-          if (Math.abs(o.s - r.s) > BODY_LEN * 1.5) continue;
-          if (o.off < r.off && r.off - o.off < BODY_W) { innerFree = false; break; }
+        const skill = 0.6 + r.eff.wit * 0.5 + r.jockey.skill * 0.5;
+        if (!occupied(r.off + BODY_W) && r.off + BODY_W <= maxOff) {
+          r.off = Math.min(maxOff, r.off + shift * skill);
+          if (k > 0) r.wideT += TICK;
+        } else if (r.off > BODY_W * 0.6 && !occupied(r.off - BODY_W)) {
+          r.off = Math.max(0, r.off - shift * skill);
         }
-        if (innerFree) r.off = Math.max(0, r.off - PHYS.LANE_SHIFT * TICK * 0.9);
+        // 追突はしない。前の馬と同じ速度までしか出せない。
+        vDes = Math.min(vDes, blocker.v * 0.998);
+        r.blockT += TICK;
+      } else if (r.off > 0 && !occupied(Math.max(0, r.off - BODY_W))) {
+        // 空いていれば内へ寄せる。内ラチ沿いがいちばん短い。
+        r.off = Math.max(0, r.off - shift * 0.9);
       }
 
       // --- 加速 ---
@@ -411,7 +424,7 @@ function targetGap(style, distance, field) {
  * 長距離が楽にならないのは速度ではなく余力の側で決まっている。
  */
 function cruiseRatio(r, distance, frontRunners) {
-  let c = 0.985 - clamp01((distance - 1000) / 1400) * 0.105;
+  let c = 0.962 - clamp01((distance - 1000) / 1400) * 0.082;
   c -= (1 - r.eff.stamina) * 0.012;
   c += (frontRunners - 1) * 0.019;          // ハナ争い。これが展開のほぼ全て
   c += (r.jockey.aggression - 0.5) * 0.012;

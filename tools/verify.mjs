@@ -1,0 +1,320 @@
+// npm test。
+// 「生成した世界と走らせたレースが現実の競馬の範囲に収まっているか」を機械的に見る。
+// 数字をいじったらここを必ず通す。落ちたら PHYS か world.js の母集団設定を疑う。
+
+import { makeRng } from '../src/core/rng.js';
+import { createHorse, resetHorseIds, distanceAptitude, effectiveAbility } from '../src/sim/horse.js';
+import { simulateRace, sampleLog, logDuration } from '../src/sim/race.js';
+import {
+  buildTrack, posToWorld, curvatureAt, gradeAt, allCourses, distancesOf,
+  SURFACE, elevationAt, trackBounds,
+} from '../src/sim/course.js';
+import { createWorld, advanceWeek, weekRaces } from '../src/sim/world.js';
+import { collectAncestors, inbreedings, sireLineRoot } from '../src/sim/pedigree.js';
+import { toJSON, fromJSON } from '../src/sim/save.js';
+import { newGame, nextWeek, racesFor, enterRace, myHorses, horseView, evaluateMating, stallions } from '../src/sim/game.js';
+import { ABILITIES, SEX, WEEKS_PER_YEAR } from '../src/sim/params.js';
+import { sum, formatTime, byDesc } from '../src/core/util.js';
+
+let fail = 0;
+let pass = 0;
+const section = (s) => console.log(`\n== ${s} ==`);
+function check(name, ok, detail = '') {
+  if (ok) { pass++; console.log(`  ok   ${name}`); } else { fail++; console.log(`  NG   ${name}  ${detail}`); }
+}
+
+// ---------------------------------------------------------------- コース幾何
+section('コース幾何');
+for (const c of allCourses()) {
+  for (const surface of [SURFACE.TURF, SURFACE.DIRT]) {
+    const dists = distancesOf(c.id, surface);
+    for (const d of dists) {
+      const tr = buildTrack(c.id, surface, d);
+      if (tr.straightCourse) continue;
+      // 周回の閉じ：セグメント長の合計が 1 周距離と一致する。
+      const total = tr.segments.reduce((t, s) => t + s.len, 0);
+      if (Math.abs(total - tr.lap) > 1) {
+        check(`${c.name}${surface}${d} セグメント長の合計`, false, `${total.toFixed(1)} ≠ ${tr.lap}`);
+      }
+      // 発走位置：そこから distance 進むとゴール板（周回位置 0）に戻る。
+      const endPos = (tr.start + d) % tr.lap;
+      if (Math.min(endPos, tr.lap - endPos) > 1) {
+        check(`${c.name}${surface}${d} 発走位置`, false, `ゴール位置 ${endPos.toFixed(1)}`);
+      }
+    }
+  }
+}
+check('全コースの周回が閉じている', true);
+
+// 走路の連続性：1m 刻みで座標が飛ばない。
+{
+  const tr = buildTrack('tokyo', SURFACE.TURF, 2400);
+  let maxJump = 0;
+  let prev = posToWorld(tr, 0);
+  for (let p = 1; p < tr.lap; p += 1) {
+    const w = posToWorld(tr, p);
+    maxJump = Math.max(maxJump, Math.hypot(w.x - prev.x, w.z - prev.z));
+    prev = w;
+  }
+  check('走路の座標が連続している（東京芝）', maxJump < 1.4, `最大 ${maxJump.toFixed(3)}m`);
+  // ゴール板の前後でもつながる（周回のつなぎ目）。
+  const a = posToWorld(tr, tr.lap - 0.5);
+  const b = posToWorld(tr, 0.5);
+  check('ゴール板のつなぎ目', Math.hypot(a.x - b.x, a.z - b.z) < 1.4);
+  // 外を回ると内より長い。
+  const inner = posToWorld(tr, 500, 0);
+  const outer = posToWorld(tr, 500, 10);
+  check('内ラチからの横位置が効いている', Math.hypot(inner.x - outer.x, inner.z - outer.z) > 9.5);
+  // 高低差が公表値と大きく外れない。
+  let lo = Infinity, hi = -Infinity;
+  for (let p = 0; p < tr.lap; p += 10) {
+    const e = elevationAt(tr, p);
+    lo = Math.min(lo, e); hi = Math.max(hi, e);
+  }
+  check('東京芝の高低差', hi - lo > 1.0 && hi - lo < 6, `${(hi - lo).toFixed(2)}m（公表 2.7m）`);
+  const nk = buildTrack('nakayama', SURFACE.TURF, 2000);
+  let lo2 = Infinity, hi2 = -Infinity;
+  for (let p = 0; p < nk.lap; p += 10) {
+    const e = elevationAt(nk, p);
+    lo2 = Math.min(lo2, e); hi2 = Math.max(hi2, e);
+  }
+  check('中山芝の高低差が東京より大きい', hi2 - lo2 > hi - lo, `${(hi2 - lo2).toFixed(2)}m（公表 5.3m）`);
+  const bb = trackBounds(tr);
+  check('走路の外周が妥当な広さ', bb.maxX - bb.minX > 400 && bb.maxX - bb.minX < 1400,
+    `${(bb.maxX - bb.minX).toFixed(0)}m × ${(bb.maxZ - bb.minZ).toFixed(0)}m`);
+}
+
+// ---------------------------------------------------------------- レースの時計
+section('レースの時計（適性・仕上がりの揃った 16 頭）');
+function testField(rng, n, distance, surface, year, ability) {
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const h = createHorse(rng, { name: `T${i}`, sex: SEX.MALE, birthYear: year - 4 });
+    for (const a of ABILITIES) {
+      h.pot[a] = Math.min(1, Math.max(0.05, ability + rng.normal(0, 0.05)));
+      h.cur[a] = h.pot[a];
+    }
+    h.growth = '普通'; h.dist = distance; h.distRange = 500;
+    h.turf = surface === SURFACE.TURF ? 0.9 : 0.5;
+    h.dirt = surface === SURFACE.DIRT ? 0.9 : 0.5;
+    h.firm = 0.9; h.soft = 0.6; h.temper = 0.6; h.sound = 0.7; h.spirit = 0.6;
+    h.cond = 0.7; h.fit = 0.85; h.fatigue = 0;
+    h.style = [0.08, 0.2, 0.35, 0.45, 0.55, 0.62, 0.7, 0.8, 0.9][i % 9];
+    h.styleFlex = 0.6;
+    out.push(h);
+  }
+  return out;
+}
+
+const CASES = [
+  ['nakayama', SURFACE.TURF, 1200, 65.5, 69.5],
+  ['tokyo', SURFACE.TURF, 1600, 89.0, 93.5],
+  ['tokyo', SURFACE.TURF, 2000, 114.0, 120.0],
+  ['tokyo', SURFACE.TURF, 2400, 138.0, 147.0],
+  ['kyoto', SURFACE.TURF, 3200, 186.0, 200.0],
+  ['nakayama', SURFACE.TURF, 2500, 144.0, 156.0],
+  ['niigata', SURFACE.TURF, 1000, 52.0, 57.0],
+  ['tokyo', SURFACE.DIRT, 1600, 92.0, 100.0],
+  ['chukyo', SURFACE.DIRT, 1800, 103.0, 113.0],
+];
+{
+  const rng = makeRng(12345);
+  resetHorseIds(1);
+  for (const [course, surface, distance, lo, hi] of CASES) {
+    const horses = testField(rng, 16, distance, surface, 2026, 0.62);
+    const entries = horses.map((h, i) => ({
+      horse: h, jockey: { id: i, name: `J${i}`, skill: 0.6, aggression: 0.5 },
+      weight: 57, gate: i + 1, frame: Math.min(8, Math.floor(i / 2) + 1),
+    }));
+    const r = simulateRace({
+      raceId: 'v', name: 'v', classId: 'g1', grade: 'GI', courseId: course,
+      surface, distance, ground: '良', weather: '晴', year: 2026, week: 20, entries, prize: 1000,
+    }, makeRng(777));
+    check(`${r.courseName}${surface}${distance}m ${formatTime(r.winnerTime)}`,
+      r.winnerTime >= lo && r.winnerTime <= hi, `期待 ${formatTime(lo)}〜${formatTime(hi)}`);
+    // 上がり 3F が実際の範囲（32〜38 秒）に入る。
+    check(`  上がり3F ${r.results[0].last3f.toFixed(1)}`,
+      r.results[0].last3f > 31 && r.results[0].last3f < 38.5);
+    // 全馬がゴールし、着順が時計順になっている。
+    const times = r.results.map((x) => x.time);
+    check('  着順が走破時計の順', times.every((t, i) => i === 0 || t >= times[i - 1] - 1e-6));
+    check('  全馬完走', r.results.every((x) => !x.dnf));
+  }
+}
+
+// 能力が高いほど速い。
+{
+  const times = [];
+  for (const ab of [0.35, 0.5, 0.65, 0.8]) {
+    const rng = makeRng(999);
+    const horses = testField(rng, 14, 2000, SURFACE.TURF, 2026, ab);
+    const entries = horses.map((h, i) => ({
+      horse: h, jockey: { id: i, name: 'J', skill: 0.5, aggression: 0.5 },
+      weight: 57, gate: i + 1, frame: 1,
+    }));
+    const r = simulateRace({
+      raceId: 'v', name: 'v', classId: 'c1', courseId: 'tokyo', surface: SURFACE.TURF,
+      distance: 2000, ground: '良', weather: '晴', year: 2026, week: 1, entries, prize: 0,
+    }, makeRng(3), { record: false });
+    times.push(r.winnerTime);
+  }
+  check(`能力順に速くなる（${times.map((t) => formatTime(t)).join(' > ')}）`,
+    times.every((t, i) => i === 0 || t < times[i - 1]));
+  check('未勝利級と GI 級の時計差が 3〜12%',
+    (times[0] - times[3]) / times[3] > 0.03 && (times[0] - times[3]) / times[3] < 0.12,
+    `${(((times[0] - times[3]) / times[3]) * 100).toFixed(1)}%`);
+}
+
+// 馬場が悪化すると時計が落ちる（芝）。
+{
+  const t = [];
+  for (const ground of ['良', '稍重', '重', '不良']) {
+    const rng = makeRng(555);
+    const horses = testField(rng, 14, 2000, SURFACE.TURF, 2026, 0.6);
+    const entries = horses.map((h, i) => ({
+      horse: h, jockey: { id: i, name: 'J', skill: 0.5, aggression: 0.5 },
+      weight: 57, gate: i + 1, frame: 1,
+    }));
+    t.push(simulateRace({
+      raceId: 'v', name: 'v', classId: 'op', courseId: 'tokyo', surface: SURFACE.TURF,
+      distance: 2000, ground, weather: '雨', year: 2026, week: 1, entries, prize: 0,
+    }, makeRng(4), { record: false }).winnerTime);
+  }
+  check(`芝は馬場が悪いほど時計が掛かる（${t.map((x) => formatTime(x)).join(' < ')}）`,
+    t[3] > t[0], `良 ${formatTime(t[0])} / 不良 ${formatTime(t[3])}`);
+}
+
+// 走行ログが 3D 再生に使える形で返る。
+{
+  const rng = makeRng(77);
+  const horses = testField(rng, 12, 1600, SURFACE.TURF, 2026, 0.6);
+  const entries = horses.map((h, i) => ({
+    horse: h, jockey: { id: i, name: 'J', skill: 0.5, aggression: 0.5 },
+    weight: 56, gate: i + 1, frame: 1,
+  }));
+  const r = simulateRace({
+    raceId: 'v', name: 'v', classId: 'g2', courseId: 'tokyo', surface: SURFACE.TURF,
+    distance: 1600, ground: '良', weather: '晴', year: 2026, week: 1, entries, prize: 0,
+  }, makeRng(5));
+  const log = r.log;
+  check('走行ログが返る', !!log && log.frames > 50, `${log?.frames} フレーム`);
+  check('ログの長さが走破時計以上', logDuration(log) >= r.winnerTime - 0.3,
+    `${logDuration(log).toFixed(1)}s / ${r.winnerTime.toFixed(1)}s`);
+  const s0 = sampleLog(log, 0);
+  const s1 = sampleLog(log, 10);
+  check('ログから全馬の位置が取れる', s0.length === 12 && s1.length === 12);
+  check('10 秒で 100m 以上進んでいる', Math.max(...s1.map((x) => x.s)) > 100);
+  check('横位置が走路幅の内側', s1.every((x) => x.off >= 0 && x.off <= log.width));
+  const mono = [];
+  for (let t = 0; t < logDuration(log); t += 1) mono.push(Math.max(...sampleLog(log, t).map((x) => x.s)));
+  check('先頭の位置が単調増加', mono.every((v, i) => i === 0 || v >= mono[i - 1] - 0.01));
+}
+
+// ---------------------------------------------------------------- 世界
+section('世界の生成');
+const t0 = Date.now();
+const game = newGame({ seed: 'verify', playerName: '検証 太郎', farmName: '検証ファーム' });
+const w = game.world;
+check(`生成時間 ${Date.now() - t0}ms`, Date.now() - t0 < 4000);
+check(`総馬数 ${w.horses.size}`, w.horses.size > 2500 && w.horses.size < 9000);
+check(`種牡馬 ${w.stallionPool.length} 頭`, w.stallionPool.length >= 30);
+check(`繁殖牝馬 ${w.marePool.length} 頭`, w.marePool.length >= 200);
+{
+  const live3 = [...w.horses.values()].filter((h) => w.year - h.birthYear === 3);
+  const fillRate = sum(live3, (h) => collectAncestors(w, h.id, 5).size) / (live3.length * 62);
+  check(`5 代血統表の埋まり率 ${(fillRate * 100).toFixed(0)}%`, fillRate > 0.55);
+  const ibAvg = sum(live3, (h) => (h.sireId && h.damId ? inbreedings(w, h.sireId, h.damId).length : 0)) / live3.length;
+  check(`平均インブリード数 ${ibAvg.toFixed(2)}`, ibAvg > 1.0 && ibAvg < 8);
+  const lines = new Set(live3.map((h) => sireLineRoot(w, h.id)));
+  check(`父系の系統数 ${lines.size}`, lines.size >= 5);
+}
+{
+  const live = [...w.horses.values()].filter((h) => !h.dead && !h.retired && w.year - h.birthYear >= 2);
+  const pots = live.map((h) => sum(ABILITIES, (a) => h.pot[a]) / 5).sort((a, b) => b - a);
+  check(`潜在能力 最大 ${pots[0].toFixed(3)} / 中央 ${pots[Math.floor(pots.length / 2)].toFixed(3)}`,
+    pots[0] > 0.76 && pots[Math.floor(pots.length / 2)] > 0.45 && pots[Math.floor(pots.length / 2)] < 0.70);
+  check(`現役 ${live.length} 頭`, live.length > 1000 && live.length < 4000);
+}
+check('プレイヤーに所有馬がいる', w.player.horses.length >= 3);
+check('プレイヤーに繁殖牝馬がいる', w.player.broodmares.length >= 2);
+check('番組表が週ごとに安定', weekRaces(w, 20)[0].raceId === weekRaces(w, 20)[0].raceId);
+
+// ---------------------------------------------------------------- ゲーム操作
+section('ゲーム操作');
+{
+  const hs = myHorses(game);
+  const v = horseView(game, hs[0].id);
+  check('馬の詳細が取れる', !!v && !!v.ranks.speed && v.age >= 2);
+  const races = racesFor(game, hs[0].id);
+  check(`出走できるレースがある（${races.length} 件）`, races.length > 0);
+  if (races.length) {
+    hs[0].stable = 'stable'; hs[0].fit = 0.8; hs[0].fatigue = 0.1;
+    const r = enterRace(game, hs[0].id, races[0].raceId);
+    check('出走登録ができる', r.ok, r.why);
+  }
+  const mares = w.player.broodmares;
+  const st = stallions(game, { maxFee: 100000 });
+  check(`種牡馬一覧が取れる（${st.length} 頭）`, st.length > 10);
+  const ev = evaluateMating(game, mares[0], st[0].id);
+  check('配合評価が出る', !!ev && ev.stars >= 1 && ev.stars <= 5,
+    `★${ev?.stars} ${ev?.comment}`);
+}
+
+// ---------------------------------------------------------------- 2 年回す
+section('2 年の経過');
+{
+  let races = 0, starts = 0, g1 = 0;
+  const giTimes = [];
+  for (let y = 0; y < 2; y++) {
+    for (let i = 0; i < WEEKS_PER_YEAR; i++) {
+      const { results } = advanceWeek(w);
+      races += results.length;
+      starts += sum(results, (r) => r.results.length);
+      for (const r of results) {
+        if (r.grade !== 'GI') continue;
+        g1++;
+        giTimes.push({ name: r.name, d: r.distance, t: r.winnerTime, field: r.results.length, ground: r.ground });
+      }
+    }
+  }
+  check(`年間レース数 ${Math.round(races / 2)}`, races / 2 > 500);
+  check(`年間出走数 ${Math.round(starts / 2)}`, starts / 2 > 6000);
+  check(`GI ${g1 / 2} 回／年`, g1 / 2 >= 22, '24 戦すべて成立すべき');
+  const smallField = giTimes.filter((x) => x.field < 8);
+  check(`GI の頭数不足 ${smallField.length} 件`, smallField.length <= 4,
+    smallField.map((x) => `${x.name}:${x.field}`).join(' '));
+  // GI の時計が現実の範囲に収まっているか（良馬場のみ）。
+  const band = { 1200: [64, 76], 1600: [88, 106], 1800: [104, 118], 2000: [112, 130], 2200: [124, 145], 2400: [136, 160], 2500: [142, 166], 3000: [175, 205], 3200: [188, 225] };
+  const bad = giTimes.filter((x) => x.ground === '良' && band[x.d] && (x.t < band[x.d][0] || x.t > band[x.d][1]));
+  check(`GI の勝ち時計が範囲内（外れ ${bad.length}/${giTimes.length}）`, bad.length <= 3,
+    bad.map((x) => `${x.name} ${x.d}m ${formatTime(x.t)}`).join(' / '));
+  const live = [...w.horses.values()].filter((h) => !h.dead && !h.retired && w.year - h.birthYear >= 2);
+  check(`2 年後の現役 ${live.length} 頭`, live.length > 1000 && live.length < 4500);
+  const pots = live.map((h) => sum(ABILITIES, (a) => h.pot[a]) / 5).sort((a, b) => b - a);
+  check(`2 年後の潜在 中央 ${pots[Math.floor(pots.length / 2)].toFixed(3)}（インフレしていない）`,
+    pots[Math.floor(pots.length / 2)] > 0.42 && pots[Math.floor(pots.length / 2)] < 0.72);
+  check(`年度代表馬が選ばれている（${w.awards.map((a) => a.name).join(', ')}）`, w.awards.length >= 2);
+  check(`重賞の記録が残っている（${w.history.length} 件）`, w.history.length > 100);
+}
+
+// ---------------------------------------------------------------- セーブ
+section('セーブとロード');
+{
+  const json = toJSON(game);
+  const back = fromJSON(json);
+  check(`セーブサイズ ${(json.length / 1024 / 1024).toFixed(2)} MB`, json.length < 40 * 1024 * 1024);
+  check('頭数が保たれる', back.world.horses.size === w.horses.size);
+  check('年週が保たれる', back.world.year === w.year && back.world.week === w.week);
+  check('プレイヤーの資金が保たれる', back.world.player.money === w.player.money);
+  check('血統がつながっている', (() => {
+    const h = [...back.world.horses.values()].find((x) => x.sireId != null);
+    return back.world.horses.has(h.sireId);
+  })());
+  // 乱数の状態も復元されるので、以後の 1 週は同じ結果になる。
+  const a = advanceWeek(w).results.map((r) => r.results[0]?.horseId).join(',');
+  const b = advanceWeek(back.world).results.map((r) => r.results[0]?.horseId).join(',');
+  check('ロード後の 1 週が同じ結果になる', a === b);
+}
+
+console.log(`\n合計 ${pass} ok / ${fail} NG`);
+process.exit(fail === 0 ? 0 : 1);

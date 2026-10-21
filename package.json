@@ -1,0 +1,16 @@
+{
+  "name": "keiba-sim",
+  "version": "0.1.0",
+  "description": "three.js による本格競馬シミュレーション（牧場経営・配合・3D レース）",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "node tools/serve.mjs --port 8080",
+    "dev": "node tools/serve.mjs --port 8080",
+    "test": "node tools/verify.mjs",
+    "timecheck": "node tools/timecheck.mjs",
+    "season": "node tools/season.mjs --years 5",
+    "icons": "node tools/make-icons.mjs"
+  },
+  "engines": { "node": ">=18" }
+}

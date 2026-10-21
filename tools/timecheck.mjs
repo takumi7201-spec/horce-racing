@@ -46,16 +46,17 @@ function makeField(n, distance, surface, year) {
 
 const CASES = [
   // 実際の JRA の決着時計（GI クラス）を目安に置いた期待レンジ。
-  ['nakayama', SURFACE.TURF, 1200, 67.0, 70.0],
-  ['tokyo', SURFACE.TURF, 1600, 91.0, 94.5],
-  ['tokyo', SURFACE.TURF, 2000, 116.0, 121.0],
-  ['tokyo', SURFACE.TURF, 2400, 141.0, 148.0],
-  ['kyoto', SURFACE.TURF, 3200, 190.0, 202.0],
-  ['nakayama', SURFACE.TURF, 2500, 148.0, 157.0],
-  ['hanshin', SURFACE.TURF, 1600, 91.0, 95.5],
-  ['niigata', SURFACE.TURF, 1000, 54.0, 57.2],
-  ['tokyo', SURFACE.DIRT, 1600, 94.0, 100.0],
-  ['chukyo', SURFACE.DIRT, 1800, 106.0, 113.0],
+  // 適性・仕上がりが揃った 16 頭なので、期待値はコースレコード前後に置く。
+  ['nakayama', SURFACE.TURF, 1200, 65.5, 69.0],
+  ['tokyo', SURFACE.TURF, 1600, 89.0, 93.0],
+  ['tokyo', SURFACE.TURF, 2000, 114.0, 119.5],
+  ['tokyo', SURFACE.TURF, 2400, 138.0, 146.0],
+  ['kyoto', SURFACE.TURF, 3200, 186.0, 199.0],
+  ['nakayama', SURFACE.TURF, 2500, 145.0, 155.0],
+  ['hanshin', SURFACE.TURF, 1600, 89.0, 94.0],
+  ['niigata', SURFACE.TURF, 1000, 52.5, 56.5],
+  ['tokyo', SURFACE.DIRT, 1600, 92.0, 99.0],
+  ['chukyo', SURFACE.DIRT, 1800, 104.0, 112.0],
 ];
 
 let bad = 0;

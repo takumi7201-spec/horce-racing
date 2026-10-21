@@ -201,16 +201,24 @@ export function racesOfWeek(year, week, rng) {
 }
 
 /** 条件戦の雛形。クラスと本数。季節で 2 歳戦の有無が変わる。 */
+/**
+ * 条件戦の雛形。1 開催あたり 8 レース前後。
+ *
+ * 本数の配分は「出走できる馬のクラス分布」に合わせてある。
+ * ここがずれると、オープン馬が 500 頭いるのにオープン特別が週 1 本しかない、
+ * という状態になり、半分のレースが頭数不足で不成立になる。
+ */
 function conditionPlan(month) {
   const plan = [];
   // 2 歳の新馬は 6 月から、未勝利は 7 月から。
-  if (month >= 6) plan.push({ classId: 'maiden', n: month <= 9 ? 2 : 1, age: [2, 2] });
-  if (month >= 7) plan.push({ classId: 'nowin', n: 2, age: [2, 2] });
+  if (month >= 6) plan.push({ classId: 'maiden', n: 1, age: [2, 2] });
+  if (month >= 7) plan.push({ classId: 'nowin', n: 1, age: [2, 2] });
   // 3 歳の未勝利は 1〜9 月（9 月で終わるのが JRA の体系）。
   if (month <= 9) plan.push({ classId: 'nowin', n: 2, age: [3, 3] });
-  plan.push({ classId: 'c1', n: 2, age: month <= 6 ? [3, 3] : [3, 99] });
+  else plan.push({ classId: 'nowin', n: 1, age: [2, 2] });
+  plan.push({ classId: 'c1', n: 1, age: month <= 6 ? [3, 3] : [3, 99] });
   plan.push({ classId: 'c1', n: 1, age: [3, 99] });
-  plan.push({ classId: 'c2', n: 2, age: [3, 99] });
+  plan.push({ classId: 'c2', n: 1, age: [3, 99] });
   plan.push({ classId: 'c3', n: 1, age: [3, 99] });
   plan.push({ classId: 'op', n: 1, age: [3, 99] });
   return plan;
@@ -239,7 +247,7 @@ function conditionRaces(year, week, courseId, rng) {
       const distance = rng.weighted(pool, pool.map((d) => (d <= 1400 ? 3 : d <= 2000 ? 4 : 1)));
       const cls = CLASS_BY_ID.get(p.classId);
       const isOp = p.classId === 'op';
-      const sex = rng.chance(0.12) ? '牝' : null;
+      const sex = rng.chance(0.06) ? '牝' : null;
       const name = isOp
         ? `${rng.pick(COND_TITLES)}${rng.pick(OP_NAMES)}`
         : `${courseName(courseId)}${cls.name}`;
@@ -274,8 +282,9 @@ export function eligible(race, horse, year) {
   if (race.classId === 'nowin') return horse.wins === 0;
   // 条件戦は自分のクラスか、その一つ下まで（格上挑戦）。
   if (co <= 4) return ho === co || ho === co - 1;
-  // オープン以上は格上の馬も出られる。
-  return ho >= 4 || horse.earnings >= 1500;
+  // オープン以上。収得賞金だけで切ると 3 歳クラシックが空になる
+  // （3 歳春はまだ賞金が積み上がっていない）。1 勝していれば門を開ける。
+  return ho >= 2 || horse.wins >= 1 || horse.earnings >= 500;
 }
 
 /** 重賞だけを年間で並べる（番組表画面用）。 */
