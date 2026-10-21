@@ -228,18 +228,30 @@ function breedCohort(world, rng, year, n) {
  */
 function paperCareer(world, horse, rng, uptoYear) {
   const abil = sum(ABILITIES, (a) => horse.pot[a]) / ABILITIES.length;
-  const lastAge = Math.min(7, uptoYear - horse.birthYear);
+  // 今年ぶんは走らせない。ゲームは 1 月 1 週から始まるので、
+  // 当年の戦績を先に入れると「まだ行われていないレース」が戦績に並ぶ。
+  const lastAge = Math.min(7, uptoYear - horse.birthYear - 1);
   const curve = GROWTH_CURVE[horse.growth];
   for (let age = 2; age <= lastAge; age++) {
     if (horse.dead) break;
     const lvl = abil * (curve[age] ?? 0.8);
-    const starts = rng.irange(2, 8);
+    // 2 歳は 6 月以降しか番組が無いので使える回数が少ない。
+    const starts = age === 2 ? rng.irange(0, 4) : rng.irange(2, 8);
     for (let i = 0; i < starts; i++) {
       const cls = CLASS_BY_ID.get(horse.classId ?? classForWins(horse.wins));
       const need = 0.30 + classOrder(cls.id) * 0.048;
       const p = clamp01((lvl - need) * 3.4 + 0.07);
       horse.starts++;
-      if (rng.chance(p)) {
+      const won = rng.chance(p);
+      const field = rng.irange(9, 18);
+      // 時計などは残さない。ゲーム開始前のレースは「走った事実」だけを持つ。
+      // ここを race と同じ形で持つと、4000 頭ぶんでセーブが 18MB を超える。
+      horse.record.push({
+        year: horse.birthYear + age, name: cls.name,
+        order: won ? 1 : rng.irange(2, field), field, past: 1,
+      });
+      if (horse.record.length > 8) horse.record.shift();
+      if (won) {
         horse.wins++;
         horse.earnings += Math.round(cls.prize * rng.range(0.85, 1.15));
         horse.classId = classForWins(horse.wins);
@@ -247,7 +259,10 @@ function paperCareer(world, horse, rng, uptoYear) {
         if (classOrder(horse.classId) >= 5 && rng.chance(clamp01((lvl - 0.55) * 2.2))) {
           const g = rng.weighted(['g3', 'g2', 'g1'], [6, 3, 1.2]);
           horse.earnings += CLASS_BY_ID.get(g).prize;
-          horse.record.push({ year: horse.birthYear + age, name: `${g.toUpperCase()}`, grade: g.toUpperCase(), order: 1 });
+          horse.record.push({
+            year: horse.birthYear + age, name: `${g.toUpperCase()} 競走`,
+            grade: g.toUpperCase(), order: 1, field: rng.irange(12, 18), past: 1,
+          });
           if (g === 'g1') horse.g1Wins = (horse.g1Wins ?? 0) + 1;
         }
       } else if (rng.chance(0.34)) {
@@ -329,6 +344,28 @@ function pruneAncestry(world) {
     if (!keep.has(id)) { world.horses.delete(id); removed++; }
   }
   return removed;
+}
+
+/**
+ * 古い戦績の細部を落とす。
+ * 自分の馬は全部残す（回顧を読むのがこのゲームの楽しみの一つなので）。
+ * それ以外は「いつ・何に・何着」だけ残して、時計や回顧文は捨てる。
+ */
+function pruneRecords(world) {
+  const keepYear = world.year;
+  for (const h of world.horses.values()) {
+    if (h.ownerId === 'player') continue;
+    if (!h.record || h.record.length === 0) continue;
+    if (h.record.length > 6) h.record = h.record.slice(-6);
+    for (const r of h.record) {
+      if (r.past || r.year >= keepYear) continue;
+      delete r.comment; delete r.passing; delete r.time; delete r.last3f;
+      delete r.jockeyName; delete r.weight; delete r.margin; delete r.odds;
+      delete r.popularity; delete r.ground; delete r.raceId; delete r.courseId;
+      delete r.surface; delete r.distance; delete r.classId; delete r.jockeyId;
+      r.past = 1;
+    }
+  }
 }
 
 /** 系統どうしの相性表。隠し値で、産駒が出るほど判明していく。 */
@@ -560,36 +597,43 @@ function assignNpcEntries(world, races, rng) {
   // 重賞は必ず成立させる。頭数が足りなければ、条件を満たす馬を強い順に足す。
   // 実際の競馬でも GI が頭数不足で中止になることは無い。
   for (const r of races) {
-    if (!r.graded) continue;
-    const f = fields.get(r.raceId);
-    if (f.length >= 8) continue;
-    const taken = new Set();
-    for (const list of fields.values()) for (const x of list) taken.add(x.id);
-    // 強い順ではなく「このレースに向く順」。距離適性を無視すると、
-    // 菊花賞に 1600m 馬が並んで 3000m を 4 分台で走ることになる。
-    // 適性の下限は段階的に下げる。長距離 GI は適性馬が少ないので、
-    // 厳しいままだと頭数が揃わず不成立になってしまう。
-    for (const minApt of [0.62, 0.45, 0.30]) {
-      if (f.length >= 12) break;
-      const extra = [...world.horses.values()]
-        .filter((h) => !taken.has(h.id) && h.ownerId !== 'player'
-          && !h.retired && !h.dead && !h.injury
-          && horseAge(h, world.year) >= 2 && eligible(r, h, world.year)
-          && distanceAptitude(h, r.distance) > minApt
-          && (r.surface === SURFACE.DIRT ? h.dirt : h.turf) > 0.45)
-        .sort(byDesc((h) => sum(ABILITIES, (a) => h.cur[a])
-          * distanceAptitude(h, r.distance)
-          * (r.surface === SURFACE.DIRT ? h.dirt : h.turf)));
-      for (const h of extra) {
-        if (f.length >= Math.min(r.maxField, 16)) break;
-        // 放牧中の馬も急仕上げで使う。仕上がり不足のまま走るので凡走しやすい。
-        if (h.stable !== 'stable') { h.stable = 'stable'; h.fit = Math.max(h.fit, 0.72); }
-        f.push(h);
-        taken.add(h.id);
-      }
-    }
+    if (r.graded) fillField(world, r, races, fields, 12);
   }
   return fields;
+}
+
+/**
+ * 頭数の足りないレースに、条件を満たす馬を足して成立させる。
+ * 適性の下限は段階的に下げる。長距離 GI は適性馬が少ないので、
+ * 厳しいままだと頭数が揃わず不成立になってしまう。
+ */
+export function fillField(world, race, races, fields, want) {
+  const f = fields.get(race.raceId);
+  if (!f || f.length >= want) return f;
+  const taken = new Set();
+  for (const list of fields.values()) for (const x of list) taken.add(x.id);
+  for (const minApt of [0.62, 0.45, 0.30]) {
+    if (f.length >= want) break;
+    // 強い順ではなく「このレースに向く順」。距離適性を無視すると、
+    // 菊花賞に 1600m 馬が並んで 3000m を 4 分台で走ることになる。
+    const extra = [...world.horses.values()]
+      .filter((h) => !taken.has(h.id) && h.ownerId !== 'player'
+        && !h.retired && !h.dead && !h.injury
+        && horseAge(h, world.year) >= 2 && eligible(race, h, world.year)
+        && distanceAptitude(h, race.distance) > minApt
+        && (race.surface === SURFACE.DIRT ? h.dirt : h.turf) > 0.45)
+      .sort(byDesc((h) => sum(ABILITIES, (a) => h.cur[a])
+        * distanceAptitude(h, race.distance)
+        * (race.surface === SURFACE.DIRT ? h.dirt : h.turf)));
+    for (const h of extra) {
+      if (f.length >= Math.min(race.maxField, 16)) break;
+      // 放牧中の馬も急仕上げで使う。仕上がり不足のまま走るので凡走しやすい。
+      if (h.stable !== 'stable') { h.stable = 'stable'; h.fit = Math.max(h.fit, 0.72); }
+      f.push(h);
+      taken.add(h.id);
+    }
+  }
+  return f;
 }
 
 /** 騎手を割り当てる。良い馬に良い騎手が乗る。 */
@@ -642,6 +686,9 @@ export function advanceWeek(world, opts = {}) {
     if (f.length >= race.maxField) f.pop(); // 抽選で弱い馬を外す
     f.push(h);
     ent.accepted = true;
+    // 自分が登録したレースは必ず成立させる。番組に載っている以上、
+    // 相手が集まらなかったので中止、ではプレイヤーは何もできない。
+    fillField(world, race, races, fields, 10);
   }
 
   // --- レースを走らせる ---
@@ -746,7 +793,7 @@ function applyResult(world, race, res, rng, news) {
       jockeyId: r.jockeyId, jockeyName: r.jockeyName, weight: r.weight,
       margin: r.margin, passing: r.passing, comment: r.comment, prize: r.prize,
     });
-    if (h.record.length > 60) h.record.shift();
+    if (h.record.length > 30) h.record.shift();
     h.classId = classForWins(h.wins);
     applyRaceEffect(h, rng, { year: world.year, distance: race.distance, order: r.order, field, hard });
     rollInjury(h, rng, { extra: hard ? 0.012 : 0.004 });
@@ -873,6 +920,10 @@ function yearEnd(world, rng) {
   const news = [];
   computeLeaders(world);
   pickAwards(world, news);
+  // 誰の祖先でもなくなった馬と、古い戦績の細部を捨てる。
+  // 放っておくと 10 年でセーブが数十 MB になり、ブラウザに収まらなくなる。
+  pruneAncestry(world);
+  pruneRecords(world);
 
   // 引退の判定。
   for (const h of [...world.horses.values()]) {

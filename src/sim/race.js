@@ -91,7 +91,9 @@ function prepareRunner(entry, spec, rng) {
     vMax, hp, hp0: hp,
     wantStyle, spurtRem, gateDelay,
     // 掛かりやすさ。気性が悪いと道中で引っ張り合いになり余力を使う。
-    pull: clamp01((1 - horse.temper) * 1.1 - jk.skill * 0.35),
+    // 平均的な気性（0.5）では掛からない。ここを緩くすると全馬の回顧が
+    // 「終始掛かり気味」になり、言葉として意味を失う。
+    pull: clamp01((0.52 - horse.temper) * 2.4 - jk.skill * 0.4),
     guts: eff.guts, spirit: horse.spirit,
     accMax: PHYS.ACC_MAX_BASE + PHYS.ACC_MAX_GAIN * eff.power,
     // 状態
@@ -495,9 +497,9 @@ function raceComment(r, idx, field) {
   const c = [];
   const left = r.hp0 > 0 ? r.hpLeft / r.hp0 : 0;
   if (r.gateDelay > 0.55) c.push('出遅れ');
-  if (r.pulledT > 6) c.push('終始掛かり気味');
-  if (r.blockT > 4) c.push('前が壁');
-  if (r.wideT > 12) c.push('終始外々');
+  if (r.pulledT > 10) c.push('掛かり気味');
+  if (r.blockT > 14) c.push('前が壁');
+  if (r.wideT > 20) c.push('終始外々');
   if (r.busted) c.push(idx < field * 0.3 ? '最後は一杯' : 'ばてて後退');
   else if (idx === 0) c.push(left > 0.25 ? '余力十分' : '辛勝');
   else if (idx < 4) c.push('よく伸びた');

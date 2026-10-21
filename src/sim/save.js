@@ -85,43 +85,132 @@ export function deserialize(data) {
   return { world, version: data.v };
 }
 
+/**
+ * 書き出しを小さくするための置換器。空配列・null・NaN は書かない。
+ *
+ * 能力値の小数を丸めることも試したが、やめた。
+ * 4 桁に丸めると 15% 縮む代わりに、ロードした世界が元の世界とわずかにずれ、
+ * 同じ週を進めたときに 2 割ほどのレースで勝ち馬が変わってしまう。
+ * セーブは「同じ世界の続き」であるべきなので、精度を優先している。
+ */
+function shrink(key, value) {
+  if (value === null || value === undefined) return undefined;
+  if (typeof value === 'number' && !Number.isFinite(value)) return undefined;
+  if (Array.isArray(value) && value.length === 0) return undefined;
+  return value;
+}
+
 export function toJSON(g) {
-  return JSON.stringify(serialize(g));
+  return JSON.stringify(serialize(g), shrink);
 }
 
 export function fromJSON(text) {
-  return deserialize(JSON.parse(text));
+  const data = JSON.parse(text);
+  // 書き出しで省いた配列を戻す。無いと horse.foals.push で落ちる。
+  for (const h of data.horses ?? []) {
+    h.record ??= [];
+    h.foals ??= [];
+    h.notes ??= [];
+  }
+  data.nameSet ??= [];
+  data.personNames ??= [];
+  data.history ??= [];
+  data.awards ??= [];
+  data.pendingMatings ??= [];
+  data.player.horses ??= [];
+  data.player.broodmares ??= [];
+  data.player.stallions ??= [];
+  data.player.titles ??= [];
+  data.player.entries ??= [];
+  return deserialize(data);
 }
 
 const KEY = 'keiba-sim-save';
+const DB = 'keiba-sim';
+const STORE = 'saves';
 
-/** ブラウザのローカルストレージへ。スロットは 3 つ。 */
-export function saveLocal(g, slot = 1) {
+/**
+ * 保存先は IndexedDB。
+ * localStorage は 5MB 前後で上限に当たるが、この世界のセーブは
+ * 数年回すと 10MB を超える（4000 頭ぶんの血統と戦績があるため）。
+ * メタ情報だけは localStorage に置いて、一覧を同期的に出せるようにしている。
+ */
+function openDb() {
+  return new Promise((resolve, reject) => {
+    if (!('indexedDB' in globalThis)) return reject(new Error('IndexedDB が使えない'));
+    const req = indexedDB.open(DB, 1);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE);
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error ?? new Error('IndexedDB を開けない'));
+  });
+}
+
+function idbPut(key, value) {
+  return openDb().then((db) => new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, 'readwrite');
+    tx.objectStore(STORE).put(value, key);
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onerror = () => { db.close(); reject(tx.error); };
+  }));
+}
+
+function idbGet(key) {
+  return openDb().then((db) => new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, 'readonly');
+    const r = tx.objectStore(STORE).get(key);
+    r.onsuccess = () => { resolve(r.result ?? null); };
+    r.onerror = () => reject(r.error);
+    tx.oncomplete = () => db.close();
+  }));
+}
+
+function idbDel(key) {
+  return openDb().then((db) => new Promise((resolve) => {
+    const tx = db.transaction(STORE, 'readwrite');
+    tx.objectStore(STORE).delete(key);
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onerror = () => { db.close(); resolve(); };
+  }));
+}
+
+/** スロットへ保存する。戻り値はバイト数。 */
+export async function saveLocal(g, slot = 1) {
   const text = toJSON(g);
-  localStorage.setItem(`${KEY}-${slot}`, text);
-  localStorage.setItem(`${KEY}-${slot}-meta`, JSON.stringify({
+  await idbPut(`${KEY}-${slot}`, text);
+  const meta = {
     year: g.world.year, week: g.world.week,
     farm: g.world.player.farmName,
     money: g.world.player.money,
     g1: g.world.player.g1,
     at: Date.now(),
     bytes: text.length,
-  }));
+  };
+  try {
+    localStorage.setItem(`${KEY}-${slot}-meta`, JSON.stringify(meta));
+  } catch { /* メタが入らなくても本体は保存できている */ }
   return text.length;
 }
 
-export function loadLocal(slot = 1) {
-  const text = localStorage.getItem(`${KEY}-${slot}`);
+export async function loadLocal(slot = 1) {
+  const text = await idbGet(`${KEY}-${slot}`);
   if (!text) return null;
   return fromJSON(text);
 }
 
+/** スロットの概要。一覧表示のため同期で返す。 */
 export function slotInfo(slot = 1) {
-  const m = localStorage.getItem(`${KEY}-${slot}-meta`);
-  return m ? JSON.parse(m) : null;
+  try {
+    const m = localStorage.getItem(`${KEY}-${slot}-meta`);
+    return m ? JSON.parse(m) : null;
+  } catch {
+    return null;
+  }
 }
 
-export function clearSlot(slot = 1) {
-  localStorage.removeItem(`${KEY}-${slot}`);
-  localStorage.removeItem(`${KEY}-${slot}-meta`);
+export async function clearSlot(slot = 1) {
+  await idbDel(`${KEY}-${slot}`);
+  try { localStorage.removeItem(`${KEY}-${slot}-meta`); } catch { /* 無ければそれでよい */ }
 }
