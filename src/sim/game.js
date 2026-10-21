@@ -528,11 +528,53 @@ export function horseCareer(g, id) {
 }
 
 /**
- * 左右に送って見られる馬の並び。所有馬一覧と同じ順（現役 → 繁殖牝馬 → 種牡馬）。
- * 自分の馬でなければ並びを作らない（他人の馬を順に覗く画面ではないため）。
+ * 自分の幼駒（当歳・1 歳）。
+ * 自家生産の仔は 2 歳の年明けに厩舎へ入るまで player.horses に載らない
+ * （world.js の newYear）ので、所有者で全頭から拾う。セリで買った 1 歳馬もここに入る。
  */
-export function myLineup(g) {
-  return [...myHorses(g), ...myBroodmares(g), ...myStallions(g)].map((h) => h.id);
+export function myYoungsters(g) {
+  const w = g.world;
+  const out = [];
+  for (const h of w.horses.values()) {
+    if (h.ownerId === 'player' && !h.dead && !h.retired && horseAge(h, w.year) < 2) out.push(h);
+  }
+  return out.sort((a, b) => b.birthYear - a.birthYear || a.id - b.id);
+}
+
+/** 所有馬を 4 つに分ける。現役（2 歳以上）・繁殖牝馬・種牡馬・幼駒。 */
+export function myStable(g) {
+  const young = myYoungsters(g);
+  const ys = new Set(young.map((h) => h.id));
+  return {
+    active: myHorses(g).filter((h) => !ys.has(h.id)),
+    mares: myBroodmares(g),
+    stallions: myStallions(g),
+    young,
+  };
+}
+
+export const STABLE_CATEGORIES = [
+  { id: 'active', name: '現役馬' },
+  { id: 'mares', name: '繁殖牝馬' },
+  { id: 'stallions', name: '種牡馬' },
+  { id: 'young', name: '幼駒' },
+];
+
+/** その馬が所有馬のどの区分に入るか。自分の馬でなければ null。 */
+export function stableCategoryOf(g, id) {
+  const st = myStable(g);
+  for (const c of STABLE_CATEGORIES) if (st[c.id].some((h) => h.id === id)) return c.id;
+  return null;
+}
+
+/**
+ * 左右に送って見られる馬の並び。区分を指定すればその区分の中だけ、
+ * 無ければ所有馬一覧と同じ順（現役 → 繁殖牝馬 → 種牡馬 → 幼駒）。
+ */
+export function myLineup(g, category = null) {
+  const st = myStable(g);
+  const cats = category ? [category] : STABLE_CATEGORIES.map((c) => c.id);
+  return cats.flatMap((c) => (st[c] ?? []).map((h) => h.id));
 }
 
 /** 今週の開催場の名前。 */
@@ -553,7 +595,7 @@ export function ranchHorses(g, limit = 7) {
     out.push({ id: h.id, name: h.name, coat: h.coat, sex: h.sex, age: horseAge(h, w.year), kind });
   };
   const mine = w.player.horses.map((id) => w.horses.get(id)).filter((h) => h && !h.dead && !h.retired);
-  for (const h of mine) if (horseAge(h, w.year) < 2) push(h, '若駒');
+  for (const h of myYoungsters(g)) push(h, '幼駒');
   for (const h of mine) if (h.stable !== 'stable') push(h, '放牧');
   for (const id of w.player.broodmares) push(w.horses.get(id), '繁殖');
   if (out.length < 3) for (const h of mine) push(h, '在厩');

@@ -605,6 +605,76 @@ canvas.race3d { width: 100%; height: 100%; display: block; }
 .cambar, .speedbar { display: flex; gap: 3px; }
 .ctrl-right { display: flex; gap: 6px; margin-left: auto; }
 
+/* ---------------- 所有馬（区分とミニアイコン） ---------------- */
+.stbl { max-width: 1400px; }
+.stbl-cats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px; }
+.stbl-cat {
+  display: flex; align-items: center; gap: 10px; cursor: pointer; font: inherit; text-align: left;
+  background: linear-gradient(#ffffff, #eef4e4); border: 3px solid #fff; border-radius: 14px;
+  padding: 8px 12px; box-shadow: var(--shadow); color: var(--green-dd);
+}
+.stbl-cat:hover { transform: translateY(-1px); }
+.sc-ico {
+  width: 42px; height: 42px; border-radius: 12px; display: grid; place-items: center; flex: 0 0 auto;
+  color: #fff; background: linear-gradient(var(--green), var(--green-d)); box-shadow: 0 1px 3px #0004;
+}
+.sc-name { font-size: 15px; font-weight: 900; flex: 1 1 auto; }
+.sc-n {
+  min-width: 34px; text-align: center; font-size: 18px; font-weight: 900; color: var(--fg);
+  background: #fff; border: 2px solid var(--line2); border-radius: 16px; padding: 0 8px;
+}
+.stbl-cat.on { background: linear-gradient(#fff6c8, var(--gold)); color: #5a3b00; }
+.stbl-cat.on .sc-ico { background: linear-gradient(#ffb15c, #ef7a1a); }
+.stbl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; }
+.stbl-empty { background: var(--cream); border: 3px solid #fff; border-radius: 14px; box-shadow: var(--shadow); }
+.stile {
+  display: grid; grid-template-columns: 70px 1fr auto; align-items: center; gap: 10px; cursor: pointer;
+  background: var(--cream); border: 3px solid #fff; border-radius: 14px; padding: 8px 10px 8px 8px;
+  box-shadow: var(--shadow); transition: transform .12s, box-shadow .12s; outline: none;
+}
+.stile:hover, .stile:focus-visible { transform: translateY(-2px); box-shadow: 0 0 0 3px var(--gold), var(--shadow); }
+.stile.hurt { background: #fbeee9; }
+.st-pic {
+  width: 70px; height: 56px; border-radius: 10px; display: grid; place-items: center;
+  background: radial-gradient(ellipse at 50% 85%, #b9dc8f, #e6f2d4 70%); border: 2px solid #fff;
+}
+.st-body { min-width: 0; display: grid; gap: 1px; }
+.st-name { font-size: 15px; font-weight: 900; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.st-sub { font-size: 12px; color: var(--fg2); font-weight: 700; }
+.st-tags { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 2px; }
+.st-tags i {
+  font-style: normal; font-size: 11px; font-weight: 800; padding: 0 7px; border-radius: 6px;
+  background: #e9e4cf; color: var(--fg2); white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis;
+}
+.st-tags i.on { background: #d9f0cf; color: var(--green-dd); }
+.st-tags i.go { background: linear-gradient(#ffb15c, #ef7a1a); color: #fff; }
+.st-tags i.bad { background: #f6d5cf; color: var(--bad); }
+
+/* 詳細の上の帯：区分の切り替えと、同じ区分の馬のミニアイコン */
+.hd.has-rail { grid-template-rows: auto auto minmax(230px, 1fr) auto minmax(170px, 36%) auto; }
+.hd-rail {
+  display: flex; align-items: center; gap: 10px; padding: 4px 10px;
+  background: #fbf8ecec; border-bottom: 1px solid var(--line2);
+}
+.rail-cats { display: flex; gap: 3px; flex: 0 0 auto; }
+.rail-cats button {
+  display: flex; align-items: center; gap: 4px; cursor: pointer; font: inherit; font-size: 12px; font-weight: 800;
+  color: var(--green-dd); background: #fff; border: 2px solid var(--line2); border-radius: 14px; padding: 2px 9px 2px 7px;
+}
+.rail-cats button b { font-size: 11px; color: var(--fg3); }
+.rail-cats button.on { background: linear-gradient(var(--gold), var(--gold-d)); color: #4a3000; border-color: #fff; }
+.rail-cats button.on b { color: #4a3000; }
+.rail-cats button:disabled { opacity: .4; cursor: default; }
+.rail-icons { display: flex; gap: 6px; overflow-x: auto; flex: 1 1 auto; padding: 2px; scrollbar-width: thin; }
+.rail-h {
+  display: flex; align-items: center; gap: 5px; flex: 0 0 auto; cursor: pointer; font: inherit;
+  background: #fff; border: 2px solid var(--line); border-radius: 10px; padding: 2px 9px 2px 4px;
+  font-size: 12px; font-weight: 800; color: var(--fg);
+}
+.rail-h .hsprite { height: 26px; }
+.rail-h:hover { border-color: var(--green); }
+.rail-h.on { border-color: var(--gold-d); background: #fff3c4; box-shadow: 0 0 0 2px var(--gold); }
+
 /* ---------------- 馬の詳細（見せ場） ---------------- */
 /* 背景の放牧地がその馬 1 頭を大きく映している。左右の板と下の本文は半透明で重ねる。 */
 .main > .hd { position: absolute; inset: 0; }
@@ -776,6 +846,9 @@ canvas.race3d { width: 100%; height: 100%; display: block; }
 /* 背の低い画面（1280×720 など）では本文を詰めて、見せ場の板が切れないようにする。 */
 @media (max-height: 820px) and (min-width: 901px) {
   .hd { grid-template-rows: auto minmax(250px, 1fr) auto minmax(130px, 27%) auto; }
+  .hd.has-rail { grid-template-rows: auto auto minmax(220px, 1fr) auto minmax(120px, 24%) auto; }
+  .hd-rail { padding: 2px 10px; }
+  .rail-h .hsprite { height: 22px; }
   .hd-top { padding: 3px 14px; }
   .hd-top h1 { font-size: 22px; }
   .hd-info { gap: 3px; padding-top: 6px; }
@@ -869,6 +942,14 @@ canvas.race3d { width: 100%; height: 100%; display: block; }
   .hd-state { display: grid; grid-template-columns: auto 1fr; align-items: center; }
   .hs-traits { grid-column: 1 / -1; }
   .hd-swipe { top: 30vh; bottom: auto; }
+  .hd-rail { flex-direction: column; align-items: stretch; gap: 4px; }
+  .hd.has-rail .hd-stage { padding-top: 40vh; }
+  .rail-cats { overflow-x: auto; }
+  .stbl-cats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .stbl-cat { padding: 6px 8px; gap: 8px; }
+  .sc-ico { width: 34px; height: 34px; }
+  .sc-name { font-size: 13px; }
+  .stbl-grid { grid-template-columns: 1fr; }
   .hd-band { flex-wrap: wrap; }
   .hd-tabs { margin-left: 0; overflow-x: auto; max-width: 100%; }
   .hd-tabs button { min-width: 0; padding: 4px 9px; }

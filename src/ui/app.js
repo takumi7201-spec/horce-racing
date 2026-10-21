@@ -258,7 +258,7 @@ function syncBackdrop(app, screen) {
     if (portraitId != null) {
       // 左に戦績の板が乗るので、馬は中央よりやや右へ。縦長の画面では上へ。
       if (wide) p.setShift(-Math.round(window.innerWidth * 0.08), Math.round(window.innerHeight * 0.15));
-      else p.setShift(-Math.round(window.innerWidth * 0.14), Math.round(window.innerHeight * 0.2));
+      else p.setShift(-Math.round(window.innerWidth * 0.14), Math.round(window.innerHeight * 0.08));
     } else if (screen !== 'home') p.setShift(0, 0);
     else if (wide) p.setShift(135, 0);
     else p.setShift(0, Math.round(window.innerHeight * 0.16));

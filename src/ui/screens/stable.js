@@ -8,72 +8,114 @@ import { ABILITY_LABEL, ABILITIES, STYLES } from '../../sim/params.js';
 import { horseImg } from '../horse-sprite.js';
 import { icon } from '../icons.js';
 
+/** 区分ごとのアイコン。 */
+const CAT_ICON = { active: 'horse', mares: 'mare', stallions: 'star', young: 'sprout' };
+
+/**
+ * 所有馬。現役・繁殖牝馬・種牡馬・幼駒の 4 区分を切り替え、ミニアイコンの並びから
+ * 1 頭を選んで詳細へ入る。区分は詳細へ持ち込み、左右のスワイプもその区分の中で送る。
+ */
 export function stableScreen(app) {
   const g = app.game;
   if (app.params.id) return detail(app, app.params.id);
 
-  const horses = G.myHorses(g);
-  const mares = G.myBroodmares(g);
-  const stallions = G.myStallions(g);
+  const st = G.myStable(g);
+  const cats = G.STABLE_CATEGORIES;
+  // 開いた区分を覚えておく。空の区分を開いたままにしないよう、最初は馬の居る区分へ。
+  let cat = app.params.cat ?? app.stableCat;
+  if (!cats.some((c) => c.id === cat)) cat = cats.find((c) => st[c.id].length)?.id ?? 'active';
+  app.stableCat = cat;
+  const list = st[cat];
+  const empty = {
+    active: '現役の所有馬が居ない。セリ市（10 月）で買うか、配合で産ませる。',
+    mares: '繁殖牝馬が居ない。牝馬を引退させると繁殖に上がる。',
+    stallions: '種牡馬が居ない。重賞を勝った牡馬を引退させると種牡馬になれる。',
+    young: '幼駒が居ない。牧場で繁殖牝馬に種付けすると、翌年の春に生まれる。',
+  };
 
-  return el('div', [
-    card('現役（所有馬）', horses.length ? table(
-      ['', '馬名', '性齢', '毛色', 'クラス', '脚質', '適距離', '状態', '仕上がり', '調子', '疲労', '戦績', '獲得賞金'],
-      horses.map((h) => {
-        const v = G.horseView(g, h.id);
-        return {
-          cells: [
-            horseImg(h.coat, { size: 'xs', age: v.age, title: `${h.name}（${h.coat}）` }),
-            el('b', { text: h.name }),
-            `${h.sex}${v.age}`,
-            h.coat,
-            v.className,
-            v.style,
-            `${h.dist}m`,
-            v.injury ? el('span.bad', { text: `${v.injury.name} 残${v.injury.weeks}週` })
-              : v.stable === 'stable' ? '在厩' : '放牧',
-            fitLabel(v.fit),
-            condLabel(v.cond),
-            bar(v.fatigue, { color: v.fatigue > 0.6 ? '#c75' : '#687' }),
-            `${h.starts}戦${h.wins}勝`,
-            formatMoney(h.earnings),
-          ],
-          onclick: () => app.go('stable', { id: h.id }),
-        };
-      }),
-      { align: ['c', , 'c', 'c', 'c', 'c', 'c', 'c', 'c', 'c', 'c', 'c', 'r'] },
-    ) : el('p.empty', { text: '現役の所有馬が居ない。' })),
-
-    card('繁殖牝馬', mares.length ? table(
-      ['馬名', '年齢', '父', '母', '戦績', '産駒', ''],
-      mares.map((m) => {
-        const v = G.horseView(g, m.id);
-        return {
-          cells: [
-            el('b', { text: m.name }),
-            `${v.age}歳`,
-            v.sire, v.dam,
-            `${m.starts}戦${m.wins}勝`,
-            `${(m.foals ?? []).length}頭`,
-            button('配合', (e) => { e.stopPropagation(); app.go('farm', { damId: m.id }); }, { cls: 'sm' }),
-          ],
-          onclick: () => app.go('stable', { id: m.id }),
-        };
-      }), { align: [, 'c', , , 'c', 'c'] },
-    ) : el('p.empty', { text: '繁殖牝馬が居ない。' })),
-
-    stallions.length ? card('種牡馬', table(
-      ['馬名', '年齢', '種付料', '産駒', '戦績'],
-      stallions.map((s) => {
-        const v = G.horseView(g, s.id);
-        return {
-          cells: [el('b', { text: s.name }), `${v.age}歳`, formatMoney(s.studFee ?? 0),
-            `${(s.foals ?? []).length}頭`, `${s.starts}戦${s.wins}勝`],
-          onclick: () => app.go('stable', { id: s.id }),
-        };
-      }), { align: [, 'c', 'r', 'c', 'c'] },
-    )) : null,
+  return el('div.stbl', [
+    el('nav.stbl-cats', cats.map((c) => el('button.stbl-cat', {
+      class: c.id === cat ? 'on' : null,
+      onclick: () => { app.stableCat = c.id; app.go('stable', { cat: c.id }, { replace: true }); },
+    }, [
+      el('span.sc-ico', icon(CAT_ICON[c.id], { size: 26 })),
+      el('span.sc-name', { text: c.name }),
+      el('b.sc-n', { text: String(st[c.id].length) }),
+    ]))),
+    list.length
+      ? el('div.stbl-grid', list.map((h) => stableTile(app, h, cat)))
+      : el('p.empty.stbl-empty', { text: empty[cat] }),
   ]);
+}
+
+/** 1 頭ぶんのミニアイコン。区分ごとに、選ぶ前に知りたいことだけを添える。 */
+function stableTile(app, h, cat) {
+  const g = app.game;
+  const v = G.horseView(g, h.id);
+  const tags = [];
+  let sub = '';
+  if (cat === 'active') {
+    sub = `${h.sex}${v.age}　${v.className}`;
+    tags.push(v.injury ? ['bad', v.injury.name] : v.stable === 'stable' ? ['on', '在厩'] : ['', '放牧']);
+    if (v.stable === 'stable' && !v.injury) tags.push(['', fitLabel(v.fit)]);
+    if (G.myEntries(g).some((e) => e.horseId === h.id)) tags.push(['go', '出走予定']);
+  } else if (cat === 'mares') {
+    sub = `${v.age}歳　産駒${v.foals.length}頭`;
+    const booked = G.myMatings(g).find((m) => m.damId === h.id);
+    tags.push(booked ? ['on', `予約 ${booked.sire?.name ?? ''}`] : ['', '配合未定']);
+  } else if (cat === 'stallions') {
+    sub = `${v.age}歳　産駒${v.foals.length}頭`;
+    tags.push(['', `種付料 ${formatMoney(v.studFee ?? 0)}`]);
+  } else {
+    sub = `${h.sex}　${v.age === 0 ? '当歳' : '1歳'}`;
+    tags.push(['', `父 ${v.sire}`], ['', `母 ${v.dam}`]);
+  }
+  return el('div.stile', {
+    class: cat === 'active' && v.injury ? 'hurt' : null,
+    tabIndex: 0,
+    role: 'button',
+    title: `${h.name}の詳細`,
+    onclick: () => app.go('stable', { id: h.id, cat }),
+    onkeydown: (e) => { if (e.key === 'Enter') app.go('stable', { id: h.id, cat }); },
+  }, [
+    el('div.st-pic', horseImg(h.coat, { size: v.age < 2 ? 'xs' : 'sm', age: v.age, title: h.coat })),
+    el('div.st-body', [
+      el('b.st-name', { text: h.name }),
+      el('span.st-sub', { text: sub }),
+      el('div.st-tags', tags.map(([c, t]) => el('i', { text: t, class: c || null }))),
+    ]),
+    cat === 'mares' ? button('配合', (e) => { e.stopPropagation(); app.go('farm', { damId: h.id }); }, { cls: 'sm' }) : null,
+  ]);
+}
+
+/**
+ * 詳細の上に出す、同じ区分の馬のミニアイコンの帯。
+ * スワイプで 1 頭ずつ送るより、何頭も居るときは直接選べるほうが早い。
+ */
+function stableRail(app, cat, currentId) {
+  const g = app.game;
+  const st = G.myStable(g);
+  const pick = (id, c) => app.go('stable', { id, cat: c }, { replace: true });
+  const rail = el('div.hd-rail', [
+    el('div.rail-cats', G.STABLE_CATEGORIES.map((c) => el('button', {
+      class: c.id === cat ? 'on' : null,
+      disabled: !st[c.id].length,
+      title: c.name,
+      onclick: () => { if (st[c.id][0] && c.id !== cat) pick(st[c.id][0].id, c.id); },
+    }, [icon(CAT_ICON[c.id], { size: 16 }), el('span', { text: c.name }), el('b', { text: String(st[c.id].length) })]))),
+    el('div.rail-icons', (st[cat] ?? []).map((h) => el('button.rail-h', {
+      class: h.id === currentId ? 'on' : null,
+      title: h.name,
+      onclick: () => { if (h.id !== currentId) pick(h.id, cat); },
+    }, [horseImg(h.coat, { size: 'xs', age: g.world.year - h.birthYear }), el('span', { text: h.name })]))),
+  ]);
+  // いま見ている馬が帯の外に隠れないよう、横にだけ寄せる。
+  requestAnimationFrame(() => {
+    const on = rail.querySelector('.rail-h.on');
+    const box = rail.querySelector('.rail-icons');
+    if (on && box) box.scrollLeft = on.offsetLeft - box.clientWidth / 2 + on.clientWidth / 2;
+  });
+  return rail;
 }
 
 // ---------------------------------------------------------------- 詳細
@@ -97,18 +139,20 @@ function detail(app, id) {
   if (!v) return el('p.empty', { text: '馬が見つからない' });
   const h = v.horse;
   const mine = v.isMine;
-  const active = mine && !v.retired && !v.dead;
+  // 出走・調教・放牧を持つのは 2 歳以上の現役馬だけ。幼駒はまだ厩舎に入っていない。
+  const active = mine && !v.retired && !v.dead && v.age >= 2 && !v.broodmare && !v.stallion;
+  const cat = mine ? (app.params.cat ?? G.stableCategoryOf(g, id)) : null;
   const career = G.horseCareer(g, id);
   const t = G.now(g);
 
-  // 左右に送れる並び。自分の馬なら所有馬一覧と同じ順、他人の馬なら呼び出し元が渡した並び。
-  const lineup = mine ? G.myLineup(g) : (app.params.list ?? []);
+  // 左右に送れる並び。自分の馬なら同じ区分の中、他人の馬なら呼び出し元が渡した並び。
+  const lineup = mine ? G.myLineup(g, cat) : (app.params.list ?? []);
   const at = lineup.indexOf(id);
   const go = (d) => {
     if (lineup.length < 2 || at < 0) return;
     const next = lineup[(at + d + lineup.length) % lineup.length];
     // 送るたびに履歴を積むと「戻る」が馬の数だけ必要になるので、差し替える。
-    app.go('stable', { ...app.params, id: next, dir: d }, { replace: true });
+    app.go('stable', { ...app.params, id: next, dir: d, cat }, { replace: true });
   };
   app.onArrow = go;
 
@@ -135,7 +179,7 @@ function detail(app, id) {
   ]);
   swipe(stage, go);
 
-  return el('div.hd', [
+  return el('div.hd', { class: cat ? 'has-rail' : null }, [
     el('header.hd-top', [
       el('span.hd-silk', horseImg(h.coat, { size: 'xs', age: v.age })),
       el('h1', { text: v.name }),
@@ -149,6 +193,7 @@ function detail(app, id) {
         v.inbreed.length ? el('span', { text: `インブリード ${v.inbreed.length}` }) : null,
       ]),
     ]),
+    cat ? stableRail(app, cat, id) : null,
     stage,
     el('div.hd-band', [
       el('span.hd-date', { text: `${t.year}年 ${t.label}` }),
@@ -160,7 +205,7 @@ function detail(app, id) {
         el('button.hd-arrow', { onclick: () => go(-1), title: '前の馬（←）' }, icon('back', { size: 20 })),
         el('span.hd-count', { text: `${at + 1} / ${lineup.length}` }),
         el('button.hd-arrow.r', { onclick: () => go(1), title: '次の馬（→）' }, icon('back', { size: 20 })),
-        button('所有馬一覧', () => app.go('stable'), { cls: 'sm' }),
+        button('所有馬一覧', () => app.go('stable', { cat }), { cls: 'sm' }),
       ] : []),
       el('div.hd-acts', actions(app, v, active)),
       el('button.hd-back', { onclick: () => app.back(), title: '戻る' }, [icon('back', { size: 22 }), el('span', { text: '戻る' })]),
@@ -203,7 +248,7 @@ function infoPanel(v, career) {
       laurel('l'),
       el('div.hi-crest-b', [
         el('div.hi-ribbon', { text: ribbon }),
-        row('クラス', v.className),
+        row('クラス', v.age < 2 ? 'デビュー前' : v.className),
         row('戦績', `${v.starts}戦${v.wins}勝`),
         row('獲得賞金', formatMoney(v.earnings)),
       ]),
@@ -255,10 +300,13 @@ function laurel(side) {
  * （引退した馬に仕上がり 20% と出しても意味が無い）。
  */
 function statePanel(v) {
-  const racing = !v.dead && !v.retired && !v.broodmare && !v.stallion;
+  const young = !v.dead && !v.retired && v.age < 2;
+  const racing = !v.dead && !v.retired && !v.broodmare && !v.stallion && !young;
   const fit = Math.max(0, Math.min(1, v.fit ?? 0));
   const foals = v.foals ?? [];
-  const ratio = racing ? fit : Math.min(1, foals.length / 12);
+  // 幼駒は仕上がりも産駒も無いので、いま見えている素質（能力の平均）を輪にする。
+  const avg = ABILITIES.reduce((a, k) => a + v.values[k], 0) / ABILITIES.length;
+  const ratio = racing ? fit : young ? avg : Math.min(1, foals.length / 12);
   const R = 40, C = 2 * Math.PI * R;
   const ring = document.createElement('div');
   ring.className = 'hs-ring';
@@ -270,11 +318,16 @@ function statePanel(v) {
   </svg>`;
   ring.appendChild(el('div.hs-ring-t', racing
     ? [el('span', { text: '仕上がり' }), el('b', { text: `${Math.round(fit * 100)}` }), el('small', { text: '%' })]
-    : [el('span', { text: '産駒' }), el('b', { text: String(foals.length) }), el('small', { text: '頭' })]));
+    : young ? [el('span', { text: '素質' }), el('b', { text: rankOf(avg) })]
+      : [el('span', { text: '産駒' }), el('b', { text: String(foals.length) }), el('small', { text: '頭' })]));
   const fat = v.fatigue ?? 0;
   const fatMark = fat < 0.2 ? '◎' : fat < 0.4 ? '○' : fat < 0.6 ? '△' : '▲';
   const r = (k, val, cls = null) => el('div.hs-r', [el('span', { text: k }), el('b', { text: val, class: cls })]);
-  const rows = racing ? [
+  const rows = young ? [
+    r('年齢', v.age === 0 ? '当歳' : '1歳'),
+    r('デビュー', v.age === 0 ? '再来年' : '来年'),
+    r('成長型', v.growth),
+  ] : racing ? [
     r('調子', v.condLabel),
     r('疲労', fatMark, fat >= 0.6 ? 'bad' : null),
     r('状態', v.injury ? v.injury.name : v.stable === 'stable' ? '在厩' : '放牧', v.injury ? 'bad' : null),
@@ -428,7 +481,7 @@ function tabContent(app, tid, v, career) {
       ['馬主', v.owner],
       ['厩舎', `${v.trainer}${v.trainerStyle ? `（${v.trainerStyle}）` : ''}`],
       ['主戦騎手', v.jockey],
-      ['調教', v.isMine && !v.retired ? menu : '—'],
+      ['調教', v.isMine && !v.retired && v.age >= 2 ? menu : '—'],
       ['父', v.sire], ['母', v.dam], ['母の父', v.damSire],
     ]),
     el('div.crs', [

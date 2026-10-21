@@ -26,6 +26,9 @@ const PORTRAIT_HEADING = -0.55;
 const PORTRAIT_CAM = new THREE.Vector3(-0.2, 1.75, -3.9);
 const PORTRAIT_LOOK = new THREE.Vector3(0.6, 1.15, 3.4);
 
+/** 当歳は親の 6 割、1 歳は 8 割の大きさ。同じ大きさだと親子が並んでも区別が付かない。 */
+const foalScale = (age = 3) => (age <= 0 ? 0.62 : age === 1 ? 0.8 : 1);
+
 /** 木の配置などを毎回同じにするための小さな擬似乱数。 */
 function seededRandom(seed) {
   let s = (seed | 0) || 1;
@@ -456,7 +459,7 @@ export function createPasture(canvas, labelLayer) {
     setHorses.key = key;
     clearHorses();
     list.forEach((info, i) => {
-      const model = makeHorse({ id: info.id, coat: info.coat, bare: true, scale: (info.age ?? 3) < 2 ? 0.74 : 1 });
+      const model = makeHorse({ id: info.id, coat: info.coat, bare: true, scale: foalScale(info.age) });
       model.group.traverse((o) => { if (o.isMesh) o.castShadow = true; });
       model.group.visible = !portrait;
       scene.add(model.group);
@@ -520,7 +523,7 @@ export function createPasture(canvas, labelLayer) {
       return;
     }
     const young = (info.age ?? 3) < 2;
-    const model = makeHorse({ id: info.id, coat: info.coat, bare: true, tack: !!info.tack && !young, scale: young ? 0.78 : 1 });
+    const model = makeHorse({ id: info.id, coat: info.coat, bare: true, tack: !!info.tack && !young, scale: foalScale(info.age) });
     model.group.traverse((o) => { if (o.isMesh) o.castShadow = true; });
     model.group.position.copy(PORTRAIT_POS);
     model.group.rotation.y = yawForZForward(PORTRAIT_HEADING);
