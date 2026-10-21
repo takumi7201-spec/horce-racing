@@ -96,6 +96,7 @@ export function horseView(g, id) {
     menu: h.trainingMenu ?? 'normal',
     ready: readyToRun(h),
     stallion: h.stallion, broodmare: h.broodmare, studFee: h.studFee,
+    dead: !!h.dead,
     foals: (h.foals ?? []).map((fid) => w.horses.get(fid)).filter(Boolean),
     retired: h.retired,
   };

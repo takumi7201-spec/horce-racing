@@ -50,6 +50,9 @@ const FOALS_LIVE = 600;
  */
 const ANCESTRY_YEARS = 56;
 
+/** 供用される種牡馬の上限。JRA の現役種牡馬はおおむね 200 頭前後。 */
+const MAX_STALLIONS = 200;
+
 /** 天候。 */
 export const WEATHERS = ['晴', '曇', '小雨', '雨', '雪'];
 
@@ -311,6 +314,26 @@ function promotePools(world, rng, year) {
     if (year - h.birthYear > 23) { h.dead = true; return false; }
     return true;
   });
+  // 種牡馬が多すぎると、大半が 1 頭も種付けしないまま名簿に載り続ける。
+  // 牝馬が集まらない馬から用途変更（＝名簿から外す）。
+  // 高齢馬は同じ種付料でも先に外す。実際の種牡馬も、産駒が走らなければ
+  // 数年で供用をやめるし、走っても歳を取れば退く。
+  if (world.stallionPool.length > MAX_STALLIONS) {
+    const worth = (id) => {
+      const h = world.horses.get(id);
+      if (!h) return -1;
+      return (h.studFee ?? 0) * (year - h.birthYear > 14 ? 0.4 : 1);
+    };
+    world.stallionPool.sort((a, b) => worth(b) - worth(a));
+    for (const id of world.stallionPool.slice(MAX_STALLIONS)) {
+      const h = world.horses.get(id);
+      if (h) h.stallion = false;
+      // 名簿から外れた馬を自分の種牡馬として数え続けると、
+      // 種付けもされないのに維持費だけ取られる。
+      world.player.stallions = world.player.stallions.filter((x) => x !== id);
+    }
+    world.stallionPool.length = MAX_STALLIONS;
+  }
   world.marePool = world.marePool.filter((id) => {
     const h = world.horses.get(id);
     if (!h) return false;

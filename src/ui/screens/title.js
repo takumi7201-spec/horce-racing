@@ -22,7 +22,8 @@ export function titleScreen(app) {
           playerName: name.value.trim(),
           farmName: farm.value.trim(),
         });
-        app.go('home');
+        app.stack.length = 0;
+        app.go('home', {}, { replace: true });
       } catch (e) {
         status.textContent = `生成に失敗：${e.message}`;
       }

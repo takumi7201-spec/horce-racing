@@ -15,6 +15,8 @@ import { makeHorseName } from '../core/names.js';
 export const POP_MEAN = 0.42;
 /** 回帰の強さ。0.30 なら両親の平均から 30% だけ全体平均に引き戻される。 */
 export const REGRESSION = 0.26;
+/** 種牡馬が覚えている産駒の数。種付料の算定と詳細画面の表示に使う。 */
+const STALLION_FOAL_MEMORY = 80;
 
 /**
  * 仔を作る。
@@ -100,6 +102,13 @@ export function breed(world, rng, sire, dam, { year, farmId = null, ownerId = nu
   foal.matingBonus = bonus;
 
   dam.foals.push(foal.id);
+  // 種牡馬にも産駒を覚えさせる。覚えないと studFeeOf の産駒成績の項が
+  // 永遠に働かず（runners が 0 のまま）、種付料が現役成績だけで決まってしまう。
+  // 「走る産駒が出た翌年に種付料が跳ね上がる」という種牡馬ビジネスの軸が
+  // まるごと死んでいた。馬の詳細に産駒が出ないのも同じ原因。
+  // 20 年供用すると 800 頭を超えるので、直近ぶんだけ持つ。
+  sire.foals.push(foal.id);
+  if (sire.foals.length > STALLION_FOAL_MEMORY) sire.foals.shift();
   sire.coverings = (sire.coverings ?? 0) + 1;
   return foal;
 }
@@ -113,14 +122,19 @@ export function canBeBroodmare(horse, year) {
     && (year - horse.birthYear) >= 3 && (year - horse.birthYear) <= 20;
 }
 
-/** 種牡馬になれるか。牡で、ある程度の実績か能力がある馬。 */
+/**
+ * 種牡馬になれるか。
+ * 実際の競馬で種牡馬入りできる牡馬はごく一握り（1 世代 600 頭から数頭）。
+ * ここを緩くすると、10 年で種牡馬が 900 頭を超えて繁殖牝馬の数を上回り、
+ * 大半が 1 頭も種付けしないまま名簿に載り続ける。
+ */
 export function canBeStallion(horse, year) {
   if (horse.sex !== SEX.MALE || horse.dead) return false;
   const age = year - horse.birthYear;
   if (age < 3 || age > 24) return false;
   const ab = ABILITIES.reduce((t, a) => t + horse.pot[a], 0) / ABILITIES.length;
-  // 重賞勝ちか、相当の素質。条件馬が種牡馬になれては世界が薄まる。
-  return horse.earnings >= 8000 || ab >= 0.66;
+  // GI を複数勝つくらいの実績か、飛び抜けた素質。
+  return horse.earnings >= 30000 || ab >= 0.76;
 }
 
 /**
@@ -130,8 +144,11 @@ export function canBeStallion(horse, year) {
  */
 export function studFeeOf(world, stallion, year) {
   const ab = ABILITIES.reduce((t, a) => t + stallion.pot[a], 0) / ABILITIES.length;
-  let base = 30 + Math.pow(clamp01(ab - 0.3) / 0.7, 2) * 900;
-  base += Math.min(1200, stallion.earnings / 24);
+  // 供用し始めの値段。ここを高くすると、産駒が走る前の種牡馬が全員高額になり、
+  // 資金の乏しい馬主が配合できる相手がいなくなる。
+  // 現役成績はあくまで「期待値」なので控えめに乗せ、本番は産駒成績で動かす。
+  let base = 30 + Math.pow(clamp01(ab - 0.3) / 0.7, 2) * 520;
+  base += Math.min(600, stallion.earnings / 60);
   // 産駒成績。
   let progeny = 0, runners = 0;
   for (const fid of stallion.foals ?? []) {
@@ -140,9 +157,16 @@ export function studFeeOf(world, stallion, year) {
     runners++;
     progeny += f.earnings;
   }
-  if (runners >= 4) {
+  if (runners >= 6) {
     const avg = progeny / runners;
-    base = base * 0.45 + Math.min(6000, avg * 1.6) * 0.75;
+    // 対数で効かせる。絶対額で頭打ちにすると、そこそこ走る産駒を出した
+    // 種牡馬が全員おなじ種付料に貼り付いて、順位が意味を失う。
+    //   産駒平均 1,000万 →  約  400万 ／ 4,000万 → 約 2,500万 ／ 1億 → 約 6,200万
+    const score = Math.log10(1 + avg / 400);
+    // 標本の数で効かせ方を変える。4 頭が走っただけで種付料を決めると、
+    // たまたま走った数頭で最上位に飛び出す種牡馬が毎年入れ替わる。
+    const conf = Math.min(1, runners / 25);
+    base = base * (1 - conf * 0.65) + conf * Math.min(7000, Math.pow(score, 3.0) * 2200);
   }
   // 年を取ると下がる。
   const age = year - stallion.birthYear;

@@ -86,9 +86,12 @@ function detail(app, id) {
 
   return el('div', [
     el('div.detail-h', [
-      button('← 一覧', () => app.go('stable'), { cls: 'ghost sm' }),
+      button('← 戻る', () => app.back(), { cls: 'ghost sm' }),
       horseImg(h.coat, { size: 'lg', age: v.age, title: h.coat }),
-      el('h1', [v.name, el('span.sub', { text: ` ${h.sex}${v.age}　${h.coat}` })]),
+      el('h1', [
+        v.name,
+        el('span.sub', { text: ` ${h.sex}${v.age}　${h.coat}　${standing(v)}` }),
+      ]),
       v.titles.length ? el('div.badges', v.titles.map((t) => el('span.badge', { text: t }))) : null,
     ]),
 
@@ -196,6 +199,22 @@ function detail(app, id) {
       ]),
     ]),
   ]);
+}
+
+/**
+ * 見出しに出す立場。馬の詳細は記録や種牡馬名鑑からも開けるので、
+ * どこから来ても「誰の馬で、いま何をしている馬か」が分かるようにする。
+ * 引退した種牡馬・繁殖牝馬には馬主が居ないので、そこは馬主を出さない。
+ */
+function standing(v) {
+  // 種牡馬リーディングには供用を終えた馬も載る（産駒が走り続けるため）。
+  // その馬を開いたときに種付料が出ていては、まだ付けられるように見える。
+  if (v.dead) return v.stallion ? '故・種牡馬' : v.broodmare ? '故・繁殖牝馬' : '故';
+  if (v.isMine) return v.stallion ? '自分の種牡馬' : v.broodmare ? '自分の繁殖牝馬' : '自分の所有馬';
+  if (v.stallion) return `種牡馬（種付料 ${formatMoney(v.studFee ?? 0)}）`;
+  if (v.broodmare) return '繁殖牝馬';
+  if (v.owner && v.owner !== '—') return `馬主: ${v.owner}`;
+  return v.retired ? '引退' : '—';
 }
 
 const tempLabel = (t) => (t > 0.78 ? '素直' : t > 0.58 ? '普通' : t > 0.38 ? 'やや難' : '気難しい');

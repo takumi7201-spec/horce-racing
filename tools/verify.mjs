@@ -341,6 +341,21 @@ section('2 年の経過');
   check(`2 年後の潜在 中央 ${pots[Math.floor(pots.length / 2)].toFixed(3)}（インフレしていない）`,
     pots[Math.floor(pots.length / 2)] > 0.42 && pots[Math.floor(pots.length / 2)] < 0.72);
   check(`年度代表馬が選ばれている（${w.awards.map((a) => a.name).join(', ')}）`, w.awards.length >= 2);
+
+  // 種牡馬の経済。産駒を覚えていないと種付料が現役成績だけで決まり、
+  // 「走る産駒を出した翌年に跳ね上がる」という軸がまるごと死ぬ
+  // （実際に死んでいて、馬の詳細に産駒が出ないことで気づいた）。
+  const sires = w.stallionPool.map((id) => w.horses.get(id)).filter(Boolean);
+  const withFoals = sires.filter((s2) => (s2.foals ?? []).length > 0).length;
+  check(`種牡馬が産駒を覚えている（${withFoals}/${sires.length} 頭）`, withFoals > sires.length * 0.3);
+  const fees = sires.map((s2) => s2.studFee ?? 0).sort((a, b) => b - a);
+  check(`種付料 最高 ${fees[0]} 万 / 中央 ${fees[fees.length >> 1]} 万`,
+    fees[0] > fees[fees.length >> 1] * 1.8, '産駒成績で差が付いていない');
+  check(`手の届く種牡馬がいる（1000 万以下 ${fees.filter((f) => f <= 1000).length} 頭）`,
+    fees.filter((f) => f <= 1000).length >= 10, '新規の馬主が配合できる相手がいない');
+  check(`種牡馬が ${sires.length} 頭（繁殖牝馬 ${w.marePool.length} 頭）`,
+    sires.length <= 220 && sires.length < w.marePool.length,
+    '種牡馬が多すぎると大半が一度も種付けしない');
   check(`重賞の記録が残っている（${w.history.length} 件）`, w.history.length > 100);
 }
 

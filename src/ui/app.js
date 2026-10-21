@@ -33,21 +33,53 @@ const NAV = [
   { id: 'records', name: '記録' },
 ];
 
+/** 来た道を覚えておく深さ。これを超えたら古いほうから捨てる。 */
+const NAV_MAX = 24;
+
+/** 同じ画面を同じ引数で開き直したか。連打で履歴が膨らまないようにする。 */
+const sameView = (a, screen, params) => a.screen === screen
+  && (a.params.id ?? null) === (params.id ?? null)
+  && (a.params.tab ?? null) === (params.tab ?? null)
+  && (a.params.damId ?? null) === (params.damId ?? null);
+
 export function start(root) {
   const app = {
     game: null,
     screen: 'title',
     params: {},
+    // 来た道。馬の詳細は 12 か所から開けるので、「戻る」は
+    // 行き先を決め打ちにできない（所有馬一覧へ固定していたら、
+    // 記録や種牡馬名鑑から開いた他人の馬からも所有馬へ飛んでいた）。
+    stack: [],
     root,
 
-    go(screen, params = {}) {
+    go(screen, params = {}, { replace = false } = {}) {
       // 3D を開いていたら WebGL を片付ける。放っておくとコンテキストが溢れる。
       if (app.cleanup) { app.cleanup(); app.cleanup = null; }
+      if (!replace && app.screen !== 'title' && !sameView(app, screen, params)) {
+        // レース観戦の途中に戻されると 3D が走り直してしまうので、
+        // 履歴には着順の画面として積む。
+        const p = app.screen === 'raceday' ? { ...app.params, phase: 'result' } : app.params;
+        app.stack.push({ screen: app.screen, params: p });
+        if (app.stack.length > NAV_MAX) app.stack.shift();
+      }
       app.screen = screen;
       app.params = params;
       app.render();
       // 画面を切り替えたら先頭へ。長い一覧のあとに詳細を開くときに効く。
       document.querySelector('.main')?.scrollTo?.(0, 0);
+    },
+
+    /** 直前の画面へ戻る。履歴が空ならホーム。 */
+    back() {
+      const prev = app.stack.pop();
+      if (!prev) return app.go('home', {}, { replace: true });
+      if (app.cleanup) { app.cleanup(); app.cleanup = null; }
+      app.screen = prev.screen;
+      app.params = prev.params;
+      app.render();
+      document.querySelector('.main')?.scrollTo?.(0, 0);
+      return undefined;
     },
 
     /** 週送り。自分の馬が走るレースがあれば観戦画面へ寄る。 */
@@ -80,7 +112,8 @@ export function start(root) {
         const g = await loadLocal(slot);
         if (!g) return toast('そのスロットは空', { bad: true });
         app.game = g;
-        app.go('home');
+        app.stack.length = 0;
+        app.go('home', {}, { replace: true });
         toast(`スロット${slot} を読み込んだ`);
       } catch (e) {
         toast(`読み込めなかった：${e.message}`, { bad: true });
