@@ -5,6 +5,7 @@ import * as G from '../../sim/game.js';
 import { formatMoney, formatTime, formatSec } from '../../core/util.js';
 import { fitLabel, condLabel, MENUS } from '../../sim/training.js';
 import { ABILITY_LABEL, ABILITIES, STYLES } from '../../sim/params.js';
+import { horseImg } from '../horse-sprite.js';
 
 export function stableScreen(app) {
   const g = app.game;
@@ -16,11 +17,12 @@ export function stableScreen(app) {
 
   return el('div', [
     card('現役（所有馬）', horses.length ? table(
-      ['馬名', '性齢', '毛色', 'クラス', '脚質', '適距離', '状態', '仕上がり', '調子', '疲労', '戦績', '獲得賞金'],
+      ['', '馬名', '性齢', '毛色', 'クラス', '脚質', '適距離', '状態', '仕上がり', '調子', '疲労', '戦績', '獲得賞金'],
       horses.map((h) => {
         const v = G.horseView(g, h.id);
         return {
           cells: [
+            horseImg(h.coat, { size: 'xs', age: v.age, title: `${h.name}（${h.coat}）` }),
             el('b', { text: h.name }),
             `${h.sex}${v.age}`,
             h.coat,
@@ -38,7 +40,7 @@ export function stableScreen(app) {
           onclick: () => app.go('stable', { id: h.id }),
         };
       }),
-      { align: [, 'c', 'c', 'c', 'c', 'c', 'c', 'c', 'c', 'c', 'c', 'r'] },
+      { align: ['c', , 'c', 'c', 'c', 'c', 'c', 'c', 'c', 'c', 'c', 'c', 'r'] },
     ) : el('p.empty', { text: '現役の所有馬が居ない。' })),
 
     card('繁殖牝馬', mares.length ? table(
@@ -85,6 +87,7 @@ function detail(app, id) {
   return el('div', [
     el('div.detail-h', [
       button('← 一覧', () => app.go('stable'), { cls: 'ghost sm' }),
+      horseImg(h.coat, { size: 'lg', age: v.age, title: h.coat }),
       el('h1', [v.name, el('span.sub', { text: ` ${h.sex}${v.age}　${h.coat}` })]),
       v.titles.length ? el('div.badges', v.titles.map((t) => el('span.badge', { text: t }))) : null,
     ]),
@@ -166,7 +169,9 @@ function detail(app, id) {
           ['年', 'レース', '場', '距離', '馬場', '人気', '着', '騎手', '斤量', '時計', '上3F', '通過', '賞金'],
           v.record.map((r) => [
             r.year, el('span', { text: r.name, class: r.grade ? 'grade' : null }),
-            courseShort(g, r.courseId), `${r.surface}${r.distance}`,
+            courseShort(g, r.courseId),
+            // ゲーム開始前の戦績は「走った事実」しか持っていない（world.js の paperCareer）
+            r.past ? '—' : `${r.surface}${r.distance}`,
             r.ground ?? '—', r.popularity ? `${r.popularity}人` : '—',
             el('b', { text: `${r.order}/${r.field}`, class: r.order === 1 ? 'win' : null }),
             r.jockeyName ?? '—', r.weight ?? '—',

@@ -18,6 +18,7 @@ npm test                   # 84 項目の検証。数字をいじったら必ず
 npm run timecheck          # レースの時計だけを実測レンジと照合
 npm run season -- --years 10   # 10 年回して競馬界の健全性を見る
 npm run icons              # PWA アイコンを書き出す
+npm run sprite             # 元絵から馬のスプライトを抜き直す
 ```
 
 ブラウザ側は Playwright で確認する（Chromium は同梱、`npx playwright install` は不要）:
@@ -105,7 +106,20 @@ pw.chromium.launch({
 16. **キャンバスに絵文字や特殊記号を描かない。** フォント依存で豆腐になる。
     ゼッケンの数字は数字だけを描いている。
 
-17. **Service Worker は network-first。** cache-first にすると、直した `src/*.js` が
+17. **ドット絵から背景を抜くのに「賢い規則」を探さない。**
+    元絵（`assets/horse-src.png`）は柵が馬とまったく同じ茶色（#a95a34）で、
+    位置も首の後ろに重なっている。一方で尾・向こう側の脚・耳先は、
+    黒い輪郭線で胴体と塗りが分断されている。
+    つまり色でも位置でも「輪郭を何ドット渡るか」でも馬と柵は区別できない。
+    自動判定を三通り試して全部失敗したので、残す部品を種点で明示している
+    （`npm run sprite` の `--keep`）。別の絵に差し替えるときは
+    `--debug` で成分の一覧を出して取り直すこと。
+
+18. **スプライトを 0.5 倍で貼るときは補間させる。**
+    `image-rendering: pixelated` のまま縮小すると 1 ドットの脚が消えて
+    棒きれになる。拡大は pixelated、縮小は auto（`.hs-xs`）。
+
+19. **Service Worker は network-first。** cache-first にすると、直した `src/*.js` が
     反映されずに何時間も悩む。版を上げるときは `sw.js` の `VERSION` も上げる。
 
 ## 健全性の目安（`npm test` が見ている）

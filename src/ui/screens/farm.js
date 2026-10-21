@@ -3,6 +3,7 @@
 import { el, card, table, button, kv, bar, modal, toast, tabs } from '../dom.js';
 import * as G from '../../sim/game.js';
 import { formatMoney } from '../../core/util.js';
+import { horseImg } from '../horse-sprite.js';
 
 export function farmScreen(app) {
   const g = app.game;
@@ -198,8 +199,9 @@ function auctionView(app) {
         ? '買えるのは血統と馬体だけを見て。能力は走らせるまで分からない。'
         : 'セリは毎年 10 月に開かれる。いまは下見だけ。',
     }),
-    lots.length ? table(['馬名', '性', '毛色', '父', '母', '母の父', '馬体', 'インブリード', '価格', ''],
+    lots.length ? table(['', '馬名', '性', '毛色', '父', '母', '母の父', '馬体', 'インブリード', '価格', ''],
       lots.map((x) => [
+        horseImg(x.coat, { size: 'sm', age: 1, title: `${x.name}（${x.coat}）` }),
         el('b', { text: x.name }), x.sex, x.coat, x.sire, x.dam, x.damSire, x.look,
         (x.inbreed ?? []).slice(0, 2).join(' / ') || '—',
         formatMoney(x.price),
@@ -209,7 +211,7 @@ function auctionView(app) {
           toast(`${x.name} を ${formatMoney(r.price)} で購入した`);
           app.render();
         }, { cls: 'sm primary', disabled: !open || g.world.player.money < x.price }),
-      ]), { align: [, 'c', 'c', , , , 'c', , 'r'] })
+      ]), { align: ['c', , 'c', 'c', , , , 'c', , 'r'] })
       : el('p.empty', { text: '上場馬が居ない。' }),
   ]);
 }

@@ -174,6 +174,27 @@ html, body {
 .howto { margin: 0; padding-left: 1.2em; color: var(--fg2); }
 .howto li { margin: 4px 0; }
 
+/* ---------------- 馬のスプライト ---------------- */
+/* ドット絵なので、拡大しても補間させない。整数倍で貼るのが基本。 */
+.hsprite {
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  display: block;
+  width: auto;
+  vertical-align: middle;
+}
+.hsprite.flip { transform: scaleX(-1); }
+/* 縮小して貼るときだけは補間させる。
+   0.5 倍を nearest で落とすと 1 ドットの脚が消えて棒きれになる。 */
+.hs-xs { height: 21px; image-rendering: auto; }
+.hs-sm { height: 42px; }
+.hs-md { height: 84px; }
+.hs-lg {
+  height: 126px;
+  /* 大きく出すときだけ、足元に薄い影を敷いて浮かないようにする */
+  filter: drop-shadow(0 6px 5px #0007);
+}
+
 /* ---------------- 馬の詳細 ---------------- */
 .detail-h { display: flex; align-items: center; gap: 14px; margin-bottom: 12px; flex-wrap: wrap; }
 .detail-h h1 { margin: 0; font-size: 22px; }

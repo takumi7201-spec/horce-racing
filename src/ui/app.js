@@ -4,6 +4,7 @@
 import { el, clear, button, toast, modal, card, table } from './dom.js';
 import * as G from '../sim/game.js';
 import { saveLocal, loadLocal, slotInfo, clearSlot } from '../sim/save.js';
+import { loadHorseSprite } from './horse-sprite.js';
 import { formatMoney } from '../core/util.js';
 import { weekLabel } from '../sim/schedule.js';
 import { titleScreen } from './screens/title.js';
@@ -129,6 +130,10 @@ export function start(root) {
       ]));
     },
   };
+
+  // スプライトは先に読み込んでおく。描画は同期なので、
+  // 間に合わなければ読み終わった時点で <img> に差し込まれる。
+  loadHorseSprite();
 
   app.render();
   window.addEventListener('resize', () => {

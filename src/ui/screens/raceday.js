@@ -7,6 +7,7 @@ import { el, card, table, button, frameChip, toast, tabs } from '../dom.js';
 import * as G from '../../sim/game.js';
 import { formatMoney, formatTime, formatSec } from '../../core/util.js';
 import { createRaceView, CAMERAS } from '../../render3d/raceview.js';
+import { horseImg } from '../horse-sprite.js';
 import { showResult } from './races.js';
 
 export function raceDayScreen(app) {
@@ -51,17 +52,18 @@ function raceCard(app, race, races, idx, next) {
       }),
     ]),
     card('出馬表', table(
-      ['枠', '馬番', '馬名', '性齢', '斤量', '騎手', '脚質', '人気', 'オッズ'],
+      ['枠', '馬番', '', '馬名', '性齢', '斤量', '騎手', '脚質', '人気', 'オッズ'],
       byGate.map((r) => ({
         cells: [
           frameChip(r.frame, r.frame), String(r.gate),
+          horseImg(coatOf(g, r.horseId), { size: 'xs', age: r.age, flip: true }),
           el('b', { text: r.name }), `${r.sex}${r.age}`, r.weight,
           r.jockeyName, r.styleLabel,
           r.popularity ? `${r.popularity}人気` : '—',
           r.odds ? r.odds.toFixed(1) : '—',
         ],
         cls: mineIds.has(r.horseId) ? 'mine' : null,
-      })), { align: ['c', 'c', , 'c', 'c', , 'c', 'c', 'c'] })),
+      })), { align: ['c', 'c', 'c', , 'c', 'c', , 'c', 'c', 'c'] })),
     el('div.race-actions', [
       button('3D で観戦する', () => app.go('raceday', { races, index: idx, phase: 'watch' }), { cls: 'primary big' }),
       button('結果だけ見る', () => app.go('raceday', { races, index: idx, phase: 'result' }), { cls: 'big' }),
@@ -69,6 +71,9 @@ function raceCard(app, race, races, idx, next) {
     races.length > 1 ? el('p.note', { text: `この週の自分のレース ${idx + 1} / ${races.length}` }) : null,
   ]);
 }
+
+/** 結果には毛色が入っていないので、世界から引く。 */
+const coatOf = (g, horseId) => g.world.horses.get(horseId)?.coat ?? '鹿毛';
 
 // ---------------------------------------------------------------- 3D 観戦
 
