@@ -18,6 +18,14 @@ const FENCE_Z = 18;
 const CAM_POS = new THREE.Vector3(0, 2.2, -9.5);
 const CAM_LOOK = new THREE.Vector3(0, 1.0, 9);
 
+// 馬の詳細で 1 頭だけ大きく見せるときの立ち位置とカメラ。
+// 馬は画面の左（+x）へ顔を向け、少しこちらへ振る（真横より立体感が出る）。
+const PORTRAIT_POS = new THREE.Vector3(0.6, 0, 3.4);
+const PORTRAIT_HEADING = -0.55;
+// 鼻先から尾まで 1 枚に収まる距離（7m 強）。近すぎると脚と頭が切れる。
+const PORTRAIT_CAM = new THREE.Vector3(-0.2, 1.75, -3.9);
+const PORTRAIT_LOOK = new THREE.Vector3(0.6, 1.15, 3.4);
+
 /** 木の配置などを毎回同じにするための小さな擬似乱数。 */
 function seededRandom(seed) {
   let s = (seed | 0) || 1;
@@ -409,6 +417,7 @@ export function createPasture(canvas, labelLayer) {
   // ---------------------------------------------------------------- 馬
   let horses = [];
   let showLabels = true;
+  let portrait = null;
 
   function pickTarget(h) {
     // 他の馬から離れた場所を選ぶ。全頭が同じ隅に集まると絵にならない。
@@ -449,6 +458,7 @@ export function createPasture(canvas, labelLayer) {
     list.forEach((info, i) => {
       const model = makeHorse({ id: info.id, coat: info.coat, bare: true, scale: (info.age ?? 3) < 2 ? 0.74 : 1 });
       model.group.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+      model.group.visible = !portrait;
       scene.add(model.group);
       const hr = seededRandom(info.id * 7919 + 13);
       // 最初は画面に散らばるように、横一列を少し崩して置く。
@@ -483,6 +493,44 @@ export function createPasture(canvas, labelLayer) {
     for (const h of horses) pickTarget(h);
   }
   setHorses.key = '';
+
+  const disposeModel = (m) => m.group.traverse((o) => {
+    if (o.isMesh) { o.geometry.dispose(); o.material.dispose?.(); }
+  });
+
+  /**
+   * 馬の詳細の見せ場。1 頭だけを鞍付きで柵の手前に立たせ、ほかの馬は隠す。
+   * 別の WebGL を作らずにこの放牧地をそのまま使う（落とし穴 23）。
+   * 遠景は霧を濃くしてぼかし、馬を浮き立たせる。
+   * @param {{id:number, coat:string, age?:number, tack?:boolean}|null} info null で放牧地に戻す。
+   *   tack は現役の競走馬だけ（繁殖牝馬に鞍は置かない）
+   */
+  function setPortrait(info) {
+    const key = info ? `${info.id}:${info.coat}:${info.age ?? 3}:${info.tack ? 1 : 0}` : '';
+    if ((portrait?.key ?? '') === key) return;
+    if (portrait) {
+      scene.remove(portrait.model.group);
+      disposeModel(portrait.model);
+      portrait = null;
+    }
+    for (const h of horses) h.model.group.visible = !info;
+    if (!info) {
+      scene.fog.near = 70;
+      scene.fog.far = 460;
+      return;
+    }
+    const young = (info.age ?? 3) < 2;
+    const model = makeHorse({ id: info.id, coat: info.coat, bare: true, tack: !!info.tack && !young, scale: young ? 0.78 : 1 });
+    model.group.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+    model.group.position.copy(PORTRAIT_POS);
+    model.group.rotation.y = yawForZForward(PORTRAIT_HEADING);
+    scene.add(model.group);
+    portrait = { key, model };
+    scene.fog.near = 14;
+    scene.fog.far = 150;
+    model.update(0, 0, 0, { t: time, graze: 0 });
+    if (!running) renderStill();
+  }
 
   function stepHorse(h, dt, t) {
     h.timer -= dt;
@@ -598,6 +646,31 @@ export function createPasture(canvas, labelLayer) {
     camera.updateProjectionMatrix();
   }
 
+  /** カメラはゆっくり漂わせる（止まった絵に見えないように）。 */
+  function placeCamera() {
+    if (portrait) {
+      camera.position.set(
+        PORTRAIT_CAM.x + Math.sin(time * 0.2) * 0.25,
+        PORTRAIT_CAM.y + Math.sin(time * 0.13) * 0.04,
+        PORTRAIT_CAM.z,
+      );
+      camera.lookAt(PORTRAIT_LOOK);
+      return;
+    }
+    camera.position.set(
+      CAM_POS.x + Math.sin(time * 0.045) * 1.6,
+      CAM_POS.y + Math.sin(time * 0.07) * 0.12,
+      CAM_POS.z,
+    );
+    camera.lookAt(CAM_LOOK);
+  }
+
+  /** 止まっているときに 1 枚だけ描き直す。 */
+  function renderStill() {
+    placeCamera();
+    renderer.render(scene, camera);
+  }
+
   function frame() {
     if (!running || disposed) return;
     const nowMs = performance.now();
@@ -606,14 +679,9 @@ export function createPasture(canvas, labelLayer) {
     if (dt > 0.1) dt = 0.1;
     time += dt;
     uniforms.uTime.value = time;
-    // カメラはゆっくり左右に漂わせる（止まった絵に見えないように）。
-    camera.position.set(
-      CAM_POS.x + Math.sin(time * 0.045) * 1.6,
-      CAM_POS.y + Math.sin(time * 0.07) * 0.12,
-      CAM_POS.z,
-    );
-    camera.lookAt(CAM_LOOK);
-    for (const h of horses) stepHorse(h, dt, time);
+    placeCamera();
+    if (portrait) portrait.model.update(0, 0, 0, { t: time, graze: 0 });
+    else for (const h of horses) stepHorse(h, dt, time);
     for (const c of clouds) {
       c.position.x -= c.userData.speed * dt;
       if (c.position.x < -380) c.position.x = 380;
@@ -629,6 +697,7 @@ export function createPasture(canvas, labelLayer) {
 
   return {
     setHorses,
+    setPortrait,
     resize,
     /** 見せたい中心を (px, py) だけずらす。正の py で絵が上へ寄る。 */
     setShift(px, py = 0) {

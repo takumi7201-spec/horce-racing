@@ -164,6 +164,7 @@ export function start(root) {
 
     render() {
       clear(ui);
+      app.onArrow = null;
       const screen = SCREENS[app.screen] ?? homeScreen;
       if (app.screen === 'title' || !app.game) {
         syncBackdrop(app, 'title');
@@ -197,7 +198,7 @@ export function start(root) {
   app.render();
   window.addEventListener('resize', () => {
     app.pasture?.resize();
-    if (app.pasture && app.game && app.screen === 'home') syncBackdrop(app, 'home');
+    if (app.pasture && app.game) syncBackdrop(app, app.screen);
     if (app.onResize) app.onResize();
   });
   // タブを離れている間は放牧地を止める（電池を食わないように）。
@@ -212,6 +213,11 @@ export function start(root) {
     if (!app.game) return;
     if (e.key === 'n' || e.key === 'N') app.next();
     if (e.key === 's' || e.key === 'S') app.openSaveMenu();
+    // 馬の詳細では ← → で前後の馬へ。
+    if (app.onArrow && document.querySelector('.modal-wrap') == null) {
+      if (e.key === 'ArrowLeft') app.onArrow(-1);
+      if (e.key === 'ArrowRight') app.onArrow(1);
+    }
   });
   return app;
 }
@@ -232,8 +238,11 @@ function syncBackdrop(app, screen) {
       bg.classList.add('nogl');
     }
   }
-  const live = screen === 'home' || screen === 'title';
+  // 馬の詳細では放牧地を「見せ場」にして、その馬を 1 頭だけ大きく立たせる。
+  const portraitId = screen === 'stable' && app.params.id != null && app.game ? app.params.id : null;
+  const live = screen === 'home' || screen === 'title' || portraitId != null;
   bg.classList.toggle('dim', !live);
+  bg.classList.toggle('portrait', portraitId != null);
   bg.classList.toggle('off', screen === 'raceday');
   app.bgLive = live;
   const p = app.pasture;
@@ -246,9 +255,20 @@ function syncBackdrop(app, screen) {
     // 右の情報パネル（約 380px）と左のメニュー（約 110px）の間を見せたい中心にする。
     // 縦長の画面ではパネルが下半分に来るので、絵を上へ寄せて馬を出す。
     const wide = window.innerWidth > 900;
-    if (screen !== 'home') p.setShift(0, 0);
+    if (portraitId != null) {
+      // 左に戦績の板が乗るので、馬は中央よりやや右へ。縦長の画面では上へ。
+      if (wide) p.setShift(-Math.round(window.innerWidth * 0.08), Math.round(window.innerHeight * 0.15));
+      else p.setShift(-Math.round(window.innerWidth * 0.14), Math.round(window.innerHeight * 0.2));
+    } else if (screen !== 'home') p.setShift(0, 0);
     else if (wide) p.setShift(135, 0);
     else p.setShift(0, Math.round(window.innerHeight * 0.16));
+  }
+  if (portraitId != null) {
+    const v = G.horseView(app.game, portraitId);
+    const racing = v && !v.dead && !v.retired && !v.broodmare && !v.stallion;
+    p.setPortrait(v ? { id: v.id, coat: v.coat, age: v.age, tack: racing } : null);
+  } else {
+    p.setPortrait(null);
   }
   p.setLabels(screen === 'home');
   if (live && !document.hidden) p.start();

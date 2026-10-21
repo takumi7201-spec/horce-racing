@@ -80,10 +80,12 @@ const clamp01 = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);
  * 箱の時代は首の傾きが逆向き（上端が胴の側へ倒れていた）で、遠目で
  * 誤魔化せていただけだった。
  *
- * @param {{bare?:boolean}} opts bare=true で騎手とゼッケンを付けない（牧場用）
+ * @param {{bare?:boolean, tack?:boolean}} opts
+ *   bare=true で騎手とゼッケンを付けない（牧場用）。
+ *   tack=true で鞍と頭絡を付ける（馬の詳細で 1 頭だけ大きく見せるとき）
  * @returns {{group:THREE.Group, update:Function, legs:Array, body:THREE.Group, rider:THREE.Group|null}}
  */
-export function makeHorse({ id = 1, gate = 1, frame = 1, coat = '鹿毛', scale = 1, bare = false } = {}) {
+export function makeHorse({ id = 1, gate = 1, frame = 1, coat = '鹿毛', scale = 1, bare = false, tack = false, padColor = 0xe8c33a } = {}) {
   const group = new THREE.Group();
   const body = new THREE.Group();   // 胴体まわり（上下に揺れる）
   group.add(body);
@@ -216,6 +218,45 @@ export function makeHorse({ id = 1, gate = 1, frame = 1, coat = '鹿毛', scale 
       cloth.position.set(sx * 0.37, 1.24, 0.1);
       body.add(cloth);
     }
+  }
+
+  // --- 馬具（詳細画面の 1 頭だけ） ---
+  // 鞍下は胴のカプセルに沿う円筒の一部。平らな箱を載せると背中から浮いて見えた。
+  if (tack) {
+    const strap = new THREE.MeshLambertMaterial({ color: 0x2a1d16 });
+    const pad = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.4, 0.4, 0.62, 18, 1, true, -1.15, 2.3),
+      new THREE.MeshLambertMaterial({ color: padColor, side: THREE.DoubleSide }),
+    );
+    // 円筒の軸を前後（z）に寝かせ、開いた側を下へ向ける。
+    pad.rotation.x = Math.PI / 2;
+    pad.rotation.y = Math.PI;
+    pad.scale.set(0.93, 1, 1.02);
+    pad.position.set(0, 1.21, 0.02);
+    body.add(pad);
+    const saddle = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.415, 0.415, 0.34, 18, 1, true, -0.8, 1.6),
+      new THREE.MeshLambertMaterial({ color: 0x3a2a20, side: THREE.DoubleSide }),
+    );
+    saddle.rotation.copy(pad.rotation);
+    saddle.scale.copy(pad.scale);
+    saddle.position.set(0, 1.215, 0.06);
+    body.add(saddle);
+    // 腹帯
+    const girth = new THREE.Mesh(new THREE.TorusGeometry(0.39, 0.025, 6, 24), strap);
+    girth.rotation.y = Math.PI / 2;
+    girth.scale.set(1, 1.02, 0.9);
+    girth.position.set(0, 1.2, 0.18);
+    body.add(girth);
+    // 頭絡：鼻革と項革の 2 本の輪。頭の組に付けるので、首を振ってもずれない。
+    const nose = new THREE.Mesh(new THREE.TorusGeometry(0.115, 0.02, 6, 18), strap);
+    nose.position.set(0, -0.24, 0.36);
+    nose.rotation.x = 2.15 - Math.PI / 2;
+    headPivot.add(nose);
+    const crown = new THREE.Mesh(new THREE.TorusGeometry(0.15, 0.02, 6, 18), strap);
+    crown.position.set(0, 0.0, 0.05);
+    crown.rotation.x = 0.35;
+    headPivot.add(crown);
   }
 
   if (scale !== 1) group.scale.setScalar(scale);

@@ -501,14 +501,6 @@ select.inp { cursor: pointer; }
 }
 
 /* ---------------- 馬の詳細 ---------------- */
-.detail-h {
-  display: flex; align-items: center; gap: 14px; margin-bottom: 14px; flex-wrap: wrap;
-  background: linear-gradient(#fffef6, #f7efcf); border: 3px solid #fff; border-radius: 14px;
-  padding: 8px 14px; box-shadow: var(--shadow);
-}
-.detail-h h1 { margin: 0; font-size: 24px; font-weight: 900; }
-.detail-h .sub { color: var(--fg2); font-size: 13px; font-weight: 600; }
-
 .abil { display: grid; gap: 5px; margin-bottom: 10px; }
 .abil-row { display: grid; grid-template-columns: 5.5em 2.4em 1fr; align-items: center; gap: 8px; }
 .abil-l { color: var(--fg2); font-size: 12px; font-weight: 700; }
@@ -613,6 +605,189 @@ canvas.race3d { width: 100%; height: 100%; display: block; }
 .cambar, .speedbar { display: flex; gap: 3px; }
 .ctrl-right { display: flex; gap: 6px; margin-left: auto; }
 
+/* ---------------- 馬の詳細（見せ場） ---------------- */
+/* 背景の放牧地がその馬 1 頭を大きく映している。左右の板と下の本文は半透明で重ねる。 */
+.main > .hd { position: absolute; inset: 0; }
+.shell[data-screen="stable"] .main:has(> .hd) { overflow: hidden; padding: 0; }
+.hd {
+  display: grid; grid-template-rows: auto minmax(250px, 1fr) auto minmax(170px, 36%) auto;
+  height: 100%;
+}
+.hd-top {
+  display: flex; align-items: center; gap: 12px; padding: 6px 14px;
+  background: linear-gradient(90deg, #17331bf2, #24502aeb 55%, #2f8a35cc);
+  color: #fff; text-shadow: 0 1px 2px #0007; border-bottom: 3px solid var(--gold-d);
+}
+.hd-silk { background: #fff; border-radius: 6px; padding: 2px 4px; box-shadow: 0 1px 3px #0005; }
+.hd-top h1 { margin: 0; font-size: 26px; font-weight: 900; letter-spacing: .06em; }
+.hd-sa { font-size: 16px; font-weight: 800; opacity: .95; letter-spacing: .1em; }
+.hd-pills { margin-left: auto; display: flex; gap: 0; border: 2px solid #fff; border-radius: 8px; overflow: hidden; }
+.hd-pills span {
+  font-size: 12px; font-weight: 800; padding: 3px 12px; background: #e9ece4; color: #4c5a4a; text-shadow: none;
+}
+.hd-pills span + span { border-left: 1px solid #fff; }
+.hd-pills span.on { background: linear-gradient(var(--green), var(--green-d)); color: #fff; }
+.hd-pills span.bad { background: #f6d5cf; color: var(--bad); }
+
+.hd-stage { position: relative; touch-action: pan-y; user-select: none; cursor: grab; }
+.hd-stage:active { cursor: grabbing; }
+.hd-info {
+  position: absolute; left: 0; top: 0; bottom: 0; width: 400px; padding: 10px 26px 10px 14px;
+  background: linear-gradient(90deg, #fbf8ecf2 72%, #fbf8ec00);
+  display: flex; flex-direction: column; gap: 6px; overflow: hidden;
+}
+.hi-crest { display: flex; align-items: center; gap: 2px; }
+.hi-laurel { color: #c49a2c; display: grid; flex: 0 0 auto; }
+.hi-laurel.r svg { transform: scaleX(-1); }
+.hi-crest-b { flex: 1 1 auto; min-width: 0; }
+.hi-ribbon {
+  text-align: center; font-size: 13px; font-weight: 900; color: #4a3000; margin-bottom: 4px;
+  background: linear-gradient(#fff3b0, #f2c94c 60%, #d9a21b); border: 1px solid #b98a1a;
+  border-radius: 3px; padding: 1px 10px; position: relative; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  clip-path: polygon(0 0, 100% 0, 96% 50%, 100% 100%, 0 100%, 4% 50%);
+}
+.hi-r { display: grid; grid-template-columns: 5.5em 1fr auto; align-items: center; gap: 6px; padding: 1px 0; }
+.hi-r > span { color: var(--fg2); font-size: 13px; font-weight: 700; }
+.hi-r > b { font-size: 15px; font-weight: 800; min-width: 0; }
+.hi-r.big > b { font-size: 15px; }
+.hi-r.big em { font-style: normal; font-size: 21px; font-weight: 900; letter-spacing: .02em; }
+.hi-rows { border-top: 1px solid #0000001a; padding-top: 5px; }
+.hi-chips { display: flex; gap: 4px; flex-wrap: wrap; grid-column: 2 / span 2; }
+.hi-chips i {
+  font-style: normal; font-size: 12px; font-weight: 900; padding: 1px 9px; border-radius: 5px;
+  color: #fff; text-shadow: 0 1px 1px #0005; border: 1px solid #0002;
+}
+.hi-chips i.turf { background: linear-gradient(#7fd06a, #3d9a3f); }
+.hi-chips i.dirt { background: linear-gradient(#d8bd55, #a98a22); }
+.hi-chips i.firm { background: linear-gradient(#7fb9f0, #3a7fd0); }
+.hi-chips i.soft { background: linear-gradient(#b292e0, #7454b8); }
+.hi-chips i.m-d { filter: grayscale(.85) brightness(1.15); }
+.hi-chips i.m-c { filter: saturate(.55); }
+.hi-style { display: flex; gap: 2px; grid-column: 2 / span 2; }
+.hi-style i {
+  font-style: normal; font-size: 13px; font-weight: 900; color: #8d856a; background: #e4ddc4;
+  padding: 1px 14px 1px 10px; clip-path: polygon(0 0, 82% 0, 100% 50%, 82% 100%, 0 100%, 12% 50%);
+}
+.hi-style i.on { background: linear-gradient(var(--green), var(--green-d)); color: #fff; }
+.hi-grade {
+  display: flex; align-items: center; gap: 6px; border: 2px solid var(--bad); border-radius: 6px;
+  padding: 0 8px; background: #fff;
+}
+.hi-grade span { font-size: 11px; font-weight: 800; color: var(--fg2); }
+.hi-grade b { font-size: 18px; font-weight: 900; font-style: italic; color: #2b2a22; }
+
+.hd-state {
+  position: absolute; right: 0; top: 0; bottom: 0; width: 250px; padding: 12px 14px 10px 30px;
+  background: linear-gradient(270deg, #fbf8ecee 70%, #fbf8ec00);
+  display: flex; flex-direction: column; align-items: stretch; gap: 8px; overflow: hidden;
+}
+.hs-ring { position: relative; align-self: center; width: 104px; height: 104px; }
+.hs-ring-t {
+  position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  line-height: 1;
+}
+.hs-ring-t span { font-size: 11px; font-weight: 800; color: var(--fg2); margin-bottom: 3px; }
+.hs-ring-t b { font-size: 28px; font-weight: 900; color: var(--green-dd); }
+.hs-ring-t small { font-size: 11px; color: var(--fg3); }
+.hs-rows { display: grid; gap: 2px; }
+.hs-r { display: flex; justify-content: space-between; align-items: center; padding: 1px 2px; border-bottom: 1px dotted #0002; }
+.hs-r span { font-size: 13px; font-weight: 700; color: var(--fg2); }
+.hs-r b { font-size: 15px; font-weight: 900; }
+.hs-traits h4 { margin: 2px 0 4px; text-align: center; font-size: 13px; color: var(--fg2); }
+.hs-traits > div { display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; }
+.hs-traits i {
+  font-style: normal; font-size: 12px; font-weight: 800; color: #fff; padding: 2px 10px; border-radius: 6px;
+  text-shadow: 0 1px 1px #0004; box-shadow: 0 1px 2px #0003;
+}
+.hs-traits i.good { background: linear-gradient(#5aa0e6, #2e6fc0); }
+.hs-traits i.bad { background: linear-gradient(#ef6a8a, #c53a62); }
+.hs-traits i.neutral { background: linear-gradient(#a7b0a2, #77826f); }
+.hd-swipe {
+  position: absolute; left: 50%; bottom: 8px; transform: translateX(-50%);
+  font-size: 11px; font-weight: 700; color: #fff; background: #0006; padding: 2px 12px; border-radius: 10px;
+  pointer-events: none;
+}
+/* 送った向きから板が滑り込む（馬は背景の 3D なので、板だけ動かして「次の馬」を感じさせる） */
+.hd-stage.in-r .hd-info, .hd-stage.in-r .hd-state { animation: hd-in-r .28s ease-out; }
+.hd-stage.in-l .hd-info, .hd-stage.in-l .hd-state { animation: hd-in-l .28s ease-out; }
+@keyframes hd-in-r { from { transform: translateX(40px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes hd-in-l { from { transform: translateX(-40px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+.hd-band {
+  display: flex; align-items: center; gap: 12px; padding: 4px 10px 4px 14px;
+  background: linear-gradient(var(--green), var(--green-d)); border-top: 2px solid #fff;
+}
+.hd-date { color: #fff; font-weight: 900; font-size: 15px; text-shadow: 0 1px 1px #0005; letter-spacing: .04em; }
+.hd-tabs {
+  margin-left: auto; display: flex; background: #fff; border-radius: 6px; padding: 2px; gap: 2px;
+  box-shadow: inset 0 0 0 2px #fff, 0 1px 3px #0003;
+}
+.hd-tabs button {
+  font: inherit; font-weight: 800; font-size: 13px; cursor: pointer; min-width: 74px;
+  border: 0; border-radius: 4px; padding: 4px 12px; background: #f1efe6; color: #3d3a2e;
+}
+.hd-tabs button:hover { background: #fff3cc; }
+.hd-tabs button.on { background: linear-gradient(#ffb15c, #ef7a1a); color: #fff; text-shadow: 0 1px 1px #0005; }
+.hd-body { overflow: auto; background: #fbf8ecf0; padding: 10px 18px; backdrop-filter: blur(3px); }
+.hd-body h4 { margin: 6px 0 6px; font-size: 13px; color: var(--green-d); }
+.hd-sub { margin-top: 10px; }
+.hd-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+.hd-cols3 { display: grid; grid-template-columns: 1.1fr 1fr 1fr; gap: 26px; align-items: start; }
+.hd-cols3 > * + * { border-left: 1px solid var(--line2); padding-left: 22px; }
+.hd-cols3 .kv dt { font-size: 12px; color: var(--green-d); }
+.hd-cols3 .kv dd { font-size: 14px; }
+.crs { display: grid; gap: 3px; }
+.cr { display: grid; grid-template-columns: 5.5em repeat(4, 1fr); align-items: center; font-variant-numeric: tabular-nums; }
+.cr span { font-size: 12px; font-weight: 800; color: var(--green-d); }
+.cr b { text-align: center; font-size: 15px; font-weight: 800; }
+.cr b:first-of-type { color: var(--gold-text); }
+.wins { margin-top: 10px; }
+.wins ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; font-size: 14px; font-weight: 700; }
+.wins small { color: var(--fg3); font-weight: 400; }
+
+.hd-foot {
+  display: flex; align-items: center; gap: 12px; padding: 6px 10px;
+  background: linear-gradient(#eef4e4f6, #dfead2f6); border-top: 2px solid var(--green);
+}
+.hd-nav { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+.hd-arrow {
+  width: 34px; height: 34px; border-radius: 8px; cursor: pointer; display: grid; place-items: center;
+  color: #fff; background: linear-gradient(var(--green), var(--green-d)); border: 2px solid #fff; box-shadow: 0 1px 3px #0004;
+}
+.hd-arrow.r svg { transform: scaleX(-1); }
+.hd-count { font-size: 12px; font-weight: 800; color: var(--fg2); min-width: 3.4em; text-align: center; font-variant-numeric: tabular-nums; }
+.hd-acts {
+  flex: 1 1 auto; display: flex; justify-content: center; gap: 0;
+}
+.hd-acts .btn {
+  border-radius: 0; border-width: 2px 1px; border-color: var(--line2); box-shadow: none; min-width: 96px;
+}
+.hd-acts .btn:first-child { border-radius: 8px 0 0 8px; border-left-width: 2px; }
+.hd-acts .btn:last-child { border-radius: 0 8px 8px 0; border-right-width: 2px; }
+.hd-acts .btn:only-child { border-radius: 8px; }
+.hd-acts .btn.primary { background: linear-gradient(#fff36a, #f2d024); color: #3a2e00; text-shadow: none; border-color: #d9b31b; box-shadow: none; }
+.hd-back {
+  display: flex; align-items: center; gap: 4px; cursor: pointer; font: inherit; font-weight: 900; font-size: 13px;
+  color: #fff; background: linear-gradient(var(--green), var(--green-d)); border: 3px solid #fff;
+  border-radius: 22px; padding: 4px 16px 4px 10px; box-shadow: 0 2px 6px #0004; text-shadow: 0 1px 1px #0005;
+  margin-left: auto;
+}
+
+/* 背の低い画面（1280×720 など）では本文を詰めて、見せ場の板が切れないようにする。 */
+@media (max-height: 820px) and (min-width: 901px) {
+  .hd { grid-template-rows: auto minmax(250px, 1fr) auto minmax(130px, 27%) auto; }
+  .hd-top { padding: 3px 14px; }
+  .hd-top h1 { font-size: 22px; }
+  .hd-info { gap: 3px; padding-top: 6px; }
+  .hi-crest-b .hi-r { padding: 0; }
+  .hi-r > b { font-size: 14px; }
+  .hi-r.big em { font-size: 18px; }
+  .hi-laurel svg { height: 58px; }
+  .hd-state { gap: 4px; padding-top: 6px; }
+  .hs-ring, .hs-ring svg { width: 84px; height: 84px; }
+  .hs-ring-t b { font-size: 22px; }
+}
+
 /* ---------------- モーダル・通知 ---------------- */
 .modal-wrap {
   position: fixed; inset: 0; background: #0b1a0e99; z-index: 50;
@@ -682,6 +857,32 @@ canvas.race3d { width: 100%; height: 100%; display: block; }
   /* 表は折り返さずに横へ巻く。折り返すと馬名が 1 文字ずつ縦に並ぶ。 */
   .card-b { overflow-x: auto; }
   .tbl td, .tbl th { white-space: nowrap; }
+  /* 馬の詳細は縦に積む。上の余白から背景の馬が見える。 */
+  .main > .hd { position: static; }
+  .shell[data-screen="stable"] .main:has(> .hd) { overflow: auto; padding: 0; }
+  .hd { display: block; height: auto; }
+  .hd-top { flex-wrap: wrap; gap: 6px 10px; }
+  .hd-top h1 { font-size: 20px; }
+  .hd-pills { margin-left: 0; }
+  .hd-stage { padding: 34vh 8px 8px; display: grid; gap: 8px; cursor: auto; }
+  .hd-info, .hd-state { position: static; width: auto; background: #fbf8ecf2; border-radius: 12px; padding: 10px 12px; }
+  .hd-state { display: grid; grid-template-columns: auto 1fr; align-items: center; }
+  .hs-traits { grid-column: 1 / -1; }
+  .hd-swipe { top: 30vh; bottom: auto; }
+  .hd-band { flex-wrap: wrap; }
+  .hd-tabs { margin-left: 0; overflow-x: auto; max-width: 100%; }
+  .hd-tabs button { min-width: 0; padding: 4px 9px; }
+  .hd-body { padding: 10px; }
+  .hd-cols, .hd-cols3 { grid-template-columns: 1fr; gap: 12px; }
+  .hd-cols3 > * + * { border-left: 0; padding-left: 0; border-top: 1px solid var(--line2); padding-top: 10px; }
+  /* 下の操作は画面の下に貼り付ける。右下の NEXT と重ならないよう右を空ける。 */
+  .hd-foot { flex-wrap: wrap; justify-content: center; position: sticky; bottom: 0; z-index: 3; padding-right: 96px; }
+  .hd-foot { gap: 6px; padding-top: 4px; padding-bottom: 4px; }
+  .hd-nav .btn { display: none; }
+  .hd-arrow { width: 30px; height: 30px; }
+  .hd-back { padding: 2px 12px 2px 8px; }
+  .hd-acts { order: 3; flex-basis: 100%; justify-content: flex-start; overflow-x: auto; }
+  .hd-acts .btn { min-width: 0; flex: 0 0 auto; padding: 4px 10px; font-size: 12px; }
   .hpanel { height: auto; max-height: 52%; gap: 6px; }
   .pc-b { min-height: 64px; }
   .rankplate { padding: 3px 10px 3px 6px; }

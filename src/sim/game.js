@@ -15,7 +15,7 @@ import {
   ABILITIES, SEX, WEEKS_PER_YEAR, classOrder, className, standardWeight,
   weekToMonth, STYLES,
 } from './params.js';
-import { SURFACE, courseName } from './course.js';
+import { SURFACE, courseName, getCourse, DIR } from './course.js';
 import { clamp01, sum, byDesc, formatMoney, formatTime, rankOf } from '../core/util.js';
 
 /** 新規ゲーム。 */
@@ -484,6 +484,55 @@ export function finance(g) {
     starts: p.starts, wins: p.wins, g1: p.g1,
     titles: p.titles,
   };
+}
+
+/**
+ * 馬の詳細の「成績」欄。全成績・芝・ダート・重賞別・回り別を 1-2-3-着外で数え、
+ * 主な勝鞍と路線、今週の次走も返す。
+ * 開始前の戦績（past）は着順しか持たないので、全成績と重賞にだけ数える。
+ */
+export function horseCareer(g, id) {
+  const w = g.world;
+  const h = w.horses.get(id);
+  if (!h) return null;
+  const blank = () => [0, 0, 0, 0];
+  const c = { all: blank(), turf: blank(), dirt: blank(), GI: blank(), GII: blank(), GIII: blank(), right: blank(), left: blank() };
+  const put = (k, order) => { c[k][Math.min(3, order - 1)]++; };
+  const wins = [];
+  // 開始前の戦績は格付けを 'G1' の形で持っている。
+  const GR = { G1: 'GI', G2: 'GII', G3: 'GIII' };
+  for (const r of h.record) {
+    const grade = GR[r.grade] ?? r.grade;
+    if (c[grade]) put(grade, r.order);
+    if (!r.past) {
+      put(r.surface === SURFACE.DIRT ? 'dirt' : 'turf', r.order);
+      const dir = getCourse(r.courseId)?.dir;
+      if (dir) put(dir === DIR.LEFT ? 'left' : 'right', r.order);
+    }
+    if (r.order === 1) wins.push({ ...r, grade });
+  }
+  // 記録は直近 30 走しか持たないので、全成績は通算の数字で上書きする。
+  c.all = [h.wins, h.seconds ?? 0, h.thirds ?? 0, Math.max(0, h.starts - h.wins - (h.seconds ?? 0) - (h.thirds ?? 0))];
+  const rank = { GI: 0, GII: 1, GIII: 2 };
+  const bigWins = wins.slice().sort((a, b) => (rank[a.grade] ?? 9) - (rank[b.grade] ?? 9) || b.year - a.year)
+    .slice(0, 4).map((r) => ({ name: r.name, grade: r.grade ?? null, year: r.year }));
+  const surface = (h.dirt ?? 0) > (h.turf ?? 0) + 0.05 ? 'ダート' : '芝';
+  const band = h.dist <= 1400 ? '短距離' : h.dist <= 1800 ? 'マイル' : h.dist <= 2400 ? '中距離' : '長距離';
+  const entry = [...w.player.entries.values()].find((e) => e.horseId === id);
+  const next = entry ? decorate(w, weekRaces(w).find((r) => r.raceId === entry.raceId) ?? {}) : null;
+  return {
+    counts: c, bigWins,
+    route: `${surface}${band}`,
+    next: next && next.name ? { name: next.name, grade: next.grade ?? null, label: weekLabel(w.week) } : null,
+  };
+}
+
+/**
+ * 左右に送って見られる馬の並び。所有馬一覧と同じ順（現役 → 繁殖牝馬 → 種牡馬）。
+ * 自分の馬でなければ並びを作らない（他人の馬を順に覗く画面ではないため）。
+ */
+export function myLineup(g) {
+  return [...myHorses(g), ...myBroodmares(g), ...myStallions(g)].map((h) => h.id);
 }
 
 /** 今週の開催場の名前。 */

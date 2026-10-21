@@ -25,6 +25,8 @@ export function titleScreen(app) {
         app.stack.length = 0;
         app.go('home', {}, { replace: true });
       } catch (e) {
+        // 生成の後の最初の描画で落ちても、ここに来る。原因を追えるよう console にも残す。
+        console.error(e);
         status.textContent = `生成に失敗：${e.message}`;
       }
     }, 20));
