@@ -142,7 +142,10 @@ src/render3d/       three.js。走行ログを再生する
   track.js            走路・ラチ・スタンド・遠景
   horse3d.js          馬と騎手。脚の動きは走行距離に同期
   raceview.js         シーン・カメラ・再生
+  pasture.js          ホームの背景。放牧地を所有馬が歩き、草を食む
 src/ui/             画面
+  app.js              殻（上の帯・左のメニュー・NEXT・背景の 3D）
+  icons.js            メニューと帯のアイコン（SVG）
 assets/             馬のドット絵（元絵と、背景を抜いたスプライト）
 vendor/three/       three.js r169（MIT）を同梱
 tools/              serve / verify / timecheck / season / icons / sprite
@@ -153,8 +156,9 @@ tools/              serve / verify / timecheck / season / icons / sprite
 
 ## 操作
 
-- `N` — 次の週へ
-- `S` — セーブ / ロード
+- `N`（または左下の NEXT）— 次の週へ
+- `S`（または NEXT の下のセーブ）— セーブ / ロード
+- ホーム右のカードは ↑↓ でめくる（出走予定・重賞・所有馬・先週の結果・強豪・経営）
 
 ## ライセンス
 

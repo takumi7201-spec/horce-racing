@@ -66,135 +66,156 @@ function silksColors(seed) {
 }
 
 const box = (w, h, d) => new THREE.BoxGeometry(w, h, d);
+/** 縦長のカプセル（ローカル +y 方向に伸びる）。 */
+const capsule = (r, len, seg = 8) => new THREE.CapsuleGeometry(r, len, 4, seg);
+const sphere = (r, w = 12, h = 9) => new THREE.SphereGeometry(r, w, h);
+const clamp01 = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);
 
 /**
  * 1 頭ぶんのモデルを作る。
- * @returns {{group:THREE.Group, update:(s:number,v:number,bank:number)=>void}}
+ *
+ * 形は球とカプセルの組み合わせ。もとは箱だったが、牧場の画面で近くから
+ * 見せると角ばった木馬にしか見えなかったので丸くした。
+ * 首はキ甲（肩の頂点）から前上へ、頭は項（うなじ）から鼻先へ前下がりに伸ばす。
+ * 箱の時代は首の傾きが逆向き（上端が胴の側へ倒れていた）で、遠目で
+ * 誤魔化せていただけだった。
+ *
+ * @param {{bare?:boolean}} opts bare=true で騎手とゼッケンを付けない（牧場用）
+ * @returns {{group:THREE.Group, update:Function, legs:Array, body:THREE.Group, rider:THREE.Group|null}}
  */
-export function makeHorse({ id = 1, gate = 1, frame = 1, coat = '鹿毛', scale = 1 } = {}) {
+export function makeHorse({ id = 1, gate = 1, frame = 1, coat = '鹿毛', scale = 1, bare = false } = {}) {
   const group = new THREE.Group();
   const body = new THREE.Group();   // 胴体まわり（上下に揺れる）
   group.add(body);
 
   const coatColor = COAT[coat] ?? COAT['鹿毛'];
   const hide = new THREE.MeshLambertMaterial({ color: coatColor });
-  const mane = new THREE.MeshLambertMaterial({ color: coatColor === COAT['芦毛'] ? 0x9a9690 : 0x241709 });
+  // 鹿毛系はたてがみ・尾・脚先が黒い。芦毛と白毛は灰色、栗毛は同系の明るい色。
+  const pointsColor = coat === '芦毛' ? 0x8f8b86 : coat === '白毛' ? 0xd8d4cc
+    : coat === '栗毛' ? 0xb98a52 : coat === '栃栗毛' ? 0x4a2e18 : 0x1e140c;
+  const mane = new THREE.MeshLambertMaterial({ color: pointsColor });
+  const hoofMat = new THREE.MeshLambertMaterial({ color: 0x2a2420 });
   const [silkA, silkB] = silksColors(id);
   const silksMat = new THREE.MeshLambertMaterial({ color: silkA });
   const capMat = new THREE.MeshLambertMaterial({ color: silkB });
   const skinMat = new THREE.MeshLambertMaterial({ color: 0xe0b48c });
 
+  const add = (parent, geo, mat, x, y, z, rx = 0) => {
+    const m = new THREE.Mesh(geo, mat);
+    m.position.set(x, y, z);
+    m.rotation.x = rx;
+    parent.add(m);
+    return m;
+  };
+
   // --- 胴 ---
-  const torso = new THREE.Mesh(box(0.72, 0.82, 2.05), hide);
-  torso.position.set(0, 1.18, 0);
-  body.add(torso);
-  // 肩と腰を少し膨らませる。
-  const chest = new THREE.Mesh(box(0.78, 0.86, 0.6), hide);
-  chest.position.set(0, 1.20, 0.72);
-  body.add(chest);
-  const rump = new THREE.Mesh(box(0.80, 0.84, 0.62), hide);
-  rump.position.set(0, 1.22, -0.72);
-  body.add(rump);
+  // 胴はカプセルを寝かせて置く（rotation.x = π/2 で +y が +z を向く）。
+  // 胸から尻までは 1.7m 前後（体高とほぼ同じ）。これより長いと腸詰めに見える。
+  const torso = add(body, capsule(0.38, 0.8, 12), hide, 0, 1.2, 0, Math.PI / 2);
+  torso.scale.set(0.9, 1, 1.0);
+  // 胸は深く、キ甲（肩の頂点）は尻より少し高い。
+  const chest = add(body, sphere(0.42), hide, 0, 1.22, 0.5);
+  chest.scale.set(0.86, 1.08, 0.95);
+  const rump = add(body, sphere(0.43), hide, 0, 1.24, -0.5);
+  rump.scale.set(0.95, 1, 1.0);
 
   // --- 首と頭 ---
-  const neck = new THREE.Mesh(box(0.42, 0.95, 0.42), hide);
-  neck.position.set(0, 1.52, 1.02);
-  neck.rotation.x = -0.72;
-  body.add(neck);
-  const head = new THREE.Mesh(box(0.3, 0.3, 0.74), hide);
-  head.position.set(0, 1.76, 1.52);
-  head.rotation.x = -0.25;
-  body.add(head);
-  const nose = new THREE.Mesh(box(0.26, 0.24, 0.2), mane);
-  nose.position.set(0, 1.70, 1.86);
-  body.add(nose);
+  // 首と頭はキ甲を支点にした組にして、うつむき（草を食む）も表せるようにする。
+  const neckPivot = new THREE.Group();
+  neckPivot.position.set(0, 1.42, 0.62);
+  body.add(neckPivot);
+  // 首の付け根を太くして胸につなぐ（細い首が胴から生えて見えないように）。
+  const neckBase = add(neckPivot, sphere(0.27), hide, 0, 0.0, 0.02);
+  neckBase.scale.set(0.85, 1.05, 1.1);
+  // rotation.x = θ はローカル +y を (cosθ, sinθ) へ倒す（前上がり）。
+  const neck = add(neckPivot, capsule(0.18, 0.6, 10), hide, 0, 0.3, 0.3, 0.80);
+  neck.scale.set(0.85, 1, 1.35);
+  const maneMesh = add(neckPivot, box(0.07, 0.82, 0.12), mane, 0, 0.42, 0.18, 0.80);
+  const headPivot = new THREE.Group();
+  headPivot.position.set(0, 0.58, 0.62);          // 項
+  neckPivot.add(headPivot);
+  const head = add(headPivot, capsule(0.13, 0.42, 10), hide, 0, -0.14, 0.26, 2.15);
+  head.scale.set(0.95, 1, 1.15);
+  add(headPivot, sphere(0.16), hide, 0, -0.02, 0.07);           // 頬
+  add(headPivot, sphere(0.11), mane, 0, -0.34, 0.5);             // 鼻先
   for (const sx of [-1, 1]) {
-    const ear = new THREE.Mesh(box(0.08, 0.2, 0.08), hide);
-    ear.position.set(sx * 0.1, 1.95, 1.3);
-    body.add(ear);
+    const ear = add(headPivot, new THREE.ConeGeometry(0.045, 0.17, 5), hide, sx * 0.07, 0.15, 0.0);
+    ear.rotation.z = -sx * 0.18;
   }
-  // たてがみ
-  const maneMesh = new THREE.Mesh(box(0.12, 0.16, 1.0), mane);
-  maneMesh.position.set(0, 1.78, 1.06);
-  maneMesh.rotation.x = -0.72;
-  body.add(maneMesh);
+  const forelock = add(headPivot, box(0.1, 0.12, 0.06), mane, 0, 0.1, 0.1, 0.4);
+  forelock.visible = true;
 
-  // --- 尾（走ると流れる） ---
-  const tail = new THREE.Mesh(box(0.16, 0.16, 0.9), mane);
-  tail.position.set(0, 1.3, -1.25);
-  tail.rotation.x = 0.5;
-  body.add(tail);
+  // --- 尾（付け根を支点に、走ると後ろへ流れる） ---
+  const tailPivot = new THREE.Group();
+  tailPivot.position.set(0, 1.42, -0.88);
+  body.add(tailPivot);
+  const tail = add(tailPivot, capsule(0.075, 0.62, 8), mane, 0, -0.38, 0);
+  tail.scale.set(1.2, 1, 0.8);
 
   // --- 脚 ---
   // 上肢（肩/股→膝）と下肢（膝→蹄）の 2 節。ピボットは各節の上端。
+  // phase は襲歩（ギャロップ）と常歩（なみあし）でそれぞれ違う拍子。
   const legs = [];
   const legDef = [
-    { x: -0.26, z: 0.75, phase: 0.50 },  // 左前
-    { x: 0.26, z: 0.75, phase: 0.62 },   // 右前
-    { x: -0.28, z: -0.75, phase: 0.00 }, // 左後
-    { x: 0.28, z: -0.75, phase: 0.12 },  // 右後
+    { x: -0.2, z: 0.52, gallop: 0.50, walk: 0.25 },   // 左前
+    { x: 0.2, z: 0.52, gallop: 0.62, walk: 0.75 },    // 右前
+    { x: -0.22, z: -0.55, gallop: 0.00, walk: 0.00 }, // 左後
+    { x: 0.22, z: -0.55, gallop: 0.12, walk: 0.50 },  // 右後
   ];
   for (const d of legDef) {
     const hip = new THREE.Group();
-    hip.position.set(d.x, 1.02, d.z);
-    const upper = new THREE.Mesh(box(0.18, 0.56, 0.18), hide);
-    upper.position.y = -0.28;
-    hip.add(upper);
+    hip.position.set(d.x, 1.05, d.z);
+    const upper = add(hip, capsule(0.085, 0.42, 8), hide, 0, -0.28, 0);
+    upper.scale.set(1, 1, 1.25);
     const knee = new THREE.Group();
     knee.position.y = -0.56;
-    const lower = new THREE.Mesh(box(0.13, 0.46, 0.13), hide);
-    lower.position.y = -0.23;
-    knee.add(lower);
-    const hoof = new THREE.Mesh(box(0.17, 0.1, 0.2), mane);
-    hoof.position.y = -0.48;
-    knee.add(hoof);
+    add(knee, capsule(0.058, 0.36, 8), mane, 0, -0.22, 0);
+    add(knee, new THREE.CylinderGeometry(0.075, 0.09, 0.1, 8), hoofMat, 0, -0.46, 0.01);
     hip.add(knee);
     body.add(hip);
-    legs.push({ hip, knee, phase: d.phase });
+    legs.push({ hip, knee, gallop: d.gallop, walk: d.walk });
   }
 
-  // --- 騎手 ---
-  const rider = new THREE.Group();
-  rider.position.set(0, 1.62, -0.1);
-  const seat = new THREE.Mesh(box(0.46, 0.42, 0.5), silksMat);
-  seat.position.set(0, 0.16, -0.04);
-  rider.add(seat);
-  const back = new THREE.Mesh(box(0.42, 0.46, 0.34), silksMat);
-  back.position.set(0, 0.42, 0.18);
-  back.rotation.x = -0.95;  // 前傾（モンキー乗り）
-  rider.add(back);
-  const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.17, 10, 8), capMat);
-  helmet.position.set(0, 0.62, 0.46);
-  rider.add(helmet);
-  for (const sx of [-1, 1]) {
-    const arm = new THREE.Mesh(box(0.1, 0.1, 0.52), silksMat);
-    arm.position.set(sx * 0.19, 0.46, 0.5);
-    arm.rotation.x = 0.25;
-    rider.add(arm);
-    const thigh = new THREE.Mesh(box(0.13, 0.34, 0.14), skinMat);
-    thigh.position.set(sx * 0.22, 0.0, 0.08);
-    thigh.rotation.x = 0.55;
-    rider.add(thigh);
-    const boot = new THREE.Mesh(box(0.12, 0.28, 0.12), capMat);
-    boot.position.set(sx * 0.24, -0.22, 0.26);
-    rider.add(boot);
-  }
-  body.add(rider);
+  // --- 騎手（牧場では付けない） ---
+  let rider = null;
+  if (!bare) {
+    rider = new THREE.Group();
+    rider.position.set(0, 1.62, -0.1);
+    const seat = new THREE.Mesh(box(0.46, 0.42, 0.5), silksMat);
+    seat.position.set(0, 0.16, -0.04);
+    rider.add(seat);
+    const back = new THREE.Mesh(box(0.42, 0.46, 0.34), silksMat);
+    back.position.set(0, 0.42, 0.18);
+    back.rotation.x = -0.95;  // 前傾（モンキー乗り）
+    rider.add(back);
+    const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.17, 10, 8), capMat);
+    helmet.position.set(0, 0.62, 0.46);
+    rider.add(helmet);
+    for (const sx of [-1, 1]) {
+      const arm = new THREE.Mesh(box(0.1, 0.1, 0.52), silksMat);
+      arm.position.set(sx * 0.19, 0.46, 0.5);
+      arm.rotation.x = 0.25;
+      rider.add(arm);
+      const thigh = new THREE.Mesh(box(0.13, 0.34, 0.14), skinMat);
+      thigh.position.set(sx * 0.22, 0.0, 0.08);
+      thigh.rotation.x = 0.55;
+      rider.add(thigh);
+      const boot = new THREE.Mesh(box(0.12, 0.28, 0.12), capMat);
+      boot.position.set(sx * 0.24, -0.22, 0.26);
+      rider.add(boot);
+    }
+    body.add(rider);
 
-  // --- ゼッケン（馬番） ---
-  const clothGeo = box(0.02, 0.34, 0.42);
-  const clothMat = [
-    new THREE.MeshLambertMaterial({ map: numberTexture(gate, frame) }),
-    new THREE.MeshLambertMaterial({ map: numberTexture(gate, frame) }),
-    new THREE.MeshLambertMaterial({ color: FRAME_COLORS[(frame - 1) % 8] }),
-    new THREE.MeshLambertMaterial({ color: FRAME_COLORS[(frame - 1) % 8] }),
-    new THREE.MeshLambertMaterial({ color: FRAME_COLORS[(frame - 1) % 8] }),
-    new THREE.MeshLambertMaterial({ color: FRAME_COLORS[(frame - 1) % 8] }),
-  ];
-  for (const sx of [-1, 1]) {
-    const cloth = new THREE.Mesh(clothGeo, clothMat);
-    cloth.position.set(sx * 0.37, 1.22, 0.1);
-    body.add(cloth);
+    // --- ゼッケン（馬番） ---
+    const clothGeo = box(0.02, 0.34, 0.42);
+    const side = new THREE.MeshLambertMaterial({ color: FRAME_COLORS[(frame - 1) % 8] });
+    const face = new THREE.MeshLambertMaterial({ map: numberTexture(gate, frame) });
+    const clothMat = [face, face, side, side, side, side];
+    for (const sx of [-1, 1]) {
+      const cloth = new THREE.Mesh(clothGeo, clothMat);
+      cloth.position.set(sx * 0.37, 1.24, 0.1);
+      body.add(cloth);
+    }
   }
 
   if (scale !== 1) group.scale.setScalar(scale);
@@ -203,34 +224,48 @@ export function makeHorse({ id = 1, gate = 1, frame = 1, coat = '鹿毛', scale 
   let phase = 0;
 
   /**
-   * @param {number} s   走った距離（m）。位相はこれで進める
-   * @param {number} v   速度（m/s）。前傾と尾のなびきに使う
+   * @param {number} s    走った距離（m）。位相はこれで進める
+   * @param {number} v    速度（m/s）。歩様・前傾・尾のなびきに使う
    * @param {number} bank コーナーの内傾（rad）
+   * @param {{t?:number, graze?:number}} idle 牧場用。t は経過秒、graze は 0..1 のうつむき
    */
-  function update(s, v, bank = 0) {
+  function update(s, v, bank = 0, idle = null) {
     const ds = Math.max(0, s - prevS);
     prevS = s;
-    phase = (phase + ds / STRIDE) % 1;
+    // 常歩と襲歩では 1 完歩の長さも脚の振り幅も違う。レースの速度（10m/s 以上）
+    // では gait = 1 になり、以前の襲歩の動きと同じになる。
+    const gait = clamp01((v - 2) / 8);
+    const stride = 1.7 + (STRIDE - 1.7) * gait;
+    phase = (phase + ds / stride) % 1;
+    const moving = clamp01(v / 0.8);           // 止まっていれば脚はまっすぐ
     const tau = Math.PI * 2;
+    const hipAmp = 0.95 * (0.38 + 0.62 * gait) * moving;
+    const kneeAmp = 1.25 * (0.45 + 0.55 * gait) * moving;
 
     for (const leg of legs) {
-      const t = (phase + leg.phase) % 1;
-      const a = t * tau;
+      const lp = leg.walk + (leg.gallop - leg.walk) * gait;
+      const a = ((phase + lp) % 1) * tau;
       // 股は前後に振る。膝は後方に送るときだけ深く曲がる。
-      leg.hip.rotation.x = Math.sin(a) * 0.95;
-      leg.knee.rotation.x = -Math.max(0, -Math.cos(a)) * 1.25 - 0.08;
+      leg.hip.rotation.x = Math.sin(a) * hipAmp;
+      leg.knee.rotation.x = -Math.max(0, -Math.cos(a)) * kneeAmp - 0.06;
     }
-    // 胴の上下動は 1 完歩に 1 回。沈み込みで前肢が着く。
-    const bob = Math.sin(phase * tau) * 0.075;
-    body.position.y = bob;
-    body.rotation.x = Math.cos(phase * tau) * 0.045;
+    // 胴の上下動は 1 完歩に 1 回。沈み込みで前肢が着く。常歩ではほとんど揺れない。
+    const bobAmp = (0.015 + 0.06 * gait) * moving;
+    body.position.y = Math.sin(phase * tau) * bobAmp;
+    body.rotation.x = Math.cos(phase * tau) * 0.045 * gait;
     body.rotation.z = bank;
-    // 速いほど前に伸びる。尾は後ろへ流れる。
+    // 速いほど首を前に伸ばす。尾は後ろへ流れる。
     const run = Math.min(1, v / 18);
-    neck.rotation.x = -0.72 - run * 0.16;
-    head.rotation.x = -0.25 - run * 0.1;
-    tail.rotation.x = 0.5 + run * 0.6;
-    rider.rotation.x = -run * 0.12;
+    const t = idle?.t ?? 0;
+    const graze = idle?.graze ?? 0;
+    // 首はキ甲を支点に前へ倒す。うつむくと鼻先が地面に届く。
+    neckPivot.rotation.x = 0.12 + run * 0.32 + graze * 1.35
+      + (idle ? Math.sin(t * 0.9 + id) * 0.03 * (1 - moving) : 0);
+    headPivot.rotation.x = run * 0.15 + graze * 0.35;
+    tailPivot.rotation.x = 0.28 + run * 1.0;
+    // 止まっているときは尾をゆっくり振る（牧場の画面だけ）。
+    tailPivot.rotation.z = idle ? Math.sin(t * 1.6 + id * 1.7) * 0.22 * (1 - moving) : 0;
+    if (rider) rider.rotation.x = -run * 0.12;
   }
 
   return { group, update, legs, body, rider };

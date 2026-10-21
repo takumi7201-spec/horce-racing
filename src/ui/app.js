@@ -1,10 +1,15 @@
 // 画面の殻。
-// ルーティングと、どの画面からでも使う共通のヘッダ（年週・資金・週送り）を持つ。
+// ルーティングと、どの画面からでも使う共通の枠（上の帯・左のメニュー・NEXT）を持つ。
+//
+// 後ろには牧場の 3D をずっと置いておく。画面の切り替えで消すのは前面の UI だけで、
+// 3D は止める・ぼかす・再開するだけ（WebGL を作り直すとコンテキストが溢れる）。
 
 import { el, clear, button, toast, modal, card, table } from './dom.js';
 import * as G from '../sim/game.js';
 import { saveLocal, loadLocal, slotInfo, clearSlot } from '../sim/save.js';
 import { loadHorseSprite } from './horse-sprite.js';
+import { icon } from './icons.js';
+import { createPasture } from '../render3d/pasture.js';
 import { formatMoney } from '../core/util.js';
 import { weekLabel } from '../sim/schedule.js';
 import { titleScreen } from './screens/title.js';
@@ -26,11 +31,18 @@ const SCREENS = {
 };
 
 const NAV = [
-  { id: 'home', name: 'ホーム' },
-  { id: 'stable', name: '所有馬' },
-  { id: 'races', name: '番組表' },
-  { id: 'farm', name: '牧場' },
-  { id: 'records', name: '記録' },
+  { id: 'home', name: 'ホーム', icon: 'home' },
+  { id: 'stable', name: '所有馬', icon: 'horse' },
+  { id: 'races', name: '番組表', icon: 'calendar' },
+  { id: 'farm', name: '牧場', icon: 'barn' },
+  { id: 'records', name: '記録', icon: 'trophy' },
+];
+
+/** タイトルの放牧地に歩かせる飾りの馬。所有馬がまだ居ないので名前は出さない。 */
+const TITLE_HORSES = [
+  { id: 11, name: '', coat: '鹿毛' }, { id: 12, name: '', coat: '栗毛' },
+  { id: 13, name: '', coat: '芦毛' }, { id: 14, name: '', coat: '黒鹿毛' },
+  { id: 15, name: '', coat: '鹿毛', age: 1 },
 ];
 
 /** 来た道を覚えておく深さ。これを超えたら古いほうから捨てる。 */
@@ -151,18 +163,32 @@ export function start(root) {
     },
 
     render() {
-      clear(root);
+      clear(ui);
       const screen = SCREENS[app.screen] ?? homeScreen;
       if (app.screen === 'title' || !app.game) {
-        root.appendChild(el('div.app.plain', titleScreen(app)));
+        syncBackdrop(app, 'title');
+        ui.appendChild(el('div.app.plain', titleScreen(app)));
         return;
       }
-      root.appendChild(el('div.app', [
+      syncBackdrop(app, app.screen);
+      ui.appendChild(el('div.app.shell', { 'data-screen': app.screen }, [
         header(app),
-        el('div.main', screen(app)),
+        sideNav(app),
+        el('main.main', screen(app)),
+        dock(app),
       ]));
     },
   };
+
+  // 背景（3D の放牧地）と前面（画面）を分けて持つ。render() が消すのは前面だけ。
+  const bg = el('div.bg', [
+    el('canvas.pasture'),
+    el('div.plabels'),
+    el('div.bg-shade'),
+  ]);
+  const ui = el('div.ui');
+  root.append(bg, ui);
+  app.bg = bg;
 
   // スプライトは先に読み込んでおく。描画は同期なので、
   // 間に合わなければ読み終わった時点で <img> に差し込まれる。
@@ -170,7 +196,15 @@ export function start(root) {
 
   app.render();
   window.addEventListener('resize', () => {
+    app.pasture?.resize();
+    if (app.pasture && app.game && app.screen === 'home') syncBackdrop(app, 'home');
     if (app.onResize) app.onResize();
+  });
+  // タブを離れている間は放牧地を止める（電池を食わないように）。
+  document.addEventListener('visibilitychange', () => {
+    if (!app.pasture) return;
+    if (document.hidden) app.pasture.stop();
+    else if (app.bgLive) app.pasture.start();
   });
   // キーボード：N で週送り、S でセーブ。
   window.addEventListener('keydown', (e) => {
@@ -182,28 +216,109 @@ export function start(root) {
   return app;
 }
 
+/**
+ * 背景の放牧地を画面に合わせる。
+ * ホームとタイトルでは動かし、ほかの画面では止めてぼかす（表を読む邪魔をしない）。
+ * レース観戦は自前の 3D を持つので、こちらは止めて隠す。
+ */
+function syncBackdrop(app, screen) {
+  const bg = app.bg;
+  if (!app.pasture && !app.noGL) {
+    try {
+      app.pasture = createPasture(bg.querySelector('canvas'), bg.querySelector('.plabels'));
+    } catch (e) {
+      // WebGL が使えない端末では、絵の代わりに空と草原のグラデーションを敷く。
+      app.noGL = true;
+      bg.classList.add('nogl');
+    }
+  }
+  const live = screen === 'home' || screen === 'title';
+  bg.classList.toggle('dim', !live);
+  bg.classList.toggle('off', screen === 'raceday');
+  app.bgLive = live;
+  const p = app.pasture;
+  if (!p) return;
+  if (screen === 'title') {
+    p.setHorses(TITLE_HORSES, { labels: false });
+    p.setShift(0);
+  } else if (app.game) {
+    p.setHorses(G.ranchHorses(app.game), { labels: true });
+    // 右の情報パネル（約 380px）と左のメニュー（約 110px）の間を見せたい中心にする。
+    // 縦長の画面ではパネルが下半分に来るので、絵を上へ寄せて馬を出す。
+    const wide = window.innerWidth > 900;
+    if (screen !== 'home') p.setShift(0, 0);
+    else if (wide) p.setShift(135, 0);
+    else p.setShift(0, Math.round(window.innerHeight * 0.16));
+  }
+  p.setLabels(screen === 'home');
+  if (live && !document.hidden) p.start();
+  else p.stop();
+}
+
+/** 上の帯。資金・年週と開催・数字のチップ。 */
 function header(app) {
   const g = app.game;
   const t = G.now(g);
   const f = G.finance(g);
-  const entries = G.myEntries(g).length;
-  return el('header.topbar', [
-    el('div.tb-left', [
-      el('div.tb-farm', { text: g.world.player.farmName }),
-      el('div.tb-date', { text: `${t.year}年 ${t.label}` }),
-    ]),
-    el('div.tb-mid', NAV.map((n) => el('button.navb', {
-      text: n.name,
-      class: app.screen === n.id ? 'on' : null,
-      onclick: () => app.go(n.id),
-    }))),
-    el('div.tb-right', [
-      el('div.tb-money', [
-        el('span.lbl', { text: '資金' }),
-        el('span.val', { text: formatMoney(f.money), class: f.money < 0 ? 'minus' : null }),
+  const [month, wk] = t.label.match(/\d+/g) ?? ['', ''];
+  const chip = (ic, label, value) => el('div.hb-chip', [
+    icon(ic, { size: 18 }),
+    el('span.hc-l', { text: label }),
+    el('b.hc-v', { text: String(value) }),
+  ]);
+  return el('header.hudbar', [
+    el('div.hb-money', [
+      el('span.hb-coin', icon('coin', { size: 22 })),
+      el('div.hb-mv', [
+        el('span.hb-ml', { text: '所持金' }),
+        el('b', { text: formatMoney(f.money).replace(/円$/, ''), class: f.money < 0 ? 'minus' : null }),
+        el('small', { text: '円' }),
       ]),
-      button('セーブ', () => app.openSaveMenu(), { cls: 'ghost sm' }),
-      button(entries ? `次の週へ（登録${entries}）` : '次の週へ', () => app.next(), { cls: 'primary' }),
+    ]),
+    el('div.hb-date', [
+      el('div.hb-year', { text: `${t.year}年` }),
+      el('div.hb-week', [el('b', { text: month }), '月', el('b', { text: wk }), '週']),
+      el('div.hb-meet', G.meetings(g).map((n) => el('span', { text: n }))),
+    ]),
+    el('div.hb-chips', [
+      chip('trophy', 'GI', f.g1),
+      chip('star', '勝利', f.wins),
+      chip('horse', '所有馬', f.horses),
+      chip('mare', '繁殖', f.broodmares),
+    ]),
+    el('div.hb-farm', [
+      el('b', { text: g.world.player.farmName }),
+      el('span', { text: g.world.player.name ? `馬主 ${g.world.player.name}` : '' }),
+    ]),
+  ]);
+}
+
+/** 左の縦メニュー。 */
+function sideNav(app) {
+  return el('nav.side', NAV.map((n) => el('button.sideb', {
+    class: app.screen === n.id ? 'on' : null,
+    title: n.name,
+    onclick: () => app.go(n.id),
+  }, [
+    el('span.sb-tile', icon(n.icon, { size: 30 })),
+    el('span.sb-label', { text: n.name }),
+  ])));
+}
+
+/** 左下の NEXT と小さなセーブ。 */
+function dock(app) {
+  const entries = G.myEntries(app.game).length;
+  return el('div.dock', [
+    el('button.nextb', { onclick: () => app.next(), title: '次の週へ（N）' }, [
+      el('span.nb-ring', [
+        icon('next', { size: 34 }),
+        el('b', { text: 'NEXT' }),
+        el('small', { text: '次の週へ' }),
+      ]),
+      entries ? el('span.nb-badge', { text: `出走 ${entries}` }) : null,
+    ]),
+    el('button.saveb', { onclick: () => app.openSaveMenu(), title: 'セーブ / ロード（S）' }, [
+      icon('save', { size: 16 }), el('span', { text: 'セーブ' }),
     ]),
   ]);
 }

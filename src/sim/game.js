@@ -4,7 +4,7 @@
 // 「セーブ可能な状態」と「表示のための導出値」を分けている。
 
 import { createWorld, advanceWeek, weekRaces, weekGround, horsesOf, stallionList, computeLeaders, retireHorse } from './world.js';
-import { eligible, weekLabel, gradedCalendar, GRADED_BY_ID } from './schedule.js';
+import { eligible, weekLabel, gradedCalendar, GRADED_BY_ID, meetingsOf } from './schedule.js';
 import { horseAge, effectiveAbility, styleLabel, distanceAptitude, canRun, STYLE_TARGET } from './horse.js';
 import { readyToRun, MENUS, fitLabel, condLabel } from './training.js';
 import { matingEval, pedigreeTree, nicksValue, lineLabel, breedQuality } from './pedigree.js';
@@ -484,6 +484,52 @@ export function finance(g) {
     starts: p.starts, wins: p.wins, g1: p.g1,
     titles: p.titles,
   };
+}
+
+/** 今週の開催場の名前。 */
+export const meetings = (g) => meetingsOf(g.world.week).map(courseName);
+
+/**
+ * 牧場の放牧地に出す馬。ホーム画面の 3D に歩かせる。
+ * 放牧中の馬・繁殖牝馬・デビュー前の若駒を優先し、それでも少なければ
+ * 在厩の馬で埋める（在厩の馬しか居ないと、放牧地が空っぽに見えてしまう）。
+ */
+export function ranchHorses(g, limit = 7) {
+  const w = g.world;
+  const out = [];
+  const seen = new Set();
+  const push = (h, kind) => {
+    if (!h || h.dead || seen.has(h.id) || out.length >= limit) return;
+    seen.add(h.id);
+    out.push({ id: h.id, name: h.name, coat: h.coat, sex: h.sex, age: horseAge(h, w.year), kind });
+  };
+  const mine = w.player.horses.map((id) => w.horses.get(id)).filter((h) => h && !h.dead && !h.retired);
+  for (const h of mine) if (horseAge(h, w.year) < 2) push(h, '若駒');
+  for (const h of mine) if (h.stable !== 'stable') push(h, '放牧');
+  for (const id of w.player.broodmares) push(w.horses.get(id), '繁殖');
+  if (out.length < 3) for (const h of mine) push(h, '在厩');
+  return out;
+}
+
+/**
+ * 馬主ランキングでの順位。現役の所有馬の獲得賞金で並べる。
+ * computeLeaders は上位 30 人しか持たないので、圏外でも順位が出るよう全員を数える。
+ */
+export function ownerRank(g) {
+  const w = g.world;
+  const score = (ids) => sum(ids, (id) => {
+    const h = w.horses.get(id);
+    return h && !h.dead && !h.retired ? h.earnings : 0;
+  });
+  const mine = score(w.player.horses);
+  let rank = 1;
+  let total = 0;
+  for (const o of w.owners.values()) {
+    total++;
+    if (o.id !== 'player' && score(o.horses) > mine) rank++;
+  }
+  const grade = rank <= 3 ? 'SS' : rank <= 10 ? 'S' : rank <= 25 ? 'A' : rank <= 50 ? 'B' : 'C';
+  return { rank, total, grade, earnings: mine };
 }
 
 export { formatMoney, formatTime, weekLabel, SURFACE, SEX, ABILITIES, STYLES };
