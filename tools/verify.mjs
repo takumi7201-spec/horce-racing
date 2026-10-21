@@ -265,12 +265,16 @@ section('2 年の経過');
 {
   let races = 0, starts = 0, g1 = 0;
   const giTimes = [];
+  const allGaps = [];
+  const top3Gaps = [];
   for (let y = 0; y < 2; y++) {
     for (let i = 0; i < WEEKS_PER_YEAR; i++) {
       const { results } = advanceWeek(w);
       races += results.length;
       starts += sum(results, (r) => r.results.length);
       for (const r of results) {
+        allGaps.push(r.results[r.results.length - 1].marginTotal);
+        if (r.results.length >= 3) top3Gaps.push(r.results[2].marginTotal);
         if (r.grade !== 'GI') continue;
         g1++;
         giTimes.push({ name: r.name, d: r.distance, t: r.winnerTime, field: r.results.length, ground: r.ground });
@@ -288,6 +292,16 @@ section('2 年の経過');
   const bad = giTimes.filter((x) => x.ground === '良' && band[x.d] && (x.t < band[x.d][0] || x.t > band[x.d][1]));
   check(`GI の勝ち時計が範囲内（外れ ${bad.length}/${giTimes.length}）`, bad.length <= 3,
     bad.map((x) => `${x.name} ${x.d}m ${formatTime(x.t)}`).join(' / '));
+  // 着差。実際の競馬では、最下位でも勝ち馬から 3〜10 秒しか離れない。
+  // ここが 20 秒を超えるときは、たいてい馬群の進路判定か能力→速度の写像が壊れている
+  // （ゲート直後の詰まりが連鎖して最後方が 25 秒置き去りにされたことがある）。
+  const avgGap = sum(allGaps) / allGaps.length;
+  check(`最下位との着差 平均 ${avgGap.toFixed(1)} 秒`, avgGap < 13, '20 秒を超えたら進路判定を疑う');
+  const wide = allGaps.filter((g) => g > 25).length;
+  check(`着差 25 秒超のレース ${wide} / ${allGaps.length}`, wide / allGaps.length < 0.02);
+  const avg3 = sum(top3Gaps) / top3Gaps.length;
+  check(`3 着までの着差 平均 ${avg3.toFixed(2)} 秒`, avg3 > 0.3 && avg3 < 3.0);
+
   const live = [...w.horses.values()].filter((h) => !h.dead && !h.retired && w.year - h.birthYear >= 2);
   check(`2 年後の現役 ${live.length} 頭`, live.length > 1000 && live.length < 4500);
   const pots = live.map((h) => sum(ABILITIES, (a) => h.pot[a]) / 5).sort((a, b) => b - a);

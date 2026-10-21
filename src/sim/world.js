@@ -21,7 +21,7 @@ import {
 import {
   SEX, ABILITIES, GROWTH, GROWTH_CURVE, GROUNDS, CLASSES, CLASS_BY_ID,
   classForWins, classOrder, standardWeight, WEEKS_PER_YEAR, weekToMonth, COST,
-  JOCKEY_CUT, TRAINER_CUT, STYLES,
+  JOCKEY_CUT, TRAINER_CUT, STYLES, START_MONEY,
 } from './params.js';
 import { SURFACE, allCourses, distancesOf } from './course.js';
 import {
@@ -417,7 +417,7 @@ function setupPlayer(world, rng, { playerName, farmName }) {
     id: 'player',
     name,
     kanmei: null,
-    money: 30000,
+    money: START_MONEY,
     ambition: 1,
     horses: [],
     isPlayer: true,
@@ -426,7 +426,7 @@ function setupPlayer(world, rng, { playerName, farmName }) {
 
   world.player = {
     name, farmName: farm,
-    money: 30000,
+    money: START_MONEY,
     ownerId: 'player',
     horses: [],        // 現役（所有馬 id）
     broodmares: [],
@@ -438,7 +438,8 @@ function setupPlayer(world, rng, { playerName, farmName }) {
   };
 
   // 初期所有馬：3 歳 1 頭、2 歳 2 頭、繁殖牝馬 2 頭。
-  // 強すぎず弱すぎず、「育てれば重賞に手が届く」水準に寄せる。
+  // 母集団の中央値（潜在 0.60 前後）より少し上に置く。
+  // 下に置くと何年使っても 1 勝もできず、預託料だけが出ていく。
   const give = (age, level) => {
     const birth = world.year - age;
     const cands = [...world.horses.values()].filter((h) =>
@@ -460,9 +461,9 @@ function setupPlayer(world, rng, { playerName, farmName }) {
     h.trainingMenu = 'normal';
     return h;
   };
-  give(3, 0.52);
-  give(2, 0.50);
-  give(2, 0.46);
+  give(3, 0.64);
+  give(2, 0.62);
+  give(2, 0.58);
 
   // 繁殖牝馬 2 頭。
   const mareCands = world.marePool
@@ -963,7 +964,7 @@ function yearEnd(world, rng) {
     world.trainers.set(t.id, t);
   }
 
-  world.news = news.concat(world.news);
+  world.news = news.concat(world.news).slice(0, 30);
   world.log.push({ year: world.year, week: 'end', news });
 }
 
@@ -977,7 +978,8 @@ export function retireHorse(world, h, rng, news = []) {
     h.stallion = true;
     h.studFee = studFeeOf(world, h, year);
     world.stallionPool.push(h.id);
-    if (h.earnings > 20000) news.push(`${h.name} が引退し、種牡馬となった（種付料 ${h.studFee} 万円）。`);
+    // 毎年 20 頭が種牡馬入りするので、よほどの実績馬だけを報じる。
+    if (h.earnings > 60000) news.push(`${h.name} が引退し、種牡馬となった（種付料 ${h.studFee} 万円）。`);
     if (h.ownerId === 'player') world.player.stallions.push(h.id);
   } else if (h.sex === SEX.FEMALE && canBeBroodmare(h, year)) {
     h.broodmare = true;

@@ -50,9 +50,11 @@ function prepareRunner(entry, spec, rng) {
   // 三つを素に掛けると、どれも中くらいの普通の馬が 0.86 まで落ちてしまい、
   // GI が実際より 10 秒以上遅くなる。「得意な条件なら 1.0」になるように、
   // 一定以上の適性は頭打ちにしてから掛ける。
-  const apt = lerp(0.86, 1.0, dApt)
-    * (0.84 + 0.16 * Math.min(1, sApt / 0.85))
-    * (0.91 + 0.09 * Math.min(1, gApt / 0.85));
+  // 速度側の帯はごく狭く取り、差は余力（HP）側で付ける。
+  // 適性外でも「走れないほど遅い」ことは無く、持たずに失速するだけ。
+  const apt = lerp(0.94, 1.0, dApt)
+    * (0.95 + 0.05 * Math.min(1, sApt / 0.85))
+    * (0.97 + 0.03 * Math.min(1, gApt / 0.85));
 
   const jk = jockey ?? { id: null, name: '—', skill: 0.45, aggression: 0.5 };
   // 騎手は最高速をわずかに、位置取りの精度を大きく左右する。
@@ -62,9 +64,13 @@ function prepareRunner(entry, spec, rng) {
   let vMax = (PHYS.V_BASE + PHYS.V_SPEED_GAIN * eff.speed) * apt * ge.speed * jkSpeed * wPen;
   if (spec.surface === SURFACE.DIRT) vMax -= PHYS.V_DIRT_PENALTY;
 
-  // 距離適性は HP にも効く。マイラーが 3200m を持たないのはこの項。
+  // 適性は速度ではなく余力に効かせる。
+  // マイラーが 3200m を持たないのも、ダート馬が芝で止まるのもこの項。
   const hp = (PHYS.HP_BASE + PHYS.HP_STAM_GAIN * eff.stamina)
-    * lerp(0.70, 1.06, dApt) / ge.stam;
+    * lerp(0.48, 1.08, dApt)
+    * lerp(0.62, 1.04, Math.min(1, sApt / 0.85))
+    * lerp(0.80, 1.02, Math.min(1, gApt / 0.85))
+    / ge.stam;
 
   // 指示脚質。無指示なら馬の持ち味。素直さと騎手の腕で指示に寄る。
   const wantStyle = entry.styleOrder && STYLE_TARGET[entry.styleOrder] != null
@@ -193,7 +199,9 @@ export function simulateRace(spec, rng, opts = {}) {
       // --- いま出せる最高速 ---
       // 余力が減るほど連続的に落ちる。空になってからはさらに落ち続ける。
       const hpRatio = clamp01(r.hpLeft / r.hp0);
-      let fade = 1 - PHYS.FADE_K * Math.pow(1 - hpRatio, 2.2);
+      // 余力が半分あるうちはほとんど落ちず、尽きかけてから一気に落ちる。
+      // ここを緩い曲線にすると、格下の馬まで一様に遅くなって着差が開きすぎる。
+      let fade = 1 - PHYS.FADE_K * Math.pow(1 - hpRatio, PHYS.FADE_POW);
       if (r.busted) fade -= PHYS.BUST_RATE * (t - r.bustT);
       fade = Math.max(PHYS.BUST_FLOOR, fade);
 
@@ -243,16 +251,24 @@ export function simulateRace(spec, rng, opts = {}) {
         }
         return false;
       };
+      // ゲートを出て最初の数完歩は馬群が横一線で、「前が詰まる」という状態が無い。
+      // ここに通常の進路判定を当てると、わずかに前に出た馬の速度に後ろが
+      // 連鎖的に引きずられ、最後方の馬が 25 秒もゲート前に残る。
+      // （最下位の着差が 30 秒になっていた原因はこれだった）
+      const inBreak = r.s < 80;
       let blocker = null;
       let minGap = Infinity;
-      for (let j = 0; j < n; j++) {
-        if (j === i) continue;
-        const o = runners[j];
-        if (o.finishT < Infinity) continue;
-        const d = o.s - r.s;
-        if (d <= 0 || d > PHYS.BLOCK_GAP + BODY_LEN) continue;
-        if (Math.abs(o.off - r.off) > BODY_W * 0.8) continue;
-        if (d < minGap) { minGap = d; blocker = o; }
+      if (!inBreak) {
+        for (let j = 0; j < n; j++) {
+          if (j === i) continue;
+          const o = runners[j];
+          if (o.finishT < Infinity) continue;
+          const d = o.s - r.s;
+          // 体半分ぶんしか前に居ない馬は「並んでいる」のであって壁ではない。
+          if (d < BODY_LEN * 0.8 || d > PHYS.BLOCK_GAP + BODY_LEN) continue;
+          if (Math.abs(o.off - r.off) > BODY_W * 0.8) continue;
+          if (d < minGap) { minGap = d; blocker = o; }
+        }
       }
       const shift = PHYS.LANE_SHIFT * TICK;
       if (blocker && vDes > blocker.v) {
@@ -264,7 +280,9 @@ export function simulateRace(spec, rng, opts = {}) {
           r.off = Math.max(0, r.off - shift * skill);
         }
         // 追突はしない。前の馬と同じ速度までしか出せない。
-        vDes = Math.min(vDes, blocker.v * 0.998);
+        // ここに 1 未満の係数を掛けてはいけない。最低速度 0.5m/s との組み合わせで
+        // 「前の馬より必ず遅い」状態が固定され、馬群全体が止まる。
+        vDes = Math.min(vDes, blocker.v);
         r.blockT += TICK;
       } else if (r.off > 0 && !occupied(Math.max(0, r.off - BODY_W))) {
         // 空いていれば内へ寄せる。内ラチ沿いがいちばん短い。

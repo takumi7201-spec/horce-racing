@@ -242,8 +242,9 @@ function conditionRaces(year, week, courseId, rng) {
     for (let i = 0; i < p.n; i++) {
       // 芝とダートはおおむね半々。ダートの条件戦のほうが数は多い。
       const surface = rng.chance(0.46) ? SURFACE.TURF : SURFACE.DIRT;
-      const pool = surface === SURFACE.TURF ? turfD : dirtD;
-      // 条件戦は 1200〜2000m が主戦場。長距離の未勝利戦は実際にもほぼ無い。
+      // 条件戦は 1200〜2000m が主戦場。3000m 超の条件戦は実際にはほぼ無く、
+      // 距離適性の合わない馬が並んで最下位が 50 秒離される原因になる。
+      const pool = (surface === SURFACE.TURF ? turfD : dirtD).filter((d) => d <= 2600);
       const distance = rng.weighted(pool, pool.map((d) => (d <= 1400 ? 3 : d <= 2000 ? 4 : 1)));
       const cls = CLASS_BY_ID.get(p.classId);
       const isOp = p.classId === 'op';
@@ -282,8 +283,11 @@ export function eligible(race, horse, year) {
   if (race.classId === 'nowin') return horse.wins === 0;
   // 条件戦は自分のクラスか、その一つ下まで（格上挑戦）。
   if (co <= 4) return ho === co || ho === co - 1;
-  // オープン以上。収得賞金だけで切ると 3 歳クラシックが空になる
-  // （3 歳春はまだ賞金が積み上がっていない）。1 勝していれば門を開ける。
+  // 重賞は 1 勝クラス以上か、それなりの収得賞金が要る。
+  // 未勝利馬が GIII に出られると、プレイヤーが勝ち目の無いレースに
+  // 誘導されてしまう（実際の出走資格もおおむねこの形）。
+  if (co >= 6) return ho >= 2 || horse.earnings >= 900;
+  // オープン特別。3 歳春はまだ賞金が積み上がらないので 1 勝で門を開ける。
   return ho >= 2 || horse.wins >= 1 || horse.earnings >= 500;
 }
 

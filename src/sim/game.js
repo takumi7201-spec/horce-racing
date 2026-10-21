@@ -144,14 +144,18 @@ export function racesFor(g, horseId, weekOffset = 0) {
   if (!h) return [];
   let wk = w.week + weekOffset, yr = w.year;
   while (wk > WEEKS_PER_YEAR) { wk -= WEEKS_PER_YEAR; yr++; }
+  const ho = classOrder(h.classId ?? 'nowin');
   return weekRaces(w, wk, yr)
     .filter((r) => eligible(r, h, yr))
-    .map((r) => ({
-      ...decorate(w, r),
-      apt: distanceAptitude(h, r.distance)
-        * (r.surface === SURFACE.DIRT ? h.dirt : h.turf),
-    }))
-    .sort(byDesc((r) => r.apt * 0.6 + classOrder(r.classId) * 0.05));
+    .map((r) => {
+      const apt = distanceAptitude(h, r.distance)
+        * (r.surface === SURFACE.DIRT ? h.dirt : h.turf);
+      const d = Math.abs(classOrder(r.classId) - ho);
+      return { ...decorate(w, r), apt, classGap: d };
+    })
+    // 適性が高く、格の合うレースを上に出す。
+    // 格の高さで並べると、未勝利馬の画面の一番上に重賞が来てしまう。
+    .sort(byDesc((r) => r.apt * (r.classGap === 0 ? 1 : r.classGap === 1 ? 0.75 : 0.4)));
 }
 
 /** 出走登録。1 頭 1 週 1 レース。 */
