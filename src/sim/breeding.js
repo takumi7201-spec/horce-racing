@@ -161,16 +161,28 @@ export function studFeeOf(world, stallion, year) {
     const avg = progeny / runners;
     // 対数で効かせる。絶対額で頭打ちにすると、そこそこ走る産駒を出した
     // 種牡馬が全員おなじ種付料に貼り付いて、順位が意味を失う。
-    //   産駒平均 1,000万 →  約  400万 ／ 4,000万 → 約 2,500万 ／ 1億 → 約 6,200万
-    const score = Math.log10(1 + avg / 400);
+    // 尺度は実際の日本の相場に合わせる（2026 年の最高はキタサンブラック・
+    // イクイノックスの 2,500万）。以前は最高 7,000万まで上がる尺度で、
+    // 実在の種牡馬を入れたら架空の種牡馬の方が 3 倍高い世界になった。
+    // この世界の産駒は実際より稼ぐ（上位の種牡馬で産駒平均 2 億前後）ので、
+    // 金額ではなく分布の位置で合わせてある。
+    //   産駒平均 4,600万 → 約 300万 ／ 1億 → 約 870万 ／ 2.2億 → 約 2,100万
+    const score = Math.log10(1 + avg / 1200);
     // 標本の数で効かせ方を変える。4 頭が走っただけで種付料を決めると、
     // たまたま走った数頭で最上位に飛び出す種牡馬が毎年入れ替わる。
     const conf = Math.min(1, runners / 25);
-    base = base * (1 - conf * 0.65) + conf * Math.min(7000, Math.pow(score, 3.0) * 2200);
+    base = base * (1 - conf * 0.65) + conf * Math.min(2800, Math.pow(score, 3.0) * 950);
   }
   // 年を取ると下がる。
   const age = year - stallion.birthYear;
   if (age > 16) base *= Math.max(0.3, 1 - (age - 16) * 0.09);
+  // 実在の種牡馬は、開始年は各スタリオンの発表額（亡くなった馬は全盛期の目安）にする。
+  // 始まってからは毎年 4 分の 1 ずつ、架空の世界での産駒成績による値へ寄せていく。
+  if (stallion.realFee) {
+    const since = Math.max(0, year - (world.startYear ?? year));
+    const k = Math.pow(0.75, since);
+    base = base * (1 - k) + stallion.realFee * k;
+  }
   return Math.max(10, Math.round(base / 10) * 10);
 }
 

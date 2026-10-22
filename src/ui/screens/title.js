@@ -10,6 +10,7 @@ export function titleScreen(app) {
   const name = el('input.inp', { type: 'text', placeholder: '馬主名（例：高橋 健太）', maxLength: 12 });
   const farm = el('input.inp', { type: 'text', placeholder: '牧場名（例：みどりヶ丘ファーム）', maxLength: 16 });
   const seed = el('input.inp', { type: 'text', placeholder: 'シード（空欄ならランダム）', maxLength: 24 });
+  const realSires = el('input', { type: 'checkbox', checked: true });
   const status = el('p.note');
 
   const begin = () => {
@@ -21,6 +22,7 @@ export function titleScreen(app) {
           seed: seed.value.trim() || (Date.now() & 0xffffff),
           playerName: name.value.trim(),
           farmName: farm.value.trim(),
+          realSires: realSires.checked,
         });
         app.stack.length = 0;
         app.go('home', {}, { replace: true });
@@ -55,6 +57,7 @@ export function titleScreen(app) {
           el('label', ['馬主名', name]),
           el('label', ['牧場名', farm]),
           el('label', ['シード', seed]),
+          el('label.check', [realSires, el('span', { text: '実在の種牡馬を使う（キタサンブラック・イクイノックスなど 2026 年の種牡馬と、その父祖）' })]),
         ]),
         el('p.note', 'シードを同じにすると、同じ競馬界（同じ血統・同じ馬）が生成される。'),
         button('はじめる', begin, { cls: 'primary big' }),

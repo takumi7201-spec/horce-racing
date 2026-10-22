@@ -19,8 +19,8 @@ import { SURFACE, courseName, getCourse, DIR } from './course.js';
 import { clamp01, sum, byDesc, formatMoney, formatTime, rankOf } from '../core/util.js';
 
 /** 新規ゲーム。 */
-export function newGame({ seed = Date.now() & 0xffffff, playerName = '', farmName = '', startYear = 2026 } = {}) {
-  const world = createWorld(seed, { startYear, playerName, farmName });
+export function newGame({ seed = Date.now() & 0xffffff, playerName = '', farmName = '', startYear = 2026, realSires = true } = {}) {
+  const world = createWorld(seed, { startYear, playerName, farmName, realSires });
   return { world, version: 2 };
 }
 
@@ -97,6 +97,7 @@ export function horseView(g, id) {
     ready: readyToRun(h),
     stallion: h.stallion, broodmare: h.broodmare, studFee: h.studFee,
     dead: !!h.dead,
+    real: !!h.real,
     foals: (h.foals ?? []).map((fid) => w.horses.get(fid)).filter(Boolean),
     retired: h.retired,
   };
@@ -259,7 +260,17 @@ export function stallions(g, { maxFee = Infinity, search = '' } = {}) {
       earnings: s.earnings,
       foals: (s.foals ?? []).length,
       quality: breedQuality(s),
+      real: !!s.real,
+      bestWin: bestWin(s),
     }));
+}
+
+/** いちばん格の高い勝ち鞍の名前。種牡馬名鑑の「代表勝鞍」に出す。 */
+function bestWin(h) {
+  const order = { GI: 0, G1: 0, GII: 1, G2: 1, GIII: 2, G3: 2 };
+  const wins = (h.record ?? []).filter((r) => r.order === 1 && r.grade);
+  wins.sort((a, b) => (order[a.grade] ?? 9) - (order[b.grade] ?? 9));
+  return wins[0]?.name ?? null;
 }
 
 /** 配合の評価。プレイヤーに見せる期待度と注意点。 */
@@ -512,7 +523,8 @@ export function horseCareer(g, id) {
     if (r.order === 1) wins.push({ ...r, grade });
   }
   // 記録は直近 30 走しか持たないので、全成績は通算の数字で上書きする。
-  c.all = [h.wins, h.seconds ?? 0, h.thirds ?? 0, Math.max(0, h.starts - h.wins - (h.seconds ?? 0) - (h.thirds ?? 0))];
+  c.all = h.placesUnknown ? [h.wins, null, null, null]
+    : [h.wins, h.seconds ?? 0, h.thirds ?? 0, Math.max(0, h.starts - h.wins - (h.seconds ?? 0) - (h.thirds ?? 0))];
   const rank = { GI: 0, GII: 1, GIII: 2 };
   const bigWins = wins.slice().sort((a, b) => (rank[a.grade] ?? 9) - (rank[b.grade] ?? 9) || b.year - a.year)
     .slice(0, 4).map((r) => ({ name: r.name, grade: r.grade ?? null, year: r.year }));

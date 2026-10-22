@@ -459,6 +459,15 @@ html, body {
 .form-row label { flex: 1 1 180px; }
 select.inp { cursor: pointer; }
 
+/* 実在の種牡馬の札 */
+.sire-n { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.realtag {
+  font-style: normal; font-size: 10px; font-weight: 800; color: #fff; padding: 0 5px; border-radius: 4px;
+  background: linear-gradient(#5aa0e6, #2e6fc0);
+}
+.form label.check { display: flex; align-items: flex-start; gap: 8px; font-size: 12px; color: var(--fg); cursor: pointer; }
+.form label.check input { margin-top: 2px; accent-color: var(--green-d); }
+
 /* ---------------- タイトル ---------------- */
 .title { max-width: 1020px; margin: 0 auto; padding: 34px 16px 60px; }
 .title-hero { text-align: center; margin-bottom: 26px; }
@@ -698,6 +707,7 @@ canvas.race3d { width: 100%; height: 100%; display: block; }
 .hd-pills span + span { border-left: 1px solid #fff; }
 .hd-pills span.on { background: linear-gradient(var(--green), var(--green-d)); color: #fff; }
 .hd-pills span.bad { background: #f6d5cf; color: var(--bad); }
+.hd-pills span.real { background: linear-gradient(#5aa0e6, #2e6fc0); color: #fff; }
 
 .hd-stage { position: relative; touch-action: pan-y; user-select: none; cursor: grab; }
 .hd-stage:active { cursor: grabbing; }

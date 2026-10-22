@@ -272,6 +272,29 @@ check('プレイヤーに所有馬がいる', w.player.horses.length >= 3);
 check('プレイヤーに繁殖牝馬がいる', w.player.broodmares.length >= 2);
 check('番組表が週ごとに安定', weekRaces(w, 20)[0].raceId === weekRaces(w, 20)[0].raceId);
 
+// ---------------------------------------------------------------- 実在の種牡馬
+section('実在の種牡馬');
+{
+  const byName = (n) => [...w.horses.values()].find((h) => h.name === n);
+  const kita = byName('キタサンブラック');
+  const eq = byName('イクイノックス');
+  const ss = byName('サンデーサイレンス');
+  const st = stallions(game);
+  check('2026 年の最高額はキタサンブラックとイクイノックスの 2,500 万',
+    kita?.studFee === 2500 && eq?.studFee === 2500 && st[0].fee === 2500, `${kita?.studFee} / ${eq?.studFee} / 先頭 ${st[0]?.name}`);
+  check('実在の種牡馬が名簿に並ぶ', st.filter((s) => s.real).length >= 30, `${st.filter((s) => s.real).length} 頭`);
+  check('父系は系祖で止まる（キタサンブラックはサンデーサイレンス系）', sireLineRoot(w, kita.id) === ss.id);
+  check('サンデーサイレンスは開始時点で故馬・名簿外', ss.dead && !w.stallionPool.includes(ss.id));
+  // イクイノックスは父方・母方の 4 代目にヘイローを持つ（キタサンブラック × キングヘイロー牝馬）。
+  const ib = inbreedings(w, kita.id, eq.damId).map((x) => `${x.name} ${x.label}`);
+  check('実在の血統でインブリードが成立する（ヘイロー 4×4）', ib.includes('ヘイロー 4×4'), ib.join(', '));
+  const live = [...w.horses.values()].filter((h) => !h.dead && !h.retired && w.year - h.birthYear >= 2 && !h.real);
+  const realSired = live.filter((h) => w.horses.get(h.sireId)?.real).length / live.length;
+  check(`現役の架空馬にも実在の父が入っている（${(realSired * 100).toFixed(0)}%）`, realSired > 0.08 && realSired < 0.6);
+  const fict = newGame({ seed: 'verify', realSires: false }).world;
+  check('実在の種牡馬を使わない世界も作れる', ![...fict.horses.values()].some((h) => h.real));
+}
+
 // ---------------------------------------------------------------- ゲーム操作
 section('ゲーム操作');
 {

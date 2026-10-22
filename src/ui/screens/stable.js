@@ -191,6 +191,7 @@ function detail(app, id) {
           class: v.injury ? 'bad' : null,
         }) : null,
         v.inbreed.length ? el('span', { text: `インブリード ${v.inbreed.length}` }) : null,
+        v.real ? el('span.real', { text: '実在' }) : null,
       ]),
     ]),
     cat ? stableRail(app, cat, id) : null,
@@ -239,7 +240,9 @@ const round100 = (m) => Math.round(m / 100) * 100;
 function infoPanel(v, career) {
   const lo = Math.max(1000, round100(v.dist - v.distRange));
   const hi = Math.min(3600, round100(v.dist + v.distRange));
-  const ribbon = v.titles.length ? v.titles[v.titles.length - 1]
+  const g1 = career.counts.GI[0];
+  const ribbon = v.real ? (g1 ? `GI ${g1}勝の${v.sex === '牝' ? '名牝' : '名馬'}` : v.stallion ? '実在の種牡馬' : '実在の名血')
+    : v.titles.length ? v.titles[v.titles.length - 1]
     : v.wins > 0 ? `${v.className}の${v.style}馬` : v.age < 2 ? '期待の若駒' : 'デビューを待つ素質馬';
   const avg = ABILITIES.reduce((a, k) => a + v.values[k], 0) / ABILITIES.length;
   const row = (k, val) => el('div.hi-r', [el('span', { text: k }), el('b', val)]);
@@ -473,7 +476,8 @@ function tabContent(app, tid, v, career) {
 
   // 詳細：プロフィール ｜ 成績の内訳 ｜ 回り・主な勝鞍
   const c = career.counts;
-  const line = (label, arr) => el('div.cr', [el('span', { text: label }), ...arr.map((n) => el('b', { text: String(n) }))]);
+  // 着度数の分からない実在馬は 2 着以下を「—」で出す。
+  const line = (label, arr) => el('div.cr', [el('span', { text: label }), ...arr.map((n) => el('b', { text: n == null ? '—' : String(n) }))]);
   const menu = MENUS.find((m) => m.id === v.menu)?.name ?? '—';
   return el('div.hd-cols3', [
     kv([

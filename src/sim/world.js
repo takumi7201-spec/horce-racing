@@ -34,6 +34,7 @@ import { breed, canBeBroodmare, canBeStallion, studFeeOf, conceives, POP_MEAN } 
 import { trainWeek, pastureWeek, autoMenu } from './training.js';
 import { sireLineRoot, nicksKey, recordNicksResult, breedQuality, lineLabel } from './pedigree.js';
 import { clamp, clamp01, lerp, sum, byDesc } from '../core/util.js';
+import { seedRealHorses, syncRealStud, settleRealHorses } from './realsires.js';
 
 /**
  * 1 世代あたりの産駒数。
@@ -58,13 +59,13 @@ export const WEATHERS = ['晴', '曇', '小雨', '雨', '雪'];
 
 // ---------------------------------------------------------------- 世界の生成
 
-export function createWorld(seed, { startYear = 2026, playerName = '', farmName = '' } = {}) {
+export function createWorld(seed, { startYear = 2026, playerName = '', farmName = '', realSires = true } = {}) {
   const rng = makeRng(typeof seed === 'string' ? hashSeed(seed) : seed);
   resetHorseIds(1);
   resetPersonIds(1, 1);
 
   const world = {
-    seed, startYear,
+    seed, startYear, realSires,
     year: startYear, week: 1,
     rng,
     horses: new Map(),
@@ -118,6 +119,10 @@ export function createWorld(seed, { startYear = 2026, playerName = '', farmName 
     world.trainers.set(t.id, t);
   }
 
+  // --- 実在の種牡馬とその祖先 ---
+  // 架空の馬より先に作って名前を予約する（同名の架空馬が生まれないように）。
+  if (realSires) seedRealHorses(world, rng);
+
   // --- 創始世代 ---
   const Y0 = startYear;
   const foundYear = Y0 - ANCESTRY_YEARS - 4;
@@ -140,11 +145,25 @@ export function createWorld(seed, { startYear = 2026, playerName = '', farmName 
   for (let y = foundYear + 4; y <= Y0; y++) {
     const age = Y0 - y;
     const n = age > 20 ? 55 : age > 11 ? 70 : age > 7 ? 110 : FOALS_LIVE;
+    // y 年生まれの世代は前の年の種付け。その年に日本で供用されていた実在の種牡馬を並べる。
+    syncRealStud(world, y - 1);
     const cohort = breedCohort(world, rng, y, n);
     // 2 歳以上は紙の戦績を持たせる。でないとゲーム開始時に全馬が無印になる。
     // 古い世代は血統表に名前と格が載るだけなので、戦績も粗く済ませる。
     if (age >= 2) for (const h of cohort) paperCareer(world, h, rng, Y0);
     promotePools(world, rng, y);
+  }
+
+  // 開始年のシーズンに供用中の実在種牡馬を名簿に揃える（種付料は発表額になる）。
+  if (realSires) {
+    syncRealStud(world, Y0);
+    settleRealHorses(world, Y0);
+  }
+  // 名簿の種付料を開始年の値にそろえる。供用を始めた年の値のままだと、
+  // 産駒が走って上がった分が翌年まで表に出ない。
+  for (const id of world.stallionPool) {
+    const h = world.horses.get(id);
+    if (h) h.studFee = studFeeOf(world, h, Y0);
   }
 
   // 血統表に出てこない古い馬は捨てる。放っておくと一万頭を超えてセーブが膨らむ。
@@ -195,6 +214,15 @@ function foundationHorse(world, rng, { year, sex, level, sd }) {
   return h;
 }
 
+/**
+ * 種付けできる年齢か。実在の種牡馬は生成中は実際の供用年に従い（20 歳を過ぎて
+ * 供用された馬もいる）、始まってからは架空の馬より 3 年長く現役でいられる。
+ */
+function withinStudAge(world, s, year) {
+  if (s.real) return year <= world.startYear || year - s.birthYear <= 27;
+  return year - s.birthYear <= 24;
+}
+
 /** 1 年ぶんの産駒を作る。繁殖牝馬は年に 1 頭。 */
 function breedCohort(world, rng, year, n) {
   const mares = world.marePool.filter((id) => {
@@ -203,7 +231,7 @@ function breedCohort(world, rng, year, n) {
   });
   const stallions = world.stallionPool.filter((id) => {
     const s = world.horses.get(id);
-    return s && !s.dead && year - s.birthYear <= 24;
+    return s && !s.dead && withinStudAge(world, s, year);
   });
   if (mares.length === 0 || stallions.length === 0) return [];
 
@@ -290,6 +318,7 @@ function promotePools(world, rng, year) {
   for (const h of world.horses.values()) {
     if (h.birthYear !== born || h.dead) continue;
     if (h.stallion || h.broodmare) continue; // 創始世代を二重に入れない
+    if (h.real) continue;                    // 実在の馬は供用年の表に従う
     cands.push(h);
   }
   // 種牡馬は少数精鋭。実績か素質のある牡馬だけ。
@@ -311,7 +340,9 @@ function promotePools(world, rng, year) {
   world.stallionPool = world.stallionPool.filter((id) => {
     const h = world.horses.get(id);
     if (!h) return false;
-    if (year - h.birthYear > 23) { h.dead = true; return false; }
+    // 実在の種牡馬は生成中は供用年の表（syncRealStud）が出し入れする。
+    if (h.real && year <= world.startYear) return true;
+    if (year - h.birthYear > (h.real ? 26 : 23)) { h.dead = true; return false; }
     return true;
   });
   // 種牡馬が多すぎると、大半が 1 頭も種付けしないまま名簿に載り続ける。
@@ -322,6 +353,9 @@ function promotePools(world, rng, year) {
     const worth = (id) => {
       const h = world.horses.get(id);
       if (!h) return -1;
+      // 実在の種牡馬は 22 歳まで名簿に残す。架空の馬と同じ規則（15 歳から 4 割評価）だと、
+      // キズナやロードカナロアがゲーム開始から 4 年で軒並み用途変更になった。
+      if (h.real) return year - h.birthYear > 22 ? (h.studFee ?? 0) * 0.4 : Infinity;
       return (h.studFee ?? 0) * (year - h.birthYear > 14 ? 0.4 : 1);
     };
     world.stallionPool.sort((a, b) => worth(b) - worth(a));
@@ -362,6 +396,8 @@ function pruneAncestry(world) {
   }
   for (const id of world.stallionPool) walk(id, 0);
   for (const id of world.marePool) walk(id, 0);
+  // 実在の馬は数十頭なので全部残す。古い祖先を消すと「○○系」の系統名がたどれなくなる。
+  for (const h of world.horses.values()) if (h.real) keep.add(h.id);
   let removed = 0;
   for (const id of [...world.horses.keys()]) {
     if (!keep.has(id)) { world.horses.delete(id); removed++; }
@@ -1054,7 +1090,7 @@ function breedCohortExcluding(world, rng, year, n, exclude) {
   });
   const stallions = world.stallionPool.filter((id) => {
     const s = world.horses.get(id);
-    return s && !s.dead && year - s.birthYear <= 24;
+    return s && !s.dead && withinStudAge(world, s, year);
   });
   if (!mares.length || !stallions.length) return [];
   const fees = stallions.map((id) => Math.max(10, studFeeOf(world, world.horses.get(id), year)));

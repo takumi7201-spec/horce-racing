@@ -57,7 +57,7 @@ function matingView(app) {
         const ev = damId ? G.evaluateMating(g, damId, s.id) : null;
         return {
           cells: [
-            el('b', { text: s.name }), `${s.age}歳`, s.line,
+            sireName(s), `${s.age}歳`, s.line,
             formatMoney(s.fee), `${s.foals}頭`,
             ev ? el('span.stars', { text: '★'.repeat(ev.stars) + '☆'.repeat(5 - ev.stars) }) : '—',
             button('選ぶ', () => { sireId = s.id; renderEval(); }, { cls: 'sm' }),
@@ -177,14 +177,19 @@ function stallionBook(app) {
   const g = app.game;
   const ss = G.stallions(g);
   return card(`種牡馬名鑑（${ss.length} 頭）`, table(
-    ['種牡馬', '年齢', '系統', '種付料', '現役成績', '獲得賞金', '産駒数'],
+    ['種牡馬', '年齢', '系統', '種付料', '現役成績', '代表勝鞍', '獲得賞金', '産駒数'],
     ss.map((s) => ({
       cells: [
-        el('b', { text: s.name }), `${s.age}歳`, s.line, formatMoney(s.fee),
-        `${s.horse.starts}戦${s.horse.wins}勝`, formatMoney(s.earnings), `${s.foals}頭`,
+        sireName(s), `${s.age}歳`, s.line, formatMoney(s.fee),
+        `${s.horse.starts}戦${s.horse.wins}勝`, s.bestWin ?? '—', formatMoney(s.earnings), `${s.foals}頭`,
       ],
       onclick: () => app.go('stable', { id: s.id }),
-    })), { align: [, 'c', , 'r', 'c', 'r', 'c'] }));
+    })), { align: [, 'c', , 'r', 'c', , 'r', 'c'] }));
+}
+
+/** 種牡馬名。実在の馬には小さな札を付ける（架空の馬と見分けられるように）。 */
+function sireName(s) {
+  return el('span.sire-n', [el('b', { text: s.name }), s.real ? el('i.realtag', { text: '実在' }) : null]);
 }
 
 // ---------------------------------------------------------------- セリ市

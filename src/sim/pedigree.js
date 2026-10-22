@@ -20,7 +20,9 @@ export function sireLineRoot(world, horseId) {
   while (id != null && !seen.has(id)) {
     seen.add(id);
     const h = world.horses.get(id);
-    if (!h || h.sireId == null) return id;
+    // 実在の系統は「系祖」で止める（サンデーサイレンス系・キングマンボ系など）。
+    // 一番上までたどるとほとんどがノーザンダンサー系かナスルーラ系になってしまう。
+    if (!h || h.sireId == null || h.lineHead) return id;
     id = h.sireId;
   }
   return id;
