@@ -57,7 +57,7 @@ export function titleScreen(app) {
           el('label', ['馬主名', name]),
           el('label', ['牧場名', farm]),
           el('label', ['シード', seed]),
-          el('label.check', [realSires, el('span', { text: '実在の種牡馬を使う（キタサンブラック・イクイノックスなど 2026 年の種牡馬と、その父祖）' })]),
+          el('label.check', [realSires, el('span', { text: '実在の種牡馬と繁殖牝馬を使う（キタサンブラック・イクイノックス・アーモンドアイなど）' })]),
         ]),
         el('p.note', 'シードを同じにすると、同じ競馬界（同じ血統・同じ馬）が生成される。'),
         button('はじめる', begin, { cls: 'primary big' }),

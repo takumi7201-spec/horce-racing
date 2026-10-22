@@ -370,6 +370,7 @@ export function auction(g) {
       horse: h, id: h.id, name: h.name, sex: h.sex, coat: h.coat,
       sire: sire?.name ?? '—',
       dam: h.damId != null ? w.horses.get(h.damId)?.name ?? '—' : '—',
+      damReal: !!(h.damId != null && w.horses.get(h.damId)?.real),
       damSire: damSireName(w, h),
       line: h.sireId != null ? lineLabel(w, h.id) : '—',
       inbreed: h.inbreedLabels ?? [],
@@ -587,6 +588,75 @@ export function myLineup(g, category = null) {
   const st = myStable(g);
   const cats = category ? [category] : STABLE_CATEGORIES.map((c) => c.id);
   return cats.flatMap((c) => (st[c] ?? []).map((h) => h.id));
+}
+
+/**
+ * 実在の繁殖牝馬の一覧（繁殖中の馬と、自分の繁殖牝馬）。
+ * 他人の名牝は買える。値段は格と年齢で決まり、若い名牝ほど高い。
+ */
+export function realMares(g) {
+  const w = g.world;
+  const pool = new Set(w.marePool);
+  const kids = realOffspring(w);
+  return [...w.horses.values()]
+    .filter((h) => h.real && h.sex === SEX.FEMALE && !h.dead && (pool.has(h.id) || h.ownerId === 'player'))
+    .map((h) => {
+      const foals = (h.foals ?? []).map((id) => w.horses.get(id)).filter(Boolean);
+      const best = foals.slice().sort(byDesc((f) => f.earnings))[0] ?? null;
+      // 代表産駒は実在の仔（イクイノックスの母ならイクイノックス）を先に出す。
+      const real = (kids.get(h.id) ?? []).sort(byDesc((k) => k.g1Wins ?? 0));
+      return {
+        horse: h, id: h.id, name: h.name, coat: h.coat,
+        age: horseAge(h, w.year),
+        sire: h.sireId != null ? w.horses.get(h.sireId)?.name ?? '—' : '—',
+        damSire: damSireName(w, h),
+        bestWin: bestWin(h),
+        foals: foals.length,
+        bestFoal: real[0]?.name ?? (best && best.earnings > 0 ? best.name : null),
+        mine: h.ownerId === 'player',
+        price: marePrice(w, h, kids.get(h.id)),
+      };
+    })
+    .sort(byDesc((x) => x.price));
+}
+
+/** 実在の母 → その実在の仔（表に載っている種牡馬・名牝）。 */
+function realOffspring(w) {
+  const m = new Map();
+  for (const h of w.horses.values()) {
+    if (!h.real || h.damId == null) continue;
+    if (!m.has(h.damId)) m.set(h.damId, []);
+    m.get(h.damId).push(h);
+  }
+  return m;
+}
+
+/**
+ * 繁殖牝馬の値段（万円）。格は能力と現役成績から、若いほど残りの繁殖年数ぶん高い。
+ * GI 馬の母は仔の GI 1 勝につき 1,500 万を上乗せする（母としての実績も値段になる）。
+ */
+function marePrice(w, h, kids = []) {
+  const q = breedQuality(h);
+  const age = horseAge(h, w.year);
+  const ageF = age <= 12 ? 1 : Math.max(0.25, 1 - (age - 12) * 0.12);
+  const produce = sum(kids, (k) => k.g1Wins ?? 0) * 1500;
+  return Math.round((800 + Math.pow(q, 3) * 40000 + produce) * ageF / 10) * 10;
+}
+
+/** 実在の繁殖牝馬を買う。以後は自分の繁殖牝馬として配合できる。 */
+export function buyMare(g, id) {
+  const w = g.world;
+  const h = w.horses.get(id);
+  if (!h || !h.real || h.dead || h.sex !== SEX.FEMALE) return { ok: false, why: '買えない馬' };
+  if (h.ownerId === 'player') return { ok: false, why: 'もう自分の繁殖牝馬' };
+  if (!w.marePool.includes(id)) return { ok: false, why: '繁殖を終えている' };
+  const price = marePrice(w, h, realOffspring(w).get(h.id));
+  if (w.player.money < price) return { ok: false, why: '資金が足りない' };
+  w.player.money -= price;
+  h.ownerId = 'player';
+  h.broodmare = true;
+  w.player.broodmares.push(id);
+  return { ok: true, price };
 }
 
 /** 今週の開催場の名前。 */

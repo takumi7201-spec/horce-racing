@@ -99,7 +99,33 @@ export function seedRealHorses(world, rng) {
   world.realStud = REAL_HORSES.filter((d) => d.stud).map((d) => ({
     id: made.get(d.n).id, from: d.stud[0], to: d.stud[1], died: d.died ?? null,
   }));
+  world.realMares = REAL_HORSES.filter((d) => d.mare).map((d) => ({
+    id: made.get(d.n).id, from: d.mare[0], to: d.mare[1], died: d.died ?? null,
+  }));
   return made;
+}
+
+/**
+ * その年に産駒を出す実在の繁殖牝馬を名簿（marePool）に載せ、繁殖を終えた馬を外す。
+ * birthYear は産駒の生まれ年。表の mare も産駒の生年で持っている。
+ */
+export function syncRealMares(world, birthYear) {
+  if (!world.realMares) return;
+  const pool = new Set(world.marePool);
+  for (const r of world.realMares) {
+    const h = world.horses.get(r.id);
+    if (!h) continue;
+    const breeding = r.from <= birthYear && (r.to == null || birthYear <= r.to)
+      && (r.died == null || birthYear <= r.died);
+    h.broodmare = breeding;
+    if (breeding && !pool.has(h.id)) {
+      world.marePool.push(h.id);
+      pool.add(h.id);
+    } else if (!breeding && pool.has(h.id)) {
+      world.marePool = world.marePool.filter((id) => id !== h.id);
+      pool.delete(h.id);
+    }
+  }
 }
 
 /**
@@ -132,9 +158,17 @@ export function syncRealStud(world, season) {
  */
 export function settleRealHorses(world, year) {
   const stud = new Map((world.realStud ?? []).map((r) => [r.id, r]));
+  const mares = new Map((world.realMares ?? []).map((r) => [r.id, r]));
   for (const h of world.horses.values()) {
     if (!h.real) continue;
     const r = stud.get(h.id);
+    const m = mares.get(h.id);
+    if (m) {
+      // 繁殖牝馬は没年が分かっていればそれで、分からなければ繁殖を終えて数年で区切る。
+      h.dead = m.died != null ? m.died < year : year - h.birthYear > 26;
+      h.broodmare = !h.dead && world.marePool.includes(h.id);
+      continue;
+    }
     if (r) {
       h.dead = r.died != null && r.died < year;
       if (r.to != null) h.stallion = false;
@@ -143,7 +177,7 @@ export function settleRealHorses(world, year) {
       h.dead = year - h.birthYear > (h.sex === SEX.FEMALE ? 22 : 25);
       h.stallion = false;
     }
-    // 母は名前を血統表に載せるためだけの馬。繁殖牝馬の名簿には入れない。
-    if (h.sex === SEX.FEMALE) h.broodmare = !h.dead;
+    // 名簿に入らない母（海外の牝馬など）は、名前を血統表に載せるためだけの馬。
+    if (h.sex === SEX.FEMALE) h.broodmare = false;
   }
 }

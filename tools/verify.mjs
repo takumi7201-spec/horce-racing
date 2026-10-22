@@ -15,7 +15,7 @@ import {
   yawForZForward, yawForXForward, zForwardOfYaw, xForwardOfYaw,
 } from '../src/render3d/orient.js';
 import { toJSON, fromJSON } from '../src/sim/save.js';
-import { newGame, nextWeek, racesFor, enterRace, myHorses, horseView, evaluateMating, stallions } from '../src/sim/game.js';
+import { newGame, nextWeek, racesFor, enterRace, myHorses, horseView, evaluateMating, stallions, realMares, buyMare, myStable } from '../src/sim/game.js';
 import { ABILITIES, SEX, WEEKS_PER_YEAR } from '../src/sim/params.js';
 import { sum, formatTime, byDesc } from '../src/core/util.js';
 
@@ -291,8 +291,22 @@ section('実在の種牡馬');
   const live = [...w.horses.values()].filter((h) => !h.dead && !h.retired && w.year - h.birthYear >= 2 && !h.real);
   const realSired = live.filter((h) => w.horses.get(h.sireId)?.real).length / live.length;
   check(`現役の架空馬にも実在の父が入っている（${(realSired * 100).toFixed(0)}%）`, realSired > 0.08 && realSired < 0.6);
+  const am = byName('アーモンドアイ');
+  check('実在の繁殖牝馬が繁殖の名簿に入っている（アーモンドアイ）', w.marePool.includes(am.id) && !am.dead && am.ownerId !== 'player');
+  check('名牝は毎年のように産む（アーモンドアイ 2022〜2026 年に 3 頭以上）', am.foals.length >= 3, `${am.foals.length} 頭`);
+  const sz = byName('シーザリオ');
+  check('亡くなった名牝は名簿にいない（シーザリオ）', sz.dead && !w.marePool.includes(sz.id) && sz.foals.length >= 5);
+  check('最初の繁殖牝馬に実在の名牝は配られない', w.player.broodmares.every((id) => !w.horses.get(id).real));
   const fict = newGame({ seed: 'verify', realSires: false }).world;
   check('実在の種牡馬を使わない世界も作れる', ![...fict.horses.values()].some((h) => h.real));
+}
+{
+  // 名牝を買うと自分の繁殖牝馬になる。別の世界で試す（本体の世界の資金を動かさない）。
+  const g2 = newGame({ seed: 'verify-mare' });
+  g2.world.player.money = 1e6;
+  const top = realMares(g2)[0];
+  const r = buyMare(g2, top.id);
+  check(`実在の繁殖牝馬を買える（${top.name} ${r.price} 万）`, r.ok && myStable(g2).mares.some((h) => h.id === top.id));
 }
 
 // ---------------------------------------------------------------- ゲーム操作

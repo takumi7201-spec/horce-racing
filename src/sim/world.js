@@ -34,7 +34,7 @@ import { breed, canBeBroodmare, canBeStallion, studFeeOf, conceives, POP_MEAN } 
 import { trainWeek, pastureWeek, autoMenu } from './training.js';
 import { sireLineRoot, nicksKey, recordNicksResult, breedQuality, lineLabel } from './pedigree.js';
 import { clamp, clamp01, lerp, sum, byDesc } from '../core/util.js';
-import { seedRealHorses, syncRealStud, settleRealHorses } from './realsires.js';
+import { seedRealHorses, syncRealStud, syncRealMares, settleRealHorses } from './realsires.js';
 
 /**
  * 1 世代あたりの産駒数。
@@ -147,6 +147,7 @@ export function createWorld(seed, { startYear = 2026, playerName = '', farmName 
     const n = age > 20 ? 55 : age > 11 ? 70 : age > 7 ? 110 : FOALS_LIVE;
     // y 年生まれの世代は前の年の種付け。その年に日本で供用されていた実在の種牡馬を並べる。
     syncRealStud(world, y - 1);
+    syncRealMares(world, y);
     const cohort = breedCohort(world, rng, y, n);
     // 2 歳以上は紙の戦績を持たせる。でないとゲーム開始時に全馬が無印になる。
     // 古い世代は血統表に名前と格が載るだけなので、戦績も粗く済ませる。
@@ -157,6 +158,8 @@ export function createWorld(seed, { startYear = 2026, playerName = '', farmName 
   // 開始年のシーズンに供用中の実在種牡馬を名簿に揃える（種付料は発表額になる）。
   if (realSires) {
     syncRealStud(world, Y0);
+    // 繁殖牝馬は来年生まれる産駒の母として並べる（今年の種付けの相手）。
+    syncRealMares(world, Y0 + 1);
     settleRealHorses(world, Y0);
   }
   // 名簿の種付料を開始年の値にそろえる。供用を始めた年の値のままだと、
@@ -223,6 +226,20 @@ function withinStudAge(world, s, year) {
   return year - s.birthYear <= 24;
 }
 
+/**
+ * 実在の繁殖牝馬を種付けの順番の先頭に回す。
+ * 1 年に種付けされるのは名簿の一部だけなので、混ぜたままだと名牝が
+ * 14 年の繁殖生活で 3 頭しか産まなかった（実際はほぼ毎年産んでいる）。
+ * 相手も種付料の 2 乗で選ばせ、一流の種牡馬に偏らせる（名牝に安い種牡馬は付けない）。
+ */
+function realMaresFirst(world, mares) {
+  const real = mares.filter((id) => world.horses.get(id)?.real);
+  if (!real.length) return;
+  const rest = mares.filter((id) => !world.horses.get(id)?.real);
+  mares.length = 0;
+  mares.push(...real, ...rest);
+}
+
 /** 1 年ぶんの産駒を作る。繁殖牝馬は年に 1 頭。 */
 function breedCohort(world, rng, year, n) {
   const mares = world.marePool.filter((id) => {
@@ -237,12 +254,14 @@ function breedCohort(world, rng, year, n) {
 
   // 種牡馬は種付料が高いほど多くの牝馬を集める。
   const fees = stallions.map((id) => Math.max(10, studFeeOf(world, world.horses.get(id), year)));
+  const eliteFees = fees.map((f) => f * f);
   const cohort = [];
   rng.shuffle(mares);
+  realMaresFirst(world, mares);
   for (let i = 0; i < Math.min(n, mares.length); i++) {
     const dam = world.horses.get(mares[i]);
     if (!conceives(rng, dam, year)) continue;
-    const sire = world.horses.get(rng.weighted(stallions, fees));
+    const sire = world.horses.get(rng.weighted(stallions, dam.real ? eliteFees : fees));
     // 近親交配になりすぎる組み合わせは牧場が避ける。
     if (sire.id === dam.sireId) continue;
     const foal = breed(world, rng, sire, dam, { year });
@@ -371,7 +390,12 @@ function promotePools(world, rng, year) {
   world.marePool = world.marePool.filter((id) => {
     const h = world.horses.get(id);
     if (!h) return false;
-    if (year - h.birthYear > 20) { h.dead = true; return false; }
+    // 実在の繁殖牝馬は生成中は表に従い、始まってからは 20 歳で繁殖を終えて余生に入る。
+    if (h.real && year <= world.startYear) return true;
+    if (year - h.birthYear > 20) {
+      if (h.real) h.broodmare = false; else h.dead = true;
+      return false;
+    }
     return true;
   });
 }
@@ -527,7 +551,8 @@ function setupPlayer(world, rng, { playerName, farmName }) {
   // 繁殖牝馬 2 頭。
   const mareCands = world.marePool
     .map((id) => world.horses.get(id))
-    .filter((m) => m && !m.dead && world.year - m.birthYear >= 5 && world.year - m.birthYear <= 12);
+    // 実在の名牝は配らない（アーモンドアイが最初から手元に居ては牧場経営にならない）。
+    .filter((m) => m && !m.dead && !m.real && world.year - m.birthYear >= 5 && world.year - m.birthYear <= 12);
   rng.shuffle(mareCands);
   for (const m of mareCands.slice(0, 2)) {
     m.ownerId = 'player';
@@ -1094,12 +1119,14 @@ function breedCohortExcluding(world, rng, year, n, exclude) {
   });
   if (!mares.length || !stallions.length) return [];
   const fees = stallions.map((id) => Math.max(10, studFeeOf(world, world.horses.get(id), year)));
+  const eliteFees = fees.map((f) => f * f);
   const out = [];
   rng.shuffle(mares);
+  realMaresFirst(world, mares);
   for (let i = 0; i < Math.min(n, mares.length); i++) {
     const dam = world.horses.get(mares[i]);
     if (!conceives(rng, dam, year)) continue;
-    const sire = world.horses.get(rng.weighted(stallions, fees));
+    const sire = world.horses.get(rng.weighted(stallions, dam.real ? eliteFees : fees));
     if (sire.id === dam.sireId) continue;
     const foal = breed(world, rng, sire, dam, { year, farmId: dam.farmId });
     world.horses.set(foal.id, foal);

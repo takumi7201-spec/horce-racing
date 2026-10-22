@@ -634,7 +634,7 @@ canvas.race3d { width: 100%; height: 100%; display: block; }
 }
 .stbl-cat.on { background: linear-gradient(#fff6c8, var(--gold)); color: #5a3b00; }
 .stbl-cat.on .sc-ico { background: linear-gradient(#ffb15c, #ef7a1a); }
-.stbl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; }
+.stbl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); gap: 10px; }
 .stbl-empty { background: var(--cream); border: 3px solid #fff; border-radius: 14px; box-shadow: var(--shadow); }
 .stile {
   display: grid; grid-template-columns: 70px 1fr auto; align-items: center; gap: 10px; cursor: pointer;

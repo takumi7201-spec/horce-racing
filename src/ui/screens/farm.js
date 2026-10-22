@@ -11,10 +11,12 @@ export function farmScreen(app) {
   const nav = tabs([
     { id: 'mating', name: '配合' },
     { id: 'stallions', name: '種牡馬名鑑' },
+    { id: 'mares', name: '繁殖牝馬名鑑' },
     { id: 'auction', name: `セリ市${G.auctionOpen(g) ? '（開催中）' : ''}` },
   ], tab, (id) => app.go('farm', { tab: id, damId: app.params.damId }));
 
   const body = tab === 'stallions' ? stallionBook(app)
+    : tab === 'mares' ? mareBook(app)
     : tab === 'auction' ? auctionView(app)
       : matingView(app);
   return el('div', [nav, body]);
@@ -192,6 +194,40 @@ function sireName(s) {
   return el('span.sire-n', [el('b', { text: s.name }), s.real ? el('i.realtag', { text: '実在' }) : null]);
 }
 
+// ---------------------------------------------------------------- 繁殖牝馬名鑑
+
+/**
+ * 実在の名牝。繁殖中の馬は買える。買えば自分の繁殖牝馬として配合できる。
+ * 代表産駒は実在の仔（イクイノックスの母ならイクイノックス）を先に出す。
+ */
+function mareBook(app) {
+  const g = app.game;
+  const ms = G.realMares(g);
+  const money = g.world.player.money;
+  return card(`繁殖牝馬名鑑（実在 ${ms.length} 頭）`, [
+    el('p.note', { text: '実在の名牝は繁殖中なら購入できる。値段は格と年齢、母としての実績（GI 馬の母）で決まる。' }),
+    table(['繁殖牝馬', '年齢', '父', '母の父', '代表勝鞍', '代表産駒', '産駒', '価格', ''],
+      ms.map((m) => ({
+        cells: [
+          sireName(m), `${m.age}歳`, m.sire, m.damSire, m.bestWin ?? '—', m.bestFoal ?? '—', `${m.foals}頭`,
+          m.mine ? el('span.mine', { text: '自分の繁殖牝馬' }) : formatMoney(m.price),
+          m.mine ? button('配合', (e) => { e.stopPropagation(); app.go('farm', { tab: 'mating', damId: m.id }); }, { cls: 'sm' })
+            : button('購入', (e) => {
+              e.stopPropagation();
+              if (!confirm(`${m.name} を ${formatMoney(m.price)} で購入する？`)) return;
+              const r = G.buyMare(g, m.id);
+              if (!r.ok) return toast(r.why, { bad: true });
+              toast(`${m.name} を ${formatMoney(r.price)} で購入した`);
+              app.render();
+              return undefined;
+            }, { cls: 'sm primary', disabled: money < m.price }),
+        ],
+        cls: m.mine ? 'mine' : null,
+        onclick: () => app.go('stable', { id: m.id }),
+      })), { align: [, 'c', , , , , 'c', 'r'] }),
+  ]);
+}
+
 // ---------------------------------------------------------------- セリ市
 
 function auctionView(app) {
@@ -207,7 +243,9 @@ function auctionView(app) {
     lots.length ? table(['', '馬名', '性', '毛色', '父', '母', '母の父', '馬体', 'インブリード', '価格', ''],
       lots.map((x) => [
         horseImg(x.coat, { size: 'sm', age: 1, title: `${x.name}（${x.coat}）` }),
-        el('b', { text: x.name }), x.sex, x.coat, x.sire, x.dam, x.damSire, x.look,
+        el('b', { text: x.name }), x.sex, x.coat, x.sire,
+        x.damReal ? el('span.sire-n', [x.dam, el('i.realtag', { text: '実在' })]) : x.dam,
+        x.damSire, x.look,
         (x.inbreed ?? []).slice(0, 2).join(' / ') || '—',
         formatMoney(x.price),
         button('購入', () => {
