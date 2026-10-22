@@ -398,6 +398,29 @@ export function nextWeek(g) {
   };
 }
 
+/**
+ * まとめて週送りするときの行き先。長押しのポップアップに並べる。
+ * 各月の 1 週と、月の途中で始まる行事（12 月 3 週の海外トレーニングセール）の週。
+ * 年はまたがない：12 月 4 週を進めると年末処理で必ず止めるので、最後は「年末処理まで」。
+ * weeks はその週まで進める回数。
+ */
+export function skipTargets(g) {
+  const wk = g.world.week;
+  const starts = new Map();
+  for (let m = 1; m <= 12; m++) starts.set((m - 1) * 4 + 1, []);
+  for (const e of EVENTS) {
+    if (e.id === 'yearEnd') continue;
+    if (!starts.has(e.from)) starts.set(e.from, []);
+    starts.get(e.from).push(e.name);
+  }
+  const out = [...starts.entries()]
+    .filter(([week]) => week > wk + 1)
+    .sort((a, b) => a[0] - b[0])
+    .map(([week, events]) => ({ week, weeks: week - wk, label: `${weekLabel(week)}まで`, events }));
+  out.push({ week: null, weeks: WEEKS_PER_YEAR - wk + 1, label: '年末処理まで', events: ['表彰式・引退・馬名登録'] });
+  return out;
+}
+
 /** 直近の結果一覧（重賞優先）。 */
 export function recentResults(g) {
   return g.world.results

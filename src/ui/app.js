@@ -98,9 +98,15 @@ export function start(root) {
 
     /** 週送り。自分の馬が走るレースがあれば観戦画面へ寄る。 */
     next() {
-      if (!app.game) return;
+      if (!app.game || app.skipping) return;
       const hadEntries = G.myEntries(app.game).length > 0;
       const out = G.nextWeek(app.game);
+      app.afterWeek(out);
+      if (!out.myRaces.length && !out.yearSummary && hadEntries) toast('登録した馬は出走できなかった');
+    },
+
+    /** 週を進めた後の行き先。観戦・年末処理・ホーム。 */
+    afterWeek(out, { quiet = false } = {}) {
       app.lastWeek = out;
       // 12 月 4 週を進めると年末処理。レースを観たあとでも見られるよう取っておく。
       if (out.yearSummary) app.pendingYearEnd = out.yearSummary;
@@ -109,11 +115,60 @@ export function start(root) {
       } else if (out.yearSummary) {
         app.go('yearend');
       } else {
-        if (hadEntries) toast('登録した馬は出走できなかった');
         app.go('home');
+        if (quiet) return;
         // 行事が始まった週は知らせる（セールは開催週を逃すと 1 年待つことになる）。
         const ev = G.eventsNow(app.game).filter((e) => e.from === app.game.world.week);
         if (ev.length) toast(`${ev.map((e) => e.name).join('・')}が始まった`);
+      }
+    },
+
+    /**
+     * まとめて週送り（NEXT の長押し）。target.weeks 週ぶん進める。
+     * 自分の馬が走った週と年末処理では途中でも止める（観戦と表彰を飛ばさない）。
+     * 1 週ずつ描画を挟むので、進み具合が見え、中止もできる。
+     */
+    async skip(target) {
+      if (!app.game || app.skipping) return;
+      const g = app.game;
+      let cancel = false;
+      const status = el('b');
+      const veil = el('div.skipping', el('div.sk-box', [
+        el('span.sk-spin'),
+        el('div', [el('div.sk-t', { text: `${target.label}週送り中` }), status]),
+        button('中止', () => { cancel = true; }, { cls: 'sm' }),
+      ]));
+      document.body.appendChild(veil);
+      app.skipping = true;
+      const mine = [];
+      const hadEntries = G.myEntries(g).length > 0;
+      let out = null;
+      let first = null;
+      try {
+        for (let i = 0; i < target.weeks && !cancel; i++) {
+          status.textContent = `${G.now(g).year}年 ${G.now(g).label}（あと ${target.weeks - i} 週）`;
+          await new Promise((r) => setTimeout(r, 0));
+          out = G.nextWeek(g);
+          first ??= out;
+          // 自分の馬に関わる出来事（★）は週ごとのニュースで流れてしまうので、ここで拾っておく。
+          for (const n of out.news) if (n.startsWith('★')) mine.push(`${out.label}　${n.slice(1)}`);
+          if (out.myRaces.length || out.yearSummary) break;
+        }
+      } finally {
+        veil.remove();
+        app.skipping = false;
+      }
+      if (!out) return;
+      app.afterWeek(out, { quiet: true });
+      if (hadEntries && !first.myRaces.length) toast('登録した馬は出走できなかった');
+      const where = `${G.now(g).year}年 ${G.now(g).label}`;
+      if (mine.length && !out.myRaces.length && !out.yearSummary) {
+        modal(`${where}まで進めた`, [
+          el('ul.sk-news', mine.slice(-30).map((n) => el('li', { text: n }))),
+        ]);
+      } else if (!out.myRaces.length && !out.yearSummary) {
+        const ev = G.eventsNow(g).filter((e) => e.from === g.world.week);
+        toast(ev.length ? `${where}：${ev.map((e) => e.name).join('・')}が始まった` : `${where}まで進めた`);
       }
     },
 
@@ -220,7 +275,10 @@ export function start(root) {
   window.addEventListener('keydown', (e) => {
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
     if (!app.game) return;
-    if (e.key === 'n' || e.key === 'N') app.next();
+    if (e.key === 'n' || e.key === 'N') {
+      if (e.shiftKey) openSkipMenu(app, document.querySelector('.nextb'));
+      else app.next();
+    }
     if (e.key === 's' || e.key === 'S') app.openSaveMenu();
     // 馬の詳細では ← → で前後の馬へ。
     if (app.onArrow && document.querySelector('.modal-wrap') == null) {
@@ -334,20 +392,77 @@ function sideNav(app) {
   ])));
 }
 
-/** 左下の NEXT と小さなセーブ。 */
+/** 長押しとみなす時間（ms）。短いとスクロールのつもりのタッチで開いてしまう。 */
+const LONG_PRESS = 450;
+
+/** 左下の NEXT と小さなセーブ。タップで 1 週、長押しでまとめて送るメニュー。 */
 function dock(app) {
   const entries = G.myEntries(app.game).length;
-  return el('div.dock', [
-    el('button.nextb', { onclick: () => app.next(), title: '次の週へ（N）' }, [
-      el('span.nb-ring', [
-        icon('next', { size: 34 }),
-        el('b', { text: 'NEXT' }),
-        el('small', { text: '次の週へ' }),
-      ]),
-      entries ? el('span.nb-badge', { text: `出走 ${entries}` }) : null,
+  const next = el('button.nextb', { title: '次の週へ（N）／長押しで月送り（Shift+N）' }, [
+    el('span.nb-ring', [
+      icon('next', { size: 34 }),
+      el('b', { text: 'NEXT' }),
+      el('small', { text: '次の週へ' }),
     ]),
+    entries ? el('span.nb-badge', { text: `出走 ${entries}` }) : null,
+  ]);
+  // 長押しが成立したら、指を離したときの click を 1 週送りに数えない。
+  let timer = 0;
+  let long = false;
+  const cancel = () => { clearTimeout(timer); next.classList.remove('pressing'); };
+  next.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    long = false;
+    next.classList.add('pressing');
+    timer = setTimeout(() => {
+      long = true;
+      next.classList.remove('pressing');
+      openSkipMenu(app, next);
+    }, LONG_PRESS);
+  });
+  for (const t of ['pointerup', 'pointerleave', 'pointercancel']) next.addEventListener(t, cancel);
+  // スマホの長押しで出る文脈メニュー（画像の保存など）を出さない。
+  next.addEventListener('contextmenu', (e) => e.preventDefault());
+  next.addEventListener('click', () => {
+    if (long) { long = false; return; }
+    app.next();
+  });
+  return el('div.dock', [
+    next,
     el('button.saveb', { onclick: () => app.openSaveMenu(), title: 'セーブ / ロード（S）' }, [
       icon('save', { size: 16 }), el('span', { text: 'セーブ' }),
     ]),
   ]);
+}
+
+/**
+ * まとめて週送りのメニュー。NEXT の横に出す小さなポップアップ。
+ * 行き先は各月の 1 週と行事の始まる週、最後に年末処理。
+ */
+function openSkipMenu(app, anchor) {
+  if (!app.game || app.skipping || !anchor) return;
+  document.querySelector('.skipmenu-wrap')?.remove();
+  const g = app.game;
+  const close = () => wrap.remove();
+  const go = (t) => { close(); if (t) app.skip(t); else app.next(); };
+  const item = (label, sub, weeks, onclick) => el('button.sm-item', { onclick }, [
+    el('span.sm-l', [el('b', { text: label }), sub ? el('small', { text: sub }) : null]),
+    el('span.sm-w', { text: `${weeks}週` }),
+  ]);
+  const menu = el('div.skipmenu', [
+    el('div.sm-h', [el('b', { text: '週送り' }), el('small', { text: `いま ${G.now(g).label}` })]),
+    item('次の週', null, 1, () => go(null)),
+    ...G.skipTargets(g).map((t) => item(t.label, t.events.join('・'), t.weeks, () => go(t))),
+    el('p.sm-note', { text: '自分の馬が走る週と年末処理では途中で止まる' }),
+  ]);
+  const wrap = el('div.skipmenu-wrap', {
+    onpointerdown: (e) => { if (e.target === wrap) close(); },
+  }, menu);
+  // ボタンの横に出す。画面の右側（スマホの配置）なら左へ、左側なら右へ。
+  const r = anchor.getBoundingClientRect();
+  const right = r.left > window.innerWidth / 2;
+  if (right) menu.style.right = `${Math.round(window.innerWidth - r.left + 10)}px`;
+  else menu.style.left = `${Math.round(r.right + 12)}px`;
+  menu.style.bottom = `${Math.max(8, Math.round(window.innerHeight - r.bottom))}px`;
+  document.body.appendChild(wrap);
 }

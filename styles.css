@@ -1043,3 +1043,39 @@ canvas.race3d { width: 100%; height: 100%; display: block; }
   .rp-v b { font-size: 24px; }
   .rp-grade { width: 42px; height: 42px; font-size: 20px; }
 }
+
+/* ---------------- まとめて週送り（NEXT の長押し） ---------------- */
+.nextb { touch-action: manipulation; -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; }
+/* 押している間にリングが沈んでいき、長押しになる手前だと分かるようにする。 */
+.nextb.pressing .nb-ring { transform: scale(.9); transition: transform .45s ease-in; }
+.skipmenu-wrap { position: fixed; inset: 0; z-index: 40; }
+.skipmenu {
+  position: fixed; width: 250px; max-height: calc(100vh - 90px); overflow: auto;
+  background: #fffdf4; border: 3px solid var(--green); border-radius: 14px;
+  box-shadow: 0 0 0 2px #fff, 0 10px 28px #0006; padding: 6px;
+  animation: sm-in .14s ease-out;
+}
+@keyframes sm-in { from { opacity: 0; transform: translateY(8px) scale(.97); } }
+.sm-h { display: flex; align-items: baseline; justify-content: space-between; padding: 4px 8px 6px; }
+.sm-h b { font-size: 14px; font-weight: 900; color: var(--green-dd); }
+.sm-h small { font-size: 11px; color: var(--fg3); }
+.sm-item {
+  display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; cursor: pointer; font: inherit;
+  background: #fff; border: 1px solid #e3dcc4; border-radius: 10px; padding: 7px 10px; margin-top: 4px;
+}
+.sm-item:hover { border-color: var(--green); background: #f4fbef; }
+.sm-l { flex: 1 1 auto; display: flex; flex-direction: column; min-width: 0; }
+.sm-l b { font-size: 13px; font-weight: 800; color: #2b2a22; }
+.sm-l small { font-size: 10.5px; color: var(--green-d); font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sm-w { flex: 0 0 auto; font-size: 11px; font-weight: 800; color: var(--fg3); font-variant-numeric: tabular-nums; }
+.sm-note { margin: 6px 6px 2px; font-size: 10.5px; color: var(--fg3); }
+.skipping { position: fixed; inset: 0; z-index: 45; background: #0003; display: flex; align-items: flex-end; justify-content: center; padding-bottom: 120px; }
+.sk-box {
+  display: flex; align-items: center; gap: 12px; background: #fffdf4; border: 3px solid var(--green);
+  border-radius: 14px; padding: 10px 14px; box-shadow: 0 8px 24px #0006;
+}
+.sk-t { font-size: 12px; color: var(--fg3); font-weight: 700; }
+.sk-box b { font-size: 15px; font-weight: 900; font-variant-numeric: tabular-nums; }
+.sk-spin { width: 22px; height: 22px; border-radius: 50%; border: 3px solid #cfe6c4; border-top-color: var(--green); animation: sk-rot .7s linear infinite; }
+@keyframes sk-rot { to { transform: rotate(360deg); } }
+.sk-news { margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.7; }

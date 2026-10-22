@@ -356,6 +356,19 @@ section('年間スケジュール');
   check('年明けに決めた調教師の厩舎へ入る', reg.trainerId === tr.id);
 }
 
+// ---------------------------------------------------------------- まとめて週送り
+section('まとめて週送り');
+{
+  const g3 = newGame({ seed: 'verify-skip' });
+  const ts = GG.skipTargets(g3);
+  const feb = ts.find((t) => t.label === '2月1週まで');
+  const dec3 = ts.find((t) => t.label === '12月3週まで');
+  const last = ts[ts.length - 1];
+  check('行き先は各月の 1 週と行事の週（1 月 1 週から 2 月 1 週は 4 週）', feb?.weeks === 4 && dec3?.events.includes('海外トレーニングセール'));
+  check('最後は年末処理まで（1 年ぶん 48 週）', last.label === '年末処理まで' && last.weeks === 48);
+  check('行き先は週の順に並び、年をまたがない', ts.every((t, i) => i === 0 || t.weeks > ts[i - 1].weeks) && ts.every((t) => t.weeks <= 48));
+}
+
 // ---------------------------------------------------------------- 開始年
 section('開始年（史実の名馬）');
 {
