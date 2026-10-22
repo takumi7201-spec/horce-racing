@@ -356,6 +356,45 @@ section('年間スケジュール');
   check('年明けに決めた調教師の厩舎へ入る', reg.trainerId === tr.id);
 }
 
+// ---------------------------------------------------------------- 開始年
+section('開始年（史実の名馬）');
+{
+  const g75 = newGame({ seed: 'verify-1975', startYear: 1975 });
+  const w75 = g75.world;
+  const byName = (w, n) => [...w.horses.values()].find((h) => h.name === n || h.regName === n);
+  const reals = [...w75.horses.values()].filter((h) => h.real);
+  check('1975 年開始：開始年以降に生まれる実在馬はまだ居ない', reals.every((h) => h.birthYear < 1975));
+  check('まだ行われていないレースが戦績に無い', reals.every((h) => h.record.every((r) => r.year < 1975)));
+  const pool = new Set(w75.stallionPool);
+  const tesco = byName(w75, 'テスコボーイ');
+  check(`テスコボーイが名簿に居て種付料は史実の額（${tesco?.studFee} 万）`, pool.has(tesco?.id) && tesco.studFee === 2000);
+  check('サンデーサイレンスはまだ輸入されていない', !byName(w75, 'サンデーサイレンス'));
+  const tb = byName(w75, 'トウショウボーイ');
+  check('トウショウボーイが 2 歳の競走馬として居る', !!tb && !tb.retired && tb.birthYear === 1973 && !!tb.ownerId);
+  check('後の名馬の名前は予約されている', w75.nameSet.has('ディープインパクト'));
+  check('昭和の種牡馬が名簿に並ぶ（パーソロン・ハイセイコー）',
+    pool.has(byName(w75, 'パーソロン')?.id) && pool.has(byName(w75, 'ハイセイコー')?.id));
+
+  // 1990 年に始めて 1991 年の夏まで進める。サンデーサイレンスが輸入され、ナリタブライアンが生まれる。
+  const g90 = newGame({ seed: 'verify-1990', startYear: 1990 });
+  const w90 = g90.world;
+  check('1990 年開始：ブライアンズタイムが供用中', w90.stallionPool.includes(byName(w90, 'ブライアンズタイム')?.id));
+  while (w90.year < 1991 || w90.week < (8 - 1) * 4 + 1) nextWeek(g90);
+  const ss = byName(w90, 'サンデーサイレンス');
+  check(`1991 年にサンデーサイレンスが輸入される（種付料 ${ss?.studFee} 万）`,
+    !!ss && w90.stallionPool.includes(ss.id) && ss.studFee === 2500);
+  const nb = byName(w90, 'ナリタブライアン');
+  const nbSire = nb && w90.horses.get(nb.sireId)?.name;
+  const nbDam = nb && w90.horses.get(nb.damId)?.name;
+  check(`1991 年 4 月にナリタブライアンが生まれる（${nb?.name}、父 ${nbSire}・母 ${nbDam}）`,
+    !!nb && nb.birthYear === 1991 && nbSire === 'ブライアンズタイム' && nbDam === 'パシフィカス' && nb.name === 'パシフィカスの1991');
+  const lot = GG.foalSale(g90).find((x) => x.realName === 'ナリタブライアン');
+  check('当歳セールに史実の名馬が上場される', !!lot);
+  const back = fromJSON(toJSON(g90));
+  check('セーブ往復で実在馬の状態が保たれる',
+    back.world.real?.ids['ナリタブライアン'] === nb?.id && back.world.real.entered.includes('サンデーサイレンス'));
+}
+
 // ---------------------------------------------------------------- ゲーム操作
 section('ゲーム操作');
 {

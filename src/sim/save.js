@@ -18,6 +18,8 @@ export function serialize(g) {
     v: SAVE_VERSION,
     seed: w.seed,
     startYear: w.startYear,
+    realSires: w.realSires,
+    real: w.real,
     year: w.year,
     week: w.week,
     rngState: w.rng.save(),
@@ -53,6 +55,9 @@ export function deserialize(data) {
   const world = {
     seed: data.seed,
     startYear: data.startYear,
+    realSires: data.realSires,
+    // 実在の馬の id と、名簿に入れ終えた馬。無いと史実の誕生や輸入がロード後に止まる。
+    real: data.real ? { ids: data.real.ids ?? {}, entered: data.real.entered ?? [] } : undefined,
     year: data.year,
     week: data.week,
     rng,

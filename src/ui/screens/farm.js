@@ -274,7 +274,10 @@ function horseSaleView(app, kind) {
     lots.length ? table(['', '馬名', '性', '毛色', '父', '母', '母の父', '馬体', 'インブリード', '価格', ''],
       lots.map((x) => [
         horseImg(x.coat, { size: 'sm', age: x.age, title: `${x.name}（${x.coat}）` }),
-        el('b', { text: x.name }), x.sex, x.coat,
+        x.realName
+          ? el('span.sire-n', [el('b', { text: x.name }), el('i.realtag', { text: `のちの${x.realName}`, title: '史実の名馬になる幼駒' })])
+          : el('b', { text: x.name }),
+        x.sex, x.coat,
         x.sireReal ? el('span.sire-n', [x.sire, el('i.realtag', { text: '実在' })]) : x.sire,
         x.damReal ? el('span.sire-n', [x.dam, el('i.realtag', { text: '実在' })]) : x.dam,
         x.damSire, x.look,

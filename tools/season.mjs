@@ -1,6 +1,7 @@
 // 世界を何年か回して、競馬界が壊れていないかを見る道具。
 //   node tools/season.mjs --years 5
 //   node tools/season.mjs --years 20 --quiet
+//   node tools/season.mjs --start 1975 --years 30
 
 import { createWorld, advanceWeek, computeLeaders } from '../src/sim/world.js';
 import { horseAge } from '../src/sim/horse.js';
@@ -13,9 +14,10 @@ const num = (f, d) => { const i = args.indexOf(f); return i >= 0 ? Number(args[i
 const YEARS = num('--years', 5);
 const QUIET = args.includes('--quiet');
 const SEED = args.includes('--seed') ? args[args.indexOf('--seed') + 1] : 'season';
+const START = num('--start', 2026);
 
 const t0 = Date.now();
-const world = createWorld(SEED, { startYear: 2026, playerName: '検証 太郎', farmName: '検証ファーム' });
+const world = createWorld(SEED, { startYear: START, playerName: '検証 太郎', farmName: '検証ファーム' });
 console.log(`世界生成 ${Date.now() - t0}ms / ${world.horses.size} 頭`);
 
 const stats = [];

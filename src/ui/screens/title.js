@@ -11,6 +11,15 @@ export function titleScreen(app) {
   const farm = el('input.inp', { type: 'text', placeholder: '牧場名（例：みどりヶ丘ファーム）', maxLength: 16 });
   const seed = el('input.inp', { type: 'text', placeholder: 'シード（空欄ならランダム）', maxLength: 24 });
   const realSires = el('input', { type: 'checkbox', checked: true });
+  // 開始年。昔から始めると、実在の名馬が史実の年に生まれ、輸入馬が史実の年にやって来る。
+  const START_YEARS = [
+    [2026, '2026年（イクイノックス・キタサンブラックの時代）'],
+    [2005, '2005年（ディープインパクトが 3 歳）'],
+    [1995, '1995年（サンデーサイレンスの初年度産駒がクラシックへ）'],
+    [1985, '1985年（シンボリルドルフが 4 歳）'],
+    [1975, '1975年（トウショウボーイ・テンポイントが 2 歳）'],
+  ];
+  const startYear = el('select.inp', START_YEARS.map(([y, label]) => el('option', { value: String(y), text: label })));
   const status = el('p.note');
 
   const begin = () => {
@@ -23,6 +32,7 @@ export function titleScreen(app) {
           playerName: name.value.trim(),
           farmName: farm.value.trim(),
           realSires: realSires.checked,
+          startYear: Number(startYear.value),
         });
         app.stack.length = 0;
         app.go('home', {}, { replace: true });
@@ -57,7 +67,8 @@ export function titleScreen(app) {
           el('label', ['馬主名', name]),
           el('label', ['牧場名', farm]),
           el('label', ['シード', seed]),
-          el('label.check', [realSires, el('span', { text: '実在の種牡馬と繁殖牝馬を使う（キタサンブラック・イクイノックス・アーモンドアイなど）' })]),
+          el('label', ['開始年', startYear]),
+          el('label.check', [realSires, el('span', { text: '実在の馬を使う（昔から始めると、名馬が史実の年に生まれてくる）' })]),
         ]),
         el('p.note', 'シードを同じにすると、同じ競馬界（同じ血統・同じ馬）が生成される。'),
         button('はじめる', begin, { cls: 'primary big' }),

@@ -178,10 +178,12 @@ export function studFeeOf(world, stallion, year) {
   // 年を取ると下がる。
   const age = year - stallion.birthYear;
   if (age > 16) base *= Math.max(0.3, 1 - (age - 16) * 0.09);
-  // 実在の種牡馬は、開始年は各スタリオンの発表額（亡くなった馬は全盛期の目安）にする。
-  // 始まってからは毎年 4 分の 1 ずつ、架空の世界での産駒成績による値へ寄せていく。
+  // 実在の種牡馬は、名簿に入った年（開始年より前からなら開始年）は各スタリオンの発表額
+  // （亡くなった馬は全盛期の目安）にする。そこから毎年 4 分の 1 ずつ、
+  // 架空の世界での産駒成績による値へ寄せていく。1975 年に始めて 1991 年に輸入される
+  // サンデーサイレンスは、1991 年の時点で史実の額から始まる。
   if (stallion.realFee) {
-    const since = Math.max(0, year - (world.startYear ?? year));
+    const since = Math.max(0, year - (stallion.realFeeFrom ?? world.startYear ?? year));
     const k = Math.pow(0.75, since);
     base = base * (1 - k) + stallion.realFee * k;
   }

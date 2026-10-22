@@ -34,7 +34,9 @@ import { breed, canBeBroodmare, canBeStallion, studFeeOf, conceives, POP_MEAN } 
 import { trainWeek, pastureWeek, autoMenu } from './training.js';
 import { sireLineRoot, nicksKey, recordNicksResult, breedQuality, lineLabel } from './pedigree.js';
 import { clamp, clamp01, lerp, sum, byDesc } from '../core/util.js';
-import { seedRealHorses, syncRealStud, syncRealMares, settleRealHorses } from './realsires.js';
+import {
+  seedRealHorses, syncRealStud, syncRealMares, settleRealHorses, realNewYear, realCoverings, bornReal,
+} from './realsires.js';
 import { W } from './schedule.js';
 
 /**
@@ -120,9 +122,10 @@ export function createWorld(seed, { startYear = 2026, playerName = '', farmName 
     world.trainers.set(t.id, t);
   }
 
-  // --- 実在の種牡馬とその祖先 ---
+  // --- 実在の馬とその祖先 ---
   // 架空の馬より先に作って名前を予約する（同名の架空馬が生まれないように）。
-  if (realSires) seedRealHorses(world, rng);
+  // 開始年より前に生まれた馬だけを作り、あとの馬は史実の年に生まれる・輸入される。
+  const liveReal = realSires ? seedRealHorses(world, rng) : [];
 
   // --- 創始世代 ---
   const Y0 = startYear;
@@ -169,6 +172,10 @@ export function createWorld(seed, { startYear = 2026, playerName = '', farmName 
     // 繁殖牝馬は来年生まれる産駒の母として並べる（今年の種付けの相手）。
     syncRealMares(world, Y0 + 1);
     settleRealHorses(world, Y0);
+    // 開始時点で現役の実在馬（1975 年開始ならトウショウボーイやテンポイント）。
+    // 2 歳以上は紙の戦績を持たせる。開始年の 4 月に生まれる名馬は、ここで母に受胎させる。
+    for (const h of liveReal) if (Y0 - h.birthYear >= 2) paperCareer(world, h, rng, Y0);
+    realCoverings(world, rng, Y0);
   }
   // 名簿の種付料を開始年の値にそろえる。供用を始めた年の値のままだと、
   // 産駒が走って上がった分が翌年まで表に出ない。
@@ -185,7 +192,7 @@ export function createWorld(seed, { startYear = 2026, playerName = '', farmName 
 
   // 開始時点の 1 歳馬はまだ馬名登録前（登録は 1 歳の年末）。仮の名で呼ぶ。
   for (const h of world.horses.values()) {
-    if (h.real || h.birthYear !== Y0 - 1 || h.damId == null) continue;
+    if ((h.real && h.retired) || h.birthYear !== Y0 - 1 || h.damId == null) continue;
     h.regName = h.name;
     h.name = provisionalName(world.horses.get(h.damId), h.birthYear);
   }
@@ -896,8 +903,11 @@ function applyResult(world, race, res, rng, news) {
     const h = world.horses.get(r.horseId);
     if (!h) continue;
     h.starts++;
-    if (r.order === 1) h.wins++;
-    else if (r.order === 2) h.seconds++;
+    if (r.order === 1) {
+      h.wins++;
+      // 戦績は 30 走（他人の馬は 6 走）しか残さないので、GI の勝ち数は別に数える。
+      if (race.grade === 'GI') h.g1Wins = (h.g1Wins ?? 0) + 1;
+    } else if (r.order === 2) h.seconds++;
     else if (r.order === 3) h.thirds++;
     h.earnings += r.prize;
     h.lastStartWeek = world.week;
@@ -1183,6 +1193,8 @@ function covering(world, rng, news) {
   const pairs = pairMares(world, rng, birth, FOALS_LIVE, { exclude: booked, npcOnly: true });
   for (const { dam, sire } of pairs) dam.pregnancy = { sireId: sire.id, year: birth };
   news.push(`種付けシーズンが終わった。ほかの牧場で ${pairs.length} 頭が受胎した。`);
+  // 来年生まれる史実の名馬は、史実の父母で受胎し直させる。
+  realCoverings(world, rng, birth);
 }
 
 /** 仮の馬名（「母名の生年」）。馬名は 1 歳の年末に登録する。 */
@@ -1202,14 +1214,15 @@ function foaling(world, rng, news) {
     const sire = world.horses.get(p.sireId);
     if (dam.dead || !sire) continue;
     const mine = dam.ownerId === 'player';
-    const foal = breed(world, rng, sire, dam, {
-      year: world.year, farmId: dam.farmId, ownerId: mine ? 'player' : null,
-    });
+    const opts = { year: world.year, farmId: dam.farmId, ownerId: mine ? 'player' : null };
+    const real = p.real && world.real && world.real.ids[p.real] == null;
+    const foal = real ? bornReal(world, rng, p.real, sire, dam, opts) : breed(world, rng, sire, dam, opts);
     foal.regName = foal.name;
     foal.name = provisionalName(dam, world.year);
     world.horses.set(foal.id, foal);
     n++;
     if (mine) news.push(`★${dam.name} が ${sire.name} の仔（${foal.sex}・${foal.coat}）を産んだ。`);
+    if (real) news.push(`${foal.name}（父 ${sire.name}）が誕生した。のちの${foal.regName}である。`);
   }
   news.push(`${world.year}年産の幼駒 ${n} 頭が誕生した。`);
 }
@@ -1266,6 +1279,9 @@ function newYear(world, rng) {
       }
     }
   }
+  // 史実の出来事（輸入馬の到着、実在の馬の種牡馬入り・繁殖入り、死）。
+  const realNews = realNewYear(world, rng, world.year);
+  if (realNews.length) world.news = realNews.concat(world.news).slice(0, 30);
   // 種付料の改定。走る産駒を出した種牡馬は跳ね上がる。
   for (const id of world.stallionPool) {
     const s = world.horses.get(id);

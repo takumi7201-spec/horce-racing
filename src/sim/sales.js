@@ -43,6 +43,7 @@ function horseLot(w, h, price) {
     horse: h, id: h.id, key: String(h.id), name: h.name, sex: h.sex, coat: h.coat, age: horseAge(h, w.year),
     sire: nameOf(w, h.sireId), dam: nameOf(w, h.damId), damSire: damSireOf(w, h),
     damReal: !!w.horses.get(h.damId)?.real, sireReal: !!w.horses.get(h.sireId)?.real,
+    realName: h.real ? h.regName ?? h.name : null,
     line: h.sireId != null ? lineLabel(w, h.id) : '—',
     inbreed: h.inbreedLabels ?? [],
     look: lookOf(h.weightKg),
@@ -56,8 +57,13 @@ function ownerlessLots(w, age, tag, count, scale) {
   const pool = [...w.horses.values()]
     .filter((h) => !h.dead && h.ownerId == null && horseAge(h, w.year) === age)
     .sort((a, b) => a.id - b.id);
-  rng.shuffle(pool);
-  return pool.slice(0, count).map((h) => horseLot(w, h, pedigreePrice(w, h, rng, scale))).sort(byDesc((x) => x.price));
+  // 史実の名馬になる幼駒は必ず上場する（昔から始めたとき、ディープインパクトを買える機会）。
+  const real = pool.filter((h) => h.real);
+  const rest = pool.filter((h) => !h.real);
+  rng.shuffle(rest);
+  return [...real, ...rest].slice(0, count)
+    .map((h) => horseLot(w, h, pedigreePrice(w, h, rng, scale)))
+    .sort(byDesc((x) => (x.realName ? 1e9 : 0) + x.price));
 }
 
 /** 当歳セール（8 月）。今年 4 月に生まれた幼駒。 */
