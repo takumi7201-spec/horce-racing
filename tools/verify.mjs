@@ -346,6 +346,14 @@ section('年間スケジュール');
   check(`買った後も一覧の馬が入れ替わらない（${os2[0].name}）`,
     same(os[0], os2[0]) && os.every((x, i) => x.coat === os2[i].coat && x.price === os2[i].price));
   check('庭先取引に 1 歳馬が並ぶ', GG.privateSale(g2).length > 0 && GG.privateSale(g2).every((x) => x.age === 1));
+  const pv = GG.privateSale(g2);
+  const pick = pv[pv.length - 1];
+  const bp = GG.buyLot(g2, 'private', pick.id);
+  const pv2 = GG.privateSale(g2);
+  check('庭先取引で買った 1 歳馬が幼駒に入る', bp.ok && myStable(g2).young.some((h) => h.id === pick.id), bp.why);
+  check('買っても一覧が入れ替わらず、買った馬は落札済みで残る',
+    pv.map((x) => x.id).join() === pv2.map((x) => x.id).join() && pv2.find((x) => x.id === pick.id).sold
+    && pv.every((x, i) => x.id === pick.id || x.price === pv2[i].price));
   until(W(12, 4));
   const cand = GG.entryCandidates(g2);
   check(`12 月 4 週に入厩・馬名登録の対象がいる（${cand.length} 頭）`, cand.length >= 1);

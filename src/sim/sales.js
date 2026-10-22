@@ -40,6 +40,7 @@ const lookOf = (kg) => LOOKS[clamp(Math.floor((kg - 400) / 40), 0, 4)];
 
 function horseLot(w, h, price) {
   return {
+    sold: h.ownerId != null,
     horse: h, id: h.id, key: String(h.id), name: h.name, sex: h.sex, coat: h.coat, age: horseAge(h, w.year),
     sire: nameOf(w, h.sireId), dam: nameOf(w, h.damId), damSire: damSireOf(w, h),
     damReal: !!w.horses.get(h.damId)?.real, sireReal: !!w.horses.get(h.sireId)?.real,
@@ -51,11 +52,20 @@ function horseLot(w, h, price) {
   };
 }
 
-/** 生まれ年 age の、持ち主の居ない馬からセールの上場馬を選ぶ。 */
+/** そのセールで買った馬に付ける印。年が変われば別のセール。 */
+const saleKeyOf = (w, tag) => `${tag}|${w.year}`;
+
+/**
+ * 生まれ年 age の、持ち主の居ない馬からセールの上場馬を選ぶ。
+ * このセールでプレイヤーが買った馬も母集団に残して「落札済み」で出す。
+ * 外すと母集団が 1 頭減るたびにシャッフルの結果が変わり、買うたびに一覧が
+ * 丸ごと別の馬に入れ替わった（値段の乱数もずれる）。
+ */
 function ownerlessLots(w, age, tag, count, scale) {
   const rng = makeRng(hashSeed(`${w.seed}|${tag}|${w.year}`));
+  const key = saleKeyOf(w, tag);
   const pool = [...w.horses.values()]
-    .filter((h) => !h.dead && h.ownerId == null && horseAge(h, w.year) === age)
+    .filter((h) => !h.dead && (h.ownerId == null || h.saleKey === key) && horseAge(h, w.year) === age)
     .sort((a, b) => a.id - b.id);
   // 史実の名馬になる幼駒は必ず上場する（昔から始めたとき、ディープインパクトを買える機会）。
   const real = pool.filter((h) => h.real);
@@ -102,8 +112,10 @@ export function marePrice(w, h, kids = []) {
 export function mareSaleLots(w) {
   const kids = realOffspring(w);
   const rng = makeRng(hashSeed(`${w.seed}|maresale|${w.year}`));
+  const key = saleKeyOf(w, 'maresale');
+  // 買った馬も残して落札済みで出す（理由は ownerlessLots と同じ）。
   const pool = w.marePool.map((id) => w.horses.get(id))
-    .filter((h) => h && !h.dead && h.ownerId !== 'player');
+    .filter((h) => h && !h.dead && (h.ownerId !== 'player' || h.saleKey === key));
   const real = pool.filter((h) => h.real);
   const others = pool.filter((h) => !h.real && horseAge(h, w.year) >= 4 && horseAge(h, w.year) <= 14)
     .sort((a, b) => a.id - b.id);
@@ -115,6 +127,7 @@ export function mareSaleLots(w) {
     const realKids = (kids.get(h.id) ?? []).sort(byDesc((k) => k.g1Wins ?? 0));
     return {
       horse: h, id: h.id, key: String(h.id), name: h.name, coat: h.coat, real: !!h.real,
+      sold: h.ownerId === 'player',
       age: horseAge(h, w.year),
       sire: nameOf(w, h.sireId), damSire: damSireOf(w, h),
       bestWin: bestWin(h),
@@ -265,9 +278,11 @@ export function buyLot(w, kind, id) {
   const lots = kind === 'foal' ? foalSaleLots(w) : kind === 'private' ? privateLots(w) : mareSaleLots(w);
   const lot = lots.find((x) => x.id === id);
   if (!lot) return { ok: false, why: '上場されていない' };
+  if (lot.sold) return { ok: false, why: 'すでに落札済み' };
   if (w.player.money < lot.price) return { ok: false, why: '資金が足りない' };
   const h = w.horses.get(id);
   h.ownerId = 'player';
+  h.saleKey = saleKeyOf(w, kind === 'foal' ? 'foalsale' : kind === 'private' ? 'private' : 'maresale');
   w.player.money -= lot.price;
   if (kind === 'mare') {
     h.broodmare = true;

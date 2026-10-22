@@ -234,7 +234,7 @@ function mareSaleView(app) {
         cells: [
           sireName(m), `${m.age}歳`, m.sire, m.damSire, m.bestWin ?? '—', m.bestFoal ?? '—', `${m.foals}頭`,
           m.inFoal ?? '空胎', formatMoney(m.price),
-          buyButton(app, 'mare', m, open && money >= m.price),
+          m.sold ? el('span.mine', { text: '落札済み' }) : buyButton(app, 'mare', m, open && money >= m.price),
         ],
         onclick: () => app.go('stable', { id: m.id }),
       })), { align: [, 'c', , , , , 'c', , 'r'] }),
@@ -248,7 +248,10 @@ function buyButton(app, kind, lot, enabled) {
     if (!await ask(`${lot.name} を ${formatMoney(lot.price)} で購入する？`, { ok: '購入する' })) return;
     const r = G.buyLot(app.game, kind, lot.id);
     if (!r.ok) { toast(r.why, { bad: true }); return; }
-    toast(`${lot.name} を ${formatMoney(r.price)} で購入した`);
+    // 庭先の 1 歳馬は年明けに 2 歳で入厩し、幼駒から現役馬へ移る（名前もそのとき正式になる）。
+    toast(kind === 'private'
+      ? `${lot.name} を購入した。年明けに 2 歳で入厩し、現役馬に移る`
+      : `${lot.name} を ${formatMoney(r.price)} で購入した`);
     app.render();
   }, { cls: 'sm primary', disabled: !enabled });
 }
@@ -283,7 +286,7 @@ function horseSaleView(app, kind) {
         x.damSire, x.look,
         (x.inbreed ?? []).slice(0, 2).join(' / ') || '—',
         formatMoney(x.price),
-        buyButton(app, kind, x, open && money >= x.price),
+        x.sold ? el('span.mine', { text: '落札済み' }) : buyButton(app, kind, x, open && money >= x.price),
       ]), { align: ['c', , 'c', 'c', , , , 'c', , 'r'] })
       : el('p.empty', { text: kind === 'foal' ? '上場馬が居ない（幼駒は 4 月に生まれる）。' : '上場馬が居ない。' }),
   ]);
