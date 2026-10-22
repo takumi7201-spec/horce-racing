@@ -22,6 +22,7 @@ import { clamp01 } from '../core/util.js';
 
 const STYLE_VALUE = { 逃: 0.1, 先: 0.32, 差: 0.62, 追: 0.86 };
 const DEFS = new Map(REAL_HORSES.map((d) => [d.n, d]));
+const ABROAD_DEFS = REAL_HORSES.filter((d) => d.abroad);
 /** 現役で走る年齢の上限。これより上で開始年を迎えた馬は引退済みとして作る。 */
 const RACING_AGE = 8;
 
@@ -38,6 +39,29 @@ function entryOf(d) {
   if (d.stud) return d.stud[0];
   if (d.mare) return d.mare[0] - 1;
   return null;
+}
+
+/**
+ * 因子を戦績から決める（表に f が無い馬）。GI を勝つような名馬だけが持つ。
+ * 短距離ならスピード、長距離ならスタミナ、ダートならパワー、差し・追込なら瞬発。
+ */
+function deriveFactors(d) {
+  const g1 = (d.big ?? []).filter((x) => x[2] === 'GI').length;
+  const lvl = d.lvl ?? 0;
+  const n = lvl >= 0.88 || g1 >= 5 ? 2 : lvl >= 0.82 || g1 >= 2 ? 1 : 0;
+  if (!n) return null;
+  const dist = d.dist ?? 2000;
+  const starts = d.starts ?? 0;
+  const score = {
+    speed: dist <= 1600 ? 3 : dist <= 2000 ? 1.5 : 0.5,
+    stamina: dist >= 3000 ? 3 : dist >= 2400 ? 2.2 : 0.4,
+    power: d.surf === 'D' ? 2.6 : d.surf === 'TD' ? 1.6 : 0.2,
+    burst: d.style === '追' ? 2.4 : d.style === '差' ? 1.8 : 0.3,
+    guts: d.style === '逃' ? 2 : starts >= 25 ? 1.4 : 0.6,
+    health: starts >= 35 ? 1.9 : 0,
+    mind: 0.5,
+  };
+  return Object.entries(score).sort((a, b) => b[1] - a[1]).slice(0, n).map(([f]) => f);
 }
 
 /**
@@ -83,6 +107,9 @@ function applyTraits(h, d) {
   h.weightKg = female ? 470 : 500;
   h.real = true;
   if (d.head) h.lineHead = true;
+  const f = d.f ?? deriveFactors(d);
+  if (f?.length) h.factors = [...f];
+  if (d.os || d.abroad) h.foreign = true;
 }
 
 /** 表の戦績を写す。big は upto 年より前の勝鞍だけ（まだ行われていないレースを並べない）。 */
@@ -157,6 +184,8 @@ function make(world, rng, name, { year, live = false }) {
       h.realFee = d.fee ?? d.peak ?? null;
       h.realFeeFrom = Math.max(world.startYear, d.stud[0]);
     }
+    // 海外の種牡馬は向こうの相場で種付けする（日本の名簿には入れない）。
+    if (d.abroad) h.abroadFee = d.afee;
   }
   world.horses.set(h.id, h);
   world.nameSet.add(name);
@@ -181,7 +210,11 @@ export function seedRealHorses(world, rng) {
     const o = originOf(d);
     const entry = entryOf(d);
     const age = S - d.b;
-    const racing = (o === 'born' || o === 'appear') && age <= RACING_AGE && (entry == null || entry > S);
+    const racing = (o === 'born' || o === 'appear') && age <= RACING_AGE && (entry == null || entry > S)
+      && !(d.died != null && d.died < S);
+    // 海外の名馬は、まだ海外で種牡馬になっていない若駒なら作らない（1 歳ならセールに出る）。
+    // 親として要るときだけ make が作る。
+    if (d.os && (d.abroad ? d.abroad[0] > S : age <= RACING_AGE)) continue;
     if (racing) {
       live.push(make(world, rng, d.n, { year: S, live: true }));
       continue;
@@ -268,8 +301,8 @@ export function settleRealHorses(world, year) {
       h.dead = d.died != null ? d.died < year : year - h.birthYear > 31;
       if (h.dead) h.stallion = false;
     } else {
-      // 祖先・母。表にあるのは昔の馬ばかりなので、繁殖を終えた年齢なら亡くなったものとする。
-      h.dead = year - h.birthYear > (h.sex === SEX.FEMALE ? 22 : 25);
+      // 祖先・母。没年が分かればそれで、分からなければ繁殖を終えた年齢で亡くなったものとする。
+      h.dead = d.died != null ? d.died < year : year - h.birthYear > (h.sex === SEX.FEMALE ? 22 : 25);
       h.stallion = false;
     }
     // 名簿に入らない母（海外の牝馬など）は、名前を血統表に載せるためだけの馬。
@@ -303,6 +336,14 @@ export function realNewYear(world, rng, year, news = []) {
   if (!world.real) return news;
   const st = state(world);
   const entered = new Set(st.entered);
+  // 海外の種牡馬。供用が始まる年に（海外で）作り、没年を過ぎたら亡くなる。
+  for (const d of ABROAD_DEFS) {
+    const [from, to] = d.abroad;
+    let h = madeHorse(world, d.n);
+    const standing = from <= year && (to == null || year <= to) && (d.died == null || year <= d.died);
+    if (!h && standing) h = make(world, rng, d.n, { year });
+    if (h && !h.dead && h.retired && h.ownerId !== 'player' && d.died != null && year > d.died) h.dead = true;
+  }
   for (const d of REAL_HORSES) {
     const isStud = !!d.stud;
     if (!isStud && !d.mare) continue;
@@ -394,6 +435,44 @@ export function bornReal(world, rng, name, sire, dam, opts) {
   world.nameSet.add(name);
   state(world).ids[name] = foal.id;
   return foal;
+}
+
+/** その年に海外で供用されている種牡馬（プレイヤーだけが種付けできる）。 */
+export function abroadSires(world, year = world.year) {
+  if (!world.real) return [];
+  const out = [];
+  for (const d of ABROAD_DEFS) {
+    const h = madeHorse(world, d.n);
+    if (!h || h.dead || !h.retired || h.ownerId === 'player') continue;
+    const [from, to] = d.abroad;
+    if (from <= year && (to == null || year <= to)) out.push(h);
+  }
+  return out;
+}
+
+/**
+ * 海外トレーニングセールに出る史実の 1 歳馬（のちのフランケルなど）。
+ * 海外の名馬と輸入される前の種牡馬（サンデーサイレンスなど）で、去年生まれてまだ世界に居ない馬。
+ * 母が表に無い馬は出さない（「不明の 2008」のような上場名になる）。
+ */
+export function realYearlings(world) {
+  if (!world.real) return [];
+  return REAL_HORSES
+    .filter((d) => (d.os || d.imp) && d.lvl != null && d.sire && d.dam && d.b === world.year - 1 && !madeHorse(world, d.n))
+    .map((d) => ({ def: d, damSire: d.dam ? DEFS.get(d.dam)?.sire ?? null : null }));
+}
+
+/** 史実の 1 歳馬を買う。日本で走る競走馬として作り、名前は年末に史実の名で登録する。 */
+export function buyRealYearling(world, rng, name, key) {
+  const h = make(world, rng, name, { year: world.year, live: true });
+  h.ownerId = 'player';
+  h.lotKey = key;
+  h.regName = name;
+  h.name = `${world.horses.get(h.damId)?.name ?? '不明'}の${h.birthYear}`;
+  h.stable = 'pasture';
+  h.trainingMenu = 'light';
+  world.owners.get('player')?.horses.push(h.id);
+  return h;
 }
 
 /** 史実の名で登録される予定の馬か（セールで「史実」と分かるように）。 */

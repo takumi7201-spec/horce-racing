@@ -381,6 +381,45 @@ section('まとめて週送り');
   check('行き先は週の順に並び、年をまたがない', ts.every((t, i) => i === 0 || t.weeks > ts[i - 1].weeks) && ts.every((t) => t.weeks <= 48));
 }
 
+// ---------------------------------------------------------------- 因子・系統・海外の名馬
+section('因子・系統・海外の名馬');
+{
+  const g4 = newGame({ seed: 'verify-bloodline' });
+  const w4 = g4.world;
+  const byName = (n) => [...w4.horses.values()].find((h) => h.name === n || h.regName === n);
+  const deep = byName('ディープインパクト');
+  check(`名馬は因子を持つ（ディープインパクト：${GG.horseView(g4, deep.id).factors.join('・')}）`, deep.factors?.includes('burst'));
+  const kizuna = byName('キズナ');
+  check(`息子が何頭も種牡馬になった馬は系統を確立する（キズナは${GG.horseView(g4, kizuna.id).line}）`,
+    deep.lineHead && GG.horseView(g4, kizuna.id).line === 'ディープインパクト系');
+  const mare = GG.myBroodmares(g4)[0];
+  const ev = GG.evaluateMating(g4, mare.id, kizuna.id);
+  check(`配合の評価に因子と血の活力が出る（${ev.factors.list.map((x) => x.factor).join('・')} / ${ev.vigor.label}）`,
+    ev.factors.list.some((x) => x.who.some((n) => n.startsWith('ディープインパクト'))) && !!ev.vigor.label);
+  const abroad = stallions(g4).filter((s) => s.abroad);
+  const frankel = abroad.find((s) => s.name === 'フランケル');
+  check(`海外の種牡馬に種付けできる（${abroad.length} 頭、フランケル ${frankel?.fee} 万）`,
+    !!frankel && frankel.fee >= 3000 && !abroad.some((s) => s.name === 'ガリレオ') && !w4.stallionPool.includes(frankel.id));
+  w4.week = (5 - 1) * 4 + 1;
+  w4.player.money = 1e6;
+  const bk = GG.bookMating(g4, mare.id, frankel.id);
+  check('海外種付けの予約ができる（種付料を払う）', bk.ok && bk.fee === frankel.fee && w4.player.money === 1e6 - frankel.fee, bk.why);
+
+  // 2009 年に始めると、12 月 3 週の海外トレーニングセールに 1 歳のフランケルが出る。
+  const g5 = newGame({ seed: 'verify-frankel', startYear: 2009 });
+  const w5 = g5.world;
+  w5.week = (12 - 1) * 4 + 3;
+  w5.player.money = 1e6;
+  const lot = GG.overseasSale(g5).find((x) => x.realName === 'フランケル');
+  check(`海外セールに史実の 1 歳馬が出る（${lot?.name}、${lot?.price} 万）`, !!lot && lot.name === 'カインドの2008');
+  const bf = GG.buyOverseas(g5, lot.key);
+  const fr = bf.horse;
+  check('買ったフランケルは日本で走る自分の馬になる',
+    bf.ok && fr.ownerId === 'player' && !fr.retired && fr.regName === 'フランケル'
+    && w5.horses.get(fr.sireId)?.name === 'ガリレオ' && myStable(g5).young.some((h) => h.id === fr.id), bf.why);
+  check('落札後も一覧に落札済みで残る', GG.overseasSale(g5).some((x) => x.realName === 'フランケル' && x.sold));
+}
+
 // ---------------------------------------------------------------- 開始年
 section('開始年（史実の名馬）');
 {

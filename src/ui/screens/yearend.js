@@ -57,6 +57,7 @@ export function yearEndScreen(app) {
           s.newSires.length ? el('div.badges', s.newSires.map((x) => el('span.badge', {
             text: x.fee ? `${x.name} ${formatMoney(x.fee)}` : x.name, class: x.mine ? 'mine' : null,
           }))) : null,
+          s.newLines?.length ? el('p.note', { text: `系統の確立：${s.newLines.map((x) => `${x.name}系`).join('・')}` }) : null,
         ]),
         card(`馬名登録（${s.named.length} 頭）`, s.named.length
           ? table(['これまでの呼び名', '登録した馬名'], s.named.map((n) => [n.from, horseLink(n.id, n.name, 'mine')]))

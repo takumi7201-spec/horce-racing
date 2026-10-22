@@ -32,7 +32,7 @@ import { simulateRace, computeOdds } from './race.js';
 import { createJockey, createTrainer, ageJockey, ageTrainer, resetPersonIds, acceptsRide } from './jockey.js';
 import { breed, canBeBroodmare, canBeStallion, studFeeOf, conceives, POP_MEAN } from './breeding.js';
 import { trainWeek, pastureWeek, autoMenu } from './training.js';
-import { sireLineRoot, nicksKey, recordNicksResult, breedQuality, lineLabel } from './pedigree.js';
+import { sireLineRoot, nicksKey, recordNicksResult, breedQuality, lineLabel, grantFactors, establishLines } from './pedigree.js';
 import { clamp, clamp01, lerp, sum, byDesc } from '../core/util.js';
 import {
   seedRealHorses, syncRealStud, syncRealMares, settleRealHorses, realNewYear, realCoverings, bornReal,
@@ -189,6 +189,8 @@ export function createWorld(seed, { startYear = 2026, playerName = '', farmName 
 
   // --- 系統の相性（ニックス）を決める ---
   buildNicks(world, rng);
+  // 開始時点で確立している系統（2026 年ならディープインパクト系など）。
+  establishLines(world, rng);
 
   // 開始時点の 1 歳馬はまだ馬名登録前（登録は 1 歳の年末）。仮の名で呼ぶ。
   for (const h of world.horses.values()) {
@@ -287,8 +289,12 @@ function pairMares(world, rng, year, n, { exclude = null, npcOnly = false } = {}
   for (let i = 0; i < Math.min(n, mares.length); i++) {
     const dam = world.horses.get(mares[i]);
     if (!conceives(rng, dam, year)) continue;
-    const sire = world.horses.get(rng.weighted(stallions, dam.real ? eliteFees : fees));
-    // 近親交配になりすぎる組み合わせは牧場が避ける。
+    // 近親交配になりすぎる組み合わせ（父と娘）は牧場が避けて、別の種牡馬を当たる。
+    // 見送るだけにすると、名牝は父と同じ一流種牡馬を引きやすいぶん空胎の年が増えた。
+    let sire = null;
+    for (let k = 0; k < 3 && (!sire || sire.id === dam.sireId); k++) {
+      sire = world.horses.get(rng.weighted(stallions, dam.real ? eliteFees : fees));
+    }
     if (sire.id === dam.sireId) continue;
     pairs.push({ dam, sire });
   }
@@ -380,6 +386,7 @@ function promotePools(world, rng, year) {
     .sort(byDesc((h) => h.earnings + breedQuality(h) * 20000));
   for (const h of males.slice(0, rng.irange(3, 6))) {
     h.stallion = true; h.retired = true; h.stable = 'retired';
+    grantFactors(h);
     h.studFee = studFeeOf(world, h, year);
     world.stallionPool.push(h.id);
   }
@@ -388,6 +395,7 @@ function promotePools(world, rng, year) {
     .sort(byDesc((h) => h.earnings + breedQuality(h) * 8000));
   for (const h of females.slice(0, Math.max(30, Math.floor(females.length * 0.42)))) {
     h.broodmare = true; h.retired = true; h.stable = 'retired';
+    grantFactors(h);
     world.marePool.push(h.id);
   }
   // 古い種牡馬・繁殖は外す。
@@ -1076,6 +1084,8 @@ function yearEnd(world, rng) {
   // 種牡馬・繁殖牝馬の登録（4 歳世代から次の種牡馬と繁殖牝馬を選ぶ）。
   promotePools(world, rng, world.year + 1);
   const newSires = world.stallionPool.filter((id) => !poolBefore.has(id));
+  // 系統の確立（息子が何頭も種牡馬になった馬は「○○系」として独立する）。
+  const newLines = establishLines(world, rng, news).map((h) => ({ id: h.id, name: h.name }));
   const newMares = world.marePool.filter((id) => !poolBefore.has(id));
 
   // 翌年の馬名登録。
@@ -1131,6 +1141,7 @@ function yearEnd(world, rng) {
       .slice(0, 12)
       .map((h) => ({ id: h.id, name: h.name, fee: h.studFee ?? 0, mine: p.stallions.includes(h.id) })),
     newMares: newMares.length,
+    newLines,
     named,
     farm: {
       money: p.money, horses: p.horses.length, broodmares: p.broodmares.length,
@@ -1146,6 +1157,8 @@ export function retireHorse(world, h, rng, news = []) {
   h.stable = 'retired';
   h.retiredYear = world.year;
   const year = world.year;
+  // 名馬は因子を持って繁殖に上がる（血統に残す「得意」）。
+  grantFactors(h);
   if (h.sex === SEX.MALE && canBeStallion(h, year)) {
     h.stallion = true;
     h.studFee = studFeeOf(world, h, year);

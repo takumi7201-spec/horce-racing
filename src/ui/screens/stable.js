@@ -275,6 +275,13 @@ function infoPanel(v, career) {
       })))]),
       el('div.hi-r', [el('span', { text: '成長型' }), el('b', v.growth),
         el('div.hi-grade', [el('span', { text: '総合' }), el('b', { text: rankOf(avg) })])]),
+      v.factors.length || v.lineHead || v.abroadStud
+        ? el('div.hi-r', [el('span', { text: '因子' }), el('div.hi-chips', [
+          ...v.factors.map((f) => el('i.fchip', { text: f })),
+          v.lineHead ? el('i.fchip.line', { text: v.lineEstablished ? `${v.lineEstablished}年 系統確立` : '系祖' }) : null,
+          v.abroadStud ? el('i.fchip.abroad', { text: '海外で供用中' }) : null,
+        ])])
+        : null,
     ]),
   ]);
 }

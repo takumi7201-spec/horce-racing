@@ -7,7 +7,10 @@ import { createWorld, advanceWeek, weekRaces, weekGround, horsesOf, stallionList
 import { eligible, weekLabel, gradedCalendar, GRADED_BY_ID, meetingsOf } from './schedule.js';
 import { horseAge, effectiveAbility, styleLabel, distanceAptitude, canRun, STYLE_TARGET } from './horse.js';
 import { readyToRun, MENUS, fitLabel, condLabel } from './training.js';
-import { matingEval, pedigreeTree, nicksValue, lineLabel, breedQuality } from './pedigree.js';
+import {
+  matingEval, pedigreeTree, nicksValue, lineLabel, breedQuality, FACTORS, factorsOf, factorBonus, vigorOf,
+} from './pedigree.js';
+import { abroadSires } from './realsires.js';
 import { studFeeOf, canBeBroodmare } from './breeding.js';
 import { previewOdds } from './race.js';
 import { makeRng, hashSeed } from '../core/rng.js';
@@ -101,6 +104,11 @@ export function horseView(g, id) {
     dead: !!h.dead,
     real: !!h.real,
     foreign: !!h.foreign,
+    factors: (h.factors ?? []).map((f) => FACTORS[f]),
+    // 系統を確立した馬（系祖）。実在の系祖は「○○系の祖」、ゲーム中に確立したらその年。
+    lineHead: !!h.lineHead,
+    lineEstablished: h.lineEstablished ?? null,
+    abroadStud: !!h.abroadFee && !h.dead && h.retired,
     // お腹の仔（受胎していれば父と生まれる年）。
     pregnancy: h.pregnancy ? { sire: w.horses.get(h.pregnancy.sireId)?.name ?? '—', year: h.pregnancy.year } : null,
     // 馬名登録前の 1 歳以下（「母名の年」で呼ばれている）。
@@ -255,21 +263,34 @@ export function retire(g, horseId) {
 // ---------------------------------------------------------------- 配合
 
 /** 種牡馬の一覧。予算内で絞れる。 */
+/**
+ * 種付料。国内の種牡馬は年明けに改定した額（studFee）、海外の種牡馬は向こうの相場。
+ * 海外の馬は studFee を持たない（0 のまま）ので、?? で拾うと無料になってしまう。
+ */
+const feeOf = (w, s) => (s.abroadFee ? studFeeOf(w, s, w.year) : s.studFee ?? studFeeOf(w, s, w.year));
+
 export function stallions(g, { maxFee = Infinity, search = '' } = {}) {
   const w = g.world;
-  return stallionList(w, { maxFee })
+  // 国内の名簿と、海外で供用中の名馬（海外種付け。プレイヤーだけが付けられる）。
+  const abroad = abroadSires(w, w.year).filter((s) => studFeeOf(w, s, w.year) <= maxFee);
+  return [...stallionList(w, { maxFee }), ...abroad]
     .filter((s) => !search || s.name.includes(search))
     .map((s) => ({
       horse: s, id: s.id, name: s.name,
       age: horseAge(s, w.year),
-      fee: s.studFee ?? studFeeOf(w, s, w.year),
+      fee: feeOf(w, s),
       line: lineLabel(w, s.id),
       earnings: s.earnings,
       foals: (s.foals ?? []).length,
       quality: breedQuality(s),
       real: !!s.real,
+      abroad: !!s.abroadFee,
+      factors: (s.factors ?? []).map((f) => FACTORS[f]),
+      lineHead: !!s.lineHead,
       bestWin: S.bestWin(s),
-    }));
+    }))
+    // 国内の名簿を種付料の順に、海外種付けはその後ろにまとめる（別の市場なので混ぜない）。
+    .sort((a, b) => (a.abroad - b.abroad) || (b.fee - a.fee));
 }
 
 
@@ -283,14 +304,33 @@ export function evaluateMating(g, damId, sireId) {
     stars: ev.stars,
     score: ev.score,
     risk: ev.risk,
-    fee: ev.sire.studFee ?? studFeeOf(w, ev.sire, w.year),
+    fee: feeOf(w, ev.sire),
     inbreed: ev.inbreed.map((x) => ({ name: x.name, label: x.label })),
     inbreedNote: ev.inbreedEffect.notes,
     nicks: nk.known ? { grade: nicksGradeOf(nk.value), samples: nk.samples } : { grade: '？', samples: nk.samples },
     sireLine: lineLabel(w, sireId),
     damSireLine: ev.dam.sireId != null ? lineLabel(w, ev.dam.sireId) : '—',
     comment: matingComment(ev),
+    factors: factorSummary(w, sireId, damId),
+    vigor: vigorOf(w, sireId, damId),
   };
+}
+
+/** 仔が受け継ぐ因子（配合画面用）。因子ごとに「どの祖先が何代目に持っているか」をまとめる。 */
+const GEN_LABEL = ['', '父母', '祖父母', '曽祖父母'];
+function factorSummary(w, sireId, damId) {
+  const { counts, sources } = factorsOf(w, sireId, damId);
+  const by = new Map();
+  for (const s of sources) {
+    if (!by.has(s.factor)) by.set(s.factor, []);
+    by.get(s.factor).push(`${s.name}（${GEN_LABEL[s.gen]}）`);
+  }
+  const list = [...by.entries()]
+    .map(([f, who]) => ({ factor: FACTORS[f], weight: counts[f], who }))
+    .sort((a, b) => b.weight - a.weight);
+  // 潜在値の上げ幅の合計（5 能力の和）。配合の後押しの大きさの目安。
+  const gain = Object.values(factorBonus(counts).pot).reduce((t, v) => t + v, 0);
+  return { list, gain };
 }
 
 function nicksGradeOf(v) {
@@ -322,7 +362,7 @@ export function bookMating(g, damId, sireId) {
   if (!canBeBroodmare(dam, w.year + 1)) return { ok: false, why: 'この牝馬は繁殖に上がれない' };
   if (dam.ownerId !== 'player') return { ok: false, why: '自分の繁殖牝馬ではない' };
   if (!matingOpen(g)) return { ok: false, why: '種付けは 5〜6 月（種付けシーズン）だけ' };
-  const fee = sire.studFee ?? studFeeOf(w, sire, w.year);
+  const fee = feeOf(w, sire);
   if (w.player.money < fee) return { ok: false, why: `資金が足りない（${formatMoney(fee)}必要）` };
   // 同じ牝馬の予約は上書き。
   w.pendingMatings = w.pendingMatings.filter((m) => m.damId !== damId);

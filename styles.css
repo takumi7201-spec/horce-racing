@@ -1084,3 +1084,14 @@ canvas.race3d { width: 100%; height: 100%; display: block; }
 .ask-msg { margin: 4px 2px 14px; font-size: 15px; font-weight: 700; line-height: 1.6; }
 .ask-btns { display: flex; justify-content: flex-end; gap: 8px; }
 .modal:has(.ask-msg) { max-width: 420px; }
+
+/* ---------------- 因子 ---------------- */
+.fchips { display: inline-flex; flex-wrap: wrap; gap: 3px; }
+.fchip {
+  display: inline-block; font-style: normal; font-size: 10.5px; font-weight: 800; line-height: 1.5;
+  padding: 0 6px; border-radius: 8px; color: #6b4600; background: linear-gradient(#fff6c8, #f5d76a);
+  border: 1px solid #e0b93a; white-space: nowrap;
+}
+.fchip.line { color: #fff; background: linear-gradient(#5aa84c, var(--green-d)); border-color: var(--green-d); }
+.fchip.abroad { color: #fff; background: linear-gradient(#5b8fd8, #2f5fa8); border-color: #2f5fa8; }
+.inb.factors li { margin: 3px 0; }

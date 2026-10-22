@@ -15,6 +15,7 @@ import { ABILITIES, SEX, COATS, GROWTH } from './params.js';
 import { makeRng, hashSeed } from '../core/rng.js';
 import { makeForeignName } from '../core/names.js';
 import { clamp, clamp01, sum, byDesc } from '../core/util.js';
+import { realYearlings, buyRealYearling } from './realsires.js';
 
 export const SALE_EVENT = { foal: 'foalSale', mare: 'mareSale', overseas: 'overseas', private: 'private' };
 
@@ -172,6 +173,34 @@ export function overseasLots(w) {
     }
     out.push({ ...d, key, sold: !!h });
   }
+  return [...realOverseasLots(w, sold), ...out];
+}
+
+/**
+ * 史実の 1 歳馬（のちのフランケル・サンデーサイレンスなど）。去年生まれた海外の名馬は
+ * 必ず上場する。値段は素質の格で決める（市場もこの馬だけは目の色が違う）。
+ * 落札済みの馬は世界に居るので、買った馬そのものを出す。
+ */
+function realOverseasLots(w, sold) {
+  const out = [];
+  for (const h of sold.values()) {
+    if (!h.lotKey?.startsWith(`os-real-${w.year}-`)) continue;
+    const dam = w.horses.get(h.damId);
+    out.push({
+      key: h.lotKey, yearling: true, foreign: true, sold: true, realName: h.regName ?? h.name,
+      name: h.name, sireName: nameOf(w, h.sireId), damName: dam?.name ?? '—',
+      damSireName: dam ? nameOf(w, dam.sireId) : '—', sex: h.sex, age: horseAge(h, w.year), coat: h.coat,
+      price: h.lotPrice ?? 0,
+    });
+  }
+  for (const { def: d, damSire } of realYearlings(w)) {
+    out.push({
+      key: `os-real-${w.year}-${d.n}`, yearling: true, foreign: true, sold: false, realName: d.n,
+      name: `${d.dam ?? '不明'}の${d.b}`, sireName: d.sire ?? '—', damName: d.dam ?? '—', damSireName: damSire ?? '—',
+      sex: d.s === '牝' ? SEX.FEMALE : SEX.MALE, age: 1, coat: d.c ?? '鹿毛',
+      price: Math.round((2500 + Math.pow(d.lvl, 4) * 9000) / 10) * 10,
+    });
+  }
   return out;
 }
 
@@ -225,6 +254,12 @@ export function buyOverseas(w, key, rngForIds) {
   if (!lot) return { ok: false, why: '上場されていない' };
   if (lot.sold) return { ok: false, why: 'すでに落札済み' };
   if (w.player.money < lot.price) return { ok: false, why: '資金が足りない' };
+  if (lot.realName) {
+    const h = buyRealYearling(w, rngForIds, lot.realName, key);
+    h.lotPrice = lot.price;
+    w.player.money -= lot.price;
+    return { ok: true, price: lot.price, horse: h };
+  }
   const mk = (name, sex, birthYear, level) => {
     const h = createHorse(rngForIds, { name, sex, birthYear });
     for (const a of ABILITIES) { h.pot[a] = clamp01(level); h.cur[a] = h.pot[a]; }

@@ -253,3 +253,166 @@ export function lineStrength(world) {
   }
   return m;
 }
+
+// ---------------------------------------------------------------- 因子
+
+/**
+ * 因子。名馬が血統に残す「得意」の印。3 代までの祖先に因子があると、
+ * 仔の対応する能力の潜在値が少しだけ上がる。
+ * 1 頭が持つのは 0〜2 個。戦績で決まり、一度付いたら消えない。
+ */
+export const FACTORS = {
+  speed: 'スピード', stamina: 'スタミナ', power: 'パワー', burst: '瞬発',
+  guts: '根性', mind: '精神', health: '健康',
+};
+
+/** 因子が効く能力（重み 1 あたり）。瞬発はスピードと賢さに半分ずつ。 */
+const FACTOR_GAIN = {
+  speed: { speed: 1 }, stamina: { stamina: 1 }, power: { power: 1 },
+  burst: { speed: 0.5, wit: 0.5 }, guts: { guts: 1 }, mind: { wit: 1 }, health: {},
+};
+/** 仔から見た世代ごとの重み。父母 1、祖父母 0.5、曽祖父母 0.25。 */
+const FACTOR_GEN_WEIGHT = [0, 1, 0.5, 0.25];
+/**
+ * 重み 1 あたりの潜在値の上げ幅と、1 能力あたりの上限。
+ * 世界を作るときの 60 年ぶんの配合にも効くので、大きくすると世代ごとに積み上がって
+ * 能力の中央値が上がる（0.009 で中央値が 0.666 → 0.692 になり、GI の時計が速くなりすぎた）。
+ */
+const FACTOR_STEP = 0.005;
+const FACTOR_CAP = 0.02;
+/**
+ * 因子の効きの基準点。因子の無い血統はこれだけ不利、因子のある血統は差し引きで有利になる。
+ * 足すだけにすると世界全体が毎世代押し上げられ、回帰の釣り合いが 0.02 ほど上にずれた。
+ */
+const FACTOR_BASE = 0.003;
+
+/**
+ * 父 sire × 母 dam の仔が受け継ぐ因子。
+ * sources は「どの祖先の何の因子が何代目に居るか」（配合画面に出す）。
+ */
+export function factorsOf(world, sireId, damId) {
+  const counts = {};
+  const sources = [];
+  const walk = (id, gen) => {
+    if (id == null || gen > 3) return;
+    const h = world.horses.get(id);
+    if (!h) return;
+    for (const f of h.factors ?? []) {
+      counts[f] = (counts[f] ?? 0) + FACTOR_GEN_WEIGHT[gen];
+      sources.push({ id, name: h.name, factor: f, label: FACTORS[f], gen });
+    }
+    walk(h.sireId, gen + 1);
+    walk(h.damId, gen + 1);
+  };
+  walk(sireId, 1);
+  walk(damId, 1);
+  return { counts, sources };
+}
+
+/** 因子の重みを能力の上げ幅に直す。健康は丈夫さ、精神は気性にも効く。 */
+export function factorBonus(counts) {
+  const pot = {};
+  for (const [f, w] of Object.entries(counts)) {
+    for (const [a, k] of Object.entries(FACTOR_GAIN[f] ?? {})) pot[a] = (pot[a] ?? 0) + w * k * FACTOR_STEP;
+  }
+  for (const a of ABILITIES) pot[a] = Math.min(FACTOR_CAP, pot[a] ?? 0) - FACTOR_BASE;
+  return {
+    pot,
+    sound: Math.min(0.08, (counts.health ?? 0) * 0.03),
+    temper: Math.min(0.08, (counts.mind ?? 0) * 0.03),
+  };
+}
+
+/**
+ * 引退して繁殖に上がる馬に因子を付ける（架空の馬）。
+ * GI 3 勝か獲得賞金 10 億で 1 個、GI 6 勝で 2 個。いちばん秀でた能力の因子にする。
+ * 誰にでも付けると、20 年で全馬が因子持ちになって効き目が均される（GI 2 勝で付けたら
+ * 開始時点で 450 頭が因子持ちになった）。
+ */
+export function grantFactors(h) {
+  if (h.factors) return;
+  const g1 = h.g1Wins ?? 0;
+  const n = g1 >= 6 ? 2 : g1 >= 3 || h.earnings >= 100000 ? 1 : 0;
+  if (!n) return;
+  const score = {
+    speed: h.pot.speed, stamina: h.pot.stamina, power: h.pot.power, guts: h.pot.guts, mind: h.pot.wit,
+    burst: (h.pot.speed + h.pot.wit) / 2 + (h.style >= 0.6 ? 0.03 : -0.05),
+    health: h.starts >= 35 && h.sound >= 0.7 ? h.sound : 0,
+  };
+  h.factors = Object.entries(score).sort((a, b) => b[1] - a[1]).slice(0, n).map(([f]) => f);
+}
+
+// ---------------------------------------------------------------- 血の活力
+
+/**
+ * 血の活力。父系・母父系・父の母父系・母の母父系の 4 つが別々の系統なら、
+ * どの系統にも寄らない雑種強勢として仔の能力が少し上がる。
+ * インブリード（同じ血を重ねる）と反対向きの、もう一つの配合の軸。
+ */
+export function vigorOf(world, sireId, damId) {
+  const sire = world.horses.get(sireId);
+  const dam = world.horses.get(damId);
+  if (!sire || !dam) return { lines: 0, gain: 0, label: '—' };
+  const damSireOf = (h) => {
+    const d = h?.damId != null ? world.horses.get(h.damId) : null;
+    return d?.sireId ?? null;
+  };
+  const ids = [sireId, dam.sireId, damSireOf(sire), damSireOf(dam)].filter((x) => x != null);
+  const lines = new Set(ids.map((id) => sireLineRoot(world, id))).size;
+  const known = ids.length;
+  // 4 つとも分かっていて全部違えば「完全な異系」。同じ系統が 3 つ以上重なると少し損をする
+  // （足し算だけにすると世代を重ねるほど全体が底上げされる）。
+  const gain = known === 4 && lines === 4 ? 0.006 : known === 4 && lines <= 2 ? -0.006 : 0;
+  const label = known < 4 ? `${lines} 系統（一部不明）`
+    : lines === 4 ? '4 系統（完全な異系）' : `${lines} 系統`;
+  return { lines, gain, label };
+}
+
+// ---------------------------------------------------------------- 系統の確立
+
+/** 系統が確立する条件。種牡馬になった息子の数と、元の系統の大きさ。 */
+const ESTABLISH_SONS = 5;
+const ESTABLISH_LINE_SIZE = 12;
+
+/**
+ * 系統の確立。名簿に 5 頭以上の息子を送り込んだ種牡馬は、大きな系統（12 頭以上）の
+ * 中にいれば独立した「○○系」になる。サンデーサイレンス系からディープインパクト系が
+ * 分かれるような動き。ニックスは元の系統の値を引き継ぎ、実績（標本）はゼロから数え直す。
+ */
+export function establishLines(world, rng, news = []) {
+  const sons = new Map();
+  const lineSize = new Map();
+  for (const id of world.stallionPool) {
+    const h = world.horses.get(id);
+    if (!h || h.dead) continue;
+    if (h.sireId != null) sons.set(h.sireId, (sons.get(h.sireId) ?? 0) + 1);
+    const root = sireLineRoot(world, id);
+    lineSize.set(root, (lineSize.get(root) ?? 0) + 1);
+  }
+  const made = [];
+  for (const [sid, n] of sons) {
+    if (n < ESTABLISH_SONS) continue;
+    const s = world.horses.get(sid);
+    if (!s || s.lineHead) continue;
+    const root = sireLineRoot(world, sid);
+    if (root === sid || (lineSize.get(root) ?? 0) < ESTABLISH_LINE_SIZE) continue;
+    made.push({ s, root, n });
+  }
+  for (const { s, root, n } of made) {
+    s.lineHead = true;
+    s.lineFrom = root;
+    s.lineEstablished = world.year;
+    // 元の系統のニックスを写す。新しい系統だけ相性が空になると、配合の評価がいきなり「―」になる。
+    const r = String(root);
+    const add = [];
+    for (const [key, v] of world.nicks) {
+      const [a, b] = key.split('|');
+      const jitter = () => Number((v + rng.normal(0, 0.08)).toFixed(2));
+      if (a === r) add.push([nicksKey(s.id, b), jitter()]);
+      if (b === r) add.push([nicksKey(a, s.id), jitter()]);
+    }
+    for (const [k, v] of add) if (!world.nicks.has(k)) world.nicks.set(k, v);
+    news.push(`${s.name}系が確立した（${n} 頭の息子が種牡馬として供用中）。`);
+  }
+  return made.map((x) => x.s);
+}

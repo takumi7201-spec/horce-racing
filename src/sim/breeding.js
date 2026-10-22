@@ -8,7 +8,9 @@
 import { createHorse, resetHorseIds } from './horse.js';
 import { SEX, ABILITIES, GROWTH, COATS } from './params.js';
 import { clamp01, clamp, lerp } from '../core/util.js';
-import { inbreedings, inbreedEffect, nicksValue, nicksKey, sireLineRoot } from './pedigree.js';
+import {
+  inbreedings, inbreedEffect, nicksValue, nicksKey, sireLineRoot, factorsOf, factorBonus, vigorOf,
+} from './pedigree.js';
 import { makeHorseName } from '../core/names.js';
 
 /** 競走馬全体の能力の中心。回帰の行き先。 */
@@ -43,12 +45,16 @@ export function breed(world, rng, sire, dam, { year, farmId = null, ownerId = nu
   // 項目ごとに父母から別々に抽選する。父のスピードと母のスタミナ、という
   // 組み合わせが出るようにしたいので、一括平均にはしない。
   const bonus = ibe.gain * 0.085 + (nk.value ?? 0) * 0.055;
+  // 因子（3 代までの名馬の得意）と血の活力（4 系統が別々の異系配合）。
+  // どちらも乱数の幅（0.1 前後）よりずっと小さく、配合の「後押し」に留める。
+  const fb = factorBonus(factorsOf(world, sire.id, dam.id).counts);
+  const vg = vigorOf(world, sire.id, dam.id);
   for (const a of ABILITIES) {
     const mid = sire.pot[a] * 0.5 + dam.pot[a] * 0.5;
     const regressed = lerp(mid, POP_MEAN, REGRESSION);
     // 分散は親の能力が高いほど大きい（大物も駄馬も出る）。
     const sd = 0.095 + mid * 0.075;
-    foal.pot[a] = clamp01(regressed + rng.normal(0, sd) + bonus);
+    foal.pot[a] = clamp01(regressed + rng.normal(0, sd) + bonus + (fb.pot[a] ?? 0) + vg.gain);
     // 初期の現在値は潜在の 2 割程度。ここから調教と出走で埋めていく。
     foal.cur[a] = clamp01(foal.pot[a] * rng.range(0.16, 0.26));
   }
@@ -77,8 +83,8 @@ export function breed(world, rng, sire, dam, { year, farmId = null, ownerId = nu
   foal.styleFlex = clamp01((sire.styleFlex + dam.styleFlex) / 2 + rng.normal(0, 0.14));
   foal.temper = clamp01((sire.temper + dam.temper) / 2 + rng.normal(0, 0.15));
   // インブリードのリスクは丈夫さと気性に出る。能力だけ上がる都合のいい配合は無い。
-  foal.sound = clamp01((sire.sound + dam.sound) / 2 + rng.normal(0, 0.12) - ibe.risk * 0.22);
-  foal.temper = clamp01(foal.temper - ibe.risk * 0.10);
+  foal.sound = clamp01((sire.sound + dam.sound) / 2 + rng.normal(0, 0.12) - ibe.risk * 0.22 + fb.sound);
+  foal.temper = clamp01(foal.temper - ibe.risk * 0.10 + fb.temper);
   foal.spirit = clamp01((sire.spirit + dam.spirit) / 2 + rng.normal(0, 0.13) + ibe.gain * 0.06);
 
   // --- 成長型 ---
@@ -143,6 +149,12 @@ export function canBeStallion(horse, year) {
  * 走る産駒が出ると翌年に跳ね上がるのが種牡馬ビジネスの手触り。
  */
 export function studFeeOf(world, stallion, year) {
+  // 海外の種牡馬は向こうの相場で決まる（この世界の産駒成績は関係ない）。歳を取ると下がる。
+  if (stallion.abroadFee) {
+    const age = year - stallion.birthYear;
+    const k = age > 18 ? Math.max(0.4, 1 - (age - 18) * 0.08) : 1;
+    return Math.max(10, Math.round(stallion.abroadFee * k / 10) * 10);
+  }
   const ab = ABILITIES.reduce((t, a) => t + stallion.pot[a], 0) / ABILITIES.length;
   // 供用し始めの値段。ここを高くすると、産駒が走る前の種牡馬が全員高額になり、
   // 資金の乏しい馬主が配合できる相手がいなくなる。
