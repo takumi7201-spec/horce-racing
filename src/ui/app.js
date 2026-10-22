@@ -19,6 +19,7 @@ import { racesScreen } from './screens/races.js';
 import { farmScreen } from './screens/farm.js';
 import { recordsScreen } from './screens/records.js';
 import { raceDayScreen } from './screens/raceday.js';
+import { yearEndScreen } from './screens/yearend.js';
 
 const SCREENS = {
   title: titleScreen,
@@ -28,6 +29,7 @@ const SCREENS = {
   farm: farmScreen,
   records: recordsScreen,
   raceday: raceDayScreen,
+  yearend: yearEndScreen,
 };
 
 const NAV = [
@@ -100,11 +102,18 @@ export function start(root) {
       const hadEntries = G.myEntries(app.game).length > 0;
       const out = G.nextWeek(app.game);
       app.lastWeek = out;
+      // 12 月 4 週を進めると年末処理。レースを観たあとでも見られるよう取っておく。
+      if (out.yearSummary) app.pendingYearEnd = out.yearSummary;
       if (out.myRaces.length > 0) {
         app.go('raceday', { races: out.myRaces, week: out });
+      } else if (out.yearSummary) {
+        app.go('yearend');
       } else {
         if (hadEntries) toast('登録した馬は出走できなかった');
         app.go('home');
+        // 行事が始まった週は知らせる（セールは開催週を逃すと 1 年待つことになる）。
+        const ev = G.eventsNow(app.game).filter((e) => e.from === app.game.world.week);
+        if (ev.length) toast(`${ev.map((e) => e.name).join('・')}が始まった`);
       }
     },
 

@@ -15,7 +15,8 @@ import {
   yawForZForward, yawForXForward, zForwardOfYaw, xForwardOfYaw,
 } from '../src/render3d/orient.js';
 import { toJSON, fromJSON } from '../src/sim/save.js';
-import { newGame, nextWeek, racesFor, enterRace, myHorses, horseView, evaluateMating, stallions, realMares, buyMare, myStable } from '../src/sim/game.js';
+import * as GG from '../src/sim/game.js';
+import { newGame, nextWeek, racesFor, enterRace, myHorses, horseView, evaluateMating, stallions, myStable } from '../src/sim/game.js';
 import { ABILITIES, SEX, WEEKS_PER_YEAR } from '../src/sim/params.js';
 import { sum, formatTime, byDesc } from '../src/core/util.js';
 
@@ -300,13 +301,59 @@ section('実在の種牡馬');
   const fict = newGame({ seed: 'verify', realSires: false }).world;
   check('実在の種牡馬を使わない世界も作れる', ![...fict.horses.values()].some((h) => h.real));
 }
+
+// ---------------------------------------------------------------- 年間スケジュール
+section('年間スケジュール');
 {
-  // 名牝を買うと自分の繁殖牝馬になる。別の世界で試す（本体の世界の資金を動かさない）。
-  const g2 = newGame({ seed: 'verify-mare' });
-  g2.world.player.money = 1e6;
-  const top = realMares(g2)[0];
-  const r = buyMare(g2, top.id);
-  check(`実在の繁殖牝馬を買える（${top.name} ${r.price} 万）`, r.ok && myStable(g2).mares.some((h) => h.id === top.id));
+  // 本体の世界を動かさないよう、別の世界で 1 年回す。
+  const g2 = newGame({ seed: 'verify-calendar' });
+  const w2 = g2.world;
+  const W = (m, wk) => (m - 1) * 4 + wk;
+  const until = (week) => { while (w2.week < week) nextWeek(g2); };
+  const born = (y) => [...w2.horses.values()].filter((h) => h.birthYear === y).length;
+  const pregnant = [...w2.horses.values()].filter((h) => h.pregnancy?.year === w2.year).length;
+  check(`開始時は今年の仔がまだ生まれていない（受胎 ${pregnant} 頭）`, born(w2.year) === 0 && pregnant > 300);
+  const mare = GG.myBroodmares(g2)[0];
+  const sire = stallions(g2, { maxFee: 500 })[0];
+  w2.player.money = 1e6;
+  check('種付けは 5〜6 月以外は予約できない', !GG.bookMating(g2, mare.id, sire.id).ok);
+  check('セールは時期の外では買えない', !GG.buyLot(g2, 'mare', GG.mareSale(g2)[0].id).ok);
+  until(W(5, 1));
+  check(`4 月に幼駒が生まれる（${born(w2.year)} 頭）`, born(w2.year) > 300 && born(w2.year) >= pregnant * 0.95);
+  const foal = [...w2.horses.values()].find((h) => h.birthYear === w2.year);
+  check(`生まれた仔は「母名の年」で呼ぶ（${foal.name}）`, foal.name.endsWith(`の${w2.year}`) && !!foal.regName);
+  const book = GG.bookMating(g2, mare.id, sire.id);
+  check('5 月は種付けを予約できる', book.ok, book.why);
+  until(W(7, 1));
+  const m2 = w2.horses.get(mare.id);
+  check('6 月末に受胎が決まる（受胎か、不受胎なら返金）', !!m2.pregnancy || w2.news.some((n) => n.includes('不受胎')));
+  until(W(8, 1));
+  const lots = GG.foalSale(g2);
+  check(`8 月の当歳セールに 0 歳馬が並ぶ（${lots.length} 頭）`, lots.length > 10 && lots.every((x) => x.age === 0));
+  const bf = GG.buyLot(g2, 'foal', lots[lots.length - 1].id);
+  check('当歳セールで買える', bf.ok && myStable(g2).young.some((h) => h.id === lots[lots.length - 1].id), bf.why);
+  until(W(10, 1));
+  const ms = GG.mareSale(g2);
+  const top = ms.find((x) => x.real);
+  const bm = GG.buyLot(g2, 'mare', top.id);
+  check(`10 月の繁殖牝馬セールで実在の名牝を買える（${top.name} ${bm.price} 万）`, bm.ok && myStable(g2).mares.some((h) => h.id === top.id), bm.why);
+  until(W(12, 3));
+  const os = GG.overseasSale(g2);
+  const bo = GG.buyOverseas(g2, os[0].key);
+  check('12 月 3 週の海外トレーニングセールで外国の 1 歳馬を買える', bo.ok && bo.horse.foreign && GG.overseasSale(g2)[0].sold, bo.why);
+  check('庭先取引に 1 歳馬が並ぶ', GG.privateSale(g2).length > 0 && GG.privateSale(g2).every((x) => x.age === 1));
+  until(W(12, 4));
+  const cand = GG.entryCandidates(g2);
+  check(`12 月 4 週に入厩・馬名登録の対象がいる（${cand.length} 頭）`, cand.length >= 1);
+  const tr = GG.trainerChoices(g2)[0];
+  GG.planTrainer(g2, cand[0].id, tr.id);
+  check('カタカナ以外の馬名は登録できない', !GG.planName(g2, cand[0].id, 'abc').ok);
+  const pn = GG.planName(g2, cand[0].id, 'ケンショウイチバン');
+  const out = nextWeek(g2);
+  const reg = w2.horses.get(cand[0].id);
+  check('年末処理の要約が出る（表彰・引退・登録）', !!out.yearSummary && out.yearSummary.awards.length >= 1 && out.yearSummary.farm.money > 0);
+  check(`年末に馬名が登録される（${reg.name}）`, pn.ok && reg.name === 'ケンショウイチバン' && reg.regName == null);
+  check('年明けに決めた調教師の厩舎へ入る', reg.trainerId === tr.id);
 }
 
 // ---------------------------------------------------------------- ゲーム操作

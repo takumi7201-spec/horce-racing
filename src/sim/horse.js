@@ -28,7 +28,9 @@ export function createHorse(rng, {
     name,
     sex,
     birthYear,
-    coat: rng.weighted(COATS, [40, 18, 16, 3, 10, 7, 3, 1]),
+    // 白毛は実在の白毛一族（シラユキヒメの系統）からしか出さない。ここで 1% でも
+    // 白毛を作ると、優性で受け継がれて 60 年後には競走馬の 4 頭に 1 頭が白毛になった。
+    coat: rng.weighted(COATS, [40, 18, 16, 3, 10, 7, 3, 0]),
     sireId, damId,
     farmId, ownerId,
     trainerId: null,

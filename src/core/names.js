@@ -149,4 +149,19 @@ export function lineNameOf(horseName) {
   return `${horseName}系`;
 }
 
+/**
+ * 外国産馬の名前。冠名を付けない「語＋語」だけで作る
+ * （冠名は日本の馬主の印なので、海外の血統表に並ぶと不自然）。
+ */
+export function makeForeignName(rng, { used = null } = {}) {
+  for (let attempt = 0; attempt < 40; attempt++) {
+    const name = rng.chance(0.8) ? rng.pick(HEAD) + rng.pick(TAIL) : rng.pick(HEAD);
+    if (name.length > MAX_NAME || name.length < 3) continue;
+    if (used && used.has(name)) continue;
+    if (used) used.add(name);
+    return name;
+  }
+  return makeHorseName(rng, { used });
+}
+
 export { KANMEI };

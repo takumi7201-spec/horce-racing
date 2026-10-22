@@ -20,13 +20,16 @@ export function homeScreen(app) {
   const graded = week.races.filter((r) => /^G/.test(r.grade ?? ''))
     .sort((a, b) => (GRADE_ORDER[a.grade] ?? 9) - (GRADE_ORDER[b.grade] ?? 9));
   const pages = [
+    // 年末処理を見ないまま帰ってきたとき（12 月 4 週にレースがあった）は先頭に出す。
+    app.pendingYearEnd ? yearEndPage(app) : null,
+    schedulePage(app),
     entriesPage(app),
     gradedPage(app, graded),
     horsesPage(app),
     resultsPage(app),
     topPage(app),
     financePage(app),
-  ];
+  ].filter(Boolean);
   const n = pages.length;
   app.homePage = ((app.homePage ?? 0) % n + n) % n;
 
@@ -58,6 +61,7 @@ export function homeScreen(app) {
         el('span.rp-grade', { text: rank.grade, class: `g-${rank.grade}` }),
       ]),
       featureStrip(app, graded[0]),
+      eventStrip(app),
       el('div.pcards', [
         el('button.parrow', { onclick: () => flip(-1), title: '前へ' }, icon('up', { size: 20 })),
         stack,
@@ -83,6 +87,61 @@ function featureStrip(app, r) {
     el('span.ft-n', { text: r.name }),
     el('span.ft-c', { text: `${r.courseName} ${r.surface}${r.distance}m` }),
   ]);
+}
+
+/** 行事の行き先。開催中の行事の帯を押すと、その画面へ行く。 */
+const EVENT_GO = {
+  foaling: ['stable', { cat: 'young' }],
+  covering: ['farm', { tab: 'mating' }],
+  foalSale: ['farm', { tab: 'foal' }],
+  mareSale: ['farm', { tab: 'mares' }],
+  overseas: ['farm', { tab: 'overseas' }],
+  private: ['farm', { tab: 'overseas' }],
+  entry: ['farm', { tab: 'entry' }],
+};
+
+/** 今週の牧場の行事。セールは開催週を逃すと 1 年待つので、ホームで目立たせる。 */
+function eventStrip(app) {
+  const evs = G.eventsNow(app.game);
+  if (!evs.length) return null;
+  return el('div.evstrip', evs.map((e) => {
+    const go = EVENT_GO[e.id];
+    return el(go ? 'button.ev' : 'div.ev', {
+      onclick: go ? () => app.go(go[0], go[1]) : null,
+      title: e.desc,
+    }, [
+      el('span.ev-l', { text: '今週' }),
+      el('b', { text: e.name }),
+      el('span.ev-d', { text: e.id === 'yearEnd' ? 'NEXT で年末処理' : e.desc }),
+    ]);
+  }));
+}
+
+/** 年間スケジュール。済んだ行事は薄く、今週の行事は光らせる。 */
+function schedulePage(app) {
+  const evs = G.farmEvents(app.game);
+  return page('年間', 'calendar', `${app.game.world.year}年の牧場の予定`, el('ul.plist.sched', evs.map((e) => {
+    const go = EVENT_GO[e.id];
+    return el('li', {
+      class: [e.status, go ? 'click' : null].filter(Boolean).join(' '),
+      onclick: go ? () => app.go(go[0], go[1]) : null,
+    }, [
+      el('div.pl-main', [
+        el('span.sc-when', { text: e.when }),
+        el('b', { text: e.name }),
+        el('span.sc-st', { text: e.status === 'done' ? '済' : e.status === 'now' ? '今週' : '' }),
+      ]),
+      el('div.pl-sub', { text: e.desc }),
+    ]);
+  })), app.lastYearEnd ? button('去年の年末処理', () => app.go('yearend'), { cls: 'sm' }) : null);
+}
+
+/** 年末処理の見残し。 */
+function yearEndPage(app) {
+  const s = app.pendingYearEnd;
+  return page('年末', 'trophy', `${s.year}年の年末処理`, [
+    el('p', { text: `年度代表馬は ${s.awards[0]?.name ?? '—'}。引退 ${s.retired.length} 頭、新しい種牡馬 ${s.newSiresTotal ?? s.newSires.length} 頭、馬名登録 ${s.named.length} 頭。` }),
+  ], button('年末処理を見る', () => app.go('yearend'), { cls: 'sm primary' }));
 }
 
 /** 1 枚のカード。上に札と見出し、下に中身。 */
@@ -138,7 +197,7 @@ function horsesPage(app) {
   const horses = G.myHorses(g);
   if (!horses.length) {
     return page('所有馬', 'horse', '所有馬の様子', el('p.pc-empty', {
-      text: '所有馬が居ない。セリ市（10 月）で買うか、配合で産ませる。',
+      text: '所有馬が居ない。当歳セール（8 月）や庭先取引（12 月）で買うか、配合で産ませる。',
     }));
   }
   return page('所有馬', 'horse', `所有馬の様子（${horses.length}頭）`, el('ul.plist.horses', horses.slice(0, 6).map((h) => {

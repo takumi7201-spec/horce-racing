@@ -171,7 +171,9 @@ export function studFeeOf(world, stallion, year) {
     // 標本の数で効かせ方を変える。4 頭が走っただけで種付料を決めると、
     // たまたま走った数頭で最上位に飛び出す種牡馬が毎年入れ替わる。
     const conf = Math.min(1, runners / 25);
-    base = base * (1 - conf * 0.65) + conf * Math.min(2800, Math.pow(score, 3.0) * 950);
+    // 頭打ちは 2,000 万（＋現役成績ぶんで最大 2,400 万前後）。実在の最高額 2,500 万を
+    // 架空の種牡馬が開始時点で超えると、名簿の先頭が知らない馬になる。
+    base = base * (1 - conf * 0.65) + conf * Math.min(2000, Math.pow(score, 3.0) * 950);
   }
   // 年を取ると下がる。
   const age = year - stallion.birthYear;

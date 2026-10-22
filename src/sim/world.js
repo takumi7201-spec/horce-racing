@@ -35,6 +35,7 @@ import { trainWeek, pastureWeek, autoMenu } from './training.js';
 import { sireLineRoot, nicksKey, recordNicksResult, breedQuality, lineLabel } from './pedigree.js';
 import { clamp, clamp01, lerp, sum, byDesc } from '../core/util.js';
 import { seedRealHorses, syncRealStud, syncRealMares, settleRealHorses } from './realsires.js';
+import { W } from './schedule.js';
 
 /**
  * 1 世代あたりの産駒数。
@@ -148,7 +149,14 @@ export function createWorld(seed, { startYear = 2026, playerName = '', farmName 
     // y 年生まれの世代は前の年の種付け。その年に日本で供用されていた実在の種牡馬を並べる。
     syncRealStud(world, y - 1);
     syncRealMares(world, y);
-    const cohort = breedCohort(world, rng, y, n);
+    const pairs = pairMares(world, rng, y, n);
+    // 開始年の世代はまだ生まれていない（誕生は 4 月）。受胎させておき、4 月に産ませる。
+    if (y === Y0) {
+      for (const { dam, sire } of pairs) dam.pregnancy = { sireId: sire.id, year: y };
+      promotePools(world, rng, y);
+      continue;
+    }
+    const cohort = breedPairs(world, rng, pairs, y);
     // 2 歳以上は紙の戦績を持たせる。でないとゲーム開始時に全馬が無印になる。
     // 古い世代は血統表に名前と格が載るだけなので、戦績も粗く済ませる。
     if (age >= 2) for (const h of cohort) paperCareer(world, h, rng, Y0);
@@ -174,6 +182,13 @@ export function createWorld(seed, { startYear = 2026, playerName = '', farmName 
 
   // --- 系統の相性（ニックス）を決める ---
   buildNicks(world, rng);
+
+  // 開始時点の 1 歳馬はまだ馬名登録前（登録は 1 歳の年末）。仮の名で呼ぶ。
+  for (const h of world.horses.values()) {
+    if (h.real || h.birthYear !== Y0 - 1 || h.damId == null) continue;
+    h.regName = h.name;
+    h.name = provisionalName(world.horses.get(h.damId), h.birthYear);
+  }
 
   // --- 現役馬を厩舎と馬主に割り当てる ---
   assignConnections(world, rng);
@@ -240,11 +255,15 @@ function realMaresFirst(world, mares) {
   mares.push(...real, ...rest);
 }
 
-/** 1 年ぶんの産駒を作る。繁殖牝馬は年に 1 頭。 */
-function breedCohort(world, rng, year, n) {
+/**
+ * 1 年ぶんの種付けの組み合わせ。繁殖牝馬は年に 1 頭。受胎しなかった牝馬は外れる。
+ * year は産駒の生まれ年（種付けはその前の年の 5〜6 月）。
+ */
+function pairMares(world, rng, year, n, { exclude = null, npcOnly = false } = {}) {
   const mares = world.marePool.filter((id) => {
     const m = world.horses.get(id);
-    return m && !m.dead && canBeBroodmare(m, year);
+    return m && !m.dead && canBeBroodmare(m, year)
+      && !(exclude && exclude.has(id)) && !(npcOnly && m.ownerId === 'player');
   });
   const stallions = world.stallionPool.filter((id) => {
     const s = world.horses.get(id);
@@ -255,7 +274,7 @@ function breedCohort(world, rng, year, n) {
   // 種牡馬は種付料が高いほど多くの牝馬を集める。
   const fees = stallions.map((id) => Math.max(10, studFeeOf(world, world.horses.get(id), year)));
   const eliteFees = fees.map((f) => f * f);
-  const cohort = [];
+  const pairs = [];
   rng.shuffle(mares);
   realMaresFirst(world, mares);
   for (let i = 0; i < Math.min(n, mares.length); i++) {
@@ -264,6 +283,15 @@ function breedCohort(world, rng, year, n) {
     const sire = world.horses.get(rng.weighted(stallions, dam.real ? eliteFees : fees));
     // 近親交配になりすぎる組み合わせは牧場が避ける。
     if (sire.id === dam.sireId) continue;
+    pairs.push({ dam, sire });
+  }
+  return pairs;
+}
+
+/** 組み合わせから仔を産ませる（生成中の世代用。ゲーム中は 4 月の誕生でまとめて産む）。 */
+function breedPairs(world, rng, pairs, year) {
+  const cohort = [];
+  for (const { dam, sire } of pairs) {
     const foal = breed(world, rng, sire, dam, { year });
     world.horses.set(foal.id, foal);
     cohort.push(foal);
@@ -822,19 +850,24 @@ export function advanceWeek(world, opts = {}) {
   // --- 経営 ---
   settleWeeklyCost(world);
 
+  // --- 牧場の行事（誕生・種付け） ---
+  if (world.week === W(4, 1)) foaling(world, rng, news);
+  if (world.week === W(6, 4)) covering(world, rng, news);
+
   world.news = news;
   world.log.push({ year: world.year, week: world.week, news });
   if (world.log.length > 400) world.log.shift();
 
   // --- 週を進める ---
   world.week++;
+  let yearSummary = null;
   if (world.week > WEEKS_PER_YEAR) {
     world.week = 1;
-    yearEnd(world, rng);
+    yearSummary = yearEnd(world, rng);
     world.year++;
     newYear(world, rng);
   }
-  return { results, news };
+  return { results, news, yearSummary };
 }
 
 /** 枠番 → 枠（1〜8）。 */
@@ -1010,7 +1043,10 @@ function yearEnd(world, rng) {
   pruneAncestry(world);
   pruneRecords(world);
 
-  // 引退の判定。
+  // 引退の判定。年末処理の画面には重賞馬と自分の馬だけを載せる。
+  const retiredThisYear = [];
+  // 引退した名馬はその場で種牡馬・繁殖牝馬の名簿に入るので、登録数は引退の前から数える。
+  const poolBefore = new Set([...world.stallionPool, ...world.marePool]);
   for (const h of [...world.horses.values()]) {
     if (h.dead || h.retired) continue;
     const age = horseAge(h, world.year);
@@ -1024,10 +1060,16 @@ function yearEnd(world, rng) {
     else if (!isPlayer && age >= 4 && h.earnings < 400 && rng.chance(0.6)) retire = true;
     if (!retire) continue;
     retireHorse(world, h, rng, news);
+    if (isPlayer || (h.g1Wins ?? 0) > 0 || h.earnings > 30000) retiredThisYear.push(h);
   }
 
-  // 配合の予約を解決する。プレイヤーの予約が無い繁殖牝馬は牧場が適当に付ける。
-  resolveMatings(world, rng, news);
+  // 種牡馬・繁殖牝馬の登録（4 歳世代から次の種牡馬と繁殖牝馬を選ぶ）。
+  promotePools(world, rng, world.year + 1);
+  const newSires = world.stallionPool.filter((id) => !poolBefore.has(id));
+  const newMares = world.marePool.filter((id) => !poolBefore.has(id));
+
+  // 翌年の馬名登録。
+  const named = registerNames(world);
 
   // 人の加齢。
   for (const j of world.jockeys.values()) if (!j.retired) ageJockey(j, rng, world.year);
@@ -1050,6 +1092,42 @@ function yearEnd(world, rng) {
 
   world.news = news.concat(world.news).slice(0, 30);
   world.log.push({ year: world.year, week: 'end', news });
+
+  // 年末処理の画面に出す要約。
+  const name = (id) => world.horses.get(id)?.name ?? '—';
+  const leaders = world.leaders;
+  const p = world.player;
+  return {
+    year: world.year,
+    awards: world.awards.filter((a) => a.year === world.year),
+    leaders: {
+      jockey: leaders.jockeys[0] ? `${leaders.jockeys[0].name}（${leaders.jockeys[0].wins}勝）` : '—',
+      trainer: leaders.trainers[0] ? `${leaders.trainers[0].name}（${leaders.trainers[0].wins}勝）` : '—',
+      sire: leaders.sires[0]?.name ?? '—',
+      owner: leaders.owners[0]?.name ?? '—',
+    },
+    // 自分の馬は全部、ほかは獲得賞金の上位 15 頭だけ（毎年 100 頭近い重賞馬が引退する）。
+    retiredTotal: retiredThisYear.length,
+    retired: [
+      ...retiredThisYear.filter((h) => h.ownerId === 'player'),
+      ...retiredThisYear.filter((h) => h.ownerId !== 'player').sort(byDesc((h) => h.earnings)).slice(0, 15),
+    ].map((h) => ({ id: h.id, name: h.name, mine: h.ownerId === 'player',
+      to: h.stallion ? '種牡馬' : h.broodmare ? '繁殖牝馬' : '引退' })),
+    // 新しい種牡馬は毎年数十頭いるので、種付料の上位 12 頭と自分の馬だけを名前で出す。
+    newSiresTotal: newSires.length,
+    newSires: newSires
+      .map((id) => world.horses.get(id)).filter(Boolean)
+      .sort(byDesc((h) => (p.stallions.includes(h.id) ? 1e9 : 0) + (h.studFee ?? 0)))
+      .slice(0, 12)
+      .map((h) => ({ id: h.id, name: h.name, fee: h.studFee ?? 0, mine: p.stallions.includes(h.id) })),
+    newMares: newMares.length,
+    named,
+    farm: {
+      money: p.money, horses: p.horses.length, broodmares: p.broodmares.length,
+      stallions: p.stallions.length,
+      young: [...world.horses.values()].filter((h) => h.ownerId === 'player' && !h.dead && horseAge(h, world.year) < 2).length,
+    },
+  };
 }
 
 /** 引退させ、繁殖・種牡馬・用途変更に振り分ける。 */
@@ -1079,61 +1157,84 @@ export function retireHorse(world, h, rng, news = []) {
 }
 
 /** 配合を解決して翌年の産駒を作る。 */
-function resolveMatings(world, rng, news) {
-  const nextYear = world.year + 1;
+/**
+ * 種付けシーズンの締め（6 月 4 週）。プレイヤーの予約と、ほかの牧場の種付けを
+ * まとめて行い、受胎した繁殖牝馬に「お腹の仔」を持たせる。生まれるのは翌年 4 月。
+ * 受胎しなかったときは種付料を返す（実際も多くは受胎確認後の支払い）。
+ */
+function covering(world, rng, news) {
+  const birth = world.year + 1;
   const booked = new Set();
-  // プレイヤーの予約。
   for (const m of world.pendingMatings) {
     const dam = world.horses.get(m.damId);
     const sire = world.horses.get(m.sireId);
     if (!dam || !sire || dam.dead || sire.dead) continue;
     booked.add(dam.id);
-    if (!conceives(rng, dam, nextYear)) {
-      news.push(`${dam.name} は受胎しなかった。`);
+    if (!conceives(rng, dam, birth)) {
+      world.player.money += m.fee;
+      news.push(`★${dam.name} は不受胎だった（種付料 ${m.fee} 万円は返金）。`);
       continue;
     }
-    const foal = breed(world, rng, sire, dam, {
-      year: nextYear, farmId: dam.farmId, ownerId: dam.ownerId,
-    });
-    world.horses.set(foal.id, foal);
-    if (dam.ownerId === 'player') {
-      news.push(`${dam.name} が ${sire.name} との仔（${foal.sex}）を産んだ。${foal.name} と名付けた。`);
-    }
+    dam.pregnancy = { sireId: sire.id, year: birth };
+    news.push(`★${dam.name} が ${sire.name} の仔を受胎した。来年 4 月に生まれる。`);
   }
   world.pendingMatings = [];
-
-  // NPC の牧場ぶん。
-  const cohort = breedCohortExcluding(world, rng, nextYear, FOALS_LIVE, booked);
-  promotePools(world, rng, nextYear);
-  news.push(`${nextYear}年産の産駒 ${cohort.length} 頭が誕生した。`);
+  // ほかの牧場のぶん。プレイヤーの繁殖牝馬は勝手に付けない（予約しなければ空胎）。
+  const pairs = pairMares(world, rng, birth, FOALS_LIVE, { exclude: booked, npcOnly: true });
+  for (const { dam, sire } of pairs) dam.pregnancy = { sireId: sire.id, year: birth };
+  news.push(`種付けシーズンが終わった。ほかの牧場で ${pairs.length} 頭が受胎した。`);
 }
 
-function breedCohortExcluding(world, rng, year, n, exclude) {
-  const mares = world.marePool.filter((id) => {
-    const m = world.horses.get(id);
-    return m && !m.dead && !exclude.has(id) && canBeBroodmare(m, year) && m.ownerId !== 'player';
-  });
-  const stallions = world.stallionPool.filter((id) => {
-    const s = world.horses.get(id);
-    return s && !s.dead && withinStudAge(world, s, year);
-  });
-  if (!mares.length || !stallions.length) return [];
-  const fees = stallions.map((id) => Math.max(10, studFeeOf(world, world.horses.get(id), year)));
-  const eliteFees = fees.map((f) => f * f);
-  const out = [];
-  rng.shuffle(mares);
-  realMaresFirst(world, mares);
-  for (let i = 0; i < Math.min(n, mares.length); i++) {
-    const dam = world.horses.get(mares[i]);
-    if (!conceives(rng, dam, year)) continue;
-    const sire = world.horses.get(rng.weighted(stallions, dam.real ? eliteFees : fees));
-    if (sire.id === dam.sireId) continue;
-    const foal = breed(world, rng, sire, dam, { year, farmId: dam.farmId });
+/** 仮の馬名（「母名の生年」）。馬名は 1 歳の年末に登録する。 */
+const provisionalName = (dam, year) => `${dam?.name ?? '不明'}の${year}`;
+
+/**
+ * 幼駒の誕生（4 月 1 週）。前年に受胎した繁殖牝馬が産む。
+ * 生まれた仔は「母名の年」の仮の名で呼び、正式な馬名は 1 歳の年末に登録する。
+ * 名前の候補（regName）は生まれたときに決めておき、プレイヤーが付けなければそれを使う。
+ */
+function foaling(world, rng, news) {
+  let n = 0;
+  for (const dam of [...world.horses.values()]) {
+    const p = dam.pregnancy;
+    if (!p || p.year !== world.year) continue;
+    delete dam.pregnancy;
+    const sire = world.horses.get(p.sireId);
+    if (dam.dead || !sire) continue;
+    const mine = dam.ownerId === 'player';
+    const foal = breed(world, rng, sire, dam, {
+      year: world.year, farmId: dam.farmId, ownerId: mine ? 'player' : null,
+    });
+    foal.regName = foal.name;
+    foal.name = provisionalName(dam, world.year);
     world.horses.set(foal.id, foal);
-    out.push(foal);
+    n++;
+    if (mine) news.push(`★${dam.name} が ${sire.name} の仔（${foal.sex}・${foal.coat}）を産んだ。`);
   }
-  return out;
+  news.push(`${world.year}年産の幼駒 ${n} 頭が誕生した。`);
 }
+
+/**
+ * 翌年の馬名登録。1 歳馬（来年 2 歳）に正式な名前を付ける。
+ * プレイヤーが決めた名前（plannedName）があればそれを、無ければ生まれたときの候補を使う。
+ */
+function registerNames(world) {
+  const done = [];
+  for (const h of world.horses.values()) {
+    if (h.regName == null || horseAge(h, world.year) !== 1) continue;
+    const name = h.plannedName ?? h.regName;
+    if (h.plannedName) {
+      world.nameSet.delete(h.regName);
+      world.nameSet.add(h.plannedName);
+    }
+    if (h.ownerId === 'player') done.push({ id: h.id, from: h.name, name });
+    h.name = name;
+    delete h.regName;
+    delete h.plannedName;
+  }
+  return done;
+}
+
 
 /** 年明けの処理。産駒を馬主と厩舎に配り、2 歳馬をデビューさせる。 */
 function newYear(world, rng) {
@@ -1150,7 +1251,10 @@ function newYear(world, rng) {
         h.ownerId = o.id;
         o.horses.push(h.id);
       }
-      const t = rng.pick(trainers);
+      // 12 月 4 週にプレイヤーが入厩先を決めていればそこへ。
+      const planned = h.plannedTrainerId != null ? world.trainers.get(h.plannedTrainerId) : null;
+      const t = planned && !planned.retired ? planned : rng.pick(trainers);
+      delete h.plannedTrainerId;
       h.trainerId = t.id;
       t.horses.push(h.id);
       h.jockeyId = rng.pick(jockeys).id;

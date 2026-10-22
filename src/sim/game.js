@@ -11,6 +11,8 @@ import { matingEval, pedigreeTree, nicksValue, lineLabel, breedQuality } from '.
 import { studFeeOf, canBeBroodmare } from './breeding.js';
 import { previewOdds } from './race.js';
 import { makeRng, hashSeed } from '../core/rng.js';
+import { EVENTS, eventsAt, eventOpen } from './calendar.js';
+import * as S from './sales.js';
 import {
   ABILITIES, SEX, WEEKS_PER_YEAR, classOrder, className, standardWeight,
   weekToMonth, STYLES,
@@ -98,6 +100,11 @@ export function horseView(g, id) {
     stallion: h.stallion, broodmare: h.broodmare, studFee: h.studFee,
     dead: !!h.dead,
     real: !!h.real,
+    foreign: !!h.foreign,
+    // お腹の仔（受胎していれば父と生まれる年）。
+    pregnancy: h.pregnancy ? { sire: w.horses.get(h.pregnancy.sireId)?.name ?? '—', year: h.pregnancy.year } : null,
+    // 馬名登録前の 1 歳以下（「母名の年」で呼ばれている）。
+    provisional: h.regName != null,
     foals: (h.foals ?? []).map((fid) => w.horses.get(fid)).filter(Boolean),
     retired: h.retired,
   };
@@ -261,17 +268,10 @@ export function stallions(g, { maxFee = Infinity, search = '' } = {}) {
       foals: (s.foals ?? []).length,
       quality: breedQuality(s),
       real: !!s.real,
-      bestWin: bestWin(s),
+      bestWin: S.bestWin(s),
     }));
 }
 
-/** いちばん格の高い勝ち鞍の名前。種牡馬名鑑の「代表勝鞍」に出す。 */
-function bestWin(h) {
-  const order = { GI: 0, G1: 0, GII: 1, G2: 1, GIII: 2, G3: 2 };
-  const wins = (h.record ?? []).filter((r) => r.order === 1 && r.grade);
-  wins.sort((a, b) => (order[a.grade] ?? 9) - (order[b.grade] ?? 9));
-  return wins[0]?.name ?? null;
-}
 
 /** 配合の評価。プレイヤーに見せる期待度と注意点。 */
 export function evaluateMating(g, damId, sireId) {
@@ -321,6 +321,7 @@ export function bookMating(g, damId, sireId) {
   if (!dam || !sire) return { ok: false, why: '馬が見つからない' };
   if (!canBeBroodmare(dam, w.year + 1)) return { ok: false, why: 'この牝馬は繁殖に上がれない' };
   if (dam.ownerId !== 'player') return { ok: false, why: '自分の繁殖牝馬ではない' };
+  if (!matingOpen(g)) return { ok: false, why: '種付けは 5〜6 月（種付けシーズン）だけ' };
   const fee = sire.studFee ?? studFeeOf(w, sire, w.year);
   if (w.player.money < fee) return { ok: false, why: `資金が足りない（${formatMoney(fee)}必要）` };
   // 同じ牝馬の予約は上書き。
@@ -350,56 +351,8 @@ export function cancelMating(g, damId) {
 
 // ---------------------------------------------------------------- 売買
 
-/**
- * セリ市。毎年秋（10 月）に 1 歳馬が上場される。
- * 上場馬と価格は (シード, 年) から決まるので、何度開いても同じ。
- */
-export function auction(g) {
-  const w = g.world;
-  const rng = makeRng(hashSeed(`${w.seed}|auction|${w.year}`));
-  const yearlings = [...w.horses.values()]
-    .filter((h) => horseAge(h, w.year) === 1 && !h.dead && h.ownerId == null);
-  rng.shuffle(yearlings);
-  return yearlings.slice(0, 40).map((h) => {
-    const sire = h.sireId != null ? w.horses.get(h.sireId) : null;
-    // 市場は血統と馬体しか見られない。能力そのものは値段に乗らない。
-    const pedigreeValue = (sire ? breedQuality(sire) : 0.3) * 0.6
-      + (h.damId != null ? breedQuality(w.horses.get(h.damId) ?? { pot: {}, earnings: 0 }) : 0.3) * 0.4;
-    const price = Math.round((300 + Math.pow(pedigreeValue, 2.2) * 14000) * rng.range(0.7, 1.5) / 10) * 10;
-    return {
-      horse: h, id: h.id, name: h.name, sex: h.sex, coat: h.coat,
-      sire: sire?.name ?? '—',
-      dam: h.damId != null ? w.horses.get(h.damId)?.name ?? '—' : '—',
-      damReal: !!(h.damId != null && w.horses.get(h.damId)?.real),
-      damSire: damSireName(w, h),
-      line: h.sireId != null ? lineLabel(w, h.id) : '—',
-      inbreed: h.inbreedLabels ?? [],
-      price,
-      // 見た目の評価。能力とは緩く相関するだけ。
-      look: ['小柄', '並', 'バランス良', '幅がある', '雄大'][Math.min(4, Math.floor((h.weightKg - 400) / 40))],
-    };
-  }).sort(byDesc((x) => x.price));
-}
 
-export function auctionOpen(g) {
-  return weekToMonth(g.world.week) === 10;
-}
 
-export function buyYearling(g, horseId) {
-  const w = g.world;
-  const lot = auction(g).find((x) => x.id === horseId);
-  if (!lot) return { ok: false, why: '上場されていない' };
-  if (!auctionOpen(g)) return { ok: false, why: 'セリは 10 月のみ' };
-  if (w.player.money < lot.price) return { ok: false, why: '資金が足りない' };
-  const h = w.horses.get(horseId);
-  h.ownerId = 'player';
-  w.owners.get('player').horses.push(h.id);
-  w.player.horses.push(h.id);
-  w.player.money -= lot.price;
-  h.stable = 'pasture';
-  h.trainingMenu = 'light';
-  return { ok: true, price: lot.price, horse: h };
-}
 
 /** 所有馬の売却。言い値の 7 割くらいで売れる。 */
 export function sellHorse(g, horseId) {
@@ -430,7 +383,7 @@ export function sellHorse(g, horseId) {
 export function nextWeek(g) {
   const w = g.world;
   const before = { year: w.year, week: w.week };
-  const { results, news } = advanceWeek(w);
+  const { results, news, yearSummary } = advanceWeek(w);
   const mine = results.filter((r) =>
     r.log && r.results.some((x) => w.horses.get(x.horseId)?.ownerId === 'player'));
   return {
@@ -440,6 +393,8 @@ export function nextWeek(g) {
     myRaces: mine,
     news,
     money: w.player.money,
+    // 12 月 4 週を進めたときだけ入る。年末処理の画面に出す。
+    yearSummary,
   };
 }
 
@@ -590,73 +545,87 @@ export function myLineup(g, category = null) {
   return cats.flatMap((c) => (st[c] ?? []).map((h) => h.id));
 }
 
-/**
- * 実在の繁殖牝馬の一覧（繁殖中の馬と、自分の繁殖牝馬）。
- * 他人の名牝は買える。値段は格と年齢で決まり、若い名牝ほど高い。
- */
-export function realMares(g) {
-  const w = g.world;
-  const pool = new Set(w.marePool);
-  const kids = realOffspring(w);
-  return [...w.horses.values()]
-    .filter((h) => h.real && h.sex === SEX.FEMALE && !h.dead && (pool.has(h.id) || h.ownerId === 'player'))
-    .map((h) => {
-      const foals = (h.foals ?? []).map((id) => w.horses.get(id)).filter(Boolean);
-      const best = foals.slice().sort(byDesc((f) => f.earnings))[0] ?? null;
-      // 代表産駒は実在の仔（イクイノックスの母ならイクイノックス）を先に出す。
-      const real = (kids.get(h.id) ?? []).sort(byDesc((k) => k.g1Wins ?? 0));
-      return {
-        horse: h, id: h.id, name: h.name, coat: h.coat,
-        age: horseAge(h, w.year),
-        sire: h.sireId != null ? w.horses.get(h.sireId)?.name ?? '—' : '—',
-        damSire: damSireName(w, h),
-        bestWin: bestWin(h),
-        foals: foals.length,
-        bestFoal: real[0]?.name ?? (best && best.earnings > 0 ? best.name : null),
-        mine: h.ownerId === 'player',
-        price: marePrice(w, h, kids.get(h.id)),
-      };
-    })
-    .sort(byDesc((x) => x.price));
-}
 
-/** 実在の母 → その実在の仔（表に載っている種牡馬・名牝）。 */
-function realOffspring(w) {
-  const m = new Map();
-  for (const h of w.horses.values()) {
-    if (!h.real || h.damId == null) continue;
-    if (!m.has(h.damId)) m.set(h.damId, []);
-    m.get(h.damId).push(h);
-  }
-  return m;
-}
+
+
+
+// ---------------------------------------------------------------- 年間スケジュール
+
+/** 種付けシーズン（5〜6 月）か。予約は 6 月 4 週の締めでまとめて受胎判定する。 */
+export const matingOpen = (g) => eventOpen('covering', g.world.week);
 
 /**
- * 繁殖牝馬の値段（万円）。格は能力と現役成績から、若いほど残りの繁殖年数ぶん高い。
- * GI 馬の母は仔の GI 1 勝につき 1,500 万を上乗せする（母としての実績も値段になる）。
+ * 牧場の行事の一覧と、今年の進み具合（済 / 今週 / これから）。
+ * ホームの「年間スケジュール」と、行事の週の案内に使う。
  */
-function marePrice(w, h, kids = []) {
-  const q = breedQuality(h);
-  const age = horseAge(h, w.year);
-  const ageF = age <= 12 ? 1 : Math.max(0.25, 1 - (age - 12) * 0.12);
-  const produce = sum(kids, (k) => k.g1Wins ?? 0) * 1500;
-  return Math.round((800 + Math.pow(q, 3) * 40000 + produce) * ageF / 10) * 10;
+export function farmEvents(g) {
+  const wk = g.world.week;
+  return EVENTS.map((e) => ({
+    ...e,
+    status: wk > e.to ? 'done' : wk >= e.from ? 'now' : 'next',
+  }));
 }
 
-/** 実在の繁殖牝馬を買う。以後は自分の繁殖牝馬として配合できる。 */
-export function buyMare(g, id) {
+/** 今週開かれている行事。 */
+export const eventsNow = (g) => eventsAt(g.world.week);
+
+// ---------------------------------------------------------------- セール
+
+export const saleOpen = (g, kind) => S.saleOpen(g.world, kind);
+export const foalSale = (g) => S.foalSaleLots(g.world);
+export const privateSale = (g) => S.privateLots(g.world);
+export const mareSale = (g) => S.mareSaleLots(g.world);
+export const overseasSale = (g) => S.overseasLots(g.world);
+export const buyLot = (g, kind, id) => S.buyLot(g.world, kind, id);
+export const buyOverseas = (g, key) => S.buyOverseas(g.world, key, g.world.rng);
+
+// ---------------------------------------------------------------- 入厩・馬名登録
+
+/** 来年 2 歳になる自分の 1 歳馬。12 月 4 週に入厩先と馬名を決める。 */
+export function entryCandidates(g) {
   const w = g.world;
-  const h = w.horses.get(id);
-  if (!h || !h.real || h.dead || h.sex !== SEX.FEMALE) return { ok: false, why: '買えない馬' };
-  if (h.ownerId === 'player') return { ok: false, why: 'もう自分の繁殖牝馬' };
-  if (!w.marePool.includes(id)) return { ok: false, why: '繁殖を終えている' };
-  const price = marePrice(w, h, realOffspring(w).get(h.id));
-  if (w.player.money < price) return { ok: false, why: '資金が足りない' };
-  w.player.money -= price;
-  h.ownerId = 'player';
-  h.broodmare = true;
-  w.player.broodmares.push(id);
-  return { ok: true, price };
+  return myYoungsters(g).filter((h) => horseAge(h, w.year) === 1).map((h) => ({
+    id: h.id, name: h.name, coat: h.coat, sex: h.sex,
+    suggested: h.regName ?? h.name,
+    plannedName: h.plannedName ?? null,
+    plannedTrainerId: h.plannedTrainerId ?? null,
+    sire: w.horses.get(h.sireId)?.name ?? '—',
+    dam: w.horses.get(h.damId)?.name ?? '—',
+  }));
+}
+
+export const entryOpen = (g) => eventOpen('entry', g.world.week);
+
+/** 入厩先に選べる調教師。勝ち星の多い順。 */
+export function trainerChoices(g, limit = 30) {
+  return [...g.world.trainers.values()].filter((t) => !t.retired)
+    .sort(byDesc((t) => t.wins * 3 + (t.skill ?? 0.5) * 10))
+    .slice(0, limit)
+    .map((t) => ({ id: t.id, name: t.name, region: t.region, style: t.style, wins: t.wins }));
+}
+
+/** 入厩先を決める。年明けの入厩でこの調教師に預ける。 */
+export function planTrainer(g, horseId, trainerId) {
+  const h = g.world.horses.get(horseId);
+  if (!h || h.ownerId !== 'player') return { ok: false, why: '自分の馬ではない' };
+  h.plannedTrainerId = trainerId;
+  return { ok: true };
+}
+
+/**
+ * 馬名を決める。カタカナ 2〜9 文字（JRA の規則）で、使われていない名前。
+ * 空にすると候補（生まれたときに決めた名前）に戻る。
+ */
+export function planName(g, horseId, name) {
+  const w = g.world;
+  const h = w.horses.get(horseId);
+  if (!h || h.ownerId !== 'player' || h.regName == null) return { ok: false, why: '馬名登録の対象ではない' };
+  const n = (name ?? '').trim();
+  if (!n) { delete h.plannedName; return { ok: true, name: h.regName }; }
+  if (!/^[ァ-ヶー・]{2,9}$/.test(n)) return { ok: false, why: '馬名はカタカナ 2〜9 文字' };
+  if (n !== h.regName && w.nameSet.has(n)) return { ok: false, why: 'その名前は使われている' };
+  h.plannedName = n;
+  return { ok: true, name: n };
 }
 
 /** 今週の開催場の名前。 */

@@ -27,10 +27,10 @@ export function stableScreen(app) {
   app.stableCat = cat;
   const list = st[cat];
   const empty = {
-    active: '現役の所有馬が居ない。セリ市（10 月）で買うか、配合で産ませる。',
+    active: '現役の所有馬が居ない。当歳セール（8 月）や庭先取引（12 月）で買うか、配合で産ませる。',
     mares: '繁殖牝馬が居ない。牝馬を引退させると繁殖に上がる。',
     stallions: '種牡馬が居ない。重賞を勝った牡馬を引退させると種牡馬になれる。',
-    young: '幼駒が居ない。牧場で繁殖牝馬に種付けすると、翌年の春に生まれる。',
+    young: '幼駒が居ない。5〜6 月に繁殖牝馬へ種付けすると翌年 4 月に生まれる。当歳セール（8 月）でも買える。',
   };
 
   return el('div.stbl', [
@@ -62,7 +62,8 @@ function stableTile(app, h, cat) {
   } else if (cat === 'mares') {
     sub = `${v.age}歳　産駒${v.foals.length}頭`;
     const booked = G.myMatings(g).find((m) => m.damId === h.id);
-    tags.push(booked ? ['on', `予約 ${booked.sire?.name ?? ''}`] : ['', '配合未定']);
+    tags.push(v.pregnancy ? ['go', `受胎 ${v.pregnancy.sire}`]
+      : booked ? ['on', `予約 ${booked.sire?.name ?? ''}`] : ['', '空胎']);
   } else if (cat === 'stallions') {
     sub = `${v.age}歳　産駒${v.foals.length}頭`;
     tags.push(['', `種付料 ${formatMoney(v.studFee ?? 0)}`]);
@@ -336,7 +337,8 @@ function statePanel(v) {
     r('状態', v.injury ? v.injury.name : v.stable === 'stable' ? '在厩' : '放牧', v.injury ? 'bad' : null),
   ] : [
     r('年齢', `${v.age}歳`),
-    r('産駒の勝利', `${foals.reduce((a, f) => a + f.wins, 0)}勝`),
+    v.pregnancy ? r('受胎', `${v.pregnancy.sire}（${v.pregnancy.year}年4月）`)
+      : r('産駒の勝利', `${foals.reduce((a, f) => a + f.wins, 0)}勝`),
     v.stallion && !v.dead ? r('種付料', formatMoney(v.studFee ?? 0)) : r('立場', v.dead ? '故' : v.broodmare ? '繁殖牝馬' : '引退'),
   ];
   return el('section.hd-state', [
