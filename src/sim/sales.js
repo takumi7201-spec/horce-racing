@@ -142,13 +142,22 @@ export function bestWin(h) {
  * 中身は (シード, 年, 番号) から決まるので、買ったときに同じ馬が作られる。
  */
 export function overseasLots(w) {
-  const sold = new Set();
-  for (const h of w.horses.values()) if (h.lotKey) sold.add(h.lotKey);
+  const sold = new Map();
+  for (const h of w.horses.values()) if (h.lotKey) sold.set(h.lotKey, h);
   const out = [];
   for (let i = 0; i < 12; i++) {
     const key = `os-${w.year}-${i}`;
     const d = overseasSpec(w, key, i < 8 ? 'yearling' : 'mare');
-    out.push({ ...d, key, sold: sold.has(key) });
+    const h = sold.get(key);
+    // 落札済みの馬は、買った馬そのものの名前で出す（上場名は世界の名簿で変わりうる）。
+    if (h) {
+      const dam = w.horses.get(h.damId);
+      Object.assign(d, {
+        name: h.regName ?? h.name, sireName: nameOf(w, h.sireId),
+        damName: dam?.name ?? d.damName, damSireName: dam ? nameOf(w, dam.sireId) : d.damSireName,
+      });
+    }
+    out.push({ ...d, key, sold: !!h });
   }
   return out;
 }
@@ -157,8 +166,6 @@ function overseasSpec(w, key, kind) {
   const rng = makeRng(hashSeed(`${w.seed}|${key}`));
   // 似た文字列の種は最初の数個の乱数が揃いやすいので、読み捨ててから使う。
   for (let i = 0; i < 4; i++) rng.next();
-  // 名前は世界の名簿を汚さないよう写しで引く。
-  const used = new Set(w.nameSet);
   const yearling = kind === 'yearling';
   const level = clamp01(rng.normal(yearling ? 0.66 : 0.6, 0.07));
   const age = yearling ? 1 : rng.irange(5, 10);
@@ -175,12 +182,17 @@ function overseasSpec(w, key, kind) {
   const price = yearling
     ? Math.round((1200 + Math.pow(sireLevel, 2) * 3500 + Math.pow(damLevel, 2) * 1500) * rng.range(0.85, 1.25) / 10) * 10
     : Math.round((1500 + Math.pow(q, 3) * 9000) * rng.range(0.85, 1.2) / 10) * 10;
+  // 名前は別の乱数で、世界の名簿の写しを避けて引く。同じ乱数で引くと、ほかの上場馬を
+  // 買って名簿に名前が増えたとき、重複の引き直しで乱数がずれ、毛色や能力や値段まで
+  // 別の馬に変わってしまった（落札した馬と一覧の馬が食い違う）。
+  const nrng = makeRng(hashSeed(`${w.seed}|${key}|name`));
+  const used = new Set(w.nameSet);
   return {
     kind, yearling, foreign: true,
-    name: makeForeignName(rng, { used }),
-    sireName: makeForeignName(rng, { used }),
-    damName: makeForeignName(rng, { used }),
-    damSireName: makeForeignName(rng, { used }),
+    name: makeForeignName(nrng, { used }),
+    sireName: makeForeignName(nrng, { used }),
+    damName: makeForeignName(nrng, { used }),
+    damSireName: makeForeignName(nrng, { used }),
     sex, age, coat: rng.weighted(COATS, [40, 18, 16, 3, 10, 7, 3, 0]),
     birthYear: w.year - age,
     pot, dist, distRange: clamp(Math.round(rng.normal(460, 120)), 220, 900),

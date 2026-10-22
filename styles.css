@@ -1079,3 +1079,8 @@ canvas.race3d { width: 100%; height: 100%; display: block; }
 .sk-spin { width: 22px; height: 22px; border-radius: 50%; border: 3px solid #cfe6c4; border-top-color: var(--green); animation: sk-rot .7s linear infinite; }
 @keyframes sk-rot { to { transform: rotate(360deg); } }
 .sk-news { margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.7; }
+
+/* ---------------- 確認のダイアログ（window.confirm の代わり） ---------------- */
+.ask-msg { margin: 4px 2px 14px; font-size: 15px; font-weight: 700; line-height: 1.6; }
+.ask-btns { display: flex; justify-content: flex-end; gap: 8px; }
+.modal:has(.ask-msg) { max-width: 420px; }

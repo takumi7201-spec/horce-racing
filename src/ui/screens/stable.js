@@ -1,6 +1,6 @@
 // 所有馬の一覧と、1 頭の詳細（能力・適性・血統表・戦績・調教）。
 
-import { el, card, table, button, kv, bar, modal, toast, frameChip, tabs } from '../dom.js';
+import { el, card, table, button, kv, bar, modal, toast, frameChip, tabs, ask } from '../dom.js';
 import * as G from '../../sim/game.js';
 import { formatMoney, formatTime, formatSec, rankOf } from '../../core/util.js';
 import { fitLabel, condLabel, MENUS } from '../../sim/training.js';
@@ -382,8 +382,8 @@ function actions(app, v, active) {
           app.render();
           return undefined;
         }, { disabled: !!v.injury }),
-      button('引退', () => {
-        if (!confirm(`${v.name} を引退させる？`)) return;
+      button('引退', async () => {
+        if (!await ask(`${v.name} を引退させる？`, { ok: '引退させる' })) return;
         G.retire(g, id);
         toast(`${v.name} を引退させた`);
         app.go('stable');

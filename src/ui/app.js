@@ -4,7 +4,7 @@
 // 後ろには牧場の 3D をずっと置いておく。画面の切り替えで消すのは前面の UI だけで、
 // 3D は止める・ぼかす・再開するだけ（WebGL を作り直すとコンテキストが溢れる）。
 
-import { el, clear, button, toast, modal, card, table } from './dom.js';
+import { el, clear, button, toast, modal, card, table, ask } from './dom.js';
 import * as G from '../sim/game.js';
 import { saveLocal, loadLocal, slotInfo, clearSlot } from '../sim/save.js';
 import { loadHorseSprite } from './horse-sprite.js';
@@ -212,7 +212,7 @@ export function start(root) {
             }, { cls: 'sm' }),
             button('読込', () => { m.close(); app.load(slot); }, { cls: 'sm', disabled: !info }),
             button('消去', async () => {
-              if (!confirm(`スロット${slot} を消す？`)) return;
+              if (!await ask(`スロット${slot} を消す？`, { ok: '消す' })) return;
               m.close();
               await clearSlot(slot);
               app.openSaveMenu();

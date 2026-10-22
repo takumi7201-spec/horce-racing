@@ -1,7 +1,7 @@
 // 牧場。配合と各セール、入厩・馬名登録。
 // 行事は年間スケジュール（sim/calendar.js）の時期だけ開く。時期の外は下見だけできる。
 
-import { el, card, table, button, kv, bar, modal, toast, tabs } from '../dom.js';
+import { el, card, table, button, kv, bar, modal, toast, tabs, ask } from '../dom.js';
 import * as G from '../../sim/game.js';
 import { formatMoney } from '../../core/util.js';
 import { horseImg } from '../horse-sprite.js';
@@ -243,9 +243,9 @@ function mareSaleView(app) {
 
 /** 購入ボタン。確かめてから買い、結果を通知する。 */
 function buyButton(app, kind, lot, enabled) {
-  return button('購入', (e) => {
+  return button('購入', async (e) => {
     e.stopPropagation();
-    if (!confirm(`${lot.name} を ${formatMoney(lot.price)} で購入する？`)) return;
+    if (!await ask(`${lot.name} を ${formatMoney(lot.price)} で購入する？`, { ok: '購入する' })) return;
     const r = G.buyLot(app.game, kind, lot.id);
     if (!r.ok) { toast(r.why, { bad: true }); return; }
     toast(`${lot.name} を ${formatMoney(r.price)} で購入した`);
@@ -305,8 +305,8 @@ function overseasView(app) {
         x.yearling ? '1歳馬' : '繁殖牝馬',
         el('span.sire-n', [el('b', { text: x.name }), el('i.foreigntag', { text: '外' })]),
         `${x.sex}${x.age}`, x.coat, x.sireName, x.damName, x.damSireName, formatMoney(x.price),
-        x.sold ? el('span.mine', { text: '落札済み' }) : button('購入', () => {
-          if (!confirm(`${x.name} を ${formatMoney(x.price)} で購入する？`)) return;
+        x.sold ? el('span.mine', { text: '落札済み' }) : button('購入', async () => {
+          if (!await ask(`${x.name} を ${formatMoney(x.price)} で購入する？`, { ok: '購入する' })) return;
           const r = G.buyOverseas(g, x.key);
           if (!r.ok) { toast(r.why, { bad: true }); return; }
           toast(`${x.name} を ${formatMoney(r.price)} で購入した`);

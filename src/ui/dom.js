@@ -137,6 +137,25 @@ export function modal(title, body, { onClose = null, wide = false } = {}) {
   return { close, wrap };
 }
 
+/**
+ * 確認のダイアログ。はい → true、やめる・閉じる → false。
+ * window.confirm は使わない。アーティファクトのように iframe に埋め込まれた先では
+ * ダイアログが塞がれて常に false が返り、「購入を押しても何も起きない」になった。
+ */
+export function ask(message, { ok = 'はい', cancel = 'やめる' } = {}) {
+  return new Promise((resolve) => {
+    // 先に答えを決めてから閉じる（閉じると onClose が「やめる」で答えてしまう）。
+    const done = (v) => { resolve(v); m.close(); };
+    const m = modal('確認', [
+      el('p.ask-msg', { text: message }),
+      el('div.ask-btns', [
+        button(cancel, () => done(false), { cls: 'ghost' }),
+        button(ok, () => done(true), { cls: 'primary' }),
+      ]),
+    ], { onClose: () => resolve(false) });
+  });
+}
+
 /** 画面下に出す短い通知。 */
 let toastTimer = 0;
 export function toast(msg, { bad = false } = {}) {

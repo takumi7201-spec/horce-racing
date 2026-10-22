@@ -341,6 +341,10 @@ section('年間スケジュール');
   const os = GG.overseasSale(g2);
   const bo = GG.buyOverseas(g2, os[0].key);
   check('12 月 3 週の海外トレーニングセールで外国の 1 歳馬を買える', bo.ok && bo.horse.foreign && GG.overseasSale(g2)[0].sold, bo.why);
+  const os2 = GG.overseasSale(g2);
+  const same = (a, b) => a.name === b.name && a.coat === b.coat && a.price === b.price && a.sireName === b.sireName;
+  check(`買った後も一覧の馬が入れ替わらない（${os2[0].name}）`,
+    same(os[0], os2[0]) && os.every((x, i) => x.coat === os2[i].coat && x.price === os2[i].price));
   check('庭先取引に 1 歳馬が並ぶ', GG.privateSale(g2).length > 0 && GG.privateSale(g2).every((x) => x.age === 1));
   until(W(12, 4));
   const cand = GG.entryCandidates(g2);
