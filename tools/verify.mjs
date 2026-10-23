@@ -486,6 +486,13 @@ section('開始年（史実の名馬）');
     ['シーキングザパール', 'サニーブライアン', 'メジロブライト', 'シルクジャスティス'].every((n) => due94.includes(n)));
   const hishi = [...g94.world.horses.values()].find((h) => h.name === 'ヒシアマゾン');
   check('1994 年開始でヒシアマゾンが 3 歳の現役', !!hishi && !hishi.retired && hishi.birthYear === 1991);
+  // 2000 年代の名馬。2005 年に始めると、カネヒキリ・アドマイヤムーンが現役で、
+  // その年 4 月に生まれるディープスカイ・エスポワールシチーの母が受胎している。
+  const g05 = newGame({ seed: 'verify-2005', startYear: 2005 });
+  const live05 = (n) => [...g05.world.horses.values()].find((h) => h.name === n && !h.retired);
+  const due05 = [...g05.world.horses.values()].map((h) => h.pregnancy?.real).filter(Boolean);
+  check(`2005 年開始で 2000 年代の名馬が現役・受胎中（${due05.join('・')}）`,
+    !!live05('カネヒキリ') && !!live05('アドマイヤムーン') && ['ディープスカイ', 'エスポワールシチー'].every((n) => due05.includes(n)));
   const hoyo = [...w75.horses.values()].find((h) => h.pregnancy?.real === 'ホウヨウボーイ');
   check('1975 年 4 月に生まれる名馬は、開始時に母が受胎している（ホウヨウボーイ）', !!hoyo);
 
