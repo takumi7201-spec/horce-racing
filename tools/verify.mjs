@@ -454,8 +454,14 @@ section('因子・系統・海外の名馬');
   const ab80 = stallions(g80).filter((s) => s.abroad).map((s) => s.name);
   check(`1980 年の海外種付けに当時の名馬が並ぶ（${ab80.length} 頭）`,
     ['トロイ', 'アレッジド', 'アリダー', 'ザミンストレル'].every((n) => ab80.includes(n)) && !ab80.includes('シャーガー'));
+  // 令和の海外の名馬。2026 年の海外種付けにシティオブトロイ・オーギュストロダン、海外セールに名牝ラヴ・スノーフォール。
+  const g4os = newGame({ seed: 'verify-2026-overseas' });
+  g4os.world.week = (12 - 1) * 4 + 3;
+  const m26 = GG.overseasSale(g4os).filter((x) => x.realMare).map((x) => x.name);
+  check(`2026 年の海外セールに令和の名牝が出る（${m26.length} 頭）`, ['ラヴ', 'スノーフォール', 'アルピニスタ'].every((n) => m26.includes(n)));
   const ab26 = stallions(g4).filter((s) => s.abroad).map((s) => s.name);
-  check(`2026 年の海外種付けに近年の名馬が並ぶ（${ab26.length} 頭）`, ['フライトライン', 'バーイード', 'キングマン'].every((n) => ab26.includes(n)));
+  check(`2026 年の海外種付けに近年の名馬が並ぶ（${ab26.length} 頭）`,
+    ['フライトライン', 'バーイード', 'キングマン', 'シティオブトロイ', 'オーギュストロダン', 'エースインパクト'].every((n) => ab26.includes(n)));
 }
 
 // ---------------------------------------------------------------- 開始年
