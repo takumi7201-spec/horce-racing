@@ -11,6 +11,7 @@
     "timecheck": "node tools/timecheck.mjs",
     "season": "node tools/season.mjs --years 5",
     "icons": "node tools/make-icons.mjs",
+    "import-gi": "node tools/import-real-horses.mjs",
     "sprite": "node tools/make-horse-sprite.mjs assets/horse-src.png --keep 47,19 --keep 23,31 --keep 39,31 --keep 36,27 --keep 6,5 --keep 45,15 --keep 46,17"
   },
   "engines": { "node": ">=18" }

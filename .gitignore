@@ -3,3 +3,6 @@ node_modules/
 .DS_Store
 /tmp/
 assets/horse-debug.png
+
+# tools/import-real-horses.mjs が貯める ja.wikipedia の応答
+.cache/
