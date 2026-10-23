@@ -479,6 +479,13 @@ section('開始年（史実の名馬）');
   const gabby = byName(w75, 'テスコガビー');
   check('1975 年の 3 歳世代に史実の名馬が居る（テスコガビー・カブラヤオー）',
     !!gabby && !gabby.retired && !!byName(w75, 'カブラヤオー') && !byName(w75, 'カブラヤオー').retired);
+  // 1990 年代の名馬。1994 年に始めると、その年 4 月に生まれる 4 頭の母が受胎している。
+  const g94 = newGame({ seed: 'verify-1994', startYear: 1994 });
+  const due94 = [...g94.world.horses.values()].map((h) => h.pregnancy?.real).filter(Boolean);
+  check(`1994 年開始で、その年に生まれる名馬の母が受胎している（${due94.join('・')}）`,
+    ['シーキングザパール', 'サニーブライアン', 'メジロブライト', 'シルクジャスティス'].every((n) => due94.includes(n)));
+  const hishi = [...g94.world.horses.values()].find((h) => h.name === 'ヒシアマゾン');
+  check('1994 年開始でヒシアマゾンが 3 歳の現役', !!hishi && !hishi.retired && hishi.birthYear === 1991);
   const hoyo = [...w75.horses.values()].find((h) => h.pregnancy?.real === 'ホウヨウボーイ');
   check('1975 年 4 月に生まれる名馬は、開始時に母が受胎している（ホウヨウボーイ）', !!hoyo);
 
