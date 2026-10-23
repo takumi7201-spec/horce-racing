@@ -8,8 +8,9 @@
 //   node tools/import-real-horses.mjs --verify               # 表にある馬を ja.wikipedia と突き合わせる
 //   node tools/import-real-horses.mjs --report               # 推測した項目の一覧を出す
 //
-// 取ってきた API の応答は --cache（既定 .cache/wiki）に貯める。
-// 同じ馬を何度も引かないためと、ネットワークが塞がれた環境でも --offline で回し直せるため。
+// 記事は 1 本ずつ引いて --cache（既定 .cache/wiki）に貯める。2026 年の取り込みでは
+// レース 25 本＋馬 1,000 本ほど引くので、同じ馬を二度引かないためと、
+// 取得が止まった環境でも --offline で貯めた分から組み直せるようにするため。
 //
 // 取り込む項目は二つに分かれる。
 //   事実（ウィキペディアから取る）  … 生年・性・毛色・父・母・戦績・獲得賞金・GI の勝鞍
@@ -26,9 +27,13 @@ import { REAL_HORSES } from '../src/sim/data/real-horses.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const DATA_FILE = join(ROOT, 'src/sim/data/real-horses.js');
-const API = 'https://ja.wikipedia.org/w/api.php';
+/** 差し込み先の目印（この間を毎回書き直す）。 */
+const MARK = ['// === import-real-horses.mjs ここから（自動生成。手で直してもよいが、再実行で消える） ===',
+  '// === import-real-horses.mjs ここまで ==='];
+// 取り口は index.php の action=raw。api.php（50 本まとめて引ける）ではない理由は wikitext() に書いた。
+const RAW = 'https://ja.wikipedia.org/w/index.php';
 // ウィキメディアの作法。素性の分かる User-Agent を付けないと 403 で弾かれる。
-const UA = 'keiba-sim-import/0.1 (https://github.com/; real-horses table builder)';
+const UA = 'keiba-sim-import/0.1 (https://github.com/takumi7201-spec/horce-racing; real-horses table builder)';
 
 const args = process.argv.slice(2);
 const flag = (f) => args.includes(f);
@@ -52,7 +57,11 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /**
  * 記事の生のウィキテキストを引く。キャッシュにあればそれを返す。
- * MediaWiki は 1 回に 50 本まで引けるので、足りないものだけをまとめて取る。
+ *
+ * 取り口は /w/index.php?action=raw で、1 本ずつ引く。api.php なら 50 本まとめて引けて速いが、
+ * 署名の無い（ログインしない）取得には envoy の上限が掛かっていて、共用の出口 IP からだと
+ * 1 本目から 429 Too Many Requests が返る（retry-after は 30 秒前後）。raw はこの上限の外にある。
+ * 1 本ずつになるぶん遅いので、取ったものは必ずキャッシュへ落として二度引かない。
  */
 async function wikitext(titles) {
   const out = new Map();
@@ -68,31 +77,38 @@ async function wikitext(titles) {
     console.error(`  [offline] キャッシュに無い ${want.length} 本を飛ばした`);
     return out;
   }
-  for (let i = 0; i < want.length; i += 20) {
-    const batch = want.slice(i, i + 20);
-    const url = `${API}?${new URLSearchParams({
-      action: 'query', prop: 'revisions', rvprop: 'content', rvslots: 'main',
-      redirects: '1', format: 'json', formatversion: '2', titles: batch.join('|'),
-    })}`;
-    const res = await fetch(url, { headers: { 'User-Agent': UA, 'Accept-Encoding': 'gzip' } });
-    if (!res.ok) throw new Error(`${res.status} ${res.statusText} — ${API} に届かない（ja.wikipedia.org が許可されているか確かめる）`);
-    const json = await res.json();
-    // リダイレクトを辿った場合、返ってくる題は別名になる。元の題に書き戻す。
-    const alias = new Map((json.query?.redirects ?? []).map((r) => [r.to, r.from]));
-    const normal = new Map((json.query?.normalized ?? []).map((r) => [r.to, r.from]));
-    for (const page of json.query?.pages ?? []) {
-      const text = page.revisions?.[0]?.slots?.main?.content ?? '';
-      for (const key of [page.title, alias.get(page.title), normal.get(page.title)]) {
-        if (key && batch.includes(key)) { out.set(key, text); writeFileSync(cachePath(key), text); }
-      }
-      if (!batch.includes(page.title)) continue;
-      out.set(page.title, text);
-      writeFileSync(cachePath(page.title), text);
-    }
-    for (const t of batch) if (!out.has(t)) { out.set(t, ''); writeFileSync(cachePath(t), ''); }
+  for (const t of want) {
+    const text = await fetchRaw(t);
+    out.set(t, text);
+    writeFileSync(cachePath(t), text);   // 空（記事が無い）も残す。毎回引き直さないため
     await sleep(DELAY);
   }
   return out;
+}
+
+/**
+ * 1 本引く。429 は retry-after に従って待ち直す（向こうの上限は時間帯で動く）。
+ * 記事が無ければ空文字（404）。呼び元は空を「取れなかった馬」として黙って飛ばす。
+ */
+async function fetchRaw(title, tries = 5) {
+  const url = `${RAW}?${new URLSearchParams({ title, action: 'raw' })}`;
+  for (let i = 0; i < tries; i++) {
+    const res = await fetch(url, { headers: { 'User-Agent': UA } });
+    if (res.status === 404) return '';
+    if (res.status === 429 || res.status === 503) {
+      const wait = Math.min(120, Math.max(5, Number(res.headers.get('retry-after')) || 30)) * 1000;
+      console.error(`  [${res.status}] ${title} — ${wait / 1000} 秒待って引き直す`);
+      await sleep(wait);
+      continue;
+    }
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText} — ${RAW} に届かない（ja.wikipedia.org が許可されているか確かめる）`);
+    const text = await res.text();
+    // raw は転送の記事を転送のまま返す（api.php の redirects=1 に当たるものが無い）。1 度だけ辿る。
+    const red = /^\s*#\s*(?:REDIRECT|転送|リダイレクト)\s*\[\[\s*([^\]|#]+)/i.exec(text);
+    if (red && red[1].trim() !== title) return fetchRaw(red[1].trim(), tries);
+    return text;
+  }
+  throw new Error(`429 が続く — ${title}。しばらく置いてから引き直す（貯めた分だけで組むなら --offline）`);
 }
 
 /* -------------------------------------------------------- GI と勝ち馬の表 */
@@ -108,12 +124,14 @@ async function wikitext(titles) {
  */
 const GI_RACES = [
   { wiki: 'フェブラリーステークス', span: [1997, null], as: 'フェブラリーS' },
-  { wiki: '高松宮記念', span: [1996, null], as: '高松宮記念' },
+  // 「高松宮記念」は競輪・競艇との曖昧さ回避ページ。競馬の記事は括弧付き。
+  { wiki: '高松宮記念 (競馬)', span: [1996, null], as: '高松宮記念' },
   { wiki: '大阪杯', span: [2017, null], as: '大阪杯' },
   { wiki: '桜花賞', span: [1984, null], as: '桜花賞' },
   { wiki: '皐月賞', span: [1984, null], as: '皐月賞' },
-  { wiki: '天皇賞', span: [1984, null], as: '天皇賞(春)', sect: /春/ },
-  { wiki: '天皇賞', span: [1984, null], as: '天皇賞(秋)', sect: /秋/ },
+  // 「天皇賞」の記事は帝室御賞典からの歴史で、勝ち馬の表は春・秋それぞれの記事にある（括弧は全角）。
+  { wiki: '天皇賞（春）', span: [1984, null], as: '天皇賞(春)' },
+  { wiki: '天皇賞（秋）', span: [1984, null], as: '天皇賞(秋)' },
   { wiki: 'NHKマイルカップ', span: [1996, null], as: 'NHKマイルC' },
   { wiki: 'ヴィクトリアマイル', span: [2006, null], as: 'ヴィクトリアマイル' },
   { wiki: '優駿牝馬', span: [1984, null], as: '優駿牝馬' },
@@ -131,7 +149,8 @@ const GI_RACES = [
   { wiki: '阪神ジュベナイルフィリーズ', span: [1991, null], as: [[2001, '阪神JF'], [1991, '阪神3歳牝馬S']] },
   { wiki: '朝日杯フューチュリティステークス', span: [1984, null], as: [[2001, '朝日杯FS'], [1984, '朝日杯3歳S']] },
   { wiki: '有馬記念', span: [1984, null], as: '有馬記念' },
-  { wiki: 'ホープフルステークス', span: [2017, null], as: 'ホープフルS' },
+  // こちらも曖昧さ回避ページ（米英豪にも同名の競走がある）。
+  { wiki: 'ホープフルステークス (中央競馬)', span: [2017, null], as: 'ホープフルS' },
 ];
 
 /** その年のレース名（名が変わったレースのため）。 */
@@ -177,9 +196,13 @@ function winnersOf(text, race) {
       if (year < lo || year > hi) continue;
       let horse = null;
       for (const cell of cells) {
-        const plain = cell.replace(/\[\[([^\]|]*\|)?([^\]]*)\]\]/g, '$2').replace(/''+/g, '')
-          .replace(/\{\{[^}]*\}\}/g, '').replace(/<[^>]*>/g, '').trim();
-        if (/^[ァ-ヴー]{3,18}$/.test(plain) || /^[ァ-ヴー]{3,18}(II|III|IV)$/.test(plain)) { horse = plain; break; }
+        // plain() を通すのは、降着で繰り上がった年のセルに <ref> の長い注記が付いていて
+        // （2006 エリザベス女王杯・2010 ジャパンカップ）、タグだけ落としても本文が残るため。
+        const name = plain(cell);
+        // 2 文字の馬名（ベガ）もあるので、リンクになっているセルは 2 文字から採る。
+        const min = cell.includes('[[') ? 2 : 3;
+        const re = new RegExp(`^[ァ-ヴー]{${min},18}(II|III|IV)?$`);
+        if (re.test(name)) { horse = name; break; }
       }
       if (horse && !got.has(year)) got.set(year, horse);
     }
@@ -192,7 +215,10 @@ function winnersOf(text, race) {
 /* ------------------------------------------------------- 馬の記事を読む */
 
 /** {{競走馬}} の引数を拾う。入れ子のテンプレートがあるので括弧を数えて切る。 */
-function infobox(text) {
+function infobox(src) {
+  // 編集者向けの HTML コメントを先に落とす。{{競走馬<!--…-->| と書かれている記事があり、
+  // テンプレート名の直後を見ているだけでは見つけられない（ラキシス）。
+  const text = src.replace(/<!--[\s\S]*?-->/g, '');
   const i = text.search(/\{\{\s*(Infobox[ _]?)?競走馬\s*[|}]/i);
   if (i < 0) return null;
   let depth = 0, end = i;
@@ -227,11 +253,32 @@ const plain = (v) => (v ?? '')
   .replace(/\{\{[^}]*\}\}/g, '').replace(/<ref[^>]*>.*?<\/ref>/gs, '').replace(/<[^>]*>/g, '')
   .replace(/''+/g, '').replace(/&nbsp;/g, ' ').trim();
 
+/**
+ * 表記の違いを均した馬名。小書きのカナ・長音・中黒を落として比べるため。
+ * 「ゴーンウエスト」と「ゴーンウェスト」は同じ馬、という判定に使う。
+ */
+const SMALL = 'ァィゥェォャュョヮヴ', LARGE = 'アイウエオヤユヨワウ';
+const normName = (s) => (s ?? '').normalize('NFKC')
+  .replace(/[ァィゥェォャュョヮヴ]/g, (c) => LARGE[SMALL.indexOf(c)])
+  .replace(/[ー・\s]/g, '');
+
 /** カタカナの馬名だけを残す（欧字表記や「(父)」のような注が混じる）。 */
 function horseName(v) {
   const s = plain(v).replace(/\s*\(.*$/, '').replace(/\s*（.*$/, '').trim();
   const m = /[ァ-ヴー]{2,20}/.exec(s);
   return m ? m[0] : null;
+}
+
+/**
+ * 父・母の名。見える字ではなくリンクの先を採る。
+ * 外国産馬の記事は父母を欧字で見せていることがあり（カフェファラオの父は
+ * 「[[アメリカンファラオ|American Pharoah]]」）、見える字だけ見ると父が取れない。
+ * リンクの先は日本語の記事名なので、ここからカタカナ名が取れる。
+ */
+function parentName(v) {
+  const s = (v ?? '').replace(/<ref[^>]*>.*?<\/ref>/gs, '').replace(/<ref[^>]*\/>/g, '');
+  const link = /\[\[\s*([^\]|#]+)/.exec(s);
+  return horseName(link ? link[1] : s);
 }
 
 /** 獲得賞金を万円に直す。「14億5455万1000円」「4億5000万円」「1億2,345万円」。 */
@@ -262,30 +309,76 @@ function coat(v) {
   return [...COLORS].sort((a, b) => b.length - a.length).find((c) => s.includes(c)) ?? null;
 }
 
-/** 馬の記事から事実の項目を取る。 */
+/**
+ * 馬の記事から事実の項目を取る。
+ *
+ * {{競走馬}} の引数名は記事によって二通りある（馬名・毛色・生誕・競走成績・総賞金 と、
+ * 名・色・生・績・金）。新しい記事はほとんど短い方なので、どちらも見る。
+ */
 function readHorse(title, text) {
   if (!text) return null;
   const p = infobox(text);
   if (!p) return null;
-  const birth = plain(pick(p, '生誕', '生年月日', '生', '誕生'));
-  const by = /(18\d\d|19\d\d|20\d\d)年?/.exec(birth);
-  const died = plain(pick(p, '死没', '没'));
-  const dy = /(19\d\d|20\d\d)年?/.exec(died);
-  const r = record(pick(p, '競走成績', '通算成績', '生涯成績', '成績') ?? '');
+  // 生年は {{生年月日と馬齢|p=0|2011|4|24}} の形で入っていることが多い。
+  // plain() はテンプレートを中身ごと落とすので、生の値から 4 桁の年を拾う。
+  // 没年の {{死亡年月日と馬齢|1994|4|23|2019|1|5}} は生年月日が先に入っているので、
+  // 最初の年を採ると没年が生年になる（マチカネフクキタルが生まれた年に死ぬ）。last で最後を採る。
+  // 出典の名前（<ref name="nikkan120731"/>）の中にも 4 桁の並びがあるので、
+  // 閉じていない出典ごと先に落とす（バンブービギンの没年が 2073 年になった）。
+  const years = (v) => [...(v ?? '')
+    .replace(/<ref[^>]*>[\s\S]*?<\/ref>/g, '').replace(/<ref[^>]*\/?>/g, '').replace(/<[^>]*>/g, '')
+    .matchAll(/18\d\d|19\d\d|20\d\d/g)].map((m) => Number(m[0]));
+  const year = (v) => years(v)[0] ?? null;
+  const last = (v) => years(v).at(-1) ?? null;
+  const r = record(pick(p, '競走成績', '通算成績', '生涯成績', '成績', '績') ?? '');
   const sex = plain(pick(p, '性', '性別'));
   return {
-    n: horseName(pick(p, '馬名') ?? title) ?? title,
-    b: by ? Number(by[1]) : null,
+    n: horseName(pick(p, '馬名', '名') ?? title) ?? title,
+    b: year(pick(p, '生誕', '生年月日', '生', '誕生')),
     s: /牝/.test(sex) ? '牝' : /セン/.test(sex) ? 'セン' : '牡',
-    c: coat(pick(p, '毛色', '毛')),
-    sire: horseName(pick(p, '父')),
-    dam: horseName(pick(p, '母')),
-    damsire: horseName(pick(p, '母の父', '母父')),
-    died: dy ? Number(dy[1]) : null,
-    earn: earnings(pick(p, '総賞金', '獲得賞金', '賞金')),
+    c: coat(pick(p, '毛色', '毛', '色')),
+    sire: parentName(pick(p, '父')),
+    dam: parentName(pick(p, '母')),
+    damsire: parentName(pick(p, '母の父', '母父')),
+    died: last(pick(p, '死没', '没', '死')),
+    earn: earnings(pick(p, '総賞金', '獲得賞金', '賞金', '金')),
     ...r,
     text,
   };
+}
+
+/** 生年より後・今年まで、に収まらない没年は読み違い。null にして捨てる。 */
+const sane = (h) => (h && h.died != null && !(h.died > h.b && h.died <= new Date().getFullYear())
+  ? { ...h, died: null } : h);
+
+/**
+ * 曖昧さ回避ページから競走馬の記事の題を拾う。同名の馬が複数並ぶこともある
+ * （「ランド (1990年生の競走馬)」と「ランド (1994年生の競走馬)」）。
+ */
+function candidateTitles(name, text) {
+  const links = [...text.matchAll(/\[\[\s*([^\]|#]+\([^)]*競走馬[^)]*\))\s*(?:\||\]\])/g)]
+    .map((m) => m[1].trim()).filter((t) => t.startsWith(`${name} (`));
+  return links.length ? links.slice(0, 3) : [`${name} (競走馬)`];
+}
+
+/**
+ * 1 頭の事実を読む。素の題で競走馬のインフォボックスが無ければ、曖昧さ回避の先を辿る
+ * （馬名が別の題目と重なっている馬は「○○ (競走馬)」の側に記事がある）。
+ * 記事が無いときは辿らない。父母をさかのぼって出てくる海外の祖先のほとんどが
+ * ja.wikipedia に記事を持たず、倍の回数を引くだけになるため。
+ * winYear を渡すと、同名の馬が複数あるときに「その年に走れる馬齢だった馬」を選ぶ。
+ */
+async function readFacts(name, winYear = null) {
+  const t = await wikitext([name]);
+  const text = t.get(name) ?? '';
+  const direct = sane(readHorse(name, text));
+  if (direct?.b) return direct;
+  if (!text) return null;
+  const titles = candidateTitles(name, text);
+  const t2 = await wikitext(titles);
+  const got = titles.map((x) => sane(readHorse(name, t2.get(x) ?? '')));
+  const fits = (h) => h?.b && (winYear == null || (winYear - h.b >= 2 && winYear - h.b <= 12));
+  return got.find(fits) ?? got.find((h) => h?.b) ?? null;
 }
 
 /* --------------------------------------------- ゲームの数値を勝鞍から導く */
@@ -314,11 +407,18 @@ function derive(h, wins) {
   const range = Math.max(400, Math.min(800, Math.round((300 + spread * 0.7) / 100) * 100));
   const dirt = races.filter((g) => g.surface === SURFACE.DIRT).length;
   const surf = !races.length ? 'T' : dirt === races.length ? 'D' : dirt ? 'TD' : 'T';
-  // 格は GI の数と獲得賞金で。中央値を押し上げないように上は 0.92 で止める。
+  // 格は GI の数と獲得賞金で。
+  //
+  // 手で入れてある馬（GI 1 勝で平均 0.822）と同じ尺度で付けると、該当する馬が
+  // 261 → 595 頭に倍増したときに GI 24 戦の勝ち時計が実測レンジより 1〜2% 速くなった
+  // （ジャパンC 2:14.6・天皇賞春 3:04.2）。走破時計は勝ち馬＝その年の最上位で決まるので、
+  // 上位の層が厚くなるほど速くなる。表に手で入っている馬は名の通った側なので、
+  // 取り込みの側は一段下げて 0.76〜0.88 に収める（落とし穴 8・12）。
+  // 0.78 からだと天皇賞(春)とエリザベス女王杯が下限を 1〜2 秒割った。
   const g1 = wins.length;
   const money = (h.earn ?? 0) / 10000; // 億円
-  let lvl = 0.82 + Math.min(0.06, (g1 - 1) * 0.012) + Math.min(0.04, money * 0.008);
-  lvl = Math.min(0.92, Math.round(lvl * 100) / 100);
+  let lvl = 0.76 + Math.min(0.06, (g1 - 1) * 0.015) + Math.min(0.04, money * 0.008);
+  lvl = Math.min(0.88, Math.round(lvl * 100) / 100);
   return { lvl, surf, dist, range, style: styleOf(h.text), guessed: ['lvl', 'surf', 'dist', 'range', 'style'] };
 }
 
@@ -335,7 +435,27 @@ function styleOf(text) {
 
 /* ------------------------------------------------------------ 書き出し */
 
-const KNOWN = new Set(REAL_HORSES.map((d) => d.n));
+/**
+ * もう表にある馬（＝引き直さない馬）。
+ * ただし前回この道具が差し込んだぶんは外す。目印の間は毎回書き直すので、
+ * ここに入れたままだと二度目の --write で「全部もう居る」となって領域が空になる。
+ */
+const KNOWN = (() => {
+  const src = readFileSync(DATA_FILE, 'utf8');
+  const i = src.indexOf(MARK[0]), j = src.indexOf(MARK[1]);
+  const mine = new Set();
+  if (i >= 0 && j > i) {
+    const block = src.slice(i, j);
+    for (const m of block.matchAll(/n: '([^']+)'|\['([^']+)'/g)) mine.add(m[1] ?? m[2]);
+  }
+  return new Set(REAL_HORSES.map((d) => d.n).filter((n) => !mine.has(n)));
+})();
+/**
+ * 表記の読み替え。同じ馬が記事によって違うカタカナで書かれていることがある
+ * （Danzig は「ダンチヒ」と「ダンジグ」の両方で出てくる）。表にある表記へ寄せる。
+ * 寄せないと同じ馬が二頭に分かれ、系統の大きさとインブリードの数が狂う。
+ */
+const RENAME = { ダンジグ: 'ダンチヒ' };
 const q = (s) => `'${s}'`;
 
 /** 1 頭を real-horses.js の 1 項目として書く。既にある書き方に合わせる。 */
@@ -403,16 +523,34 @@ async function main() {
   // 2. 勝ち馬の記事を読む。表にもう居る馬は引かない。
   const want = [...winsOf.keys()].filter((n) => !KNOWN.has(n));
   console.error(`\n勝ち馬 ${winsOf.size} 頭のうち ${want.length} 頭が表に無い。記事を読む`);
+  /** 正式な馬名 → 事実。読めなかった名は null を入れて二度引かない。 */
   const horses = new Map();
+  /**
+   * 引いた名 → 正式な馬名。記事の題と馬名の表記が違う馬がいる
+   * （子の父は「ゴーンウエスト」、記事の馬名は「ゴーンウェスト」）。
+   * 寄せずに書くと、親の名の馬が表に居なくなり、同じ馬が二度並ぶ。
+   */
+  const alias = new Map();
+  const canonOf = (n) => {
+    const a = alias.get(n) ?? n;   // 記事の馬名へ寄せる
+    return RENAME[a] ?? a;         // さらに表の表記へ寄せる
+  };
   const read = async (names) => {
-    const fresh = names.filter((n) => n && !horses.has(n) && !KNOWN.has(n));
-    if (!fresh.length) return [];
-    const t = await wikitext(fresh);
+    const fresh = [...new Set(names.map(canonOf))].filter((n) => n && !horses.has(n) && !KNOWN.has(n));
     const next = [];
     for (const n of fresh) {
-      const h = readHorse(n, t.get(n) ?? '');
-      if (!h || !h.b) { horses.set(n, null); continue; }
-      horses.set(n, h);
+      const h = await readFacts(n, winsOf.get(n)?.[0]?.[0] ?? null);
+      if (!h?.b) { horses.set(n, null); continue; }
+      const canon = h.n || n;
+      // 記事の馬名が引いた名とまるで違うときは、別の馬の記事に転送された。
+      // 自分の記事を持たない母は息子の記事へ転送されるので（ローズオブスズカ →
+      // スズカフェニックス）、そのまま採ると母＝自分になり、血統が輪になって
+      // 世界の生成が無限に親をたどる。読めなかったことにして、父母の側で null にする。
+      if (normName(canon) !== normName(n)) { horses.set(n, null); continue; }
+      if (canon !== n) alias.set(n, canon);
+      // 寄せた先が表にもう居る／もう読んだ馬なら、それ以上は要らない。
+      if (KNOWN.has(canon) || horses.has(canon)) continue;
+      horses.set(canon, { ...h, n: canon });
       next.push(h.sire, h.dam);
     }
     return next.filter(Boolean);
@@ -424,6 +562,34 @@ async function main() {
     frontier = await read(frontier);
   }
 
+  // 勝鞍を正式な名にまとめ直す（別名で勝った年が別の馬として残らないように）。
+  const winsByName = new Map();
+  for (const [name, w] of winsOf) {
+    const c = canonOf(name);
+    winsByName.set(c, [...(winsByName.get(c) ?? []), ...w]);
+  }
+  for (const w of winsByName.values()) w.sort((a, b) => a[0] - b[0]);
+
+  // 表に無い父母を null に落とす。realsires.js は父母の名で表を引く（DEFS.get）ので、
+  // たどり切れなかった親の名を残すと、その馬を作った瞬間に世界の生成が落ちる。
+  // 血統表の埋まり率は落ちるが、間違った親を書くより良い（落とし穴 43）。
+  const have = new Set([...KNOWN, ...[...horses].filter(([, h]) => h).map(([n]) => n)]);
+  let cut = 0;
+  for (const h of horses.values()) {
+    if (!h) continue;
+    for (const k of ['sire', 'dam']) {
+      if (!h[k]) continue;
+      h[k] = canonOf(h[k]);
+      if (!have.has(h[k])) { h[k] = null; cut++; }
+    }
+  }
+  if (cut) console.error(`\n表に無い父母 ${cut} 件を null にした（${DEPTH} 代で止めた先と、記事の無い海外の祖先）`);
+
+  // 読めなかった勝ち馬を黙って捨てない。記事の題が違う・インフォボックスが別の形、など
+  // 原因は一頭ずつ違うので、名前を出して目で見るしかない（落とし穴 43）。
+  const lost = [...winsOf.keys()].filter((n) => !KNOWN.has(canonOf(n)) && !horses.get(canonOf(n)));
+  if (lost.length) console.error(`\n記事から読めなかった勝ち馬 ${lost.length} 頭（表に入らない）:\n  ${lost.join(' ')}`);
+
   // 4. 年代別に組む。
   const groups = new Map();
   for (const [name, h] of horses) {
@@ -431,7 +597,7 @@ async function main() {
     const [, , tag] = decadeOf(h.b);
     if (!groups.has(tag)) groups.set(tag, { sires: [], dams: [], runners: [] });
     const g = groups.get(tag);
-    const wins = winsOf.get(name);
+    const wins = winsByName.get(name);
     if (wins) g.runners.push([h, wins]);
     else if (h.s === '牝') g.dams.push(h);
     else g.sires.push(h);
@@ -441,25 +607,26 @@ async function main() {
   const out = [];
   for (const [, , tag] of DECADES) {
     const g = groups.get(tag);
-    if (!g || !g.runners.length + g.dams.length + g.sires.length) continue;
+    if (!g || !(g.runners.length + g.dams.length + g.sires.length)) continue;
     const label = tag === '70S' ? '1970 年代まで' : `${tag.slice(0, 2) < '30' ? '20' : '19'}${tag.slice(0, 2)} 年代`;
     out.push(`/** ${label}の JRA GI 勝ち馬（ja.wikipedia から取り込み）。 */`);
     if (g.sires.length) out.push(`const WIKI_${tag}_ANCESTORS = [\n${g.sires.map(emitAncestor).join('\n')}\n];\n`);
     if (g.dams.length) out.push(`const WIKI_${tag}_DAMS = [\n${g.dams.map(emitDam).join('\n')}\n].map(([n, b, sire]) => ({ n, b, s: '牝', sire }));\n`);
     out.push(`const WIKI_${tag} = [\n${g.runners.map(([h, w]) => emit(h, w)).join('\n')}\n];\n`);
   }
-  const spread = [...groups.keys()].map((tag) => {
+  const spread = DECADES.map(([, , tag]) => {
     const g = groups.get(tag);
+    if (!g || !(g.runners.length + g.dams.length + g.sires.length)) return null;
     const parts = [];
     if (g.sires.length) parts.push(`...WIKI_${tag}_ANCESTORS.map(bg)`);
     if (g.dams.length) parts.push(`...WIKI_${tag}_DAMS.map(bg)`);
-    parts.push(`...WIKI_${tag}`);
+    if (g.runners.length) parts.push(`...WIKI_${tag}`);
     return `  ${parts.join(', ')},`;
-  }).join('\n');
+  }).filter(Boolean).join('\n');
 
   const n = [...groups.values()].reduce((a, g) => a + g.runners.length + g.dams.length + g.sires.length, 0);
   console.error(`\n${n} 頭を書き出す（勝ち馬 ${[...groups.values()].reduce((a, g) => a + g.runners.length, 0)} 頭＋祖先）`);
-  if (flag('--report')) report(groups, winsOf);
+  if (flag('--report')) report(groups);
 
   if (flag('--write')) {
     inject(out.join('\n'), spread);
@@ -472,8 +639,7 @@ async function main() {
 
 /** 目印の間を書き換える。順番を変えると世界の乱数がずれるので、必ず末尾に足す（落とし穴の注記）。 */
 function inject(blocks, spread) {
-  const B = ['// === import-real-horses.mjs ここから（自動生成。手で直してもよいが、再実行で消える） ===',
-    '// === import-real-horses.mjs ここまで ==='];
+  const B = MARK;
   const S = ['  // === import-real-horses.mjs の spread ここから ===', '  // === ここまで ==='];
   let src = readFileSync(DATA_FILE, 'utf8');
   for (const [a, b] of [B, S]) {
@@ -489,7 +655,7 @@ function inject(blocks, spread) {
 }
 
 /** 導いた項目（lvl・脚質など）の一覧。差し込む前に目で見るため。 */
-function report(groups, winsOf) {
+function report(groups) {
   console.error('\n--- 導いた値（ウィキペディアに無い項目） ---');
   for (const g of groups.values()) {
     for (const [h, wins] of g.runners) {
@@ -506,15 +672,16 @@ async function verify() {
   let bad = 0;
   for (let i = 0; i < targets.length; i += 20) {
     const batch = targets.slice(i, i + 20);
-    const t = await wikitext(batch.map((d) => d.n));
     for (const d of batch) {
-      const h = readHorse(d.n, t.get(d.n) ?? '');
+      const h = await readFacts(d.n, (d.big ?? [])[0]?.[0] ?? null);
       if (!h) { console.error(`? ${d.n} — 記事が無い`); bad++; continue; }
       const diff = [];
+      const parent = (n) => RENAME[n] ?? n;   // 表の表記に寄せてから比べる
       if (h.b && h.b !== d.b) diff.push(`生年 ${d.b} → ${h.b}`);
-      if (h.sire && d.sire && h.sire !== d.sire) diff.push(`父 ${d.sire} → ${h.sire}`);
-      if (h.dam && d.dam && h.dam !== d.dam) diff.push(`母 ${d.dam} → ${h.dam}`);
-      if (h.s !== (d.s ?? '牡')) diff.push(`性 ${d.s ?? '牡'} → ${h.s}`);
+      if (h.sire && d.sire && parent(h.sire) !== d.sire) diff.push(`父 ${d.sire} → ${h.sire}`);
+      if (h.dam && d.dam && parent(h.dam) !== d.dam) diff.push(`母 ${d.dam} → ${h.dam}`);
+      // セン馬は表に区分が無く、牡として持つ（世界も牡として作る）ので食い違いにしない。
+      if (h.s !== (d.s ?? '牡') && !(h.s === 'セン' && (d.s ?? '牡') === '牡')) diff.push(`性 ${d.s ?? '牡'} → ${h.s}`);
       if (h.c && h.c !== (d.c ?? '鹿毛')) diff.push(`毛 ${d.c ?? '鹿毛'} → ${h.c}`);
       if (diff.length) { console.error(`! ${d.n} — ${diff.join(' / ')}`); bad++; }
     }
