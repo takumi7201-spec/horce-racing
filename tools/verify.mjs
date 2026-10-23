@@ -493,6 +493,14 @@ section('開始年（史実の名馬）');
   const due05 = [...g05.world.horses.values()].map((h) => h.pregnancy?.real).filter(Boolean);
   check(`2005 年開始で 2000 年代の名馬が現役・受胎中（${due05.join('・')}）`,
     !!live05('カネヒキリ') && !!live05('アドマイヤムーン') && ['ディープスカイ', 'エスポワールシチー'].every((n) => due05.includes(n)));
+  // 令和の名馬。2020 年に始めると、リオンディーズ・アドマイヤマーズが種牡馬で、
+  // その年に生まれるタスティエーラ・ソールオリエンス・ドゥレッツァの母が受胎している。
+  const g20 = newGame({ seed: 'verify-2020', startYear: 2020 });
+  const pool20 = new Set(g20.world.stallionPool.map((id) => g20.world.horses.get(id)?.name));
+  const due20 = [...g20.world.horses.values()].map((h) => h.pregnancy?.real).filter(Boolean);
+  check(`2020 年開始で令和の名馬が種牡馬・受胎中（${due20.join('・')}）`,
+    ['リオンディーズ', 'アドマイヤマーズ', 'ハービンジャー'].every((n) => pool20.has(n))
+    && ['タスティエーラ', 'ソールオリエンス', 'ドゥレッツァ'].every((n) => due20.includes(n)));
   const hoyo = [...w75.horses.values()].find((h) => h.pregnancy?.real === 'ホウヨウボーイ');
   check('1975 年 4 月に生まれる名馬は、開始時に母が受胎している（ホウヨウボーイ）', !!hoyo);
 
