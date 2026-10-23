@@ -52,7 +52,7 @@ const CACHE = resolve(ROOT, opt('--cache', '.cache/wiki'));
 const OFFLINE = flag('--offline');
 const DEPTH = num('--depth', 4);        // 父母を何代さかのぼるか
 const ONLY = opt('--races', null)?.split(',').map((s) => s.trim());
-const GRADES = opt('--grades', 'GI,GII,GIII').split(',').map((s) => s.trim());
+const GRADES = opt('--grades', 'GI,JpnI,GII,JpnII,GIII,JpnIII').split(',').map((s) => s.trim());
 const DELAY = num('--delay', 200);      // 取得の間隔（ms）
 
 /* ------------------------------------------------------------------ 取得 */
@@ -192,14 +192,69 @@ const G23_RACES = GRADED.filter((g) => g.grade !== 'GI').map((g) => ({
   wiki: wikiTitleOf(g.name), span: [1984, null], as: g.name, grade: g.grade,
 }));
 
+/**
+ * 地方競馬のダートグレード競走（2025 年の格付け。ja.wikipedia「ダートグレード競走」の一覧から）。
+ *
+ * これらは番組表（schedule.js）に無いので、距離は各記事のインフォボックスから読んで
+ * registerRace() で足す（馬場はすべてダート）。格は今の格付けをそのまま書く。
+ *
+ * 窓は 1995 年から。この年に中央・地方の全国指定交流が始まり、JRA の馬と走るようになった。
+ * それ以前の東京大賞典や羽田盃は地方限定の競走なので採らない。ただし羽田盃・東京ダービーの
+ * ように 2024 年に JpnI になった競走は、南関東クラシック時代（1995〜2023 年）の勝ち馬も入る。
+ * 実在の馬である点は変わらないので、そこは割り切っている。
+ */
+const NAR_RACES = [
+  // 地方・GI（国際格付け）
+  ['東京大賞典', 'GI'],
+  // 地方・JpnI
+  ['川崎記念', 'JpnI'], ['羽田盃', 'JpnI'], ['かしわ記念', 'JpnI'],
+  ['東京ダービー (競馬)|東京ダービー', 'JpnI'], ['さきたま杯', 'JpnI'], ['帝王賞', 'JpnI'],
+  ['ジャパンダートクラシック', 'JpnI'], ['マイルチャンピオンシップ南部杯', 'JpnI'],
+  ['JBCレディスクラシック', 'JpnI'], ['JBCスプリント', 'JpnI'], ['JBCクラシック', 'JpnI'],
+  ['全日本2歳優駿', 'JpnI'],
+  // 地方・JpnII
+  ['ダイオライト記念', 'JpnII'], ['京浜盃', 'JpnII'], ['兵庫チャンピオンシップ', 'JpnII'],
+  ['名古屋グランプリ', 'JpnII'], ['エンプレス杯', 'JpnII'], ['関東オークス', 'JpnII'],
+  ['不来方賞', 'JpnII'], ['日本テレビ盃', 'JpnII'], ['東京盃', 'JpnII'],
+  ['レディスプレリュード', 'JpnII'], ['浦和記念', 'JpnII'], ['兵庫ジュニアグランプリ', 'JpnII'],
+  // 地方・JpnIII
+  ['ブルーバードカップ', 'JpnIII'], ['佐賀記念', 'JpnIII'], ['クイーン賞', 'JpnIII'],
+  ['雲取賞', 'JpnIII'], ['かきつばた記念', 'JpnIII'], ['黒船賞', 'JpnIII'],
+  ['兵庫女王盃', 'JpnIII'], ['東京スプリント', 'JpnIII'], ['スパーキングレディーカップ', 'JpnIII'],
+  ['マーキュリーカップ', 'JpnIII'], ['クラスターカップ', 'JpnIII'], ['北海道スプリントカップ', 'JpnIII'],
+  ['ブリーダーズゴールドカップ', 'JpnIII'], ['サマーチャンピオン', 'JpnIII'], ['オーバルスプリント', 'JpnIII'],
+  ['マリーンカップ', 'JpnIII'], ['白山大賞典', 'JpnIII'], ['エーデルワイス賞', 'JpnIII'],
+  ['JBC2歳優駿', 'JpnIII'], ['名古屋大賞典', 'JpnIII'], ['兵庫ゴールドトロフィー', 'JpnIII'],
+].map(([entry, grade]) => {
+  const [wiki, as] = entry.includes('|') ? entry.split('|') : [entry, entry];
+  // nar：1984 年より前の窓を使わない（地方限定だった時代を拾わないため）。
+  return { wiki, as, grade, span: [1995, null], nar: true };
+});
+
 /** 取り込む対象のレース。--grades で絞れる。 */
-const RACES = [...GI_RACES.map((r) => ({ ...r, grade: 'GI' })), ...G23_RACES];
+const RACES = [...GI_RACES.map((r) => ({ ...r, grade: 'GI' })), ...G23_RACES, ...NAR_RACES];
 
 /** その年のレース名（名が変わったレースのため）。 */
 function raceNameAt(race, year) {
   if (typeof race.as === 'string') return race.as;
   for (const [from, name] of race.as) if (year >= from) return name;
   return race.as[race.as.length - 1][1];
+}
+
+/**
+ * 表のセルから中身だけを取る。wikitext のセルは「| 属性 | 中身」と書けるので、
+ * `|style="white-space:nowrap"|[[トーホウエンペラー]]` のような行があり、
+ * 属性を剥がさないと馬名の判定に引っかからない（2001 年の東京大賞典が落ちていた）。
+ */
+function cellBody(cell) {
+  // 「2000m|||[[ワコーチカコ]]」のように区切りが一本多い行があるので、頭の | も落とす。
+  const c = cell.trim().replace(/^\|+/, '').trim();
+  const i = c.indexOf('|');
+  if (i < 0) return c;
+  const head = c.slice(0, i);
+  // 属性の側は「name=value」の形で、リンクやテンプレートを含まない。
+  if (/=/.test(head) && !/[[{]/.test(head)) return c.slice(i + 1).trim();
+  return c;
 }
 
 /** 記事を見出しで切る。節ごとに勝ち馬の表を探すため。 */
@@ -229,8 +284,10 @@ function winnersOf(text, race) {
   //   1984 年より前 … グレード制が無く、番組に載っていれば重賞だった。記事の表にある年をそのまま採る
   //   1984 年以降   … span（そのレースがその格だった期間）のとおり
   // 一つの窓で済ませようとすると、フェブラリーSの GIII 時代（1984〜96）が GI になる。
-  const lo = Math.max(from, GRADE_ERA);
-  const wanted = (y) => (y < GRADE_ERA ? y >= FROM : y >= lo && y <= hi);
+  const lo = race.nar ? from : Math.max(from, GRADE_ERA);
+  // 地方のダートグレードは span（交流が始まった年から）だけで切る。
+  const wanted = (y) => (race.nar ? y >= lo && y <= hi
+    : y < GRADE_ERA ? y >= FROM : y >= lo && y <= hi);
   const got = new Map();
   for (const sec of sections(text)) {
     if (race.sect && !race.sect.test(sec.head)) continue;
@@ -240,7 +297,7 @@ function winnersOf(text, race) {
     // （キーンランドCは 2006 年から、富士Sは 1998 年から、青葉賞は 1994 年から重賞）。
     if (/年までの優勝馬|オープン特別|格付け前/.test(sec.head)) continue;
     for (const row of sec.body.split(/\n\s*\|-/)) {
-      const cells = row.split(/\n?\s*\|\||\n\s*\|(?!\|)/).map((c) => c.trim()).filter(Boolean);
+      const cells = row.split(/\n?\s*\|\||\n\s*\|(?!\|)/).map((c) => cellBody(c)).filter(Boolean);
       const joined = cells.join(' | ');
       const ym = /(19\d\d|20\d\d)年/.exec(joined);
       if (!ym) continue;
@@ -457,6 +514,18 @@ const ALIAS = {
 const raceOf = (name) => RACE_DIST.get(ALIAS[name] ?? name) ?? null;
 
 /**
+ * 番組表（schedule.js）に無いレースの距離と馬場を足す。地方のダートグレードは
+ * 番組表に無いので、距離が分からないと derive() が既定の 2000m 芝にしてしまう。
+ * 距離は記事のインフォボックス（{{競馬の競走}} の 距離）から読む。
+ */
+function registerRace(name, text, surface) {
+  const m = /\|\s*距離\s*=\s*([^\n|]*)/.exec(text ?? '');
+  const d = m ? /(\d{3,4})/.exec(plain(m[1].replace(/\[\[メートル[^\]]*\]\]/g, ''))) : null;
+  RACE_DIST.set(name, { name, distance: d ? Number(d[1]) : 1800, surface });
+  return d ? Number(d[1]) : null;
+}
+
+/**
  * 距離・馬場・格を勝鞍から決める。
  *
  * ウィキペディアに脚質・適性・能力は無いので勝鞍から導く。
@@ -481,10 +550,18 @@ function derive(h, wins) {
   // 重賞まで取り込むと「GI を勝てる格の馬」の数自体が増えるので、GI 馬の帯だけ下げても
   // 足りない。GII・GIII の帯も下げて、GI の勝ち馬を押し上げないようにする。
   const n = (g) => wins.filter((w) => w[2] === g).length;
-  const g1 = n('GI'), g2 = n('GII'), g3 = n('GIII');
   const money = (h.earn ?? 0) / 10000; // 億円
-  const [base, step, cap] = g1 ? [0.74, 0.015, 0.86] : g2 ? [0.68, 0.012, 0.78] : [0.66, 0.012, 0.76];
-  const top = g1 || g2 || g3;                       // 一番上の格での勝ち数
+  // 一番上の格から [基準, 1 勝ごとの上乗せ, 上限]。地方のダートグレードは、
+  // 同じ格の JRA の重賞より相手が軽いので一段低く取る（JpnI は GI と GII の間）。
+  const BANDS = {
+    GI: [0.74, 0.015, 0.86], JpnI: [0.72, 0.013, 0.82],
+    GII: [0.68, 0.012, 0.78], JpnII: [0.68, 0.012, 0.76],
+    GIII: [0.66, 0.012, 0.76], JpnIII: [0.66, 0.012, 0.74],
+  };
+  const RANK = ['GI', 'JpnI', 'GII', 'JpnII', 'GIII', 'JpnIII'];
+  const topGrade = RANK.find((g) => n(g)) ?? 'GIII';
+  const [base, step, cap] = BANDS[topGrade];
+  const top = n(topGrade);                          // 一番上の格での勝ち数
   // 下の格の勝鞍は足さない。重賞まで取り込むと GI 馬の多くが GII・GIII も勝っているので、
   // 少しの加点でも上位の層が厚くなり、ダービーと菊花賞が下限を割った。
   let lvl = base + Math.min(0.06, (top - 1) * step) + Math.min(0.03, money * 0.006);
@@ -582,6 +659,12 @@ async function main() {
   const byGrade = GRADES.map((g) => `${g} ${races.filter((r) => r.grade === g).length}`).join(' / ');
   console.error(`重賞 ${races.length} 戦の記事を読む（${byGrade}、${FROM}〜${TO} 年）`);
   const texts = await wikitext([...new Set(races.map((r) => r.wiki))]);
+  // 地方のダートグレードを番組表の代わりに登録する（距離は記事から、馬場はダート）。
+  let noDist = 0;
+  for (const race of races.filter((r) => r.nar)) {
+    if (!registerRace(race.as, texts.get(race.wiki), SURFACE.DIRT)) noDist++;
+  }
+  if (noDist) console.error(`  距離が読めなかった地方の競走 ${noDist} 戦（1800m として扱う）`);
   /** 馬名 → [[年, レース名, 格], …] */
   const winsOf = new Map();
   for (const race of races) {
@@ -744,7 +827,9 @@ function report(groups) {
   for (const g of groups.values()) {
     for (const [h, wins] of g.runners) {
       const d = derive(h, wins);
-      const cnt = ['GI', 'GII', 'GIII'].map((g) => `${g}${wins.filter((w) => w[2] === g).length}`).join('/');
+      const cnt = ['GI', 'JpnI', 'GII', 'JpnII', 'GIII', 'JpnIII']
+        .filter((g) => wins.some((w) => w[2] === g))
+        .map((g) => `${g}${wins.filter((w) => w[2] === g).length}`).join('/');
       console.error(`${h.n.padEnd(14)} lvl ${d.lvl.toFixed(2)}  ${d.surf.padEnd(2)} ${String(d.dist).padStart(4)}m ±${d.range}  ${d.style}  ${cnt.padEnd(12)} ${wins.map(([y, r]) => `${y}${r}`).join(' ')}`);
     }
   }
