@@ -42,7 +42,11 @@ const flag = (f) => args.includes(f);
 const opt = (f, d) => { const i = args.indexOf(f); return i >= 0 ? args[i + 1] : d; };
 const num = (f, d) => { const i = args.indexOf(f); return i >= 0 ? Number(args[i + 1]) : d; };
 
-const FROM = num('--from', 1984);
+// グレード制が始まった年。これより前は格が無いので、span（格の期間）では切らない。
+const GRADE_ERA = 1984;
+// 既定の下限は第 1 回東京優駿の年。目印の間は毎回まるごと書き直すので、
+// 既定を 1984 年にしておくと、引数なしで流しただけで昭和の重賞が消える。
+const FROM = num('--from', 1932);
 const TO = num('--to', new Date().getFullYear());
 const CACHE = resolve(ROOT, opt('--cache', '.cache/wiki'));
 const OFFLINE = flag('--offline');
@@ -220,7 +224,13 @@ function sections(text) {
  */
 function winnersOf(text, race) {
   const [from, to] = race.span;
-  const lo = Math.max(from, FROM), hi = Math.min(to ?? TO, TO);
+  const hi = Math.min(to ?? TO, TO);
+  // 年の窓は二つ。
+  //   1984 年より前 … グレード制が無く、番組に載っていれば重賞だった。記事の表にある年をそのまま採る
+  //   1984 年以降   … span（そのレースがその格だった期間）のとおり
+  // 一つの窓で済ませようとすると、フェブラリーSの GIII 時代（1984〜96）が GI になる。
+  const lo = Math.max(from, GRADE_ERA);
+  const wanted = (y) => (y < GRADE_ERA ? y >= FROM : y >= lo && y <= hi);
   const got = new Map();
   for (const sec of sections(text)) {
     if (race.sect && !race.sect.test(sec.head)) continue;
@@ -238,7 +248,7 @@ function winnersOf(text, race) {
       // （見出しで切り分けられなかった表のため。上の見出しの判定と二重の網）。
       if (cells.some((c) => /^(オープン|OP|\d+万下|\d+万円以下)$/.test(plain(c)))) continue;
       const year = Number(ym[1]);
-      if (year < lo || year > hi) continue;
+      if (!wanted(year)) continue;
       let horse = null;
       for (const cell of cells) {
         // plain() を通すのは、降着で繰り上がった年のセルに <ref> の長い注記が付いていて
@@ -252,9 +262,14 @@ function winnersOf(text, race) {
       if (horse && !got.has(year)) got.set(year, horse);
     }
   }
+  // 取れなかった年は「最初に取れた年から最後の年まで」の抜けだけ報告する。
+  // 窓を 1932 年まで広げたので、創設前の年を並べると 50 行の雑音になる。
+  const years = [...got.keys()].sort((a, b) => a - b);
   const missing = [];
-  for (let y = lo; y <= hi; y++) if (!got.has(y)) missing.push(y);
-  return { got, missing };
+  if (years.length) {
+    for (let y = years[0]; y <= Math.min(hi, TO); y++) if (!got.has(y) && wanted(y)) missing.push(y);
+  }
+  return { got, missing, first: years[0] ?? null, last: years[years.length - 1] ?? null };
 }
 
 /* ------------------------------------------------------- 馬の記事を読む */
@@ -550,8 +565,9 @@ function emitAncestor(h) {
   return `  { ${f.join(', ')} },`;
 }
 
-const DECADES = [[1960, 1979, '70S'], [1980, 1989, '80S'], [1990, 1999, '90S'],
-  [2000, 2009, '00S'], [2010, 2019, '10S'], [2020, 2099, '20S']];
+const DECADES = [[1900, 1949, '40S', '1940 年代まで'], [1950, 1959, '50S', '1950 年代'],
+  [1960, 1979, '70S', '1960〜70 年代'], [1980, 1989, '80S', '1980 年代'], [1990, 1999, '90S', '1990 年代'],
+  [2000, 2009, '00S', '2000 年代'], [2010, 2019, '10S', '2010 年代'], [2020, 2099, '20S', '2020 年代']];
 const decadeOf = (b) => DECADES.find(([lo, hi]) => b >= lo && b <= hi) ?? DECADES[0];
 
 /* ----------------------------------------------------------------- 本体 */
@@ -569,13 +585,15 @@ async function main() {
   /** 馬名 → [[年, レース名, 格], …] */
   const winsOf = new Map();
   for (const race of races) {
-    const { got, missing } = winnersOf(texts.get(race.wiki) ?? '', race);
+    const { got, missing, first, last } = winnersOf(texts.get(race.wiki) ?? '', race);
     for (const [year, name] of got) {
       if (!winsOf.has(name)) winsOf.set(name, []);
       winsOf.get(name).push([year, raceNameAt(race, year), race.grade]);
     }
     const label = typeof race.as === 'string' ? race.as : race.as[0][1];
-    console.error(`  ${race.grade.padEnd(4)} ${label.padEnd(16)} ${got.size} 勝ち馬${missing.length ? `（取れなかった年 ${missing.join(',')}）` : ''}`);
+    const span = first ? `${first}〜${last}` : '—';
+    console.error(`  ${race.grade.padEnd(4)} ${label.padEnd(16)} ${String(got.size).padStart(3)} 勝ち馬 ${span}`
+      + (missing.length ? `（抜け ${missing.length} 年: ${missing.slice(0, 8).join(',')}${missing.length > 8 ? '…' : ''}）` : ''));
   }
   for (const w of winsOf.values()) w.sort((a, b) => a[0] - b[0]);
 
@@ -674,7 +692,7 @@ async function main() {
   for (const [, , tag] of DECADES) {
     const g = groups.get(tag);
     if (!g || !(g.runners.length + g.dams.length + g.sires.length)) continue;
-    const label = tag === '70S' ? '1970 年代まで' : `${tag.slice(0, 2) < '30' ? '20' : '19'}${tag.slice(0, 2)} 年代`;
+    const label = DECADES.find((d) => d[2] === tag)[3];
     out.push(`/** ${label}の JRA GI 勝ち馬（ja.wikipedia から取り込み）。 */`);
     if (g.sires.length) out.push(`const WIKI_${tag}_ANCESTORS = [\n${g.sires.map(emitAncestor).join('\n')}\n];\n`);
     if (g.dams.length) out.push(`const WIKI_${tag}_DAMS = [\n${g.dams.map(emitDam).join('\n')}\n].map(([n, b, sire]) => ({ n, b, s: '牝', sire }));\n`);
