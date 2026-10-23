@@ -894,6 +894,82 @@ const ERA_OVERSEAS = [
 ];
 
 /** 海外で走って日本へ輸入された名馬（1980 年代のケンタッキーダービー馬）。 */
+/**
+ * 1975〜1980 年代の日本の名馬（2 回目）。父母がそろっているので、昔から始めると史実の年に生まれる。
+ * 供用年・没年は確かめられた馬だけ書き、ほかはゲームの規則で年を取る。
+ */
+const JP_ERA_ANCESTORS = [
+  { n: 'ヒンドスタン', b: 1946 },
+  { n: 'ファラモンド', b: 1962 },
+  { n: 'サンシー', b: 1969 },
+  { n: 'ファーストファミリー', b: 1962 },
+  { n: 'ラディガ', b: 1969 },
+  { n: 'シーホーク', b: 1963, c: '芦毛' },
+  { n: 'スパニッシュイクスプレス', b: 1962 },
+  { n: 'アローエクスプレス', b: 1967, sire: 'スパニッシュイクスプレス' },
+  { n: 'セダン', b: 1954 },
+  { n: 'サクラショウリ', b: 1975, sire: 'パーソロン' },
+];
+
+const JP_ERA_DAMS = [
+  ['ハヤノボリ', 1949, null],
+  ['カブラヤ', 1965, null],
+  ['キタノリュウ', 1966, null],
+  ['コウイチスタア', 1969, null],
+  ['イットー', 1971, null],
+  ['ホウヨウクイン', 1968, null],
+  ['ナポリジョオー', 1975, null],
+  ['ユーアンミー', 1976, null],
+  ['サクラスマイル', 1978, 'アローエクスプレス'],
+  ['サクラセダン', 1972, 'セダン'],
+  ['ツルミスター', 1978, null],
+  ['テイトヤシマ', 1978, null],
+  ['テスコパール', 1978, 'テスコボーイ'],
+].map(([n, b, sire]) => ({ n, b, s: '牝', sire }));
+
+const JP_ERA = [
+  { n: 'シンザン', b: 1961, sire: 'ヒンドスタン', dam: 'ハヤノボリ', stud: [1966, 1988], died: 1996, peak: 1200,
+    lvl: 0.90, surf: 'T', dist: 2400, range: 800, style: '先', growth: '持続', starts: 19, wins: 15, rec: [15, 4, 0, 0], earn: 6000,
+    f: ['stamina', 'guts'], big: [[1964, '皐月賞', 'GI'], [1964, '東京優駿', 'GI'], [1964, '菊花賞', 'GI'], [1965, '宝塚記念', 'GI'],
+      [1965, '天皇賞(秋)', 'GI'], [1965, '有馬記念', 'GI']] },
+  { n: 'カブラヤオー', b: 1972, c: '黒鹿毛', sire: 'ファラモンド', dam: 'カブラヤ', stud: [1977, 1995], died: 2003, peak: 300,
+    lvl: 0.85, surf: 'T', dist: 2000, range: 600, style: '逃', growth: '早熟', starts: 13, wins: 11, earn: 15000,
+    big: [[1975, '皐月賞', 'GI'], [1975, '東京優駿', 'GI']] },
+  { n: 'テスコガビー', b: 1972, s: '牝', sire: 'テスコボーイ', dam: 'キタノリュウ', died: 1978,
+    lvl: 0.85, surf: 'T', dist: 1600, range: 600, style: '先', growth: '早熟', starts: 10, wins: 7, earn: 12000,
+    big: [[1975, '桜花賞', 'GI'], [1975, '優駿牝馬', 'GI']] },
+  { n: 'ホウヨウボーイ', b: 1975, c: '栗毛', sire: 'ファーストファミリー', dam: 'ホウヨウクイン',
+    lvl: 0.84, surf: 'T', dist: 2400, range: 600, style: '先', growth: '晩成', starts: 26, wins: 13, earn: 30000,
+    big: [[1980, '有馬記念', 'GI'], [1981, '天皇賞(秋)', 'GI']] },
+  { n: 'カツラノハイセイコ', b: 1976, sire: 'ハイセイコー', dam: 'コウイチスタア',
+    lvl: 0.82, surf: 'T', dist: 2400, range: 700, style: '差', starts: 25, wins: 8, earn: 30000,
+    big: [[1979, '東京優駿', 'GI'], [1981, '天皇賞(春)', 'GI']] },
+  { n: 'ハギノトップレディ', b: 1977, s: '牝', sire: 'サンシー', dam: 'イットー',
+    lvl: 0.82, surf: 'T', dist: 1800, range: 500, style: '逃', growth: '早熟', starts: 11, wins: 7, earn: 15000,
+    big: [[1980, '桜花賞', 'GI'], [1980, 'エリザベス女王杯', 'GI']] },
+  { n: 'ミホシンザン', b: 1982, sire: 'シンザン', dam: 'ナポリジョオー', stud: [1988, 2004], died: 2014, peak: 300,
+    lvl: 0.85, surf: 'T', dist: 2400, range: 700, style: '先', starts: 13, wins: 9, earn: 30000,
+    big: [[1985, '皐月賞', 'GI'], [1985, '菊花賞', 'GI'], [1987, '天皇賞(春)', 'GI']] },
+  { n: 'ダイナガリバー', b: 1983, c: '栗毛', sire: 'ノーザンテースト', dam: 'ユーアンミー',
+    lvl: 0.83, surf: 'T', dist: 2400, range: 600, style: '差', starts: 16, wins: 5, earn: 30000,
+    big: [[1986, '東京優駿', 'GI'], [1986, '有馬記念', 'GI']] },
+  { n: 'サクラスターオー', b: 1984, sire: 'サクラショウリ', dam: 'サクラスマイル', died: 1988,
+    lvl: 0.85, surf: 'T', dist: 2400, range: 700, style: '差', starts: 11, wins: 4, earn: 20000,
+    big: [[1987, '皐月賞', 'GI'], [1987, '菊花賞', 'GI']] },
+  { n: 'イナリワン', b: 1984, sire: 'ミルジョージ', dam: 'テイトヤシマ',
+    lvl: 0.85, surf: 'TD', dist: 2500, range: 800, style: '差', growth: '晩成', starts: 25, wins: 12, earn: 45000,
+    big: [[1989, '天皇賞(春)', 'GI'], [1989, '宝塚記念', 'GI'], [1989, '有馬記念', 'GI']] },
+  { n: 'サクラチヨノオー', b: 1985, sire: 'マルゼンスキー', dam: 'サクラセダン',
+    lvl: 0.83, surf: 'T', dist: 2400, range: 600, style: '先', growth: '早熟', starts: 10, wins: 5, earn: 25000,
+    big: [[1987, '朝日杯3歳S', 'GI'], [1988, '東京優駿', 'GI']] },
+  { n: 'ヤエノムテキ', b: 1985, c: '栗毛', sire: 'ラディガ', dam: 'ツルミスター',
+    lvl: 0.84, surf: 'T', dist: 2000, range: 500, style: '先', starts: 23, wins: 8, earn: 40000,
+    big: [[1988, '皐月賞', 'GI'], [1990, '天皇賞(秋)', 'GI']] },
+  { n: 'アイネスフウジン', b: 1987, c: '黒鹿毛', sire: 'シーホーク', dam: 'テスコパール',
+    lvl: 0.83, surf: 'T', dist: 2000, range: 500, style: '逃', growth: '早熟', starts: 8, wins: 4, earn: 25000,
+    big: [[1989, '朝日杯3歳S', 'GI'], [1990, '東京優駿', 'GI']] },
+];
+
 const ERA_IMPORTS = [
   { n: 'フェルディナンド', b: 1983, c: '栗毛', sire: 'ニジンスキー', dam: 'バンジャルカ', stud: [1995, 2001], died: 2002, peak: 300,
     lvl: 0.88, surf: 'D', dist: 2000, range: 600, style: '差', starts: 29, wins: 8, earn: 50000,
@@ -1129,6 +1205,7 @@ export const REAL_HORSES = [
   ...OVERSEAS_ANCESTORS.map(bg), ...OVERSEAS_DAMS.map(bg), ...OVERSEAS.map(os), ...OVERSEAS_MARES.map(os),
   ...MORE_OVERSEAS_ANCESTORS.map(bg), ...MORE_OVERSEAS_DAMS.map(bg), ...MORE_OVERSEAS.map(os), ...MORE_IMPORTS,
   ...ERA_ANCESTORS.map(bg), ...ERA_DAMS.map(bg), ...ERA_OVERSEAS.map(os), ...ERA_IMPORTS,
+  ...JP_ERA_ANCESTORS.map(bg), ...JP_ERA_DAMS.map(bg), ...JP_ERA,
 ].map((d) => {
   let o = d;
   const m = AMARE[d.n];

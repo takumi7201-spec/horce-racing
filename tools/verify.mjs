@@ -474,8 +474,13 @@ section('開始年（史実の名馬）');
   const tb = byName(w75, 'トウショウボーイ');
   check('トウショウボーイが 2 歳の競走馬として居る', !!tb && !tb.retired && tb.birthYear === 1973 && !!tb.ownerId);
   check('後の名馬の名前は予約されている', w75.nameSet.has('ディープインパクト'));
-  check('昭和の種牡馬が名簿に並ぶ（パーソロン・ハイセイコー）',
-    pool.has(byName(w75, 'パーソロン')?.id) && pool.has(byName(w75, 'ハイセイコー')?.id));
+  check('昭和の種牡馬が名簿に並ぶ（パーソロン・ハイセイコー・シンザン）',
+    pool.has(byName(w75, 'パーソロン')?.id) && pool.has(byName(w75, 'ハイセイコー')?.id) && pool.has(byName(w75, 'シンザン')?.id));
+  const gabby = byName(w75, 'テスコガビー');
+  check('1975 年の 3 歳世代に史実の名馬が居る（テスコガビー・カブラヤオー）',
+    !!gabby && !gabby.retired && !!byName(w75, 'カブラヤオー') && !byName(w75, 'カブラヤオー').retired);
+  const hoyo = [...w75.horses.values()].find((h) => h.pregnancy?.real === 'ホウヨウボーイ');
+  check('1975 年 4 月に生まれる名馬は、開始時に母が受胎している（ホウヨウボーイ）', !!hoyo);
 
   // 1990 年に始めて 1991 年の夏まで進める。サンデーサイレンスが輸入され、ナリタブライアンが生まれる。
   const g90 = newGame({ seed: 'verify-1990', startYear: 1990 });
