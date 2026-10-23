@@ -15,7 +15,7 @@ import { ABILITIES, SEX, COATS, GROWTH } from './params.js';
 import { makeRng, hashSeed } from '../core/rng.js';
 import { makeForeignName } from '../core/names.js';
 import { clamp, clamp01, sum, byDesc } from '../core/util.js';
-import { realYearlings, buyRealYearling } from './realsires.js';
+import { realYearlings, buyRealYearling, realMareLots, buyRealMare } from './realsires.js';
 
 export const SALE_EVENT = { foal: 'foalSale', mare: 'mareSale', overseas: 'overseas', private: 'private' };
 
@@ -173,7 +173,10 @@ export function overseasLots(w) {
     }
     out.push({ ...d, key, sold: !!h });
   }
-  return [...realOverseasLots(w, sold), ...out];
+  // 区分ごとにまとめる：史実の 1 歳馬 → 1 歳馬 → 海外の名牝 → 繁殖牝馬。
+  const real = realOverseasLots(w, sold);
+  const yr = (x) => x.yearling;
+  return [...real.filter(yr), ...out.filter(yr), ...real.filter((x) => !yr(x)), ...out.filter((x) => !yr(x))];
 }
 
 /**
@@ -199,6 +202,28 @@ function realOverseasLots(w, sold) {
       name: `${d.dam ?? '不明'}の${d.b}`, sireName: d.sire ?? '—', damName: d.dam ?? '—', damSireName: damSire ?? '—',
       sex: d.s === '牝' ? SEX.FEMALE : SEX.MALE, age: 1, coat: d.c ?? '鹿毛',
       price: Math.round((2500 + Math.pow(d.lvl, 4) * 9000) / 10) * 10,
+    });
+  }
+  // 海外の名牝（繁殖牝馬）。落札済みは買った馬そのものを出す。
+  for (const h of sold.values()) {
+    if (!h.lotKey?.startsWith(`os-mare-${w.year}-`)) continue;
+    out.push({
+      key: h.lotKey, yearling: false, foreign: true, sold: true, realMare: true,
+      name: h.name, sireName: nameOf(w, h.sireId), damName: nameOf(w, h.damId), damSireName: damSireOf(w, h),
+      sex: h.sex, age: horseAge(h, w.year), coat: h.coat, price: h.lotPrice ?? 0, produce: null,
+    });
+  }
+  for (const { def: d, damSire, kids } of realMareLots(w)) {
+    const age = w.year - d.b;
+    const g1 = (x) => (x.big ?? []).filter((r) => r[2] === 'GI').length;
+    // 格（能力）と、表にある仔の GI 勝ちの数で値段を付ける。若いほど残りの繁殖年数ぶん高い。
+    const ageF = age <= 12 ? 1 : Math.max(0.3, 1 - (age - 12) * 0.12);
+    const produce = kids.slice().sort((a, b) => g1(b) - g1(a))[0]?.n ?? null;
+    out.push({
+      key: `os-mare-${w.year}-${d.n}`, yearling: false, foreign: true, sold: false, realMare: true,
+      name: d.n, sireName: d.sire ?? '—', damName: d.dam ?? '—', damSireName: damSire ?? '—',
+      sex: SEX.FEMALE, age, coat: d.c ?? '鹿毛', produce,
+      price: Math.round((3000 + Math.pow(d.lvl, 3) * 22000 + Math.min(12000, kids.reduce((t, k) => t + g1(k), 0) * 1500)) * ageF / 10) * 10,
     });
   }
   return out;
@@ -254,6 +279,12 @@ export function buyOverseas(w, key, rngForIds) {
   if (!lot) return { ok: false, why: '上場されていない' };
   if (lot.sold) return { ok: false, why: 'すでに落札済み' };
   if (w.player.money < lot.price) return { ok: false, why: '資金が足りない' };
+  if (lot.realMare) {
+    const h = buyRealMare(w, rngForIds, lot.name, key);
+    h.lotPrice = lot.price;
+    w.player.money -= lot.price;
+    return { ok: true, price: lot.price, horse: h };
+  }
   if (lot.realName) {
     const h = buyRealYearling(w, rngForIds, lot.realName, key);
     h.lotPrice = lot.price;

@@ -475,5 +475,44 @@ export function buyRealYearling(world, rng, name, key) {
   return h;
 }
 
+/**
+ * 海外トレーニングセールに出る海外の名牝（ゼニヤッタ・エネイブルなど）。
+ * 海外で繁殖に上がっている年（amare）で、21 歳以上と亡くなった馬は出さない。
+ * 表にある史実の仔がまだ生まれていない名牝も出さない。買うと、ガリレオやフランケルが
+ * 「日本にいるプレイヤーの牝馬の仔」として海外で生まれることになり、歴史が二重になる。
+ */
+export function realMareLots(world) {
+  if (!world.real) return [];
+  const y = world.year;
+  return REAL_HORSES.filter((d) => {
+    if (!d.amare || d.lvl == null) return false;
+    const [from, to] = d.amare;
+    if (from > y + 1 || (to != null && y + 1 > to)) return false;
+    if ((d.died != null && d.died <= y) || y - d.b > 20) return false;
+    if (REAL_HORSES.some((c) => c.dam === d.n && c.b > y)) return false;
+    const h = madeHorse(world, d.n);
+    return !(h && (h.dead || h.ownerId != null));
+  }).map((d) => ({
+    def: d,
+    damSire: d.dam ? DEFS.get(d.dam)?.sire ?? null : null,
+    // 表にある史実の仔（値段と「○○の母」の表示に使う）。
+    kids: REAL_HORSES.filter((c) => c.dam === d.n),
+  }));
+}
+
+/** 海外の名牝を買う。日本の繁殖牝馬の名簿に入り、プレイヤーの牝馬として配合できる。 */
+export function buyRealMare(world, rng, name, key) {
+  const h = madeHorse(world, name) ?? make(world, rng, name, { year: world.year });
+  h.ownerId = 'player';
+  h.lotKey = key;
+  h.retired = true;
+  h.stable = 'retired';
+  h.broodmare = true;
+  if (!world.marePool.includes(h.id)) world.marePool.push(h.id);
+  world.player.broodmares.push(h.id);
+  world.owners.get('player')?.horses.push(h.id);
+  return h;
+}
+
 /** 史実の名で登録される予定の馬か（セールで「史実」と分かるように）。 */
 export const realNameOf = (h) => (h.real ? h.regName ?? h.name : null);

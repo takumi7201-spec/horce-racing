@@ -707,6 +707,9 @@ const OVERSEAS_ANCESTORS = [
   { n: 'パイオニアオブザナイル', b: 2006, sire: 'エンパイアメーカー', dam: 'スターオブゴーシェン' },
   { n: 'ハーランズホリデー', b: 1999, sire: 'ハーラン' },
   { n: 'ストリートクライ', b: 1998, sire: 'マキャヴェリアン' },
+  { n: 'アナバー', b: 1992, sire: 'ヌレイエフ' },
+  { n: 'ザミンダー', b: 1994, sire: 'ミスタープロスペクター' },
+  { n: 'ベルエスプリ', b: 1998 },
 ];
 
 const OVERSEAS_DAMS = [
@@ -724,7 +727,39 @@ const OVERSEAS_DAMS = [
   ['リトルプリンセスエマ', 2006, 'ヤンキージェントルマン'],
   ['レスリーズレディ', 1996, 'トリッキークリーク'],
   ['ヴァーティジニュー', 1994, 'クリスエス'],
+  ['ボーンゴールド', 1997, 'ブラッシンググルーム'],
+  ['トレヴィーズ', 2002, 'アナバー'],
+  ['ヘルシンゲ', 1997, 'デインヒル'],
+  ['ザルカシャ', 1993, 'カロ'],
 ].map(([n, b, sire]) => ({ n, b, s: '牝', sire }));
+
+/**
+ * 海外の名牝。amare は海外で産駒を出した年（産駒の生年）。この間、海外トレーニングセール
+ * （12 月 3 週）に繁殖牝馬として上場される。表にある史実の仔（ガリレオなど）が生まれた後だけ。
+ */
+const OVERSEAS_MARES = [
+  { n: 'ゴルディコヴァ', b: 2005, s: '牝', sire: 'アナバー', dam: 'ボーンゴールド', amare: [2013, null],
+    lvl: 0.90, surf: 'T', dist: 1600, range: 400, style: '差', growth: '持続', starts: 27, wins: 17, earn: 60000, f: ['speed', 'guts'],
+    big: [[2008, 'BCマイル', 'GI'], [2009, 'BCマイル', 'GI'], [2010, 'BCマイル', 'GI']] },
+  { n: 'ザルカヴァ', b: 2005, s: '牝', sire: 'ザミンダー', dam: 'ザルカシャ', amare: [2010, null],
+    lvl: 0.91, surf: 'T', dist: 2200, range: 500, style: '追', starts: 7, wins: 7, rec: [7, 0, 0, 0], earn: 50000, f: ['burst', 'stamina'],
+    big: [[2007, 'マルセルブサック賞', 'GI'], [2008, '仏オークス', 'GI'], [2008, '凱旋門賞', 'GI']] },
+  { n: 'ブラックキャビア', b: 2006, s: '牝', c: '黒鹿毛', sire: 'ベルエスプリ', dam: 'ヘルシンゲ', amare: [2015, null],
+    lvl: 0.92, surf: 'T', dist: 1200, range: 250, style: '先', starts: 25, wins: 25, rec: [25, 0, 0, 0], earn: 80000, f: ['speed', 'guts'],
+    big: [[2011, 'ライトニングS', 'GI'], [2012, 'ダイヤモンドジュビリーS', 'GI']] },
+  { n: 'トレヴ', b: 2010, s: '牝', sire: 'モティヴェーター', dam: 'トレヴィーズ', amare: [2017, null],
+    lvl: 0.90, surf: 'T', dist: 2400, range: 500, style: '差', starts: 13, wins: 9, earn: 70000, f: ['stamina', 'burst'],
+    big: [[2013, '仏オークス', 'GI'], [2013, '凱旋門賞', 'GI'], [2014, '凱旋門賞', 'GI']] },
+];
+
+/** 表の母のうち、海外で名牝として繁殖にいた馬。[産駒の初年, 最終年, 能力の格, 没年, 主な勝鞍, 因子]。 */
+const AMARE = {
+  ミエスク: [1990, 2004, 0.88, 2011, [[1987, 'BCマイル', 'GI'], [1988, 'BCマイル', 'GI']], ['speed']],
+  アーバンシー: [1993, 2009, 0.86, 2009, [[1993, '凱旋門賞', 'GI']], ['stamina']],
+  カインド: [2006, 2021, 0.72, null, [], null],
+  ゼニヤッタ: [2012, null],
+  エネイブル: [2022, null],
+};
 
 const OVERSEAS = [
   { n: 'セクレタリアト', b: 1970, c: '栗毛', sire: 'ボールドルーラー', dam: 'サムシングロイヤル', abroad: [1974, 1989], died: 1989, afee: 3000,
@@ -916,9 +951,15 @@ export const REAL_HORSES = [
   ...PAST_SIRES, ...STANDING, ...MARES,
   ...SHOWA_ANCESTORS.map(bg), ...SHOWA_DAMS.map(bg), ...SHOWA,
   ...MORE_ANCESTORS.map(bg), ...MORE_DAMS.map(bg), ...HEISEI,
-  ...OVERSEAS_ANCESTORS.map(bg), ...OVERSEAS_DAMS.map(bg), ...OVERSEAS.map(os),
+  ...OVERSEAS_ANCESTORS.map(bg), ...OVERSEAS_DAMS.map(bg), ...OVERSEAS.map(os), ...OVERSEAS_MARES.map(os),
 ].map((d) => {
   let o = d;
+  const m = AMARE[d.n];
+  if (m) {
+    const [from, to, lvl, died, big, f] = m;
+    o = { ...o, os: true, amare: [from, to], lvl: o.lvl ?? lvl, died: o.died ?? died ?? undefined,
+      big: o.big ?? big, f: o.f ?? f ?? undefined };
+  }
   if (IMPORTED.has(d.n)) o = { ...o, imp: true };
   const a = ABROAD[d.n];
   if (a) {

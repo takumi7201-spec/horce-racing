@@ -318,7 +318,7 @@ function overseasView(app) {
   const money = g.world.player.money;
   return card('海外トレーニングセール', [
     seasonNote(g, open, '12 月 3 週', '海外トレーニングセール'),
-    el('p.note', { text: '外国の 1 歳馬と繁殖牝馬。日本の血統と離れているので、配合の幅が広がる。' }),
+    el('p.note', { text: '外国の 1 歳馬と繁殖牝馬。日本の血統と離れているので、配合の幅が広がる。海外の名牝（実在）も繁殖に上がっている年だけ上場される。' }),
     table(['', '区分', '馬名', '性齢', '毛色', '父', '母', '母の父', '価格', ''],
       lots.map((x) => [
         horseImg(x.coat, { size: 'sm', age: x.age, title: x.coat }),
@@ -326,6 +326,7 @@ function overseasView(app) {
         el('span.sire-n', [
           el('b', { text: x.name }), el('i.foreigntag', { text: '外' }),
           x.realName ? el('i.realtag', { text: `のちの${x.realName}`, title: '史実の名馬になる 1 歳馬' }) : null,
+          x.realMare ? el('i.realtag', { text: x.produce ? `${x.produce}の母` : '実在', title: '海外の名牝' }) : null,
         ]),
         `${x.sex}${x.age}`, x.coat, x.sireName, x.damName, x.damSireName, formatMoney(x.price),
         x.sold ? el('span.mine', { text: '落札済み' }) : button('購入', async () => {

@@ -418,6 +418,22 @@ section('因子・系統・海外の名馬');
     bf.ok && fr.ownerId === 'player' && !fr.retired && fr.regName === 'フランケル'
     && w5.horses.get(fr.sireId)?.name === 'ガリレオ' && myStable(g5).young.some((h) => h.id === fr.id), bf.why);
   check('落札後も一覧に落札済みで残る', GG.overseasSale(g5).some((x) => x.realName === 'フランケル' && x.sold));
+
+  // 海外の名牝。2012 年の海外セールにゼニヤッタが繁殖牝馬として出る。
+  const g6 = newGame({ seed: 'verify-zenyatta', startYear: 2012 });
+  const w6 = g6.world;
+  w6.week = (12 - 1) * 4 + 3;
+  w6.player.money = 1e6;
+  const ms = GG.overseasSale(g6).filter((x) => x.realMare);
+  const zen = ms.find((x) => x.name === 'ゼニヤッタ');
+  check(`海外セールに海外の名牝が出る（${ms.map((x) => x.name).join('・')}）`,
+    !!zen && !zen.yearling && ms.some((x) => x.name === 'カインド' && x.produce === 'フランケル'));
+  check('史実の仔がまだ生まれていない名牝は出ない（2012 年のアーバンシーは没後、エネイブルは未出生）',
+    !ms.some((x) => ['アーバンシー', 'エネイブル', 'ミエスク'].includes(x.name)));
+  const bz = GG.buyOverseas(g6, zen.key);
+  check('買った名牝は自分の繁殖牝馬になる',
+    bz.ok && GG.myBroodmares(g6).some((m) => m.id === bz.horse.id) && w6.marePool.includes(bz.horse.id)
+    && GG.overseasSale(g6).some((x) => x.key === zen.key && x.sold), bz.why);
 }
 
 // ---------------------------------------------------------------- 開始年
