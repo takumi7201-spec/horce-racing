@@ -1008,22 +1008,38 @@ const raceOf = (name) => RACE_DIST.get(ALIAS[name] ?? name) ?? null;
 
 /**
  * 距離（m）を記事の「距離」の欄から読む。書き方がレースごとに違う：
- * 「2400メートル」「12ハロン」「9.5ハロン」「1マイル1/2（約2414m）」「2,100 メートル」。
- * 欄は `|` で区切られるので、リンクの途中（`12[[ハロン (単位)`）で切れた形を読む。
- * メートルが書いてあればそれを優先し、なければハロン、マイルの順。100m 単位に丸める。
+ * 「2400メートル」「12ハロン」「1マイル1/2（約2414m）」「1 1/4 マイル」「1マイル4ハロン」
+ * 「1マイル1ハロン212ヤード」「3マイル2ハロン70ヤード (5,294 m)」。
+ * メートルが書いてあればそれを使い、なければマイル・ハロン・ヤードを足し合わせる。100m 単位に丸める。
+ *
+ * 足し合わせるのは、最初の単位だけ拾うと「1マイル4ハロン」が 4 ハロン（800m）になるため。
+ * 「1 1/4 マイル」は帯分数なので、数の後ろの分数もそのマイルに掛ける。
  */
 function parseDistance(raw) {
-  const s = raw ?? '';
-  let m = /(\d[\d,]*)\s*(?:\[\[)?(?:メートル|m)(?![a-z])/.exec(s);
+  // リンクとタグを落とした素の文字にする（plain は仮リンクなどまで触るので、ここでは最小限）。
+  const t = (raw ?? '').replace(/<ref[^>]*>[\s\S]*?<\/ref>/g, '').replace(/<ref[^>]*\/>/g, '')
+    .replace(/\[\[(?:[^\]|]*\|)?([^\]]*)\]\]/g, '$1').replace(/\[\[|\]\]/g, '');
+  // メートルは 3 桁以上のものだけ。マイルのリンクのラベルが m の記事（`1[[マイル|m]] 5f 61y`）があり、
+  // `1m` をメートルと読むと 0m になる。
+  const m = /(\d{1,2},\d{3}|\d{3,5})(?:\.\d+)?\s*(?:メートル|m)(?![a-z])/.exec(t);
   if (m) return Math.round(Number(m[1].replace(/,/g, '')) / 100) * 100;
-  m = /(\d+(?:\.\d+)?)\s*(?:\[\[)?(?:ハロン|f\b)/.exec(s);
-  if (m) return Math.round(Number(m[1]) * 201.168 / 100) * 100;
-  m = /(?:(\d+)\s*)?(?:\[\[)?マイル(?:\s*(\d)\/(\d))?/.exec(s);
-  if (m) {
-    const miles = (m[1] ? Number(m[1]) : 1) + (m[2] ? Number(m[2]) / Number(m[3]) : 0);
-    return Math.round(miles * 1609.34 / 100) * 100;
-  }
-  return null;
+  const UNIT = { マイル: 1609.34, ハロン: 201.168, f: 201.168, ヤード: 0.9144, yd: 0.9144, y: 0.9144 };
+  const sum = (str) => {
+    let total = 0, any = false;
+    for (const u of str.matchAll(/(\d+(?:\.\d+)?)(?:\s+(\d)\/(\d))?\s*(マイル|ハロン|f|ヤード|yd|y)(?:\s*(\d)\/(\d))?/g)) {
+      let n = Number(u[1]);
+      if (u[2]) n += Number(u[2]) / Number(u[3]);   // 1 1/4 マイル
+      if (u[5]) n += Number(u[5]) / Number(u[6]);   // 1マイル1/2
+      total += n * UNIT[u[4]];
+      any = true;
+    }
+    return any ? total : null;
+  };
+  // 括弧の中は同じ距離の言い換えのことが多い（`1マイル1/4（10ハロン）`）ので、括弧の前を先に読む。
+  // 両方を足すと 2 倍になる。
+  const head = t.split(/[（(]/)[0];
+  const total = sum(head) ?? sum(t.slice(head.length));
+  return total == null ? null : Math.round(total / 100) * 100;
 }
 
 /** 馬場。芝以外（ダート・オールウェザー・ポリトラック）はダートとして扱う。 */
@@ -1038,8 +1054,10 @@ function surfaceOf(text) {
  * 距離と馬場は記事のインフォボックス（{{競馬の競走}}）から読む。馬場を渡せばそれを使う。
  */
 function registerRace(name, text, surface = null) {
-  const m = /\|\s*距離\s*=\s*([^\n|]*)/.exec(text ?? '');
-  let dist = m ? parseDistance(m[1]) : null;
+  const m = /\|\s*距離\s*=\s*([^\n]*)/.exec(text ?? '');
+  // 欄は行の終わりまで。ただし 1 行に詰めた記事（|距離=…|開催国=…）は次の項目の手前で切る。
+  // リンクの `|` で切ると「1マイル4ハロン」のハロンが落ちる。
+  let dist = m ? parseDistance(m[1].split(/\|\s*[^=|\[\]{}]{1,10}=/)[0]) : null;
   let surf = surface ?? surfaceOf(text);
   const fix = DIST_FIX[name];
   if (fix) { dist = fix[0]; surf = fix[1] === 'D' ? SURFACE.DIRT : SURFACE.TURF; }
@@ -1056,7 +1074,10 @@ function registerRace(name, text, surface = null) {
 function derive(h, wins) {
   const races = wins.map(([, name]) => raceOf(name)).filter(Boolean);
   const dists = races.map((g) => g.distance);
-  const dist = dists.length ? Math.round(dists.reduce((a, b) => a + b, 0) / dists.length / 100) * 100 : 2000;
+  // 1000〜3600m に収める。世界の距離はこの範囲で、ゴールドカップ（4000m）の勝ち馬を 4000m の馬にすると
+  // 適性の山が番組の外に出る。
+  const dist = dists.length
+    ? Math.min(3600, Math.max(1000, Math.round(dists.reduce((a, b) => a + b, 0) / dists.length / 100) * 100)) : 2000;
   const spread = dists.length > 1 ? Math.max(...dists) - Math.min(...dists) : 0;
   const range = Math.max(400, Math.min(800, Math.round((300 + spread * 0.7) / 100) * 100));
   const dirt = races.filter((g) => g.surface === SURFACE.DIRT).length;
@@ -1175,12 +1196,19 @@ async function main() {
   if (flag('--verify')) return verify();
 
   // 1. 重賞の記事から (年 → 勝ち馬) を拾う。
-  const races = RACES.filter((r) => GRADES.includes(r.grade) && KINDS.includes(kindOf(r)))
+  let races = RACES.filter((r) => GRADES.includes(r.grade) && KINDS.includes(kindOf(r)))
     .filter((r) => !ONLY || ONLY.includes(r.as) || ONLY.includes(r.wiki)
       || (Array.isArray(r.as) && r.as.some(([, n]) => ONLY.includes(n))));
   const byGrade = GRADES.map((g) => `${g} ${races.filter((r) => r.grade === g).length}`).join(' / ');
   console.error(`重賞 ${races.length} 戦の記事を読む（${byGrade}、${FROM}〜${TO} 年）`);
   const texts = await wikitext([...new Set(races.map((r) => r.wiki))]);
+  // 障害競走（馬場の欄が「障害」：チェルトナムゴールドカップ・グランドナショナルなど）は外す。
+  // この世界に障害競走は無く、5000m を超える距離の馬になってしまう。
+  const jumps = races.filter((r) => /\|\s*馬場\s*=\s*障害/.test(texts.get(r.wiki) ?? ''));
+  if (jumps.length) {
+    races = races.filter((r) => !jumps.includes(r));
+    console.error(`  障害競走 ${jumps.length} 戦を外した: ${jumps.map((r) => r.as).join(' ')}`);
+  }
   // 地方のダートグレードを番組表の代わりに登録する（距離は記事から、馬場はダート）。
   let noDist = [];
   for (const race of races.filter((r) => r.nar || r.abroad)) {
