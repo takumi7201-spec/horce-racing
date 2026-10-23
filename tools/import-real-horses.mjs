@@ -46,6 +46,7 @@ const CACHE = resolve(ROOT, opt('--cache', '.cache/wiki'));
 const OFFLINE = flag('--offline');
 const DEPTH = num('--depth', 4);        // 父母を何代さかのぼるか
 const ONLY = opt('--races', null)?.split(',').map((s) => s.trim());
+const GRADES = opt('--grades', 'GI,GII,GIII').split(',').map((s) => s.trim());
 const DELAY = num('--delay', 200);      // 取得の間隔（ms）
 
 /* ------------------------------------------------------------------ 取得 */
@@ -95,8 +96,11 @@ async function fetchRaw(title, tries = 5) {
   for (let i = 0; i < tries; i++) {
     const res = await fetch(url, { headers: { 'User-Agent': UA } });
     if (res.status === 404) return '';
-    if (res.status === 429 || res.status === 503) {
-      const wait = Math.min(120, Math.max(5, Number(res.headers.get('retry-after')) || 30)) * 1000;
+    // 429（上限）だけでなく 5xx も待って引き直す。数千本引く途中で 1 本が 500 を返すことがあり、
+    // そこで投げると長い取り込みが丸ごと無駄になる。待ち時間は回を追うごとに伸ばす。
+    if (res.status === 429 || res.status >= 500) {
+      const hint = Number(res.headers.get('retry-after'));
+      const wait = Math.min(120, Math.max(5, hint || 10 * (i + 1))) * 1000;
       console.error(`  [${res.status}] ${title} — ${wait / 1000} 秒待って引き直す`);
       await sleep(wait);
       continue;
@@ -153,6 +157,38 @@ const GI_RACES = [
   { wiki: 'ホープフルステークス (中央競馬)', span: [2017, null], as: 'ホープフルS' },
 ];
 
+/**
+ * 番組表の重賞名 → ja.wikipedia の記事名。
+ * ほとんどは末尾の略字を伸ばすだけ（S→ステークス・C→カップ・T→トロフィー）なので、
+ * そうならないものだけ並べる。改称した 2 戦は、記事が今の名で立っていて、
+ * 古い年の勝ち馬もその記事の表に載っている。
+ */
+const RACE_WIKI = {
+  'アメリカＪＣＣ': 'アメリカジョッキークラブカップ',
+  '京成杯AH': '京成杯オータムハンデキャップ',
+  'アーリントンC': 'チャーチルダウンズカップ',        // 2025 年に改称
+  '弥生賞': '弥生賞ディープインパクト記念',            // 2020 年に改称
+};
+const wikiTitleOf = (name) => RACE_WIKI[name]
+  ?? name.replace(/S$/, 'ステークス').replace(/C$/, 'カップ').replace(/T$/, 'トロフィー');
+
+/**
+ * GI 以外の重賞（番組表の GII 32 戦・GIII 41 戦）。
+ *
+ * 格は今の番組表の格で書く。「番組表は開始年によらず現在の体系」という既定に合わせるため、
+ * 1984 年当時の格（GII だった GIII 戦など）を年ごとに追うことはしない。
+ * 1984 年より後に創設されたレース（キーンランドC・レパードSなど）は、
+ * 記事の表にそれ以前の年が無いので span を切らなくても勝手に揃う。
+ * 今 GI の戦が GII だった年（2016 年までの大阪杯など）は拾わない。
+ * その年だけ格を遡って調べる手間に対して、取れる馬がほとんど GI 馬と重なるため。
+ */
+const G23_RACES = GRADED.filter((g) => g.grade !== 'GI').map((g) => ({
+  wiki: wikiTitleOf(g.name), span: [1984, null], as: g.name, grade: g.grade,
+}));
+
+/** 取り込む対象のレース。--grades で絞れる。 */
+const RACES = [...GI_RACES.map((r) => ({ ...r, grade: 'GI' })), ...G23_RACES];
+
 /** その年のレース名（名が変わったレースのため）。 */
 function raceNameAt(race, year) {
   if (typeof race.as === 'string') return race.as;
@@ -187,11 +223,18 @@ function winnersOf(text, race) {
   for (const sec of sections(text)) {
     if (race.sect && !race.sect.test(sec.head)) continue;
     if (!race.sect && !/歴代|優勝馬|勝ち馬|結果/.test(sec.head)) continue;
+    // 「2005年までの優勝馬」「オープン特別時代の歴代優勝馬」は重賞になる前の表。
+    // 拾うと、オープン特別を勝っただけの馬が GIII 勝ち馬として表に入る
+    // （キーンランドCは 2006 年から、富士Sは 1998 年から、青葉賞は 1994 年から重賞）。
+    if (/年までの優勝馬|オープン特別|格付け前/.test(sec.head)) continue;
     for (const row of sec.body.split(/\n\s*\|-/)) {
       const cells = row.split(/\n?\s*\|\||\n\s*\|(?!\|)/).map((c) => c.trim()).filter(Boolean);
       const joined = cells.join(' | ');
       const ym = /(19\d\d|20\d\d)年/.exec(joined);
       if (!ym) continue;
+      // 条件の列に「オープン」「1000万下」が入っている行は重賞ではない
+      // （見出しで切り分けられなかった表のため。上の見出しの判定と二重の網）。
+      if (cells.some((c) => /^(オープン|OP|\d+万下|\d+万円以下)$/.test(plain(c)))) continue;
       const year = Number(ym[1]);
       if (year < lo || year > hi) continue;
       let horse = null;
@@ -383,42 +426,45 @@ async function readFacts(name, winYear = null) {
 
 /* --------------------------------------------- ゲームの数値を勝鞍から導く */
 
-const GI_DIST = new Map(GRADED.filter((g) => g.grade === 'GI').map((g) => [g.name, g]));
+const RACE_DIST = new Map(GRADED.map((g) => [g.name, g]));
 // 番組表の名と big の名のずれを埋める。
 const ALIAS = {
   '東京優駿': '日本ダービー', '優駿牝馬': 'オークス', '天皇賞(春)': '天皇賞（春）',
   '天皇賞(秋)': '天皇賞（秋）', 'ジャパンカップ': 'ジャパンC', 'ジャパンカップダート': 'チャンピオンズC',
   '阪神3歳牝馬S': '阪神JF', '朝日杯3歳S': '朝日杯FS',
 };
-const giOf = (name) => GI_DIST.get(ALIAS[name] ?? name) ?? null;
+const raceOf = (name) => RACE_DIST.get(ALIAS[name] ?? name) ?? null;
 
 /**
  * 距離・馬場・格を勝鞍から決める。
  *
  * ウィキペディアに脚質・適性・能力は無いので勝鞍から導く。
- * CLAUDE.md の落とし穴 8・11・12 のとおり、速度の帯は狭く取るので
- * lvl は 0.82〜0.92 の範囲にしか置かない（GI を勝つ馬はみな同じくらい速い）。
+ * CLAUDE.md の落とし穴 8・11・12 のとおり、速度の帯は狭く取る。
  */
 function derive(h, wins) {
-  const races = wins.map(([, name]) => giOf(name)).filter(Boolean);
+  const races = wins.map(([, name]) => raceOf(name)).filter(Boolean);
   const dists = races.map((g) => g.distance);
   const dist = dists.length ? Math.round(dists.reduce((a, b) => a + b, 0) / dists.length / 100) * 100 : 2000;
   const spread = dists.length > 1 ? Math.max(...dists) - Math.min(...dists) : 0;
   const range = Math.max(400, Math.min(800, Math.round((300 + spread * 0.7) / 100) * 100));
   const dirt = races.filter((g) => g.surface === SURFACE.DIRT).length;
   const surf = !races.length ? 'T' : dirt === races.length ? 'D' : dirt ? 'TD' : 'T';
-  // 格は GI の数と獲得賞金で。
+  // 格は「一番上の勝鞍の格」と「その格での勝ち数」と獲得賞金で。
   //
-  // 手で入れてある馬（GI 1 勝で平均 0.822）と同じ尺度で付けると、該当する馬が
-  // 261 → 595 頭に倍増したときに GI 24 戦の勝ち時計が実測レンジより 1〜2% 速くなった
-  // （ジャパンC 2:14.6・天皇賞春 3:04.2）。走破時計は勝ち馬＝その年の最上位で決まるので、
-  // 上位の層が厚くなるほど速くなる。表に手で入っている馬は名の通った側なので、
-  // 取り込みの側は一段下げて 0.76〜0.88 に収める（落とし穴 8・12）。
-  // 0.78 からだと天皇賞(春)とエリザベス女王杯が下限を 1〜2 秒割った。
-  const g1 = wins.length;
+  // 走破時計は勝ち馬＝その年の最上位で決まるので、上位の層が厚くなるほど速くなる
+  // （落とし穴 46）。手で入れてある馬は GI 1 勝で平均 0.822、勝鞍を持たない祖先が
+  // 平均 0.660 なので、取り込みはその間に収める。
+  //   GI 勝ち  0.76〜0.88 … 0.78 からだと天皇賞(春)とエリザベス女王杯が下限を割った
+  //   GII 勝ち 0.70〜0.80 … 重賞止まりの馬は GI 馬より確実に弱い
+  //   GIII     0.68〜0.78
+  const n = (g) => wins.filter((w) => w[2] === g).length;
+  const g1 = n('GI'), g2 = n('GII'), g3 = n('GIII');
   const money = (h.earn ?? 0) / 10000; // 億円
-  let lvl = 0.76 + Math.min(0.06, (g1 - 1) * 0.015) + Math.min(0.04, money * 0.008);
-  lvl = Math.min(0.88, Math.round(lvl * 100) / 100);
+  const [base, step, cap] = g1 ? [0.76, 0.015, 0.88] : g2 ? [0.70, 0.012, 0.80] : [0.68, 0.012, 0.78];
+  const top = g1 || g2 || g3;                       // 一番上の格での勝ち数
+  let lvl = base + Math.min(0.06, (top - 1) * step) + Math.min(0.04, money * 0.008)
+    + Math.min(0.02, (wins.length - top) * 0.004);   // 下の格の勝鞍もわずかに足す
+  lvl = Math.min(cap, Math.round(lvl * 100) / 100);
   return { lvl, surf, dist, range, style: styleOf(h.text), guessed: ['lvl', 'surf', 'dist', 'range', 'style'] };
 }
 
@@ -475,7 +521,7 @@ function emit(h, wins) {
     if (h.rec) g.push(`rec: [${h.rec.join(', ')}]`);
     if (h.earn) g.push(`earn: ${h.earn}`);
     lines.push(`    ${g.join(', ')},`);
-    const big = wins.map(([y, name]) => `[${y}, ${q(name)}, 'GI']`);
+    const big = wins.map(([y, name, grade]) => `[${y}, ${q(name)}, ${q(grade ?? 'GI')}]`);
     lines.push(`    big: [${big.join(', ')}] },`);
   } else {
     lines[lines.length - 1] = lines[lines.length - 1].replace(/,$/, ' },');
@@ -502,21 +548,23 @@ const decadeOf = (b) => DECADES.find(([lo, hi]) => b >= lo && b <= hi) ?? DECADE
 async function main() {
   if (flag('--verify')) return verify();
 
-  // 1. GI の記事から (年 → 勝ち馬) を拾う。
-  const races = GI_RACES.filter((r) => !ONLY || ONLY.includes(r.as) || ONLY.includes(r.wiki)
-    || (Array.isArray(r.as) && r.as.some(([, n]) => ONLY.includes(n))));
-  console.error(`GI ${races.length} 戦の記事を読む（${FROM}〜${TO} 年）`);
+  // 1. 重賞の記事から (年 → 勝ち馬) を拾う。
+  const races = RACES.filter((r) => GRADES.includes(r.grade))
+    .filter((r) => !ONLY || ONLY.includes(r.as) || ONLY.includes(r.wiki)
+      || (Array.isArray(r.as) && r.as.some(([, n]) => ONLY.includes(n))));
+  const byGrade = GRADES.map((g) => `${g} ${races.filter((r) => r.grade === g).length}`).join(' / ');
+  console.error(`重賞 ${races.length} 戦の記事を読む（${byGrade}、${FROM}〜${TO} 年）`);
   const texts = await wikitext([...new Set(races.map((r) => r.wiki))]);
-  /** 馬名 → [[年, レース名], …] */
+  /** 馬名 → [[年, レース名, 格], …] */
   const winsOf = new Map();
   for (const race of races) {
     const { got, missing } = winnersOf(texts.get(race.wiki) ?? '', race);
     for (const [year, name] of got) {
       if (!winsOf.has(name)) winsOf.set(name, []);
-      winsOf.get(name).push([year, raceNameAt(race, year)]);
+      winsOf.get(name).push([year, raceNameAt(race, year), race.grade]);
     }
     const label = typeof race.as === 'string' ? race.as : race.as[0][1];
-    console.error(`  ${label.padEnd(16)} ${got.size} 勝ち馬${missing.length ? `（取れなかった年 ${missing.join(',')}）` : ''}`);
+    console.error(`  ${race.grade.padEnd(4)} ${label.padEnd(16)} ${got.size} 勝ち馬${missing.length ? `（取れなかった年 ${missing.join(',')}）` : ''}`);
   }
   for (const w of winsOf.values()) w.sort((a, b) => a[0] - b[0]);
 
@@ -660,7 +708,8 @@ function report(groups) {
   for (const g of groups.values()) {
     for (const [h, wins] of g.runners) {
       const d = derive(h, wins);
-      console.error(`${h.n.padEnd(14)} lvl ${d.lvl.toFixed(2)}  ${d.surf.padEnd(2)} ${String(d.dist).padStart(4)}m ±${d.range}  ${d.style}  GI${wins.length}  ${wins.map(([y, r]) => `${y}${r}`).join(' ')}`);
+      const cnt = ['GI', 'GII', 'GIII'].map((g) => `${g}${wins.filter((w) => w[2] === g).length}`).join('/');
+      console.error(`${h.n.padEnd(14)} lvl ${d.lvl.toFixed(2)}  ${d.surf.padEnd(2)} ${String(d.dist).padStart(4)}m ±${d.range}  ${d.style}  ${cnt.padEnd(12)} ${wins.map(([y, r]) => `${y}${r}`).join(' ')}`);
     }
   }
 }
