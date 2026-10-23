@@ -3,7 +3,7 @@
 // 数字をいじったらここを必ず通す。落ちたら PHYS か world.js の母集団設定を疑う。
 
 import { makeRng } from '../src/core/rng.js';
-import { createHorse, resetHorseIds, distanceAptitude, effectiveAbility } from '../src/sim/horse.js';
+import { createHorse, resetHorseIds, peekHorseId, distanceAptitude, effectiveAbility } from '../src/sim/horse.js';
 import { simulateRace, sampleLog, logDuration } from '../src/sim/race.js';
 import {
   buildTrack, posToWorld, curvatureAt, gradeAt, allCourses, distancesOf,
@@ -248,6 +248,22 @@ const CASES = [
 section('世界の生成');
 const t0 = Date.now();
 const game = newGame({ seed: 'verify', playerName: '検証 太郎', farmName: '検証ファーム' });
+
+/**
+ * 検証の途中で別の世界を作るための包み。
+ *
+ * 馬の id は世界ごとではなくモジュールの通し番号で、createWorld が 1 に戻す。
+ * 素のまま別の世界を作ると、そのあとに本編の世界で生まれた仔が既にいる馬と同じ id を取り、
+ * world.horses の中身を上書きしてしまう。実在馬を増やして本編の世界が別の世界より
+ * 大きくなった途端にこれが起きて、3 歳世代が 376 → 28 頭に消え、番組が年 848 → 577 に減り、
+ * クラシックが不成立になった。両方の世界の最大 id より先へ戻しておけば、どちらも壊れない。
+ */
+function sideGame(opts) {
+  const keep = peekHorseId();
+  const g = newGame(opts);
+  resetHorseIds(Math.max(keep, peekHorseId()));
+  return g;
+}
 const w = game.world;
 check(`生成時間 ${Date.now() - t0}ms`, Date.now() - t0 < 4000);
 check(`総馬数 ${w.horses.size}`, w.horses.size > 2500 && w.horses.size < 9000);
@@ -298,7 +314,7 @@ section('実在の種牡馬');
   const sz = byName('シーザリオ');
   check('亡くなった名牝は名簿にいない（シーザリオ）', sz.dead && !w.marePool.includes(sz.id) && sz.foals.length >= 5);
   check('最初の繁殖牝馬に実在の名牝は配られない', w.player.broodmares.every((id) => !w.horses.get(id).real));
-  const fict = newGame({ seed: 'verify', realSires: false }).world;
+  const fict = sideGame({ seed: 'verify', realSires: false }).world;
   check('実在の種牡馬を使わない世界も作れる', ![...fict.horses.values()].some((h) => h.real));
 }
 
@@ -306,7 +322,7 @@ section('実在の種牡馬');
 section('年間スケジュール');
 {
   // 本体の世界を動かさないよう、別の世界で 1 年回す。
-  const g2 = newGame({ seed: 'verify-calendar' });
+  const g2 = sideGame({ seed: 'verify-calendar' });
   const w2 = g2.world;
   const W = (m, wk) => (m - 1) * 4 + wk;
   const until = (week) => { while (w2.week < week) nextWeek(g2); };
@@ -371,7 +387,7 @@ section('年間スケジュール');
 // ---------------------------------------------------------------- まとめて週送り
 section('まとめて週送り');
 {
-  const g3 = newGame({ seed: 'verify-skip' });
+  const g3 = sideGame({ seed: 'verify-skip' });
   const ts = GG.skipTargets(g3);
   const feb = ts.find((t) => t.label === '2月1週まで');
   const dec3 = ts.find((t) => t.label === '12月3週まで');
@@ -384,7 +400,7 @@ section('まとめて週送り');
 // ---------------------------------------------------------------- 因子・系統・海外の名馬
 section('因子・系統・海外の名馬');
 {
-  const g4 = newGame({ seed: 'verify-bloodline' });
+  const g4 = sideGame({ seed: 'verify-bloodline' });
   const w4 = g4.world;
   const byName = (n) => [...w4.horses.values()].find((h) => h.name === n || h.regName === n);
   const deep = byName('ディープインパクト');
@@ -406,7 +422,7 @@ section('因子・系統・海外の名馬');
   check('海外種付けの予約ができる（種付料を払う）', bk.ok && bk.fee === frankel.fee && w4.player.money === 1e6 - frankel.fee, bk.why);
 
   // 2009 年に始めると、12 月 3 週の海外トレーニングセールに 1 歳のフランケルが出る。
-  const g5 = newGame({ seed: 'verify-frankel', startYear: 2009 });
+  const g5 = sideGame({ seed: 'verify-frankel', startYear: 2009 });
   const w5 = g5.world;
   w5.week = (12 - 1) * 4 + 3;
   w5.player.money = 1e6;
@@ -420,7 +436,7 @@ section('因子・系統・海外の名馬');
   check('落札後も一覧に落札済みで残る', GG.overseasSale(g5).some((x) => x.realName === 'フランケル' && x.sold));
 
   // 海外の名牝。2012 年の海外セールにゼニヤッタが繁殖牝馬として出る。
-  const g6 = newGame({ seed: 'verify-zenyatta', startYear: 2012 });
+  const g6 = sideGame({ seed: 'verify-zenyatta', startYear: 2012 });
   const w6 = g6.world;
   w6.week = (12 - 1) * 4 + 3;
   w6.player.money = 1e6;
@@ -436,26 +452,26 @@ section('因子・系統・海外の名馬');
     && GG.overseasSale(g6).some((x) => x.key === zen.key && x.sold), bz.why);
 
   // 日本へ輸入された海外の名馬。1 歳の年は海外セールに出て、買われなければ史実の年に輸入される。
-  const g7 = newGame({ seed: 'verify-lammtarra', startYear: 1993 });
+  const g7 = sideGame({ seed: 'verify-lammtarra', startYear: 1993 });
   g7.world.week = (12 - 1) * 4 + 3;
   check('1993 年の海外セールに 1 歳のラムタラが出る', GG.overseasSale(g7).some((x) => x.realName === 'ラムタラ'));
-  const g8 = newGame({ seed: 'verify-lammtarra', startYear: 1995 });
+  const g8 = sideGame({ seed: 'verify-lammtarra', startYear: 1995 });
   g8.world.week = 48;
   nextWeek(g8);
   const lam = [...g8.world.horses.values()].find((h) => h.name === 'ラムタラ');
   check(`1996 年にラムタラが種牡馬として輸入される（${lam?.studFee} 万）`,
     !!lam && g8.world.stallionPool.includes(lam.id) && lam.studFee === 3000);
   // 1975〜1980 年代の海外の名馬。1975 年の海外セールに 1 歳のアレッジドが出て、1980 年にはトロイに種付けできる。
-  const g75s = newGame({ seed: 'verify-1975-overseas', startYear: 1975 });
+  const g75s = sideGame({ seed: 'verify-1975-overseas', startYear: 1975 });
   g75s.world.week = (12 - 1) * 4 + 3;
   const l75 = GG.overseasSale(g75s).filter((x) => x.realName).map((x) => x.realName);
   check(`1975 年の海外セールに 1 歳の名馬が出る（${l75.join('・')}）`, l75.includes('アレッジド') && l75.includes('ザミンストレル'));
-  const g80 = newGame({ seed: 'verify-1980', startYear: 1980 });
+  const g80 = sideGame({ seed: 'verify-1980', startYear: 1980 });
   const ab80 = stallions(g80).filter((s) => s.abroad).map((s) => s.name);
   check(`1980 年の海外種付けに当時の名馬が並ぶ（${ab80.length} 頭）`,
     ['トロイ', 'アレッジド', 'アリダー', 'ザミンストレル'].every((n) => ab80.includes(n)) && !ab80.includes('シャーガー'));
   // 令和の海外の名馬。2026 年の海外種付けにシティオブトロイ・オーギュストロダン、海外セールに名牝ラヴ・スノーフォール。
-  const g4os = newGame({ seed: 'verify-2026-overseas' });
+  const g4os = sideGame({ seed: 'verify-2026-overseas' });
   g4os.world.week = (12 - 1) * 4 + 3;
   const m26 = GG.overseasSale(g4os).filter((x) => x.realMare).map((x) => x.name);
   check(`2026 年の海外セールに令和の名牝が出る（${m26.length} 頭）`, ['ラヴ', 'スノーフォール', 'アルピニスタ'].every((n) => m26.includes(n)));
@@ -467,7 +483,7 @@ section('因子・系統・海外の名馬');
 // ---------------------------------------------------------------- 開始年
 section('開始年（史実の名馬）');
 {
-  const g75 = newGame({ seed: 'verify-1975', startYear: 1975 });
+  const g75 = sideGame({ seed: 'verify-1975', startYear: 1975 });
   const w75 = g75.world;
   const byName = (w, n) => [...w.horses.values()].find((h) => h.name === n || h.regName === n);
   const reals = [...w75.horses.values()].filter((h) => h.real);
@@ -486,7 +502,7 @@ section('開始年（史実の名馬）');
   check('1975 年の 3 歳世代に史実の名馬が居る（テスコガビー・カブラヤオー）',
     !!gabby && !gabby.retired && !!byName(w75, 'カブラヤオー') && !byName(w75, 'カブラヤオー').retired);
   // 1990 年代の名馬。1994 年に始めると、その年 4 月に生まれる 4 頭の母が受胎している。
-  const g94 = newGame({ seed: 'verify-1994', startYear: 1994 });
+  const g94 = sideGame({ seed: 'verify-1994', startYear: 1994 });
   const due94 = [...g94.world.horses.values()].map((h) => h.pregnancy?.real).filter(Boolean);
   check(`1994 年開始で、その年に生まれる名馬の母が受胎している（${due94.join('・')}）`,
     ['シーキングザパール', 'サニーブライアン', 'メジロブライト', 'シルクジャスティス'].every((n) => due94.includes(n)));
@@ -494,14 +510,14 @@ section('開始年（史実の名馬）');
   check('1994 年開始でヒシアマゾンが 3 歳の現役', !!hishi && !hishi.retired && hishi.birthYear === 1991);
   // 2000 年代の名馬。2005 年に始めると、カネヒキリ・アドマイヤムーンが現役で、
   // その年 4 月に生まれるディープスカイ・エスポワールシチーの母が受胎している。
-  const g05 = newGame({ seed: 'verify-2005', startYear: 2005 });
+  const g05 = sideGame({ seed: 'verify-2005', startYear: 2005 });
   const live05 = (n) => [...g05.world.horses.values()].find((h) => h.name === n && !h.retired);
   const due05 = [...g05.world.horses.values()].map((h) => h.pregnancy?.real).filter(Boolean);
   check(`2005 年開始で 2000 年代の名馬が現役・受胎中（${due05.join('・')}）`,
     !!live05('カネヒキリ') && !!live05('アドマイヤムーン') && ['ディープスカイ', 'エスポワールシチー'].every((n) => due05.includes(n)));
   // 令和の名馬。2020 年に始めると、リオンディーズ・アドマイヤマーズが種牡馬で、
   // その年に生まれるタスティエーラ・ソールオリエンス・ドゥレッツァの母が受胎している。
-  const g20 = newGame({ seed: 'verify-2020', startYear: 2020 });
+  const g20 = sideGame({ seed: 'verify-2020', startYear: 2020 });
   const pool20 = new Set(g20.world.stallionPool.map((id) => g20.world.horses.get(id)?.name));
   const due20 = [...g20.world.horses.values()].map((h) => h.pregnancy?.real).filter(Boolean);
   check(`2020 年開始で令和の名馬が種牡馬・受胎中（${due20.join('・')}）`,
@@ -511,7 +527,7 @@ section('開始年（史実の名馬）');
   check('1975 年 4 月に生まれる名馬は、開始時に母が受胎している（ホウヨウボーイ）', !!hoyo);
 
   // 1990 年に始めて 1991 年の夏まで進める。サンデーサイレンスが輸入され、ナリタブライアンが生まれる。
-  const g90 = newGame({ seed: 'verify-1990', startYear: 1990 });
+  const g90 = sideGame({ seed: 'verify-1990', startYear: 1990 });
   const w90 = g90.world;
   check('1990 年開始：ブライアンズタイムが供用中', w90.stallionPool.includes(byName(w90, 'ブライアンズタイム')?.id));
   while (w90.year < 1991 || w90.week < (8 - 1) * 4 + 1) nextWeek(g90);

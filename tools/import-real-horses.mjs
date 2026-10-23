@@ -1,9 +1,11 @@
-// ja.wikipedia.org から JRA GI（1984 年以降）の勝ち馬と、その父母・祖先を取り込む道具。
+// ja.wikipedia.org から JRA の重賞（1984 年以降の GI・GII・GIII）の勝ち馬と、
+// その父母・祖先を取り込む道具。
 //
 //   node tools/import-real-horses.mjs                       # 取得して年代別のブロックを標準出力へ
 //   node tools/import-real-horses.mjs --write                # real-horses.js の目印の間へ直接差し込む
 //   node tools/import-real-horses.mjs --from 1984 --to 2025
 //   node tools/import-real-horses.mjs --races 桜花賞,優駿牝馬
+//   node tools/import-real-horses.mjs --grades GI       # 格を絞る（既定は GI,GII,GIII）
 //   node tools/import-real-horses.mjs --offline              # キャッシュだけで回す（取得しない）
 //   node tools/import-real-horses.mjs --verify               # 表にある馬を ja.wikipedia と突き合わせる
 //   node tools/import-real-horses.mjs --report               # 推測した項目の一覧を出す
@@ -330,7 +332,11 @@ function earnings(v) {
   const oku = /(\d+(?:\.\d+)?)億/.exec(s);
   const man = /(?:億)?(\d+(?:\.\d+)?)万/.exec(s);
   if (!oku && !man) { const yen = /(\d{5,})円/.exec(s); return yen ? Math.round(Number(yen[1]) / 1e4) : null; }
-  return Math.round((oku ? Number(oku[1]) * 1e4 : 0) + (man ? Number(man[1]) : 0));
+  // 「1億61866186万8000円」のように数字が崩れている記事がある。万の位は 1 万未満
+  // （それ以上なら億の側に入る）なので、はみ出していたら読めなかったことにする。
+  if (man && Number(man[1]) >= 1e4) return null;
+  const total = Math.round((oku ? Number(oku[1]) * 1e4 : 0) + (man ? Number(man[1]) : 0));
+  return total > 5e5 ? null : total;   // 50 億を超える馬は居ない
 }
 
 /** 「29戦9勝」「中央29戦9勝」。着度数 [9-5-2-13] もあれば拾う。 */
@@ -454,16 +460,19 @@ function derive(h, wins) {
   // 走破時計は勝ち馬＝その年の最上位で決まるので、上位の層が厚くなるほど速くなる
   // （落とし穴 46）。手で入れてある馬は GI 1 勝で平均 0.822、勝鞍を持たない祖先が
   // 平均 0.660 なので、取り込みはその間に収める。
-  //   GI 勝ち  0.76〜0.88 … 0.78 からだと天皇賞(春)とエリザベス女王杯が下限を割った
-  //   GII 勝ち 0.70〜0.80 … 重賞止まりの馬は GI 馬より確実に弱い
-  //   GIII     0.68〜0.78
+  //   GI 勝ち  0.74〜0.86 … 上げると実測レンジの下限を割る（0.78 で天皇賞(春)、0.76 でダービー）
+  //   GII 勝ち 0.68〜0.78 … 重賞止まりの馬は GI 馬より確実に弱い
+  //   GIII     0.66〜0.76
+  // 重賞まで取り込むと「GI を勝てる格の馬」の数自体が増えるので、GI 馬の帯だけ下げても
+  // 足りない。GII・GIII の帯も下げて、GI の勝ち馬を押し上げないようにする。
   const n = (g) => wins.filter((w) => w[2] === g).length;
   const g1 = n('GI'), g2 = n('GII'), g3 = n('GIII');
   const money = (h.earn ?? 0) / 10000; // 億円
-  const [base, step, cap] = g1 ? [0.76, 0.015, 0.88] : g2 ? [0.70, 0.012, 0.80] : [0.68, 0.012, 0.78];
+  const [base, step, cap] = g1 ? [0.74, 0.015, 0.86] : g2 ? [0.68, 0.012, 0.78] : [0.66, 0.012, 0.76];
   const top = g1 || g2 || g3;                       // 一番上の格での勝ち数
-  let lvl = base + Math.min(0.06, (top - 1) * step) + Math.min(0.04, money * 0.008)
-    + Math.min(0.02, (wins.length - top) * 0.004);   // 下の格の勝鞍もわずかに足す
+  // 下の格の勝鞍は足さない。重賞まで取り込むと GI 馬の多くが GII・GIII も勝っているので、
+  // 少しの加点でも上位の層が厚くなり、ダービーと菊花賞が下限を割った。
+  let lvl = base + Math.min(0.06, (top - 1) * step) + Math.min(0.03, money * 0.006);
   lvl = Math.min(cap, Math.round(lvl * 100) / 100);
   return { lvl, surf, dist, range, style: styleOf(h.text), guessed: ['lvl', 'surf', 'dist', 'range', 'style'] };
 }
@@ -502,6 +511,8 @@ const KNOWN = (() => {
  * 寄せないと同じ馬が二頭に分かれ、系統の大きさとインブリードの数が狂う。
  */
 const RENAME = { ダンジグ: 'ダンチヒ' };
+/** 表にある馬の生年（同名の別馬を親に結ばないため）。 */
+const KNOWN_B = new Map(REAL_HORSES.map((d) => [d.n, d.b]));
 const q = (s) => `'${s}'`;
 
 /** 1 頭を real-horses.js の 1 項目として書く。既にある書き方に合わせる。 */
@@ -622,16 +633,23 @@ async function main() {
   // たどり切れなかった親の名を残すと、その馬を作った瞬間に世界の生成が落ちる。
   // 血統表の埋まり率は落ちるが、間違った親を書くより良い（落とし穴 43）。
   const have = new Set([...KNOWN, ...[...horses].filter(([, h]) => h).map(([n]) => n)]);
-  let cut = 0;
+  const bOf = (n) => horses.get(n)?.b ?? KNOWN_B.get(n) ?? null;
+  let cut = 0, wrong = 0;
   for (const h of horses.values()) {
     if (!h) continue;
     for (const k of ['sire', 'dam']) {
       if (!h[k]) continue;
       h[k] = canonOf(h[k]);
-      if (!have.has(h[k])) { h[k] = null; cut++; }
+      if (!have.has(h[k])) { h[k] = null; cut++; continue; }
+      // 日本の馬名は年代をまたいで再登録される。表で同じ名を持つのが別の馬なら
+      // 生年が噛み合わない（1993 年生の馬の母が「2004 年生のローブデコルテ」になる）。
+      // 親子の年齢差が 2〜30 歳に収まらなければ、その親は別の馬なので結ばない。
+      const gap = h.b - (bOf(h[k]) ?? -9999);
+      if (!(gap >= 2 && gap <= 30)) { h[k] = null; wrong++; }
     }
   }
   if (cut) console.error(`\n表に無い父母 ${cut} 件を null にした（${DEPTH} 代で止めた先と、記事の無い海外の祖先）`);
+  if (wrong) console.error(`同名の別馬だった父母 ${wrong} 件を null にした（生年が噛み合わない）`);
 
   // 読めなかった勝ち馬を黙って捨てない。記事の題が違う・インフォボックスが別の形、など
   // 原因は一頭ずつ違うので、名前を出して目で見るしかない（落とし穴 43）。
