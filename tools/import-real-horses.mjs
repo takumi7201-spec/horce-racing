@@ -53,6 +53,8 @@ const OFFLINE = flag('--offline');
 const DEPTH = num('--depth', 4);        // 父母を何代さかのぼるか
 const ONLY = opt('--races', null)?.split(',').map((s) => s.trim());
 const GRADES = opt('--grades', 'GI,JpnI,GII,JpnII,GIII,JpnIII').split(',').map((s) => s.trim());
+// 取り込む系統。jra：中央の重賞 / nar：地方のダートグレード / os：海外の G1
+const KINDS = opt('--kinds', 'jra,nar,os').split(',').map((s) => s.trim());
 const DELAY = num('--delay', 200);      // 取得の間隔（ms）
 
 /* ------------------------------------------------------------------ 取得 */
@@ -231,8 +233,48 @@ const NAR_RACES = [
   return { wiki, as, grade, span: [1995, null], nar: true };
 });
 
-/** 取り込む対象のレース。--grades で絞れる。 */
-const RACES = [...GI_RACES.map((r) => ({ ...r, grade: 'GI' })), ...G23_RACES, ...NAR_RACES];
+/**
+ * 海外の G1（凱旋門賞・英愛仏のクラシック・BC・ケンタッキーダービー・ドバイ・香港・豪州）。
+ *
+ * [記事名, 勝鞍に書くレース名]。海外馬は英語名で載る表が多いので、勝ち馬の名は
+ * 英語名に付いたリンクの先（日本語の記事名）か、「日本語読み」列から取る（abroadHorse）。
+ * リンクも読みも無い年（日本語の記事が無い馬）は、取れないものとして飛ばす。
+ *
+ * 窓は JRA と同じ 1932 年から。格は今の G1 をそのまま書く（古い年の勝ち馬も G1 馬として扱う）。
+ * 外してあるもの：フォワ賞（G2）、ドンカスターマイル（優勝馬の表が無い）、
+ * ウッドワードS（記事が短く優勝馬の節が無い）。
+ */
+const OS_RACES = [
+  ['凱旋門賞'], ['ダービーステークス', '英ダービー'], ['2000ギニー', '英2000ギニー'],
+  ['1000ギニー', '英1000ギニー'], ['オークスステークス', '英オークス'], ['セントレジャーステークス', 'セントレジャー'],
+  ['キングジョージ6世&クイーンエリザベスステークス', 'キングジョージ'], ['エクリプスステークス', 'エクリプスS'],
+  ['チャンピオンステークス', '英チャンピオンS'], ['クイーンエリザベス2世ステークス', 'QE2世S'],
+  ['サセックスステークス', 'サセックスS'], ['コロネーションカップ', 'コロネーションC'],
+  ['アイリッシュダービー', '愛ダービー'], ['ジョッケクルブ賞', '仏ダービー'], ['ディアヌ賞', '仏オークス'],
+  ['ジャック・ル・マロワ賞', 'ジャックルマロワ賞'], ['ムーラン・ド・ロンシャン賞', 'ムーランドロンシャン賞'],
+  ['サンクルー大賞'], ['ロワイヤルオーク賞'],
+  ['ケンタッキーダービー'], ['プリークネスステークス', 'プリークネスS'], ['ベルモントステークス', 'ベルモントS'],
+  ['ブリーダーズカップ・クラシック', 'BCクラシック'], ['ブリーダーズカップ・ターフ', 'BCターフ'],
+  ['ブリーダーズカップ・マイル', 'BCマイル'], ['ブリーダーズカップ・スプリント', 'BCスプリント'],
+  ['ブリーダーズカップ・ジュベナイル', 'BCジュベナイル'], ['ブリーダーズカップ・ディスタフ', 'BCディスタフ'],
+  ['ブリーダーズカップ・フィリー&メアターフ', 'BCフィリー&メアターフ'],
+  ['ブリーダーズカップ・ジュベナイルフィリーズ', 'BCジュベナイルフィリーズ'],
+  ['ペガサスワールドカップ'], ['トラヴァーズステークス', 'トラヴァーズS'], ['ハスケルステークス', 'ハスケル招待S'],
+  ['ドバイワールドカップ'], ['ドバイシーマクラシック'], ['ドバイターフ'], ['ドバイゴールデンシャヒーン'],
+  ['サウジカップ'],
+  ['香港カップ'], ['香港ヴァーズ'], ['香港マイル'], ['香港スプリント'],
+  ['クイーンエリザベス2世カップ (香港)', 'QE2世C(香港)'],
+  ['コックスプレート'], ['メルボルンカップ'], ['ジ・エベレスト'], ['オーストラリアンダービー', '豪ダービー'],
+  ['シンガポール航空国際カップ'],
+].map(([wiki, as = wiki]) => ({ wiki, as, grade: 'GI', span: [1932, null], abroad: true }));
+
+/** 距離を記事から読めない競走の手当て。[距離, 'T' 芝 | 'D' ダート]。 */
+const DIST_FIX = { 'ハスケル招待S': [1800, 'D'] };   // 距離の欄が {{frac}} で壊れている
+
+/** 取り込む対象のレース。--grades・--kinds で絞れる。 */
+const RACES = [...GI_RACES.map((r) => ({ ...r, grade: 'GI' })), ...G23_RACES, ...NAR_RACES, ...OS_RACES];
+const OS_NAMES = new Set(OS_RACES.map((r) => r.as));
+const kindOf = (r) => (r.abroad ? 'os' : r.nar ? 'nar' : 'jra');
 
 /** その年のレース名（名が変わったレースのため）。 */
 function raceNameAt(race, year) {
@@ -257,12 +299,47 @@ function cellBody(cell) {
   return c;
 }
 
+/**
+ * 海外のレースの表から馬名を取る。馬は英語名で載る表と片仮名で載る表があり、
+ *   - 英語名にリンクが付いている（`[[セクレタリアト|Secretariat]]`）… リンク先が日本語の記事名
+ *   - 片仮名の名前（`[[スタディオブマン]]`、凱旋門賞・BC・香港の「日本語読み」列）… そのまま
+ * 日本語の記事が無い馬（英語名のままでリンクも無い）は取れない。
+ *
+ * 見るのは日付のセルの直後の 2 セルだけ（呼び出し側）。それより後ろの列は騎手・調教師・馬主で、
+ * 片仮名のものが多く（ゴドルフィン、クールモア）、馬が英語名のままの年にそれを馬にしてしまう。
+ * 英語名のリンクは、ラベルが英字だけで頭文字形（`L.Dettori`）でないものに絞る（騎手を除く）。
+ */
+const STOP = new Set(['アメリカ', 'イギリス', 'アイルランド', 'フランス', 'ドイツ', 'イタリア', 'オーストラリア',
+  'ニュージーランド', 'シンガポール', 'ロンシャン', 'シャンティイ', 'エプソム', 'アスコット', 'ニューマーケット']);
+const KANA = /^[ァ-ヴー]{2,20}$/;
+function abroadHorse(cells) {
+  for (const cell of cells) {
+    for (const m of cell.matchAll(/\[\[([^\]|#]+)\|([^\]]+)\]\]/g)) {
+      const label = m[2].trim();
+      if (!/^[A-Za-z][A-Za-z'’.\-\s&]*$/.test(label) || /^[A-Z]\.\s?[A-Za-z]/.test(label)) continue;
+      const target = m[1].trim();
+      const base = target.replace(/\s*[(（].*$/, '');
+      if (KANA.test(base) && !STOP.has(base)) return { name: base, title: target };
+    }
+    // 片仮名の馬名。リンクが付いていても、赤リンク（{{仮リンク|ラファ (競走馬)|…}}）でもよい。
+    // 外国産馬の印（＊）と、題の括弧（競走馬）は馬名の一部ではない。
+    const t = plain(cell).replace(/^[＊*]\s*/, '').replace(/\s*[(（][^)）]*[)）]\s*$/, '');
+    if (KANA.test(t) && !STOP.has(t)) {
+      const link = /\[\[([^\]|#]+)(?:\|[^\]]*)?\]\]/.exec(cell);
+      return { name: t, title: link ? link[1].trim() : null };
+    }
+  }
+  return null;
+}
+/** 勝ち馬の名 → 記事の題（リンク先）。同名の別の記事や曖昧さ回避ページを引かないため。 */
+const HINT = new Map();
+
 /** 記事を見出しで切る。節ごとに勝ち馬の表を探すため。 */
 function sections(text) {
-  const out = [{ head: '', body: '' }];
+  const out = [{ head: '', body: '', level: 0 }];
   for (const line of text.split('\n')) {
     const m = /^(={2,})\s*(.*?)\s*\1\s*$/.exec(line);
-    if (m) out.push({ head: m[2], body: '' });
+    if (m) out.push({ head: m[2], body: '', level: m[1].length });
     else out[out.length - 1].body += line + '\n';
   }
   return out;
@@ -289,13 +366,20 @@ function winnersOf(text, race) {
   const wanted = (y) => (race.nar ? y >= lo && y <= hi
     : y < GRADE_ERA ? y >= FROM : y >= lo && y <= hi);
   const got = new Map();
+  let parentLevel = null;   // 優勝馬の節の見出しの深さ（海外の下位の節を読むため）
   for (const sec of sections(text)) {
-    if (race.sect && !race.sect.test(sec.head)) continue;
-    if (!race.sect && !/歴代|優勝馬|勝ち馬|結果/.test(sec.head)) continue;
+    let ok = race.sect ? race.sect.test(sec.head) : /歴代|優勝馬|勝ち馬|結果/.test(sec.head);
+    if (ok) parentLevel = sec.level;
+    // フランスの記事は「歴代優勝馬」の下に「ジョッケクルブ賞（1836年-2004年）」のような期間ごとの
+    // 節があり、表はそちらにある。日本馬の成績の節は除く（同じ形の表で、勝ち馬ではなく着順が並ぶ）。
+    else if (race.abroad && parentLevel != null && sec.level > parentLevel && !/日本|出走|成績/.test(sec.head)) ok = true;
+    else parentLevel = null;
+    if (!ok) continue;
     // 「2005年までの優勝馬」「オープン特別時代の歴代優勝馬」は重賞になる前の表。
     // 拾うと、オープン特別を勝っただけの馬が GIII 勝ち馬として表に入る
     // （キーンランドCは 2006 年から、富士Sは 1998 年から、青葉賞は 1994 年から重賞）。
-    if (/年までの優勝馬|オープン特別|格付け前/.test(sec.head)) continue;
+    // 海外のレースでは「2011年までの優勝馬」は期間で割っただけの表なので除かない。
+    if (!race.abroad && /年までの優勝馬|オープン特別|格付け前/.test(sec.head)) continue;
     for (const row of sec.body.split(/\n\s*\|-/)) {
       const cells = row.split(/\n?\s*\|\||\n\s*\|(?!\|)/).map((c) => cellBody(c)).filter(Boolean);
       const joined = cells.join(' | ');
@@ -307,7 +391,15 @@ function winnersOf(text, race) {
       const year = Number(ym[1]);
       if (!wanted(year)) continue;
       let horse = null;
-      for (const cell of cells) {
+      if (race.abroad) {
+        // 日付のセルの直後 2 セル（馬と、あれば日本語読み）だけを見る。後ろの列まで見ると、
+        // 馬が英語名でリンクも無い年に、馬主のリンク（ゴドルフィン）を馬にしてしまう。
+        // 日本馬の出走表（「11着」「9頭」の行）は勝ち馬の表ではない。
+        if (cells.some((c) => /\d+着|着外|\d+頭/.test(plain(c)))) continue;
+        const di = cells.findIndex((c) => /(19\d\d|20\d\d)年/.test(c));
+        const h = abroadHorse(cells.slice(di + 1, di + 3));
+        if (h) { horse = h.name; if (h.title) HINT.set(h.name, h.title); }
+      } else for (const cell of cells) {
         // plain() を通すのは、降着で繰り上がった年のセルに <ref> の長い注記が付いていて
         // （2006 エリザベス女王杯・2010 ジャパンカップ）、タグだけ落としても本文が残るため。
         const name = plain(cell);
@@ -323,7 +415,8 @@ function winnersOf(text, race) {
   // 窓を 1932 年まで広げたので、創設前の年を並べると 50 行の雑音になる。
   const years = [...got.keys()].sort((a, b) => a - b);
   const missing = [];
-  if (years.length) {
+  // 海外は日本語の記事が無い年が多いので、抜けの報告はしない。
+  if (years.length && !race.abroad) {
     for (let y = years[0]; y <= Math.min(hi, TO); y++) if (!got.has(y) && wanted(y)) missing.push(y);
   }
   return { got, missing, first: years[0] ?? null, last: years[years.length - 1] ?? null };
@@ -366,7 +459,10 @@ const pick = (p, ...keys) => { for (const k of keys) if (p?.[k]) return p[k]; re
 /** リンクと注釈を落として素の文字にする。 */
 const plain = (v) => (v ?? '')
   .replace(/\[\[([^\]|]*\|)?([^\]]*)\]\]/g, '$2')
-  .replace(/\{\{(?:lang|仮リンク)\|[^|}]*\|([^|}]*)[^}]*\}\}/gi, '$1')
+  // {{lang|en|text}} は 2 番目が本文、{{仮リンク|日本語名|en|Name}} は 1 番目が日本語名。
+  // 一緒くたに扱うと、仮リンクが言語コードの "en" になる（凱旋門賞の表の「カムラッド」が読めない）。
+  .replace(/\{\{仮リンク\|([^|}]*)\|[^}]*\}\}/g, '$1')
+  .replace(/\{\{lang\|[^|}]*\|([^|}]*)[^}]*\}\}/gi, '$1')
   .replace(/\{\{[^}]*\}\}/g, '').replace(/<ref[^>]*>.*?<\/ref>/gs, '').replace(/<[^>]*>/g, '')
   .replace(/''+/g, '').replace(/&nbsp;/g, ' ').trim();
 
@@ -462,6 +558,8 @@ function readHorse(title, text) {
     dam: parentName(pick(p, '母')),
     damsire: parentName(pick(p, '母の父', '母父')),
     died: last(pick(p, '死没', '没', '死')),
+    // 生産国。{{JPN}} なら日本の馬。海外のレースを勝った日本の馬を海外馬（os）にしないため。
+    japan: /JPN|日本/.test(pick(p, '国', '生産国') ?? ''),
     earn: earnings(pick(p, '総賞金', '獲得賞金', '賞金', '金')),
     ...r,
     text,
@@ -490,6 +588,14 @@ function candidateTitles(name, text) {
  * winYear を渡すと、同名の馬が複数あるときに「その年に走れる馬齢だった馬」を選ぶ。
  */
 async function readFacts(name, winYear = null) {
+  // 勝ち馬の表のリンク先（「キャメロット (競走馬)」）が分かっていれば、それを先に引く。
+  // 素の題は曖昧さ回避ページや別の記事のことがあり、引き直す一手間が省ける。
+  const hint = HINT.get(name);
+  if (hint && hint !== name) {
+    const ht = await wikitext([hint]);
+    const h = sane(readHorse(name, ht.get(hint) ?? ''));
+    if (h?.b) return h;
+  }
   const t = await wikitext([name]);
   const text = t.get(name) ?? '';
   const direct = sane(readHorse(name, text));
@@ -514,15 +620,44 @@ const ALIAS = {
 const raceOf = (name) => RACE_DIST.get(ALIAS[name] ?? name) ?? null;
 
 /**
- * 番組表（schedule.js）に無いレースの距離と馬場を足す。地方のダートグレードは
- * 番組表に無いので、距離が分からないと derive() が既定の 2000m 芝にしてしまう。
- * 距離は記事のインフォボックス（{{競馬の競走}} の 距離）から読む。
+ * 距離（m）を記事の「距離」の欄から読む。書き方がレースごとに違う：
+ * 「2400メートル」「12ハロン」「9.5ハロン」「1マイル1/2（約2414m）」「2,100 メートル」。
+ * 欄は `|` で区切られるので、リンクの途中（`12[[ハロン (単位)`）で切れた形を読む。
+ * メートルが書いてあればそれを優先し、なければハロン、マイルの順。100m 単位に丸める。
  */
-function registerRace(name, text, surface) {
+function parseDistance(raw) {
+  const s = raw ?? '';
+  let m = /(\d[\d,]*)\s*(?:\[\[)?(?:メートル|m)(?![a-z])/.exec(s);
+  if (m) return Math.round(Number(m[1].replace(/,/g, '')) / 100) * 100;
+  m = /(\d+(?:\.\d+)?)\s*(?:\[\[)?(?:ハロン|f\b)/.exec(s);
+  if (m) return Math.round(Number(m[1]) * 201.168 / 100) * 100;
+  m = /(?:(\d+)\s*)?(?:\[\[)?マイル(?:\s*(\d)\/(\d))?/.exec(s);
+  if (m) {
+    const miles = (m[1] ? Number(m[1]) : 1) + (m[2] ? Number(m[2]) / Number(m[3]) : 0);
+    return Math.round(miles * 1609.34 / 100) * 100;
+  }
+  return null;
+}
+
+/** 馬場。芝以外（ダート・オールウェザー・ポリトラック）はダートとして扱う。 */
+function surfaceOf(text) {
+  const m = /\|\s*馬場\s*=\s*([^\n|]*)/.exec(text ?? '');
+  return /ダート|オールウェザー|ポリトラック|AW/.test(m?.[1] ?? '') ? SURFACE.DIRT : SURFACE.TURF;
+}
+
+/**
+ * 番組表（schedule.js）に無いレースの距離と馬場を足す。地方のダートグレードと海外の G1 は
+ * 番組表に無いので、距離が分からないと derive() が既定の 2000m 芝にしてしまう。
+ * 距離と馬場は記事のインフォボックス（{{競馬の競走}}）から読む。馬場を渡せばそれを使う。
+ */
+function registerRace(name, text, surface = null) {
   const m = /\|\s*距離\s*=\s*([^\n|]*)/.exec(text ?? '');
-  const d = m ? /(\d{3,4})/.exec(plain(m[1].replace(/\[\[メートル[^\]]*\]\]/g, ''))) : null;
-  RACE_DIST.set(name, { name, distance: d ? Number(d[1]) : 1800, surface });
-  return d ? Number(d[1]) : null;
+  let dist = m ? parseDistance(m[1]) : null;
+  let surf = surface ?? surfaceOf(text);
+  const fix = DIST_FIX[name];
+  if (fix) { dist = fix[0]; surf = fix[1] === 'D' ? SURFACE.DIRT : SURFACE.TURF; }
+  RACE_DIST.set(name, { name, distance: dist ?? 1800, surface: surf });
+  return dist;
 }
 
 /**
@@ -653,18 +788,25 @@ async function main() {
   if (flag('--verify')) return verify();
 
   // 1. 重賞の記事から (年 → 勝ち馬) を拾う。
-  const races = RACES.filter((r) => GRADES.includes(r.grade))
+  const races = RACES.filter((r) => GRADES.includes(r.grade) && KINDS.includes(kindOf(r)))
     .filter((r) => !ONLY || ONLY.includes(r.as) || ONLY.includes(r.wiki)
       || (Array.isArray(r.as) && r.as.some(([, n]) => ONLY.includes(n))));
   const byGrade = GRADES.map((g) => `${g} ${races.filter((r) => r.grade === g).length}`).join(' / ');
   console.error(`重賞 ${races.length} 戦の記事を読む（${byGrade}、${FROM}〜${TO} 年）`);
   const texts = await wikitext([...new Set(races.map((r) => r.wiki))]);
   // 地方のダートグレードを番組表の代わりに登録する（距離は記事から、馬場はダート）。
-  let noDist = 0;
-  for (const race of races.filter((r) => r.nar)) {
-    if (!registerRace(race.as, texts.get(race.wiki), SURFACE.DIRT)) noDist++;
+  let noDist = [];
+  for (const race of races.filter((r) => r.nar || r.abroad)) {
+    // 地方はすべてダート。海外は記事の馬場の欄から。
+    if (!registerRace(race.as, texts.get(race.wiki), race.nar ? SURFACE.DIRT : null)) noDist.push(race.as);
   }
-  if (noDist) console.error(`  距離が読めなかった地方の競走 ${noDist} 戦（1800m として扱う）`);
+  if (noDist.length) console.error(`  距離が読めなかった競走 ${noDist.length} 戦（1800m として扱う）: ${noDist.join(' ')}`);
+  if (flag('--distances')) {
+    for (const race of races.filter((r) => r.nar || r.abroad)) {
+      const d = RACE_DIST.get(race.as);
+      console.error(`  ${race.as.padEnd(18)} ${String(d.distance).padStart(4)}m ${d.surface === SURFACE.DIRT ? 'ダート' : '芝'}`);
+    }
+  }
   /** 馬名 → [[年, レース名, 格], …] */
   const winsOf = new Map();
   for (const race of races) {
@@ -679,6 +821,17 @@ async function main() {
       + (missing.length ? `（抜け ${missing.length} 年: ${missing.slice(0, 8).join(',')}${missing.length > 8 ? '…' : ''}）` : ''));
   }
   for (const w of winsOf.values()) w.sort((a, b) => a[0] - b[0]);
+
+  // 勝ち馬の表の読み取りだけを確かめる（馬の記事は引かない）。海外の表は書き方がばらばらなので、
+  // 全部を引く前に、各レースで拾った名前が馬になっているかを目で見る。
+  if (flag('--dry-races')) {
+    for (const race of races) {
+      const mine = [...winsOf].flatMap(([n, w]) => w.filter((x) => x[1] === race.as).map((x) => [x[0], n])).sort((a, b) => a[0] - b[0]);
+      const pick3 = (l) => l.map(([y, n]) => `${y}${n}`).join(' ');
+      console.error(`  ${race.as.padEnd(16)} ${String(mine.length).padStart(3)}  ${pick3(mine.slice(0, 3))} … ${pick3(mine.slice(-3))}`);
+    }
+    return;
+  }
 
   // 2. 勝ち馬の記事を読む。表にもう居る馬は引かない。
   const want = [...winsOf.keys()].filter((n) => !KNOWN.has(n));
@@ -759,12 +912,21 @@ async function main() {
 
   // 4. 年代別に組む。
   const groups = new Map();
+  /** 海外のレースだけを勝った海外生まれの馬。日本の現役馬として生成されないよう os で出す。 */
+  const osGroups = new Map();
   for (const [name, h] of horses) {
     if (!h) continue;
     const [, , tag] = decadeOf(h.b);
+    const wins = winsByName.get(name);
+    // 日本で重賞を勝った馬は海外でも勝っていても日本の馬のまま（外国産馬のカフェファラオなど）。
+    // 日本生まれの馬が海外で勝っただけの場合も同じ。os にすると 2026 年の世界から消えてしまう。
+    if (wins && !h.japan && wins.every((w) => OS_NAMES.has(w[1]))) {
+      if (!osGroups.has(tag)) osGroups.set(tag, []);
+      osGroups.get(tag).push([h, wins]);
+      continue;
+    }
     if (!groups.has(tag)) groups.set(tag, { sires: [], dams: [], runners: [] });
     const g = groups.get(tag);
-    const wins = winsByName.get(name);
     if (wins) g.runners.push([h, wins]);
     else if (h.s === '牝') g.dams.push(h);
     else g.sires.push(h);
@@ -781,7 +943,15 @@ async function main() {
     if (g.dams.length) out.push(`const WIKI_${tag}_DAMS = [\n${g.dams.map(emitDam).join('\n')}\n].map(([n, b, sire]) => ({ n, b, s: '牝', sire }));\n`);
     out.push(`const WIKI_${tag} = [\n${g.runners.map(([h, w]) => emit(h, w)).join('\n')}\n];\n`);
   }
-  const spread = DECADES.map(([, , tag]) => {
+  // 海外の勝ち馬。祖先と母は日本の馬と同じ置き場（bg）に入っているので、勝ち馬だけを別に置く。
+  for (const [, , tag] of DECADES) {
+    const list = osGroups.get(tag);
+    if (!list?.length) continue;
+    const label = DECADES.find((d) => d[2] === tag)[3];
+    out.push(`/** ${label}に生まれた海外の G1 勝ち馬（ja.wikipedia から取り込み）。os：海外の馬。 */`);
+    out.push(`const WIKI_OS_${tag} = [\n${list.map(([h, w]) => emit(h, w)).join('\n')}\n];\n`);
+  }
+  const spreadLines = DECADES.map(([, , tag]) => {
     const g = groups.get(tag);
     if (!g || !(g.runners.length + g.dams.length + g.sires.length)) return null;
     const parts = [];
@@ -789,11 +959,16 @@ async function main() {
     if (g.dams.length) parts.push(`...WIKI_${tag}_DAMS.map(bg)`);
     if (g.runners.length) parts.push(`...WIKI_${tag}`);
     return `  ${parts.join(', ')},`;
-  }).filter(Boolean).join('\n');
+  }).filter(Boolean);
+  // 海外の行は日本の馬の行の後ろに足す（順番を変えると世界の乱数がずれる）。
+  for (const [, , tag] of DECADES) if (osGroups.get(tag)?.length) spreadLines.push(`  ...WIKI_OS_${tag}.map(os),`);
+  const spread = spreadLines.join('\n');
 
-  const n = [...groups.values()].reduce((a, g) => a + g.runners.length + g.dams.length + g.sires.length, 0);
-  console.error(`\n${n} 頭を書き出す（勝ち馬 ${[...groups.values()].reduce((a, g) => a + g.runners.length, 0)} 頭＋祖先）`);
-  if (flag('--report')) report(groups);
+  const nOs = [...osGroups.values()].reduce((a, l) => a + l.length, 0);
+  const nJp = [...groups.values()].reduce((a, g) => a + g.runners.length + g.dams.length + g.sires.length, 0);
+  const winners = [...groups.values()].reduce((a, g) => a + g.runners.length, 0);
+  console.error(`\n${nJp + nOs} 頭を書き出す（日本の勝ち馬 ${winners} 頭＋祖先 ${nJp - winners} 頭、海外の勝ち馬 ${nOs} 頭）`);
+  if (flag('--report')) report(groups, osGroups);
 
   if (flag('--write')) {
     inject(out.join('\n'), spread);
@@ -822,10 +997,11 @@ function inject(blocks, spread) {
 }
 
 /** 導いた項目（lvl・脚質など）の一覧。差し込む前に目で見るため。 */
-function report(groups) {
+function report(groups, osGroups = new Map()) {
   console.error('\n--- 導いた値（ウィキペディアに無い項目） ---');
-  for (const g of groups.values()) {
-    for (const [h, wins] of g.runners) {
+  const lists = [...[...groups.values()].map((g) => g.runners), ...[...osGroups.values()]];
+  for (const runners of lists) {
+    for (const [h, wins] of runners) {
       const d = derive(h, wins);
       const cnt = ['GI', 'JpnI', 'GII', 'JpnII', 'GIII', 'JpnIII']
         .filter((g) => wins.some((w) => w[2] === g))
