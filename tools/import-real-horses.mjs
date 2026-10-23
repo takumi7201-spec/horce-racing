@@ -23,6 +23,7 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createHash } from 'node:crypto';
 import { GRADED } from '../src/sim/schedule.js';
 import { SURFACE } from '../src/sim/course.js';
 import { REAL_HORSES } from '../src/sim/data/real-horses.js';
@@ -60,7 +61,13 @@ const DELAY = num('--delay', 200);      // 取得の間隔（ms）
 /* ------------------------------------------------------------------ 取得 */
 
 mkdirSync(CACHE, { recursive: true });
-const cachePath = (title) => join(CACHE, encodeURIComponent(title).replace(/\*/g, '%2A') + '.txt');
+// ファイル名は 255 バイトまで。「サンシャインミリオンズフィリー&メアスプリントステークス」のような長い題は
+// エンコードすると超えるので、頭を残してハッシュを付ける（短い題は今までのまま）。
+const cachePath = (title) => {
+  const name = encodeURIComponent(title).replace(/\*/g, '%2A');
+  const file = name.length <= 180 ? name : `${name.slice(0, 120)}-${createHash('sha1').update(title).digest('hex').slice(0, 16)}`;
+  return join(CACHE, `${file}.txt`);
+};
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
