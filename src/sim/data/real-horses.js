@@ -492,7 +492,7 @@ const MORE_ANCESTORS = [
   { n: 'デヴィルズバッグ', b: 1981, sire: 'ヘイロー' },
   { n: 'シェリフズスター', b: 1985, c: '芦毛' },
   { n: 'ミルジョージ', b: 1975, sire: 'ミルリーフ' },
-  { n: 'アファームド', b: 1975, c: '栗毛' },
+  { n: 'アファームド', b: 1975, c: '栗毛', sire: 'エクスクルーシヴネイティヴ' },
   { n: 'クリスタルパレス', b: 1974, c: '芦毛' },
   { n: 'ルション', b: 1987 },
   { n: 'マイニング', b: 1984, sire: 'ミスタープロスペクター' },
@@ -812,6 +812,94 @@ const MORE_OVERSEAS = [
 ];
 
 /** 海外で走り、日本へ輸入された名馬（2 回目）。1 歳の年の海外セールにも出る。 */
+/**
+ * 1975〜1980 年代に走った海外の名馬。1975 年に始めると、1 歳の年の海外セールに
+ * 「のちのアレッジド」のように出て、引退後は海外種付けができる。
+ */
+const ERA_ANCESTORS = [
+  { n: 'レイズアネイティヴ', b: 1961, c: '栗毛', sire: 'ネイティヴダンサー' },
+  { n: 'エクスクルーシヴネイティヴ', b: 1965, c: '栗毛', sire: 'レイズアネイティヴ' },
+  { n: 'ホイストザフラッグ', b: 1968 },
+  { n: 'ボールドビッダー', b: 1962, sire: 'ボールドルーラー' },
+  { n: 'ペティンゴ', b: 1965 },
+  { n: 'グレートネフュー', b: 1963 },
+  { n: 'プライヴェートアカウント', b: 1976 },
+];
+
+const ERA_DAMS = [
+  ['プリンセスパウト', 1966, null],
+  ['フルール', 1964, null],
+  ['スペクタキュラー', 1970, null],
+  ['ラミロ', 1963, null],
+  ['シャーミーン', 1972, null],
+  ['ハーディエンマ', 1969, null],
+  ['セックスアピール', 1970, null],
+  ['ホームオンザレンジ', 1978, null],
+  ['スウィートトゥース', 1965, null],
+  ['ベルシーバ', 1970, null],
+  ['リラクシング', 1976, null],
+  ['バンジャルカ', 1977, null],
+  ['チャーミングアリバイ', 1963, null],
+  ['プライスレスジェム', 1963, null],
+  ['グレシアンバナー', 1974, null],
+  ['ヴァーチュアス', 1971, null],
+].map(([n, b, sire]) => ({ n, b, s: '牝', sire }));
+
+const ERA_OVERSEAS = [
+  { n: 'アレッジド', b: 1974, sire: 'ホイストザフラッグ', dam: 'プリンセスパウト', abroad: [1979, 1999], died: 2000, afee: 1500,
+    lvl: 0.92, surf: 'T', dist: 2400, range: 600, style: '先', starts: 10, wins: 9, earn: 10000,
+    f: ['stamina', 'guts'], big: [[1977, '凱旋門賞', 'GI'], [1978, '凱旋門賞', 'GI']] },
+  { n: 'ザミンストレル', b: 1974, c: '栗毛', sire: 'ノーザンダンサー', dam: 'フルール', abroad: [1978, 1990], died: 1990, afee: 1500,
+    lvl: 0.89, surf: 'T', dist: 2400, range: 500, style: '差', starts: 9, wins: 7, earn: 10000,
+    f: ['guts'], big: [[1977, '英ダービー', 'GI'], [1977, '愛ダービー', 'GI'], [1977, 'キングジョージ6世&QES', 'GI']] },
+  { n: 'アリダー', b: 1975, c: '栗毛', sire: 'レイズアネイティヴ', dam: 'スウィートトゥース', abroad: [1979, 1990], died: 1990, afee: 3000,
+    lvl: 0.89, surf: 'D', dist: 2000, range: 500, style: '差', starts: 26, wins: 14, earn: 20000,
+    f: ['speed', 'power'], big: [[1978, 'ブルーグラスS', 'GI'], [1978, 'トラヴァーズS', 'GI']] },
+  { n: 'トロイ', b: 1976, sire: 'ペティンゴ', dam: 'ラミロ', abroad: [1980, 1983], died: 1983, afee: 1500,
+    lvl: 0.90, surf: 'T', dist: 2400, range: 600, style: '差', starts: 11, wins: 8, earn: 12000,
+    f: ['stamina', 'burst'], big: [[1979, '英ダービー', 'GI'], [1979, '愛ダービー', 'GI'], [1979, 'キングジョージ6世&QES', 'GI']] },
+  { n: 'スペクタキュラービッド', b: 1976, c: '芦毛', sire: 'ボールドビッダー', dam: 'スペクタキュラー', abroad: [1981, 2002], died: 2003, afee: 1500,
+    lvl: 0.94, surf: 'D', dist: 2000, range: 600, style: '先', growth: '持続', starts: 30, wins: 26, earn: 30000,
+    f: ['speed', 'guts'], big: [[1979, 'ケンタッキーダービー', 'GI'], [1979, 'プリークネスS', 'GI'], [1980, 'ウッドワードS', 'GI']] },
+  { n: 'シャーリーハイツ', b: 1975, sire: 'ミルリーフ', dam: 'ハーディエンマ', abroad: [1979, 1996], afee: 1200,
+    lvl: 0.88, surf: 'T', dist: 2400, range: 600, style: '差', starts: 13, wins: 7, earn: 10000,
+    f: ['stamina'], big: [[1978, '英ダービー', 'GI'], [1978, '愛ダービー', 'GI']] },
+  { n: 'シャーガー', b: 1978, sire: 'グレートネフュー', dam: 'シャーミーン', abroad: [1982, 1982], died: 1983, afee: 3000,
+    lvl: 0.94, surf: 'T', dist: 2400, range: 600, style: '先', starts: 8, wins: 6, earn: 10000,
+    f: ['stamina', 'burst'], big: [[1981, '英ダービー', 'GI'], [1981, '愛ダービー', 'GI'], [1981, 'キングジョージ6世&QES', 'GI']] },
+  { n: 'エルグランセニョール', b: 1981, sire: 'ノーザンダンサー', dam: 'セックスアピール', abroad: [1985, 2005], died: 2006, afee: 2000,
+    lvl: 0.91, surf: 'T', dist: 1600, range: 600, style: '先', starts: 8, wins: 7, earn: 10000,
+    f: ['speed'], big: [[1983, 'デューハーストS', 'GI'], [1984, '英2000ギニー', 'GI'], [1984, '愛ダービー', 'GI']] },
+  { n: 'レファランスポイント', b: 1984, sire: 'ミルリーフ', dam: 'ホームオンザレンジ', abroad: [1988, 1991], died: 1991, afee: 1000,
+    lvl: 0.89, surf: 'T', dist: 2400, range: 700, style: '逃', starts: 10, wins: 7, earn: 12000,
+    f: ['stamina', 'guts'], big: [[1987, '英ダービー', 'GI'], [1987, 'キングジョージ6世&QES', 'GI'], [1987, '英セントレジャー', 'GI']] },
+  { n: 'アリシーバ', b: 1984, sire: 'アリダー', dam: 'ベルシーバ', abroad: [1989, 1999], died: 2009, afee: 1500,
+    lvl: 0.90, surf: 'D', dist: 2000, range: 500, style: '差', starts: 26, wins: 11, earn: 70000,
+    f: ['power', 'guts'], big: [[1987, 'ケンタッキーダービー', 'GI'], [1987, 'プリークネスS', 'GI'], [1988, 'BCクラシック', 'GI']] },
+  { n: 'イージーゴア', b: 1986, c: '栗毛', sire: 'アリダー', dam: 'リラクシング', abroad: [1990, 1994], died: 1994, afee: 2000,
+    lvl: 0.91, surf: 'D', dist: 2400, range: 600, style: '差', starts: 20, wins: 14, earn: 50000,
+    f: ['stamina', 'power'], big: [[1988, 'シャンペンS', 'GI'], [1989, 'ベルモントS', 'GI'], [1989, 'トラヴァーズS', 'GI']] },
+  { n: 'アレフランス', b: 1970, s: '牝', sire: 'シーバード', dam: 'プライスレスジェム', amare: [1977, 1987], died: 1989,
+    lvl: 0.91, surf: 'T', dist: 2400, range: 600, style: '差', starts: 21, wins: 13, earn: 15000,
+    f: ['burst', 'stamina'], big: [[1972, '仏1000ギニー', 'GI'], [1973, '仏オークス', 'GI'], [1974, '凱旋門賞', 'GI']] },
+  { n: 'ダリア', b: 1970, s: '牝', c: '栗毛', sire: 'ヴェイグリーノーブル', dam: 'チャーミングアリバイ', amare: [1978, 1991], died: 2001,
+    lvl: 0.90, surf: 'T', dist: 2200, range: 600, style: '差', growth: '持続', starts: 48, wins: 15, earn: 15000,
+    f: ['guts', 'health'], big: [[1973, 'キングジョージ6世&QES', 'GI'], [1974, 'キングジョージ6世&QES', 'GI']] },
+  { n: 'ジェニュインリスク', b: 1977, s: '牝', c: '栗毛', sire: 'エクスクルーシヴネイティヴ', dam: 'ヴァーチュアス', amare: [1983, 1997], died: 2008,
+    lvl: 0.86, surf: 'D', dist: 2000, range: 500, style: '先', starts: 15, wins: 10, earn: 10000,
+    f: ['guts'], big: [[1980, 'ケンタッキーダービー', 'GI']] },
+  { n: 'パーソナルエンスン', b: 1984, s: '牝', sire: 'プライヴェートアカウント', dam: 'グレシアンバナー', amare: [1990, 2005], died: 2010,
+    lvl: 0.91, surf: 'D', dist: 2000, range: 500, style: '差', starts: 13, wins: 13, rec: [13, 0, 0, 0], earn: 20000,
+    f: ['guts', 'stamina'], big: [[1987, 'ベルデイムS', 'GI'], [1988, 'ホイットニーH', 'GI'], [1988, 'BCディスタフ', 'GI']] },
+];
+
+/** 海外で走って日本へ輸入された名馬（1980 年代のケンタッキーダービー馬）。 */
+const ERA_IMPORTS = [
+  { n: 'フェルディナンド', b: 1983, c: '栗毛', sire: 'ニジンスキー', dam: 'バンジャルカ', stud: [1995, 2001], died: 2002, peak: 300,
+    lvl: 0.88, surf: 'D', dist: 2000, range: 600, style: '差', starts: 29, wins: 8, earn: 50000,
+    f: ['stamina'], big: [[1986, 'ケンタッキーダービー', 'GI'], [1987, 'BCクラシック', 'GI']] },
+];
+
 const MORE_IMPORTS = [
   { n: 'ラムタラ', b: 1992, c: '栗毛', sire: 'ニジンスキー', dam: 'スノーブライド', stud: [1996, 2006], died: 2014, peak: 3000,
     lvl: 0.90, surf: 'T', dist: 2400, range: 600, style: '差', starts: 4, wins: 4, rec: [4, 0, 0, 0], earn: 20000,
@@ -1024,7 +1112,7 @@ const SHOWA = [
 const IMPORTED = new Set([
   'テスコボーイ', 'ノーザンテースト', 'トニービン', 'ブライアンズタイム', 'サンデーサイレンス', 'ダンシングブレーヴ',
   'フレンチデピュティ', 'ヘニーヒューズ', 'パイロ', 'ドレフォン', 'ナダル', 'ブリックスアンドモルタル', 'カリフォルニアクローム',
-  'ラムタラ',
+  'ラムタラ', 'フェルディナンド',
 ]);
 
 // bg：血統をつなぐだけの馬（海外の祖先と、日本の名簿に入らない母）。
@@ -1040,6 +1128,7 @@ export const REAL_HORSES = [
   ...MORE_ANCESTORS.map(bg), ...MORE_DAMS.map(bg), ...HEISEI,
   ...OVERSEAS_ANCESTORS.map(bg), ...OVERSEAS_DAMS.map(bg), ...OVERSEAS.map(os), ...OVERSEAS_MARES.map(os),
   ...MORE_OVERSEAS_ANCESTORS.map(bg), ...MORE_OVERSEAS_DAMS.map(bg), ...MORE_OVERSEAS.map(os), ...MORE_IMPORTS,
+  ...ERA_ANCESTORS.map(bg), ...ERA_DAMS.map(bg), ...ERA_OVERSEAS.map(os), ...ERA_IMPORTS,
 ].map((d) => {
   let o = d;
   const m = AMARE[d.n];

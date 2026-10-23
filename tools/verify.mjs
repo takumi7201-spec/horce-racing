@@ -445,6 +445,15 @@ section('因子・系統・海外の名馬');
   const lam = [...g8.world.horses.values()].find((h) => h.name === 'ラムタラ');
   check(`1996 年にラムタラが種牡馬として輸入される（${lam?.studFee} 万）`,
     !!lam && g8.world.stallionPool.includes(lam.id) && lam.studFee === 3000);
+  // 1975〜1980 年代の海外の名馬。1975 年の海外セールに 1 歳のアレッジドが出て、1980 年にはトロイに種付けできる。
+  const g75s = newGame({ seed: 'verify-1975-overseas', startYear: 1975 });
+  g75s.world.week = (12 - 1) * 4 + 3;
+  const l75 = GG.overseasSale(g75s).filter((x) => x.realName).map((x) => x.realName);
+  check(`1975 年の海外セールに 1 歳の名馬が出る（${l75.join('・')}）`, l75.includes('アレッジド') && l75.includes('ザミンストレル'));
+  const g80 = newGame({ seed: 'verify-1980', startYear: 1980 });
+  const ab80 = stallions(g80).filter((s) => s.abroad).map((s) => s.name);
+  check(`1980 年の海外種付けに当時の名馬が並ぶ（${ab80.length} 頭）`,
+    ['トロイ', 'アレッジド', 'アリダー', 'ザミンストレル'].every((n) => ab80.includes(n)) && !ab80.includes('シャーガー'));
   const ab26 = stallions(g4).filter((s) => s.abroad).map((s) => s.name);
   check(`2026 年の海外種付けに近年の名馬が並ぶ（${ab26.length} 頭）`, ['フライトライン', 'バーイード', 'キングマン'].every((n) => ab26.includes(n)));
 }
