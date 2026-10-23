@@ -737,6 +737,87 @@ const OVERSEAS_DAMS = [
  * 海外の名牝。amare は海外で産駒を出した年（産駒の生年）。この間、海外トレーニングセール
  * （12 月 3 週）に繁殖牝馬として上場される。表にある史実の仔（ガリレオなど）が生まれた後だけ。
  */
+/** 海外の名馬（2 回目）。古今の歴史的名馬と、近年の欧米の種牡馬。 */
+const MORE_OVERSEAS_ANCESTORS = [
+  { n: 'ネイティヴダンサー', b: 1950, c: '芦毛' },
+  { n: 'ダンキューピッド', b: 1956, c: '栗毛', sire: 'ネイティヴダンサー' },
+  { n: 'シカンブル', b: 1948 },
+  { n: 'テネラニ', b: 1944 },
+  { n: 'クイーンズハザー', b: 1960 },
+  { n: 'ダーシャーン', b: 1981 },
+  { n: 'エルプラド', b: 1989, c: '芦毛', sire: 'サドラーズウェルズ' },
+  { n: 'インヴィンシブルスピリット', b: 1997, sire: 'グリーンデザート' },
+];
+
+const MORE_OVERSEAS_DAMS = [
+  ['シカラード', 1956, 'シカンブル'],
+  ['ロマネラ', 1943, null],
+  ['ラパイヴァ', 1964, null],
+  ['ダルタワ', 1989, null],
+  ['カプチーノベイ', 1989, null],
+  ['ロッタキム', 2000, null],
+  ['シェリフズデピュティ', 1994, 'デピュティミニスター'],
+  ['バブラー', 2005, 'ディストーテッドヒューマー'],
+  ['ヴェガスショウガール', 2003, null],
+  ['ゼンダ', 1999, 'ザミンダー'],
+  ['フレッシュドール', 2004, null],
+  ['フェザード', 2012, null],
+  ['アガリード', 2010, null],
+  ['スノーブライド', 1986, 'ブラッシンググルーム'],
+].map(([n, b, sire]) => ({ n, b, s: '牝', sire }));
+
+const MORE_OVERSEAS = [
+  { n: 'リボー', b: 1952, sire: 'テネラニ', dam: 'ロマネラ', abroad: [1957, 1972], died: 1972, afee: 2000,
+    lvl: 0.95, surf: 'T', dist: 2400, range: 800, style: '先', starts: 16, wins: 16, rec: [16, 0, 0, 0], earn: 10000,
+    f: ['stamina', 'guts'], big: [[1955, '凱旋門賞', 'GI'], [1956, 'キングジョージ6世&QES', 'GI'], [1956, '凱旋門賞', 'GI']] },
+  { n: 'シーバード', b: 1962, c: '栗毛', sire: 'ダンキューピッド', dam: 'シカラード', abroad: [1966, 1972], died: 1973, afee: 2000,
+    lvl: 0.95, surf: 'T', dist: 2400, range: 700, style: '差', starts: 8, wins: 7, earn: 10000,
+    f: ['burst', 'stamina'], big: [[1965, '英ダービー', 'GI'], [1965, '凱旋門賞', 'GI']] },
+  { n: 'ブリガディアジェラード', b: 1968, sire: 'クイーンズハザー', dam: 'ラパイヴァ', abroad: [1973, 1988], died: 1989, afee: 1500,
+    lvl: 0.94, surf: 'T', dist: 1600, range: 600, style: '先', starts: 18, wins: 17, rec: [17, 1, 0, 0], earn: 12000,
+    f: ['speed', 'guts'], big: [[1971, '英2000ギニー', 'GI'], [1972, 'キングジョージ6世&QES', 'GI'], [1972, '英チャンピオンS', 'GI']] },
+  { n: 'ダラカニ', b: 2000, c: '芦毛', sire: 'ダーシャーン', dam: 'ダルタワ', abroad: [2004, 2017], died: 2017, afee: 800,
+    lvl: 0.89, surf: 'T', dist: 2400, range: 600, style: '差', starts: 9, wins: 8, earn: 20000,
+    f: ['stamina', 'burst'], big: [[2003, '仏ダービー', 'GI'], [2003, '凱旋門賞', 'GI']] },
+  { n: 'メダグリアドーロ', b: 1999, c: '黒鹿毛', sire: 'エルプラド', dam: 'カプチーノベイ', abroad: [2004, null], afee: 2000,
+    lvl: 0.84, surf: 'D', dist: 2000, range: 500, style: '先', starts: 17, wins: 8, earn: 60000,
+    f: ['power'], big: [[2002, 'トラヴァーズS', 'GI'], [2003, 'ホイットニーH', 'GI'], [2004, 'ドンH', 'GI']] },
+  { n: 'カーリン', b: 2004, c: '栗毛', sire: 'スマートストライク', dam: 'シェリフズデピュティ', abroad: [2009, null], afee: 2500,
+    lvl: 0.90, surf: 'D', dist: 2000, range: 500, style: '先', starts: 16, wins: 11, earn: 110000,
+    f: ['power', 'stamina'], big: [[2007, 'プリークネスS', 'GI'], [2007, 'BCクラシック', 'GI'], [2008, 'ドバイワールドカップ', 'GI']] },
+  { n: 'キングマン', b: 2011, sire: 'インヴィンシブルスピリット', dam: 'ゼンダ', abroad: [2015, null], afee: 3000,
+    lvl: 0.89, surf: 'T', dist: 1600, range: 400, style: '差', starts: 8, wins: 7, earn: 20000,
+    f: ['speed', 'burst'], big: [[2014, '愛2000ギニー', 'GI'], [2014, 'セントジェームズパレスS', 'GI'], [2014, 'サセックスS', 'GI'],
+      [2014, 'ジャックルマロワ賞', 'GI']] },
+  { n: 'ゴールデンホーン', b: 2012, sire: 'ケープクロス', dam: 'フレッシュドール', abroad: [2016, null], afee: 600,
+    lvl: 0.89, surf: 'T', dist: 2400, range: 500, style: '先', starts: 9, wins: 7, earn: 50000,
+    f: ['stamina'], big: [[2015, '英ダービー', 'GI'], [2015, 'エクリプスS', 'GI'], [2015, '愛チャンピオンS', 'GI'], [2015, '凱旋門賞', 'GI']] },
+  { n: 'アロゲート', b: 2013, c: '芦毛', sire: 'アンブライドルズソング', dam: 'バブラー', abroad: [2018, 2020], died: 2020, afee: 1500,
+    lvl: 0.93, surf: 'D', dist: 2000, range: 500, style: '先', starts: 11, wins: 7, earn: 190000,
+    f: ['power', 'stamina'], big: [[2016, 'トラヴァーズS', 'GI'], [2016, 'BCクラシック', 'GI'], [2017, 'ペガサスワールドC', 'GI'],
+      [2017, 'ドバイワールドカップ', 'GI']] },
+  { n: 'フライトライン', b: 2018, sire: 'タピット', dam: 'フェザード', abroad: [2023, null], afee: 3000,
+    lvl: 0.95, surf: 'D', dist: 1800, range: 500, style: '先', starts: 6, wins: 6, rec: [6, 0, 0, 0], earn: 60000,
+    f: ['speed', 'power'], big: [[2022, 'パシフィッククラシック', 'GI'], [2022, 'BCクラシック', 'GI']] },
+  { n: 'バーイード', b: 2018, sire: 'シーザスターズ', dam: 'アガリード', abroad: [2023, null], afee: 1500,
+    lvl: 0.93, surf: 'T', dist: 1600, range: 500, style: '先', starts: 11, wins: 10, earn: 50000,
+    f: ['speed', 'burst'], big: [[2021, 'サセックスS', 'GI'], [2021, 'クイーンエリザベス2世S', 'GI'], [2022, 'インターナショナルS', 'GI']] },
+  { n: 'レイチェルアレクサンドラ', b: 2006, s: '牝', sire: 'メダグリアドーロ', dam: 'ロッタキム', amare: [2012, null],
+    lvl: 0.90, surf: 'D', dist: 1800, range: 400, style: '先', starts: 19, wins: 13, earn: 40000,
+    f: ['speed', 'power'], big: [[2009, 'ケンタッキーオークス', 'GI'], [2009, 'プリークネスS', 'GI'], [2009, 'ウッドワードS', 'GI']] },
+  { n: 'ウィンクス', b: 2011, s: '牝', sire: 'ストリートクライ', dam: 'ヴェガスショウガール', amare: [2021, null],
+    lvl: 0.94, surf: 'T', dist: 2000, range: 600, style: '差', growth: '晩成', starts: 43, wins: 37, earn: 260000,
+    f: ['burst', 'guts'], big: [[2015, 'コックスプレート', 'GI'], [2016, 'コックスプレート', 'GI'], [2017, 'コックスプレート', 'GI'],
+      [2018, 'コックスプレート', 'GI']] },
+];
+
+/** 海外で走り、日本へ輸入された名馬（2 回目）。1 歳の年の海外セールにも出る。 */
+const MORE_IMPORTS = [
+  { n: 'ラムタラ', b: 1992, c: '栗毛', sire: 'ニジンスキー', dam: 'スノーブライド', stud: [1996, 2006], died: 2014, peak: 3000,
+    lvl: 0.90, surf: 'T', dist: 2400, range: 600, style: '差', starts: 4, wins: 4, rec: [4, 0, 0, 0], earn: 20000,
+    f: ['stamina', 'burst'], big: [[1995, '英ダービー', 'GI'], [1995, 'キングジョージ6世&QES', 'GI'], [1995, '凱旋門賞', 'GI']] },
+];
+
 const OVERSEAS_MARES = [
   { n: 'ゴルディコヴァ', b: 2005, s: '牝', sire: 'アナバー', dam: 'ボーンゴールド', amare: [2013, null],
     lvl: 0.90, surf: 'T', dist: 1600, range: 400, style: '差', growth: '持続', starts: 27, wins: 17, earn: 60000, f: ['speed', 'guts'],
@@ -842,6 +923,11 @@ const ABROAD = {
   キングマンボ: [1995, 2010, 3000, 0.86, ['speed', 'burst'], 2016],
   ジャイアンツコーズウェイ: [2001, 2017, 2000, 0.86, ['guts'], 2018],
   タピット: [2005, 2024, 3000, 0.80, ['power'], null],
+  ネイティヴダンサー: [1955, 1966, 1500, 0.92, ['speed'], 1967],
+  アファームド: [1980, 2000, 1500, 0.90, ['speed', 'guts'], 2001],
+  ナシュワン: [1990, 2001, 1000, 0.88, ['speed', 'stamina'], 2002],
+  モンジュー: [2001, 2011, 1500, 0.88, ['stamina'], 2012],
+  ロックオブジブラルタル: [2003, 2019, 800, 0.86, ['speed'], null],
   ヘイルトゥリーズン: [1962, 1975, 1000, 0.80, ['guts'], 1976],
 };
 
@@ -938,6 +1024,7 @@ const SHOWA = [
 const IMPORTED = new Set([
   'テスコボーイ', 'ノーザンテースト', 'トニービン', 'ブライアンズタイム', 'サンデーサイレンス', 'ダンシングブレーヴ',
   'フレンチデピュティ', 'ヘニーヒューズ', 'パイロ', 'ドレフォン', 'ナダル', 'ブリックスアンドモルタル', 'カリフォルニアクローム',
+  'ラムタラ',
 ]);
 
 // bg：血統をつなぐだけの馬（海外の祖先と、日本の名簿に入らない母）。
@@ -952,6 +1039,7 @@ export const REAL_HORSES = [
   ...SHOWA_ANCESTORS.map(bg), ...SHOWA_DAMS.map(bg), ...SHOWA,
   ...MORE_ANCESTORS.map(bg), ...MORE_DAMS.map(bg), ...HEISEI,
   ...OVERSEAS_ANCESTORS.map(bg), ...OVERSEAS_DAMS.map(bg), ...OVERSEAS.map(os), ...OVERSEAS_MARES.map(os),
+  ...MORE_OVERSEAS_ANCESTORS.map(bg), ...MORE_OVERSEAS_DAMS.map(bg), ...MORE_OVERSEAS.map(os), ...MORE_IMPORTS,
 ].map((d) => {
   let o = d;
   const m = AMARE[d.n];

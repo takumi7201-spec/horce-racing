@@ -434,6 +434,19 @@ section('因子・系統・海外の名馬');
   check('買った名牝は自分の繁殖牝馬になる',
     bz.ok && GG.myBroodmares(g6).some((m) => m.id === bz.horse.id) && w6.marePool.includes(bz.horse.id)
     && GG.overseasSale(g6).some((x) => x.key === zen.key && x.sold), bz.why);
+
+  // 日本へ輸入された海外の名馬。1 歳の年は海外セールに出て、買われなければ史実の年に輸入される。
+  const g7 = newGame({ seed: 'verify-lammtarra', startYear: 1993 });
+  g7.world.week = (12 - 1) * 4 + 3;
+  check('1993 年の海外セールに 1 歳のラムタラが出る', GG.overseasSale(g7).some((x) => x.realName === 'ラムタラ'));
+  const g8 = newGame({ seed: 'verify-lammtarra', startYear: 1995 });
+  g8.world.week = 48;
+  nextWeek(g8);
+  const lam = [...g8.world.horses.values()].find((h) => h.name === 'ラムタラ');
+  check(`1996 年にラムタラが種牡馬として輸入される（${lam?.studFee} 万）`,
+    !!lam && g8.world.stallionPool.includes(lam.id) && lam.studFee === 3000);
+  const ab26 = stallions(g4).filter((s) => s.abroad).map((s) => s.name);
+  check(`2026 年の海外種付けに近年の名馬が並ぶ（${ab26.length} 頭）`, ['フライトライン', 'バーイード', 'キングマン'].every((n) => ab26.includes(n)));
 }
 
 // ---------------------------------------------------------------- 開始年
