@@ -524,6 +524,14 @@ section('開始年（史実の名馬）');
   check(`1991 年 4 月にナリタブライアンが生まれる（${nb?.name}、父 ${nbSire}・母 ${nbDam}）`,
     !!nb && nb.birthYear === 1991 && nbSire === 'ブライアンズタイム' && nbDam === 'パシフィカス' && nb.name === 'パシフィカスの1991');
   const lot = GG.foalSale(g90).find((x) => x.realName === 'ナリタブライアン');
+  const book = GG.realBook(g90);
+  const nbBook = book.find((x) => x.name === 'ナリタブライアン');
+  const ssBook = book.find((x) => x.name === 'サンデーサイレンス');
+  const deep = book.find((x) => x.name === 'ディープインパクト');
+  check(`史実馬名鑑が年代ごとに今の姿を出す（ナリタブライアン：${nbBook?.status.text}、ディープ：${deep?.status.text}）`,
+    nbBook?.decade === 1990 && nbBook.status.key === 'here' && nbBook.id === nb?.id
+    && ssBook?.status.text.startsWith('種牡馬') && deep?.status.text === '2002年に誕生'
+    && !book.some((x) => x.name === 'パシフィカス'));
   check('当歳セールに史実の名馬が上場される', !!lot);
   const back = fromJSON(toJSON(g90));
   check('セーブ往復で実在馬の状態が保たれる',

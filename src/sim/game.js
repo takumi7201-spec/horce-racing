@@ -10,7 +10,7 @@ import { readyToRun, MENUS, fitLabel, condLabel } from './training.js';
 import {
   matingEval, pedigreeTree, nicksValue, lineLabel, breedQuality, FACTORS, factorsOf, factorBonus, vigorOf,
 } from './pedigree.js';
-import { abroadSires } from './realsires.js';
+import { abroadSires, realBook as realBookOf } from './realsires.js';
 import { studFeeOf, canBeBroodmare } from './breeding.js';
 import { previewOdds } from './race.js';
 import { makeRng, hashSeed } from '../core/rng.js';
@@ -460,6 +460,9 @@ export function skipTargets(g) {
   out.push({ week: null, weeks: WEEKS_PER_YEAR - wk + 1, label: '年末処理まで', events: ['表彰式・引退・馬名登録'] });
   return out;
 }
+
+/** 史実馬名鑑（年代ごとに見る実在の馬と、この世界での今の姿）。 */
+export const realBook = (g) => realBookOf(g.world);
 
 /** 直近の結果一覧（重賞優先）。 */
 export function recentResults(g) {

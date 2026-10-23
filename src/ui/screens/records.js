@@ -1,4 +1,4 @@
-// 記録。リーディング、歴代 GI、コースレコード、年度代表馬。
+// 記録。リーディング、歴代 GI、コースレコード、年度代表馬、史実馬名鑑。
 
 import { el, card, table, tabs, button } from '../dom.js';
 import * as G from '../../sim/game.js';
@@ -17,11 +17,13 @@ export function recordsScreen(app) {
     { id: 'g1', name: '歴代 GI' },
     { id: 'awards', name: '年度代表馬' },
     { id: 'records', name: 'コースレコード' },
+    { id: 'real', name: '史実馬名鑑' },
   ], tab, (id) => app.go('records', { tab: id }));
 
   const body = tab === 'g1' ? g1View(app)
     : tab === 'awards' ? awardsView(app)
       : tab === 'records' ? recordsView(app)
+      : tab === 'real' ? realBookView(app)
         : leadersView(app);
   return el('div', [nav, body]);
 }
@@ -100,4 +102,71 @@ function recordsView(app) {
       SHORT[r.courseId] ?? r.courseName, r.surface, `${r.distance}m`,
       el('b', { text: formatTime(r.time) }), r.name, r.year,
     ]), { align: ['c', 'c', 'c', 'c', , 'c'] }));
+}
+
+// ---------------------------------------------------------------- 史実馬名鑑
+
+const decadeName = (d) => (d <= 1960 ? '〜1960年代' : `${d}年代`);
+const WHERE_FILTERS = [
+  { id: 'all', name: 'すべて' }, { id: '日本', name: '日本' }, { id: '海外', name: '海外' }, { id: '輸入', name: '輸入' },
+];
+
+/**
+ * 実在の馬を生まれた年代ごとに一覧する。この世界での今の姿（現役・種牡馬・これから生まれる・
+ * 生まれなかった…）を並べるので、昔から始めたときに「次に誰が来るか」を見る表にもなる。
+ * 年代の既定は、いま現役の世代（4 年前に生まれた馬）の年代。
+ */
+function realBookView(app) {
+  const g = app.game;
+  const all = G.realBook(g);
+  if (!all.length) return card('史実馬名鑑', el('p.empty', { text: 'この世界は実在の馬を使っていない。' }));
+  const decades = [...new Set(all.map((x) => x.decade))].sort((a, b) => a - b);
+  const nowDec = Math.max(decades[0], Math.min(decades[decades.length - 1], Math.floor((g.world.year - 4) / 10) * 10));
+  const dec = app.params.dec ?? nowDec;
+  const where = app.params.where ?? 'all';
+  const go = (p) => app.go('records', { tab: 'real', dec, where, ...p }, { replace: true });
+
+  const inDec = all.filter((x) => x.decade === dec);
+  const rows = inDec.filter((x) => where === 'all' || x.where === where)
+    .sort((a, b) => a.birthYear - b.birthYear || b.g1 - a.g1);
+  const count = (k) => inDec.filter((x) => x.status.key === k).length;
+
+  const decTabs = tabs(decades.map((d) => ({
+    id: d, name: `${decadeName(d)}（${all.filter((x) => x.decade === d).length}）`,
+  })), dec, (d) => go({ dec: d }));
+  decTabs.classList.add('book-decades');
+  const whereTabs = el('div.book-where', WHERE_FILTERS.map((f) => button(f.name, () => go({ where: f.id }), {
+    cls: `sm ${f.id === where ? 'primary' : 'ghost'}`,
+  })));
+
+  return el('div', [
+    decTabs,
+    card(`${decadeName(dec)}生まれの実在馬（${rows.length} 頭）`, [
+      el('div.book-head', [
+        whereTabs,
+        el('p.note', { text: `この世界に居る ${count('here')} 頭 ・ これから ${count('future')} 頭 ・ 故馬 ${count('dead')} 頭`
+          + (count('lost') ? ` ・ 生まれなかった ${count('lost')} 頭` : '') }),
+      ]),
+      rows.length ? table(['馬名', '生年', '性', '父', '母', '区分', '史実の主な勝鞍', 'この世界の成績', 'いま'],
+        rows.map((x) => ({
+          cells: [
+            el('span.sire-n', [
+              el('b', { text: x.name }),
+              x.where !== '日本' ? el('i.foreigntag', { text: x.where }) : null,
+              x.mine ? el('i.realtag', { text: '所有' }) : null,
+            ]),
+            x.birthYear, x.sex, x.sire, x.dam, x.role,
+            x.bigWins.length
+              ? el('span.book-wins', { text: x.bigWins.slice(-2).join('・') + (x.bigWins.length > 2 ? ` ほか${x.bigWins.length - 2}` : ''),
+                title: x.bigWins.join('\n') })
+              : '—',
+            x.world ? `${x.world.starts}戦${x.world.wins}勝${x.world.g1 ? `（GI ${x.world.g1}勝）` : ''}` : '—',
+            el('span.book-st', { text: x.status.text, class: `st-${x.status.key}` }),
+          ],
+          cls: x.mine ? 'mine' : null,
+          onclick: x.id != null ? () => app.go('stable', { id: x.id }) : null,
+        })), { align: [, 'c', 'c', , , 'c'] })
+        : el('p.empty', { text: 'この年代・区分の実在馬は居ない。' }),
+    ]),
+  ]);
 }

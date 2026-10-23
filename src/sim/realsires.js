@@ -514,5 +514,62 @@ export function buyRealMare(world, rng, name, key) {
   return h;
 }
 
+/** 名鑑に載せる年代の区切り。1960 年代より前は一つにまとめる（祖先ばかりで数が少ない）。 */
+export const decadeOf = (b) => (b < 1970 ? 1960 : Math.floor(b / 10) * 10);
+
+/**
+ * 史実馬名鑑。表の馬のうち名の通った馬（戦績・供用年・格のある馬）を、この世界での今の姿と並べる。
+ * 血統をつなぐためだけの母や祖先は載せない。
+ * status.key は future（これから生まれる・来る）/ here（この世界に居る）/ dead / lost（生まれなかった）/ none。
+ */
+export function realBook(world) {
+  if (!world.real) return [];
+  const y = world.year;
+  const out = [];
+  for (const d of REAL_HORSES) {
+    if (d.lvl == null && !d.big?.length && !d.stud && !d.mare && !d.abroad && !d.amare) continue;
+    const o = originOf(d);
+    const h = madeHorse(world, d.n);
+    const female = d.s === '牝';
+    const role = d.stud || d.abroad ? '種牡馬' : d.mare || d.amare ? '繁殖牝馬' : '競走馬';
+    const where = d.imp ? '輸入' : d.os || d.abroad || d.amare ? '海外' : '日本';
+    let status;
+    if (!h) {
+      const e = entryOf(d);
+      if (d.b >= y) status = { key: 'future', text: `${d.b}年に誕生` };
+      else if (d.abroad && d.abroad[0] > y) status = { key: 'future', text: `${d.abroad[0]}年から海外で供用` };
+      else if ((o === 'imp' || o === 'appear') && e != null && e > y) {
+        status = { key: 'future', text: `${e}年に${d.stud ? '種牡馬入り' : '繁殖入り'}` };
+      } else if (o === 'born' && d.b >= world.startYear) status = { key: 'lost', text: 'この世界では生まれなかった' };
+      else if (d.amare && d.amare[0] <= y + 1 && (d.amare[1] == null || y + 1 <= d.amare[1])
+        && (d.died == null || d.died > y)) status = { key: 'abroad', text: '海外で繁殖牝馬' };
+      else if (d.os && y - d.b <= 5) status = { key: 'abroad', text: y - d.b < 2 ? '海外の幼駒' : '海外で現役' };
+      else status = { key: 'none', text: '—' };
+    } else if (h.dead) status = { key: 'dead', text: '故馬' };
+    else if (h.abroadFee && h.retired && h.ownerId !== 'player') status = { key: 'here', text: '海外で供用中' };
+    else if (h.stallion) status = { key: 'here', text: `種牡馬 ${h.studFee ?? 0}万` };
+    else if (h.broodmare) status = { key: 'here', text: '繁殖牝馬' };
+    else if (!h.retired) {
+      const age = y - h.birthYear;
+      status = { key: 'here', text: age < 2 ? `幼駒（${age}歳）` : `現役 ${age}歳` };
+    } else status = { key: 'here', text: '引退' };
+    const big = d.big ?? [];
+    out.push({
+      name: d.n, birthYear: d.b, sex: female ? '牝' : '牡', coat: d.c ?? '鹿毛',
+      sire: d.sire ?? '—', dam: d.dam ?? '—', role, where,
+      decade: decadeOf(d.b),
+      bigWins: big.map(([yr, race]) => `${yr} ${race}`),
+      g1: big.filter((x) => x[2] === 'GI').length,
+      id: h?.id ?? null,
+      mine: h?.ownerId === 'player',
+      // この世界で走った成績（史実の数字ではなく、ゲームの中で積み上げたもの）。
+      world: h && h.birthYear >= world.startYear - 1 && h.starts > 0
+        ? { starts: h.starts, wins: h.wins, g1: h.g1Wins ?? 0 } : null,
+      status,
+    });
+  }
+  return out;
+}
+
 /** 史実の名で登録される予定の馬か（セールで「史実」と分かるように）。 */
 export const realNameOf = (h) => (h.real ? h.regName ?? h.name : null);

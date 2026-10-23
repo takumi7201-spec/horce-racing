@@ -1095,3 +1095,17 @@ canvas.race3d { width: 100%; height: 100%; display: block; }
 .fchip.line { color: #fff; background: linear-gradient(#5aa84c, var(--green-d)); border-color: var(--green-d); }
 .fchip.abroad { color: #fff; background: linear-gradient(#5b8fd8, #2f5fa8); border-color: #2f5fa8; }
 .inb.factors li { margin: 3px 0; }
+
+/* ---------------- 史実馬名鑑 ---------------- */
+.book-decades { flex-wrap: wrap; }
+.book-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.book-head .note { margin: 0; }
+.book-where { display: flex; gap: 6px; flex-wrap: wrap; }
+.book-wins { font-size: 11.5px; color: var(--fg2, #5c5640); }
+.book-st { font-size: 11.5px; font-weight: 800; white-space: nowrap; padding: 1px 7px; border-radius: 8px; }
+.book-st.st-here { color: #fff; background: var(--green); }
+.book-st.st-future { color: #6b4600; background: #fff1b8; }
+.book-st.st-abroad { color: #fff; background: #3e6fb8; }
+.book-st.st-dead { color: #fff; background: #8d856a; }
+.book-st.st-lost { color: #9a3b2b; background: #f6ddd5; }
+.book-st.st-none { color: var(--fg3); }
