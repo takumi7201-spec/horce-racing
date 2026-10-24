@@ -3,6 +3,7 @@
 //   node tools/import-wikidata-parents.mjs            # 取得して src/sim/data/wikidata-parents.js を書く
 //   node tools/import-wikidata-parents.mjs --offline  # キャッシュ（.cache/wikidata）だけで組み直す
 //   node tools/import-wikidata-parents.mjs --rounds 3 # 見つけた親のさらに親を何代たどるか
+//   node tools/import-wikidata-parents.mjs --en-rounds 2 # 英語版の記事で補う世代の数（祖先が増え過ぎないよう絞る）
 //
 // ja.wikipedia の記事から取る import-real-horses.mjs は、親の記事が無い・インフォボックスに
 // 書いてない馬の父母を null にする（海外馬の母なしが 1,155 頭）。Wikidata は記事が無くても
@@ -15,6 +16,8 @@
 //   - 親の名は日本語ラベル、無ければ英語ラベル。表に同じ QID の馬がいればその名を使う（二頭に割れない）。
 //   - 親子の年齢差が 2〜30 歳に収まらない親は結ばない。親の生年が無ければ子の 8 年前で推す。
 //   - 見つけた親の親も --rounds の分だけたどる（QID で引くので同定の曖昧さは無い）。
+//   - Wikidata に父母が無い馬は、同じ項目の英語版の記事のインフォボックス（sire・dam）で補う。
+//     海外馬は Wikidata に母が無いことが多いが、英語版の記事にはほぼ書いてある。
 // 出力は表の末尾に重ねるだけ（real-horses.js の withWikidata）。順番を変えると世界の乱数がずれる。
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
@@ -33,6 +36,7 @@ const flag = (f) => args.includes(f);
 const opt = (f, d) => { const i = args.indexOf(f); return i >= 0 ? args[i + 1] : d; };
 const OFFLINE = flag('--offline');
 const ROUNDS = Number(opt('--rounds', 3));
+const EN_ROUNDS = Number(opt('--en-rounds', 2));
 const CACHE = resolve(ROOT, opt('--cache', '.cache/wikidata'));
 const BATCH = 50;
 const DELAY = 1200;
@@ -112,7 +116,7 @@ console.error(`生年まで一致した馬 ${matchedQ.size} 頭（同定が曖�
 
 const parentsOf = new Map();   // QID → { sire: {q, ja, en, b}, dam: {...} }
 async function fetchParents(qs) {
-  const todo = [...new Set(qs)].filter((q) => !parentsOf.has(q));
+  const todo = [...new Set(qs.filter(isQ))].filter((q) => !parentsOf.has(q));
   for (const part of chunks(todo, 80)) {
     const vals = part.map((q) => `wd:${q}`).join(' ');
     const rows = await sparql(`SELECT ?h ?f ?fja ?fen ?fb ?m ?mja ?men ?mb WHERE { VALUES ?h { ${vals} }
@@ -131,6 +135,76 @@ async function fetchParents(qs) {
       set('dam', qid(r.m), r.mja, r.men, r.mb);
     }
   }
+}
+
+
+// ---------------------------------------------------------------- 2b. 英語版の記事で補う
+
+const isQ = (q) => /^Q\d+$/.test(q ?? '');
+
+/** QID → 英語版の記事名。 */
+async function enTitles(qs) {
+  const out = new Map();
+  for (const part of chunks([...new Set(qs.filter(isQ))], 80)) {
+    const rows = await sparql(`SELECT ?h ?t WHERE { VALUES ?h { ${part.map((q) => `wd:${q}`).join(' ')} } ?a schema:about ?h ; schema:isPartOf <https://en.wikipedia.org/> ; schema:name ?t }`);
+    for (const r of rows) out.set(qid(r.h), val(r.t));
+  }
+  return out;
+}
+
+/** 英語版の記事名 → QID。 */
+async function titleToQ(titles) {
+  const out = new Map();
+  for (const part of chunks([...new Set(titles)], 60)) {
+    const rows = await sparql(`SELECT ?t ?h WHERE { VALUES ?t { ${part.map((t) => `"${t.replace(/"/g, '')}"@en`).join(' ')} } ?a schema:name ?t ; schema:isPartOf <https://en.wikipedia.org/> ; schema:about ?h }`);
+    for (const r of rows) out.set(val(r.t), qid(r.h));
+  }
+  return out;
+}
+
+/** QID → { ja, en, b }。親の名前と生年を引く。 */
+const infoOf = new Map();
+async function fetchInfo(qs) {
+  const todo = [...new Set(qs.filter(isQ))].filter((q) => !infoOf.has(q));
+  for (const part of chunks(todo, 80)) {
+    const rows = await sparql(`SELECT ?h ?ja ?en ?b WHERE { VALUES ?h { ${part.map((q) => `wd:${q}`).join(' ')} }
+      OPTIONAL { ?h rdfs:label ?ja FILTER(lang(?ja)="ja") } OPTIONAL { ?h rdfs:label ?en FILTER(lang(?en)="en") } OPTIONAL { ?h wdt:P569 ?b } }`);
+    for (const q of part) infoOf.set(q, { ja: null, en: null, b: null });
+    for (const r of rows) Object.assign(infoOf.get(qid(r.h)), { ja: val(r.ja), en: val(r.en), b: year(r.b) });
+  }
+}
+
+/** 英語版の記事の本文（キャッシュ）。無い・取れないときは ''。 */
+async function enRaw(title) {
+  const path = join(CACHE, `en-${createHash('sha1').update(title).digest('hex')}.txt`);
+  if (existsSync(path)) return readFileSync(path, 'utf8');
+  if (OFFLINE) return '';
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const res = await fetch(`https://en.wikipedia.org/w/index.php?action=raw&title=${encodeURIComponent(title)}`, { headers: { 'User-Agent': UA } });
+    if (res.ok || res.status === 404) {
+      const text = res.ok ? await res.text() : '';
+      writeFileSync(path, text);
+      await sleep(400);
+      return text;
+    }
+    await sleep(3000 * (attempt + 1));
+  }
+  return '';
+}
+
+/** インフォボックスの欄の値から馬を取る。{ title: リンク先の記事名, text: 表示名 }。 */
+function enParent(text, field) {
+  const m = new RegExp(`\\|\\s*${field}\\s*=\\s*([^\\n]*)`, 'i').exec(text);
+  if (!m) return null;
+  const v = m[1].replace(/<ref[^>]*>[\s\S]*?<\/ref>/g, '').replace(/<ref[^>]*\/>/g, '').replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/<br\s*\/?>.*$/i, '').trim();
+  const link = /\[\[([^\]|#]+)(?:\|([^\]]*))?\]\]/.exec(v);
+  const title = link ? link[1].trim() : null;
+  let name = (link ? (link[2] || link[1]) : v).replace(/\[\[|\]\]|'{2,3}/g, '').trim();
+  // 「Lady Vettori (GB)」の国名、「Omaha (horse)」の曖昧さ回避は馬名ではない。
+  name = name.replace(/\s*\((?:[A-Z]{2,3}|horse|racehorse|[A-Za-z]+ horse)\)\s*$/i, '').trim();
+  if (!name || /^(unknown|\?|n\/a)$/i.test(name) || name.length > 40) return null;
+  return { title, text: name };
 }
 
 // ---------------------------------------------------------------- 3. 表へ重ねる
@@ -184,8 +258,7 @@ while (frontier.length && round <= ROUNDS) {
   await fetchParents(frontier.map((x) => x.q));
   const next = [];
   for (const { ref, q } of frontier) {
-    const par = parentsOf.get(q);
-    if (!par) continue;
+    const par = parentsOf.get(q) ?? { sire: null, dam: null };
     // 表に父があるなら、Wikidata の父が同じ馬のときだけ採る。食い違えば同名の別馬を引いている。
     if (ref.sire != null) {
       const sq = par.sire?.q;
@@ -197,6 +270,23 @@ while (frontier.length && round <= ROUNDS) {
       if (ref[role] != null || f[role]) continue;
       const n = resolve1(par[role], ref, role);
       if (n) f[role] = n;
+    }
+    // Wikidata に父母が無い馬は、英語版の記事のインフォボックスで補う。
+    if (round < EN_ROUNDS && isQ(q) && ['sire', 'dam'].some((r) => ref[r] == null && !f[r])) {
+      const title = (await enTitles([q])).get(q);
+      if (title) {
+        const text = await enRaw(title);
+        for (const role of ['sire', 'dam']) {
+          if (ref[role] != null || f[role]) continue;
+          const ep = enParent(text, role);
+          if (!ep) continue;
+          const pq = ep.title ? (await titleToQ([ep.title])).get(ep.title) : null;
+          if (pq) await fetchInfo([pq]);
+          const inf = pq ? infoOf.get(pq) : null;
+          const n = resolve1({ q: pq ?? `en:${ep.title ?? ep.text}`, ja: inf?.ja ?? null, en: inf?.en ?? ep.text, b: inf?.b ?? null }, ref, role);
+          if (n) f[role] = n;
+        }
+      }
     }
     if (f.sire || f.dam) fills.set(key(ref.n, ref.b), f);
   }
