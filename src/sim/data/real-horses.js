@@ -13100,7 +13100,7 @@ const IMPORTED = new Set([
 // abroad：海外で供用された種牡馬（海外種付けができる）。os：海外の名馬（1 歳でセールに出る）。
 const bg = (d) => ({ ...d, bg: true });
 const os = (d) => ({ ...d, bg: true, os: true });
-export const REAL_HORSES = [
+const TABLE = [
   ...ANCESTORS.map(bg), ...DAMS.map((d) => (d.mare ? d : bg(d))), ...EXTRA_DAMS.map(bg),
   ...PAST_SIRES, ...STANDING, ...MARES,
   ...SHOWA_ANCESTORS.map(bg), ...SHOWA_DAMS.map(bg), ...SHOWA,
@@ -13151,3 +13151,47 @@ export const REAL_HORSES = [
   if (FACTORS[d.n]) o = { ...o, f: FACTORS[d.n] };
   return o;
 });
+
+/**
+ * 取り込んだ勝ち馬（供用年を持たない日本の牡馬）を種牡馬にする。
+ * ウィキペディアの勝ち馬の表には種牡馬としての経歴が無いので、確かな事実から導く。
+ *   根拠 1：表の中で別の馬の父として名前が出る（実際に種付けしていた）
+ *   根拠 2：GI（JpnI を含む）を勝った
+ * 騸馬（せん馬）の見分けは付かないので、GI 馬の中には実際は種牡馬になっていない馬も入る。
+ *   供用の始まり：4 歳で引退して翌年から（生年 + 5）。最初の産駒の誕生が早ければその前年。
+ *   供用の終わり：最後の産駒の種付けの年か、始めて 10 年のどちらか遅いほう（生年 + 22 が上限）。没年があればそこまで。
+ *   種付料 peak：格（GI 220・GII 110・GIII 70）に、素質と産駒の数を足した全盛期の目安（万円）。
+ * sd：導いた印。名簿の整理（MAX_STALLIONS）では、手で書いた種牡馬のように外されない扱いにはしない。
+ */
+function withDerivedStuds(table) {
+  const kids = new Map();
+  for (const d of table) {
+    if (!d.sire) continue;
+    if (!kids.has(d.sire)) kids.set(d.sire, []);
+    kids.get(d.sire).push(d.b);
+  }
+  const RANK = { GI: 3, JpnI: 3, GII: 2, JpnII: 2, GIII: 1, JpnIII: 1 };
+  const BASE = { 3: 220, 2: 110, 1: 70 };
+  return table.map((d) => {
+    if (d.stud || d.s === '牝' || d.lvl == null || d.bg || d.os || d.imp || d.abroad || d.b < 1955) return d;
+    // 親子の年齢差が 2〜30 歳に収まる産駒だけ数える（同じ名の別の馬を拾わない）。
+    const ks = (kids.get(d.n) ?? []).filter((b) => b - d.b >= 3 && b - d.b <= 30).sort((a, b) => a - b);
+    const big = d.big ?? [];
+    const rank = Math.max(0, ...big.map((x) => RANK[x[2]] ?? 0));
+    const g1 = big.filter((x) => RANK[x[2]] === 3).length;
+    if (!ks.length && rank < 3) return d;
+    const from = Math.max(d.b + 3, Math.min(d.b + 5, (ks[0] ?? 9999) - 1));
+    if (d.died != null && d.died < from) return d;
+    let to = Math.min(d.b + 22, Math.max(from + 9, (ks[ks.length - 1] ?? 0) - 1));
+    if (d.died != null) to = Math.min(to, d.died);
+    // 若い馬と、最近まで勝ち馬の産駒が出ている馬は 2026 年も供用中とする（終わりを書かない）。
+    // 書くと「始めて 10 年」で切れ、イスラボニータ（2011 年生）が 2025 年に退いたことになる。
+    else if (d.b >= 2015 || (ks[ks.length - 1] ?? 0) >= 2021 || to >= 2026) to = null;
+    const raw = (BASE[rank] ?? 40) + Math.max(0, d.lvl - 0.70) * 1500
+      + Math.min(3, Math.max(0, g1 - 1)) * 60 + Math.min(10, ks.length) * 15;
+    const peak = Math.round(raw / 10) * 10;
+    return { ...d, stud: [from, to], peak, sd: true };
+  });
+}
+
+export const REAL_HORSES = withDerivedStuds(TABLE);

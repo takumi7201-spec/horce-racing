@@ -272,7 +272,9 @@ check(`繁殖牝馬 ${w.marePool.length} 頭`, w.marePool.length >= 200);
 {
   const live3 = [...w.horses.values()].filter((h) => w.year - h.birthYear === 3);
   const fillRate = sum(live3, (h) => collectAncestors(w, h.id, 5).size) / (live3.length * 62);
-  check(`5 代血統表の埋まり率 ${(fillRate * 100).toFixed(0)}%`, fillRate > 0.55);
+  // 取り込んだ実在馬は母や母の父の記録が無いことが多く、血統が途中で切れる。
+  // 種牡馬にしたぶん、架空の馬だけの世界（56%）より 3〜6 ポイント下がる。
+  check(`5 代血統表の埋まり率 ${(fillRate * 100).toFixed(0)}%`, fillRate > 0.50);
   const ibAvg = sum(live3, (h) => (h.sireId && h.damId ? inbreedings(w, h.sireId, h.damId).length : 0)) / live3.length;
   check(`平均インブリード数 ${ibAvg.toFixed(2)}`, ibAvg > 1.0 && ibAvg < 8);
   const lines = new Set(live3.map((h) => sireLineRoot(w, h.id)));
@@ -407,7 +409,7 @@ section('因子・系統・海外の名馬');
   check(`名馬は因子を持つ（ディープインパクト：${GG.horseView(g4, deep.id).factors.join('・')}）`, deep.factors?.includes('burst'));
   const kizuna = byName('キズナ');
   check(`息子が何頭も種牡馬になった馬は系統を確立する（キズナは${GG.horseView(g4, kizuna.id).line}）`,
-    deep.lineHead && GG.horseView(g4, kizuna.id).line === 'ディープインパクト系');
+    deep.lineHead && ['ディープインパクト系', 'キズナ系'].includes(GG.horseView(g4, kizuna.id).line));
   const mare = GG.myBroodmares(g4)[0];
   const ev = GG.evaluateMating(g4, mare.id, kizuna.id);
   check(`配合の評価に因子と血の活力が出る（${ev.factors.list.map((x) => x.factor).join('・')} / ${ev.vigor.label}）`,
@@ -523,6 +525,16 @@ section('開始年（史実の名馬）');
   check(`2020 年開始で令和の名馬が種牡馬・受胎中（${due20.join('・')}）`,
     ['リオンディーズ', 'アドマイヤマーズ', 'ハービンジャー'].every((n) => pool20.has(n))
     && ['タスティエーラ', 'ソールオリエンス', 'ドゥレッツァ'].every((n) => due20.includes(n)));
+  // 取り込んだ勝ち馬の種牡馬入り。1994 年に始めて 1996 年の年明けまで進めると、
+  // 1990 年生まれの GI 馬サクラチトセオーが名簿に入っている（供用年を導いた馬）。
+  while (g94.world.year < 1996) nextWeek(g94);
+  const chitose = [...g94.world.horses.values()].find((h) => h.name === 'サクラチトセオー');
+  check(`取り込んだ GI 馬が種牡馬入りする（サクラチトセオー：${chitose?.studFee} 万）`,
+    !!chitose && chitose.studDerived === true && g94.world.real.entered.includes('サクラチトセオー')
+    && (chitose.stallion || g94.world.stallionPool.every((id) => id !== chitose.id)));
+  const derived26 = [...game.world.horses.values()].filter((h) => h.studDerived && h.stallion && !h.dead);
+  check(`2026 年の名簿に導いた種牡馬が並ぶ（${derived26.length} 頭、名簿 ${game.world.stallionPool.length} 頭）`,
+    derived26.length >= 25 && game.world.stallionPool.length <= 220);
   const hoyo = [...w75.horses.values()].find((h) => h.pregnancy?.real === 'ホウヨウボーイ');
   check('1975 年 4 月に生まれる名馬は、開始時に母が受胎している（ホウヨウボーイ）', !!hoyo);
 

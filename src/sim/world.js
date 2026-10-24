@@ -172,6 +172,7 @@ export function createWorld(seed, { startYear = 2026, playerName = '', farmName 
     // 繁殖牝馬は来年生まれる産駒の母として並べる（今年の種付けの相手）。
     syncRealMares(world, Y0 + 1);
     settleRealHorses(world, Y0);
+    trimStallions(world, Y0);
     // 開始時点で現役の実在馬（1975 年開始ならトウショウボーイやテンポイント）。
     // 2 歳以上は紙の戦績を持たせる。開始年の 4 月に生まれる名馬は、ここで母に受胎させる。
     for (const h of liveReal) if (Y0 - h.birthYear >= 2) paperCareer(world, h, rng, Y0);
@@ -281,7 +282,12 @@ function pairMares(world, rng, year, n, { exclude = null, npcOnly = false } = {}
   if (mares.length === 0 || stallions.length === 0) return [];
 
   // 種牡馬は種付料が高いほど多くの牝馬を集める。
-  const fees = stallions.map((id) => Math.max(10, studFeeOf(world, world.horses.get(id), year)));
+  // 供用年を導いた馬（取り込んだ勝ち馬）は無名の種牡馬が多く、実際は集まる牝馬が少ない。
+  // 重みを半分にしないと、血統が途中で切れた実在馬が父の半分を占めて血統表の埋まり率が落ちた。
+  const fees = stallions.map((id) => {
+    const h = world.horses.get(id);
+    return Math.max(10, studFeeOf(world, h, year) * (h.studDerived ? 0.5 : 1));
+  });
   const eliteFees = fees.map((f) => f * f);
   const pairs = [];
   rng.shuffle(mares);
@@ -371,6 +377,40 @@ function paperCareer(world, horse, rng, uptoYear) {
   horse.cond = clamp01(rng.normal(0.6, 0.12));
 }
 
+/**
+ * 種牡馬の名簿を MAX_STALLIONS に整理する。
+ * 毎年の登録の後と、世界を作った直後（開始年の供用馬を揃えた後）に呼ぶ。後者を忘れると、
+ * 供用年を導いた馬（取り込んだ勝ち馬、開始年に 120 頭ほど）が足されて名簿が 260 頭を超えた。
+ */
+function trimStallions(world, year) {
+  // 種牡馬が多すぎると、大半が 1 頭も種付けしないまま名簿に載り続ける。
+  // 牝馬が集まらない馬から用途変更（＝名簿から外す）。
+  // 高齢馬は同じ種付料でも先に外す。実際の種牡馬も、産駒が走らなければ
+  // 数年で供用をやめるし、走っても歳を取れば退く。
+  if (world.stallionPool.length > MAX_STALLIONS) {
+    const worth = (id) => {
+      const h = world.horses.get(id);
+      if (!h) return -1;
+      // 実在の種牡馬は 22 歳まで名簿に残す。架空の馬と同じ規則（15 歳から 4 割評価）だと、
+      // キズナやロードカナロアがゲーム開始から 4 年で軒並み用途変更になった。
+      // 供用年を導いた馬（取り込んだ勝ち馬）は 600 頭を超える。外されない扱いにすると
+      // 名簿が実在馬だけで埋まって、架空の種牡馬が居なくなる。
+      if (h.real && !h.studDerived) return year - h.birthYear > 22 ? (h.studFee ?? 0) * 0.4 : Infinity;
+      return (h.studFee ?? 0) * (year - h.birthYear > 14 ? 0.4 : 1);
+    };
+    world.stallionPool.sort((a, b) => worth(b) - worth(a));
+    for (const id of world.stallionPool.slice(MAX_STALLIONS)) {
+      const h = world.horses.get(id);
+      if (h) h.stallion = false;
+      // 名簿から外れた馬を自分の種牡馬として数え続けると、
+      // 種付けもされないのに維持費だけ取られる。
+      // 生成中はまだプレイヤーが居ない。
+      if (world.player) world.player.stallions = world.player.stallions.filter((x) => x !== id);
+    }
+    world.stallionPool.length = MAX_STALLIONS;
+  }
+}
+
 /** 生まれて 4 年経った世代から、次の繁殖・種牡馬を選ぶ。 */
 function promotePools(world, rng, year) {
   const born = year - 4;
@@ -407,29 +447,7 @@ function promotePools(world, rng, year) {
     if (year - h.birthYear > (h.real ? 26 : 23)) { h.dead = true; return false; }
     return true;
   });
-  // 種牡馬が多すぎると、大半が 1 頭も種付けしないまま名簿に載り続ける。
-  // 牝馬が集まらない馬から用途変更（＝名簿から外す）。
-  // 高齢馬は同じ種付料でも先に外す。実際の種牡馬も、産駒が走らなければ
-  // 数年で供用をやめるし、走っても歳を取れば退く。
-  if (world.stallionPool.length > MAX_STALLIONS) {
-    const worth = (id) => {
-      const h = world.horses.get(id);
-      if (!h) return -1;
-      // 実在の種牡馬は 22 歳まで名簿に残す。架空の馬と同じ規則（15 歳から 4 割評価）だと、
-      // キズナやロードカナロアがゲーム開始から 4 年で軒並み用途変更になった。
-      if (h.real) return year - h.birthYear > 22 ? (h.studFee ?? 0) * 0.4 : Infinity;
-      return (h.studFee ?? 0) * (year - h.birthYear > 14 ? 0.4 : 1);
-    };
-    world.stallionPool.sort((a, b) => worth(b) - worth(a));
-    for (const id of world.stallionPool.slice(MAX_STALLIONS)) {
-      const h = world.horses.get(id);
-      if (h) h.stallion = false;
-      // 名簿から外れた馬を自分の種牡馬として数え続けると、
-      // 種付けもされないのに維持費だけ取られる。
-      world.player.stallions = world.player.stallions.filter((x) => x !== id);
-    }
-    world.stallionPool.length = MAX_STALLIONS;
-  }
+  trimStallions(world, year);
   world.marePool = world.marePool.filter((id) => {
     const h = world.horses.get(id);
     if (!h) return false;

@@ -110,6 +110,8 @@ function applyTraits(h, d) {
   const f = d.f ?? deriveFactors(d);
   if (f?.length) h.factors = [...f];
   if (d.os || d.abroad) h.foreign = true;
+  // 表の供用年を導いた馬（取り込んだ勝ち馬）。名簿の整理では架空の馬と同じ扱いにする。
+  if (d.sd) h.studDerived = true;
 }
 
 /** 表の戦績を写す。big は upto 年より前の勝鞍だけ（まだ行われていないレースを並べない）。 */
@@ -376,6 +378,12 @@ export function realNewYear(world, rng, year, news = []) {
     const racing = !h.retired;
     if (racing) retireForStud(world, h);
     if (isStud) h.stallion = true; else h.broodmare = true;
+    // 史実の年に生まれた馬と、現役で始まった馬は make() を通らず、種付料の基準が付いていない。
+    // 名簿に入る年の相場から始めて、毎年 4 分の 1 ずつこの世界の値へ寄せる（落とし穴 37）。
+    if (isStud && h.realFee == null && (d.fee ?? d.peak) != null) {
+      h.realFee = d.fee ?? d.peak;
+      h.realFeeFrom = Math.max(world.startYear, from);
+    }
     if (!pool.includes(h.id)) {
       pool.push(h.id);
       if (racing) news.push(`${h.name} が引退し、${isStud ? '種牡馬' : '繁殖牝馬'}になった。`);
