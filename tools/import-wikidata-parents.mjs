@@ -15,6 +15,9 @@
 //   - 表に父がある馬は、Wikidata の父が表の父と同じ QID のときだけ採る（食い違えば同名の別馬）。
 //   - 親の名は日本語ラベル、無ければ英語ラベル。表に同じ QID の馬がいればその名を使う（二頭に割れない）。
 //   - 親子の年齢差が 2〜30 歳に収まらない親は結ばない。親の生年が無ければ子の 8 年前で推す。
+//   - 名前だけの祖先（生年が子からの推定）は、日本語ラベルと生年では結べない。英語のラベル（対応表のカタカナ名の元の英語名、
+//     史実馬の一覧の英字名）で探し、生年が推定値から 12 年以内で、子すべての親として成り立つ一頭に決まるときだけ結ぶ。
+//     結べた馬の生年は Wikidata の値で親子の年齢差を見る（セクレタリアトの母の母など、有名馬の血統表の穴を埋める）。
 //   - 見つけた親の親も --rounds の分だけたどる（QID で引くので同定の曖昧さは無い）。
 //   - Wikidata に父母が無い馬は、同じ項目の英語版の記事のインフォボックス（sire・dam）で補う。
 //     海外馬は Wikidata に母が無いことが多いが、英語版の記事にはほぼ書いてある。
@@ -24,7 +27,8 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
-import { BASE_TABLE } from '../src/sim/data/real-horses.js';
+import { WD_BASE } from '../src/sim/data/real-horses.js';
+import { KATAKANA } from '../src/sim/data/katakana-names.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = join(ROOT, 'src/sim/data/wikidata-parents.js');
@@ -80,12 +84,12 @@ const norm = (s) => s.normalize('NFKC').replace(/[ァィゥェォャュョッ]/g
 // ---------------------------------------------------------------- 1. 表の馬を Wikidata の馬に結ぶ
 
 const stubLike = (h) => h.bg && h.s === '牝' && !h.sire && !h.dam && h.lvl == null && !h.mare;
-const table = BASE_TABLE.filter((h) => !stubLike(h));   // 名前だけの母は生年が推定なので同定できない
+const table = WD_BASE.filter((h) => !stubLike(h));   // 名前だけの母は生年が推定なので同定できない
 const nameOf = new Map();     // 表の名 → 項目（同名は複数）
-for (const h of BASE_TABLE) nameOf.set(h.n, [...(nameOf.get(h.n) ?? []), h]);
+for (const h of WD_BASE) nameOf.set(h.n, [...(nameOf.get(h.n) ?? []), h]);
 const key = (n, b) => `${n}|${b}`;
 
-console.error(`表 ${BASE_TABLE.length} 頭のうち ${table.length} 頭を Wikidata に問い合わせる`);
+console.error(`表 ${WD_BASE.length} 頭のうち ${table.length} 頭を Wikidata に問い合わせる`);
 const matchedQ = new Map();   // key(n,b) → QID
 const ambiguous = new Set();
 {
@@ -111,6 +115,58 @@ const ambiguous = new Set();
   for (const k of ambiguous) matchedQ.delete(k);   // 同名・同年の馬が二頭いるときは採らない
 }
 console.error(`生年まで一致した馬 ${matchedQ.size} 頭（同定が曖昧で外した ${ambiguous.size} 頭）`);
+
+// 1b. 名前だけの祖先など、日本語ラベルと生年で結べなかった馬を、英語のラベルで結ぶ。
+const trueB = new Map();      // key(n,b) → Wikidata の生年（推定した生年を直す）
+const effB = (e) => trueB.get(key(e.n, e.b)) ?? e.b;
+{
+  const alpha = JSON.parse(readFileSync(join(ROOT, 'tools/data/alpha-names.json'), 'utf8'));
+  const rev = new Map();
+  for (const [en, k] of KATAKANA) rev.set(k, [...(rev.get(k) ?? []), en]);
+  const kids = new Map();     // 親の名 → 子の生年
+  for (const h of WD_BASE) for (const p of [h.sire, h.dam]) if (p) kids.set(p, [...(kids.get(p) ?? []), h.b]);
+  const latin = (n) => /^[A-Za-z]/.test(n);
+  const targets = WD_BASE.filter((h) => (h.sire == null || h.dam == null) && !matchedQ.has(key(h.n, h.b)));
+  const byEn = new Map();     // 英語名 → 対象
+  for (const h of targets) {
+    const ens = new Set([...(latin(h.n) ? [h.n] : []), ...(rev.get(h.n) ?? []), ...(alpha[h.n] ? [alpha[h.n]] : [])]);
+    for (const e of ens) byEn.set(e, [...(byEn.get(e) ?? []), h]);
+  }
+  const cands = new Map();    // key → [{ q, y }]
+  const names = [...byEn.keys()];
+  console.error(`英語名で探す ${targets.length} 頭（英語名 ${names.length}）`);
+  let done = 0;
+  for (const part of chunks(names, BATCH)) {
+    const vals = part.map((n) => `"${n.replace(/"/g, '')}"@en`).join(' ');
+    const rows = await sparql(`SELECT ?name ?h ?b WHERE { VALUES ?name { ${vals} } ?h rdfs:label ?name . ?h wdt:P31 wd:Q726 . OPTIONAL { ?h wdt:P569 ?b } }`);
+    for (const r of rows) {
+      const y = year(r.b);
+      if (y == null) continue;
+      for (const h of byEn.get(val(r.name)) ?? []) {
+        const k = key(h.n, h.b);
+        cands.set(k, [...(cands.get(k) ?? []), { q: qid(r.h), y }]);
+      }
+    }
+    done += part.length;
+    if (!OFFLINE && done % 1000 < BATCH) console.error(`  ${done}/${names.length}`);
+  }
+  let acc = 0, amb = 0;
+  for (const h of targets) {
+    const k = key(h.n, h.b);
+    const approx = h.bg && h.lvl == null;                     // 名前だけの祖先は生年が推定値
+    const cs = kids.get(h.n) ?? [];
+    const ok = (cands.get(k) ?? []).filter((c) => (approx ? Math.abs(c.y - h.b) <= 12 : c.y === h.b)
+      && (cs.length ? cs.every((b) => b - c.y >= 2 && b - c.y <= 30) : true));
+    const uniq = [...new Map(ok.map((c) => [c.q, c])).values()];
+    if (!uniq.length) continue;
+    uniq.sort((a, b) => Math.abs(a.y - h.b) - Math.abs(b.y - h.b));
+    if (uniq.length > 1 && Math.abs(uniq[0].y - h.b) === Math.abs(uniq[1].y - h.b)) { amb++; continue; }
+    matchedQ.set(k, uniq[0].q);
+    trueB.set(k, uniq[0].y);
+    acc++;
+  }
+  console.error(`英語名で結べた馬 ${acc} 頭（決まらなかった ${amb} 頭）`);
+}
 
 // ---------------------------------------------------------------- 2. 父母を引く
 
@@ -212,7 +268,7 @@ function enParent(text, field) {
 const qToName = new Map();      // QID → 表の名（既にある馬）
 for (const [k, q] of matchedQ) qToName.set(q, k.split('|')[0]);
 const taken = new Map();        // 正規化した名 → [{ n, b, q }]
-for (const h of BASE_TABLE) taken.set(norm(h.n), [...(taken.get(norm(h.n)) ?? []), { n: h.n, b: h.b, q: matchedQ.get(key(h.n, h.b)) ?? null }]);
+for (const h of WD_BASE) taken.set(norm(h.n), [...(taken.get(norm(h.n)) ?? []), { n: h.n, b: h.b, q: matchedQ.get(key(h.n, h.b)) ?? null }]);
 
 const fills = new Map();        // key(n,b) → { sire?, dam? }
 const added = [];               // 新しい祖先
@@ -226,7 +282,7 @@ function resolve1(p, child, role) {
   if (qToName.has(p.q)) {
     const n = qToName.get(p.q);
     const e = (nameOf.get(n) ?? []).find((x) => matchedQ.get(key(x.n, x.b)) === p.q) ?? added.find((x) => x.n === n);
-    if (e && gap(e.b) >= 2 && gap(e.b) <= 30) { reused++; return n; }
+    if (e && gap(effB(e)) >= 2 && gap(effB(e)) <= 30) { reused++; return n; }
     skippedYear++;
     return null;
   }
@@ -251,7 +307,7 @@ function resolve1(p, child, role) {
 // 同じ馬を親に持つ別の馬が、先に作られた同じ名前を使えるように、世代ごとに回す。
 let frontier = [...matchedQ].map(([k, q]) => {
   const [n, b] = k.split('|');
-  return { ref: BASE_TABLE.find((h) => h.n === n && h.b === Number(b)), q };
+  return { ref: WD_BASE.find((h) => h.n === n && h.b === Number(b)), q };
 }).filter((x) => x.ref && (x.ref.sire == null || x.ref.dam == null));
 let round = 0;
 while (frontier.length && round <= ROUNDS) {
@@ -266,9 +322,10 @@ while (frontier.length && round <= ROUNDS) {
       if (sq && known.length && !known.includes(sq)) { skippedSire++; continue; }
     }
     const f = fills.get(key(ref.n, ref.b)) ?? {};
+    const child = trueB.has(key(ref.n, ref.b)) ? { ...ref, b: trueB.get(key(ref.n, ref.b)) } : ref;   // 推定した生年は Wikidata の値で見る
     for (const role of ['sire', 'dam']) {
       if (ref[role] != null || f[role]) continue;
-      const n = resolve1(par[role], ref, role);
+      const n = resolve1(par[role], child, role);
       if (n) f[role] = n;
     }
     // Wikidata に父母が無い馬は、英語版の記事のインフォボックスで補う。
@@ -283,7 +340,7 @@ while (frontier.length && round <= ROUNDS) {
           const pq = ep.title ? (await titleToQ([ep.title])).get(ep.title) : null;
           if (pq) await fetchInfo([pq]);
           const inf = pq ? infoOf.get(pq) : null;
-          const n = resolve1({ q: pq ?? `en:${ep.title ?? ep.text}`, ja: inf?.ja ?? null, en: inf?.en ?? ep.text, b: inf?.b ?? null }, ref, role);
+          const n = resolve1({ q: pq ?? `en:${ep.title ?? ep.text}`, ja: inf?.ja ?? null, en: inf?.en ?? ep.text, b: inf?.b ?? null }, child, role);
           if (n) f[role] = n;
         }
       }

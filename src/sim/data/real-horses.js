@@ -15345,7 +15345,7 @@ function claim(byName, n, b) {
  * 史実馬の一覧（ahogame-facts.js）から取った父母を重ねる。tools/import-ahogame.mjs が書く。
  * 既にある父母は上書きしない。新しい祖先は表の末尾に足す（途中に入れると世界の乱数がずれる）。
  */
-function withAhogame(table) {
+function withAhogame(table, { horses = true } = {}) {
   const byName = new Map();
   for (const d of table) byName.set(d.n, [...(byName.get(d.n) ?? []), d.b]);
   // 先に足せる祖先を決める。同名の別馬に潰される祖先は足さず、それを指す父母も外す。
@@ -15366,7 +15366,7 @@ function withAhogame(table) {
     out.push({ n, b, ...(s === '牝' ? { s } : {}), ...(c ? { c } : {}),
       ...(ok(sire) ? { sire } : {}), ...(ok(dam) ? { dam } : {}), bg: true });
   }
-  return withAhogameHorses(out);
+  return horses ? withAhogameHorses(out) : out;
 }
 
 /**
@@ -15491,7 +15491,14 @@ function withKatakana(table) {
     return g && ((!d.sire && g.sire) || (!d.dam && g.dam)) ? { ...d, sire: d.sire ?? g.sire, dam: d.dam ?? g.dam } : d;
   });
 }
-const TABLE = withKatakana(withWikidata(withAhogame(TABLE_BASE)));
+/** tools/import-wikidata-parents.mjs が読む、史実馬の一覧を重ねた後（Wikidata を重ねる前）の表。 */
+export const WD_BASE = withAhogame(TABLE_BASE);
+/**
+ * tools/import-ahogame.mjs が読む、ahogame-horses.js を重ねる前の表。道具は自分が前回書いた馬を
+ * 「表に居る馬」とみなすと、新しく足した馬の性・毛色・父母を落として書き直してしまう（道具を二度流すと劣化する）。
+ */
+export const TABLE_WITHOUT_AHO_HORSES = withKatakana(withWikidata(withAhogame(TABLE_BASE, { horses: false })));
+const TABLE = withKatakana(withWikidata(WD_BASE));
 
 /**
  * 取り込んだ勝ち馬（供用年を持たない日本の牡馬）を種牡馬にする。

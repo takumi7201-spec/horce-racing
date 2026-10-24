@@ -273,6 +273,17 @@ for (const a of usedAlpha) {
 }
 console.error(`Wikidata の英語名 ${[...usedAlpha].filter((a) => !isKana(a)).length} のうち、カタカナ名に直せる ${alias.length}`);
 
+// ---------------------------------------------------------------- 英字名（Wikidata の道具が使う）
+
+// カタカナ名 → 英字名。名前だけの祖先（生年が推定）は日本語ラベルでは Wikidata に結べないので、英語のラベルで探す。
+mkdirSync(join(ROOT, 'tools/data'), { recursive: true });
+{
+  const alpha = {};
+  for (const r of recs) if (r.alpha && isKana(r.n)) alpha[r.n] = r.alpha;
+  writeFileSync(join(ROOT, 'tools/data/alpha-names.json'), JSON.stringify(alpha));
+  console.error(`英字名 ${Object.keys(alpha).length} 件を tools/data/alpha-names.json に書いた`);
+}
+
 // ---------------------------------------------------------------- 書き出し
 
 const q = (s) => (s == null ? 'null' : `'${s.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`);
@@ -310,7 +321,7 @@ console.error(`${OUT} に書いた`);
 // 戦績（出走・勝鞍）はサイトに無いので持たない。父母は、表かこの一覧に居る名前だけ書く
 // （居ない名前を書くと、realsires.js が名前で表を引いて世界の生成が落ちる。落とし穴 43）。
 // 同名で年の違う馬が表に居るものは足さない（表は馬名で引くので、後の方が前の方を潰す。落とし穴 54）。
-const { REAL_HORSES: FINAL } = await import('../src/sim/data/real-horses.js');
+const { TABLE_WITHOUT_AHO_HORSES: FINAL } = await import('../src/sim/data/real-horses.js');   // 自分の前回の出力を含めない
 const finalByKey = new Map(FINAL.map((h) => [`${norm(h.n)}|${h.b}`, h]));
 const idx2 = new Map();       // norm(名) → [{ n, b }]（表の全馬と、これから足す馬）
 const addIdx2 = (n, b) => idx2.set(norm(n), [...(idx2.get(norm(n)) ?? []), { n, b }]);
