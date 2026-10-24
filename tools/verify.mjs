@@ -266,7 +266,9 @@ function sideGame(opts) {
 }
 const w = game.world;
 check(`生成時間 ${Date.now() - t0}ms`, Date.now() - t0 < 4000);
-check(`総馬数 ${w.horses.size}`, w.horses.size > 2500 && w.horses.size < 9000);
+// 上限は世界が膨らみ過ぎないための見張り。記事の無い親を名前だけの祖先として表に入れた
+// （--stubs、約 2,200 頭）ので 9,000 から 12,000 に上げた。生成時間とセーブの大きさは別に見ている。
+check(`総馬数 ${w.horses.size}`, w.horses.size > 2500 && w.horses.size < 12000);
 check(`種牡馬 ${w.stallionPool.length} 頭`, w.stallionPool.length >= 30);
 check(`繁殖牝馬 ${w.marePool.length} 頭`, w.marePool.length >= 200);
 {
