@@ -1,3 +1,5 @@
+import { play } from './sound.js';
+
 // DOM の小物。
 // フレームワークを入れない代わりに、ここだけで「要素を組む」語彙を揃える。
 // シミュレーション層は DOM を知らないので、変換はすべて画面側の責任。
@@ -165,6 +167,7 @@ export function toast(msg, { bad = false } = {}) {
     document.body.appendChild(t);
   }
   t.textContent = msg;
+  play(bad ? 'err' : 'ok', { volume: 0.7 });
   t.className = bad ? 'show bad' : 'show';
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => { t.className = ''; }, 2600);

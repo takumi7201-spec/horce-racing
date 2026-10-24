@@ -9,6 +9,7 @@ import * as G from '../sim/game.js';
 import { saveLocal, loadLocal, slotInfo, clearSlot } from '../sim/save.js';
 import { loadHorseSprite } from './horse-sprite.js';
 import { icon } from './icons.js';
+import * as sound from './sound.js';
 import { createPasture } from '../render3d/pasture.js';
 import { formatMoney } from '../core/util.js';
 import { weekLabel } from '../sim/schedule.js';
@@ -99,6 +100,7 @@ export function start(root) {
     /** 週送り。自分の馬が走るレースがあれば観戦画面へ寄る。 */
     next() {
       if (!app.game || app.skipping) return;
+      sound.play('next');
       const hadEntries = G.myEntries(app.game).length > 0;
       const out = G.nextWeek(app.game);
       app.afterWeek(out);
@@ -260,6 +262,7 @@ export function start(root) {
   loadHorseSprite();
 
   app.render();
+  sound.installGlobalClicks();
   window.addEventListener('resize', () => {
     app.pasture?.resize();
     if (app.pasture && app.game) syncBackdrop(app, app.screen);
@@ -395,6 +398,19 @@ function sideNav(app) {
 /** 長押しとみなす時間（ms）。短いとスクロールのつもりのタッチで開いてしまう。 */
 const LONG_PRESS = 450;
 
+/** 効果音の入切。押した直後に鳴らして、入った音量を確かめられるようにする。 */
+function muteButton() {
+  const b = el('button.saveb.muteb', { title: '効果音の入切' });
+  const sync = () => { b.textContent = sound.isMuted() ? '音 切' : '音 入'; };
+  b.addEventListener('click', () => {
+    sound.setMuted(!sound.isMuted());
+    sync();
+    sound.play('ok');
+  });
+  sync();
+  return b;
+}
+
 /** 左下の NEXT と小さなセーブ。タップで 1 週、長押しでまとめて送るメニュー。 */
 function dock(app) {
   const entries = G.myEntries(app.game).length;
@@ -432,6 +448,7 @@ function dock(app) {
     el('button.saveb', { onclick: () => app.openSaveMenu(), title: 'セーブ / ロード（S）' }, [
       icon('save', { size: 16 }), el('span', { text: 'セーブ' }),
     ]),
+    muteButton(),
   ]);
 }
 

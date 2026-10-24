@@ -9,6 +9,7 @@ import { formatMoney, formatTime, formatSec } from '../../core/util.js';
 import { createRaceView, CAMERAS } from '../../render3d/raceview.js';
 import { horseImg } from '../horse-sprite.js';
 import { showResult } from './races.js';
+import * as sound from '../sound.js';
 
 export function raceDayScreen(app) {
   const races = app.params.races ?? [];
@@ -158,6 +159,7 @@ function watchView(app, race, races, idx, next) {
     };
     void info;
     view.onFinish = () => {
+      sound.play('goal');
       setTimeout(() => {
         if (app.screen === 'raceday') app.go('raceday', { races, index: idx, phase: 'result' });
       }, 1200);
@@ -210,6 +212,7 @@ function watchView(app, race, races, idx, next) {
       app.go('raceday', { races, index: idx, phase: 'result' });
     }, { cls: 'sm primary' }));
 
+    sound.play('gate');
     view.play();
   });
 
@@ -225,6 +228,8 @@ function resultView(app, race, races, idx, next) {
   if (app.cleanup) { app.cleanup(); app.cleanup = null; }
   const mine = race.results.filter((r) => g.world.horses.get(r.horseId)?.ownerId === 'player');
   const win = race.results[0];
+  if (mine.some((r) => r.order === 1)) sound.play('bell');
+  else if (mine.some((r) => r.order <= 3)) sound.play('win');
 
   return el('div.raceday', [
     el('header.race-h', [
