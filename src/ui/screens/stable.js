@@ -348,7 +348,7 @@ function statePanel(v) {
     r('年齢', `${v.age}歳`),
     v.pregnancy ? r('受胎', `${v.pregnancy.sire}（${v.pregnancy.year}年4月）`)
       : r('産駒の勝利', `${foals.reduce((a, f) => a + f.wins, 0)}勝`),
-    v.stallion && !v.dead ? r('種付料', formatMoney(v.studFee ?? 0)) : r('立場', v.dead ? '故' : v.broodmare ? '繁殖牝馬' : '引退'),
+    v.stallion && !v.dead ? r('種付料', formatMoney(v.studFee ?? 0)) : r('立場', v.dead ? '故' : v.broodmare ? '繁殖牝馬' : abroadRacing(v) ? '海外で現役' : '引退'),
   ];
   return el('section.hd-state', [
     ring,
@@ -532,8 +532,12 @@ function standing(v) {
   if (v.stallion) return `種牡馬（種付料 ${formatMoney(v.studFee ?? 0)}）`;
   if (v.broodmare) return '繁殖牝馬';
   if (v.owner && v.owner !== '—') return `馬主: ${v.owner}`;
+  if (abroadRacing(v)) return '海外で現役';
   return v.retired ? '引退' : '—';
 }
+
+/** 海外で走っている馬（世界には居るが、日本のレースには出ない）。名鑑の「海外で現役」と同じ。 */
+const abroadRacing = (v) => !!v.foreign && v.retired && !v.stallion && !v.broodmare && v.age <= 8;
 
 
 const SHORT = {

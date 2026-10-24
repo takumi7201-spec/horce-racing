@@ -219,7 +219,12 @@ export function seedRealHorses(world, rng) {
       && !(d.died != null && d.died < S);
     // 海外の名馬は、まだ海外で種牡馬になっていない若駒なら作らない（1 歳ならセールに出る）。
     // 親として要るときだけ make が作る。
-    if (d.os && (d.abroad ? d.abroad[0] > S : age <= RACING_AGE)) continue;
+    // 1 歳以下は海外セールに出る（買うまで世界に作らない。落とし穴 33・42）。2 歳以上の海外馬は世界に居る
+    // （海外で走っている馬。日本のレースには出ず、「海外で現役」と名鑑に出る）。名牝（amare）の若い馬は海外セールの繁殖牝馬。
+    if (d.os) {
+      if (d.abroad) { if (d.abroad[0] > S) continue; }
+      else if (age <= 1 || (d.amare && age <= RACING_AGE)) continue;
+    }
     if (racing) {
       live.push(make(world, rng, d.n, { year: S, live: true }));
       continue;
@@ -560,6 +565,9 @@ export function realBook(world) {
     else if (h.abroadFee && h.retired && h.ownerId !== 'player') status = { key: 'here', text: '海外で供用中' };
     else if (h.stallion) status = { key: 'here', text: `種牡馬 ${h.studFee ?? 0}万` };
     else if (h.broodmare) status = { key: 'here', text: '繁殖牝馬' };
+    else if (d.os && h.retired && !d.abroad && !d.imp && y - h.birthYear <= RACING_AGE) {
+      status = { key: 'here', text: y - h.birthYear < 2 ? '海外の幼駒' : '海外で現役' };
+    }
     else if (!h.retired) {
       const age = y - h.birthYear;
       status = { key: 'here', text: age < 2 ? `幼駒（${age}歳）` : `現役 ${age}歳` };

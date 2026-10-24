@@ -23,6 +23,7 @@
 // 獲得賞金と能力の格はゲーム用の概数で、公式の記録ではない。
 
 import { WD_FILL, WD_NEW } from './wikidata-parents.js';
+import { KATAKANA } from './katakana-names.js';
 import { AHO_HORSES } from './ahogame-horses.js';
 import { AHO_FILL, AHO_NEW, AHO_RETIRE, AHO_ALIAS } from './ahogame-facts.js';
 
@@ -15442,7 +15443,55 @@ function withWikidata(table) {
   }
   return out;
 }
-const TABLE = withWikidata(withAhogame(TABLE_BASE));
+/**
+ * 英語名のままの馬の名前をカタカナにする（katakana-names.js）。名前・父・母をまとめて置き換える。
+ * 表は馬名で引くので、カタカナ名が表に既にある名前と衝突するときは、同じ馬かどうかを決める：
+ *   英語名の馬の生年は子から推した値（名前だけの祖先）のことが多く、実際の生年とずれる（Nearco 1938 と ネアルコ 1935）。
+ *   そこで生年の一致ではなく、既にあるカタカナ名の馬が、英語名の馬の子すべての親として成り立つか
+ *   （親子の年齢差 2〜30 歳）で見る。成り立つ馬が一頭に決まれば同じ馬とみなし、英語名の方を捨てて参照を
+ *   カタカナ名へ向ける（二頭に割れない）。成り立たなければ別の馬なので、カタカナ名に生年を添えて区別する（パレオ（1952））。
+ */
+function withKatakana(table) {
+  const kana = new Map(KATAKANA);
+  const byName = new Map();
+  for (const d of table) byName.set(d.n, [...(byName.get(d.n) ?? []), d]);
+  const kids = new Map();      // 親の名 → 子の生年
+  for (const d of table) for (const p of [d.sire, d.dam]) if (p) kids.set(p, [...(kids.get(p) ?? []), d.b]);
+  const rename = new Map();    // 英語名 → 最終的な名
+  const merge = new Map();     // 捨てる英語名の馬（名|生年）→ 残すカタカナ名の馬
+  for (const d of table) {
+    const k = kana.get(d.n);
+    if (!k) continue;
+    const others = byName.get(k);
+    if (!others) { byName.set(k, [d]); rename.set(d.n, k); continue; }
+    const cs = kids.get(d.n) ?? [];
+    const ok = others.filter((o) => (cs.length ? cs.every((c) => c - o.b >= 2 && c - o.b <= 30) : Math.abs(o.b - d.b) <= 1));
+    ok.sort((x, y) => Math.abs(x.b - d.b) - Math.abs(y.b - d.b));
+    if (!ok.length || (ok.length > 1 && Math.abs(ok[0].b - d.b) === Math.abs(ok[1].b - d.b))) {
+      // 同名の別の馬（日本の馬名は年代をまたいで再登録される）。カタカナ名に生年を添えて区別する。
+      const alt = `${k}（${d.b}）`;
+      if (!byName.has(alt)) { byName.set(alt, [d]); rename.set(d.n, alt); }
+      continue;
+    }
+    rename.set(d.n, k);
+    merge.set(`${d.n}|${d.b}`, ok[0]);
+  }
+  const to = (n) => (n == null ? n : rename.get(n) ?? n);
+  const out = [];
+  const gain = new Map();      // 残すカタカナ名の馬 → 捨てた英語名の馬から引き継ぐ父母
+  for (const d of table) {
+    const m = merge.get(`${d.n}|${d.b}`);
+    if (m) { gain.set(m, { sire: to(d.sire), dam: to(d.dam) }); continue; }
+    const n = to(d.n), sire = to(d.sire), dam = to(d.dam);
+    out.push(n === d.n && sire === d.sire && dam === d.dam ? d : { ...d, n, ...(sire ? { sire } : {}), ...(dam ? { dam } : {}) });
+  }
+  // 捨てた馬の父母は、残す馬に無ければ引き継ぐ。
+  return out.map((d) => {
+    const g = gain.get(table.find((x) => x.n === d.n && x.b === d.b)) ?? null;
+    return g && ((!d.sire && g.sire) || (!d.dam && g.dam)) ? { ...d, sire: d.sire ?? g.sire, dam: d.dam ?? g.dam } : d;
+  });
+}
+const TABLE = withKatakana(withWikidata(withAhogame(TABLE_BASE)));
 
 /**
  * 取り込んだ勝ち馬（供用年を持たない日本の牡馬）を種牡馬にする。
