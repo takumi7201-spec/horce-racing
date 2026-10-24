@@ -1,8 +1,9 @@
 // 記録。リーディング、歴代 GI、コースレコード、年度代表馬、史実馬名鑑。
 
-import { el, card, table, tabs, button } from '../dom.js';
+import { el, card, table, tabs, button, modal, kv } from '../dom.js';
 import * as G from '../../sim/game.js';
 import { formatMoney, formatTime } from '../../core/util.js';
+import { ABILITY_LABEL } from '../../sim/params.js';
 
 const SHORT = {
   tokyo: '東京', nakayama: '中山', hanshin: '阪神', kyoto: '京都', chukyo: '中京',
@@ -170,9 +171,38 @@ function realBookView(app) {
             el('span.book-st', { text: x.status.text, class: `st-${x.status.key}` }),
           ],
           cls: x.mine ? 'mine' : null,
-          onclick: x.id != null ? () => app.go('stable', { id: x.id, list: ids }) : null,
+          // 世界に居る馬は馬の詳細へ。居ない馬（海外の若駒・これから生まれる馬など）は表の値の詳細を出す。
+          // どちらでもない行を作ると、押しても何も起きない行が大半になる（2020 年代は新しく足した海外馬が多い）。
+          onclick: x.id != null ? () => app.go('stable', { id: x.id, list: ids }) : () => showRealProfile(x),
         })), { align: [, 'c', 'c', , , 'c'] })
         : el('p.empty', { text: 'この年代・区分の実在馬は居ない。' }),
     ]),
+  ]);
+}
+
+/** 世界に居ない実在馬の詳細。表の値（能力は史実馬の一覧のまま）を見せる。 */
+function showRealProfile(x) {
+  const pct = (v) => (v == null ? '—' : String(Math.round(v * 100)));
+  const t = x.traits;
+  const STYLE = { 逃: '逃げ', 先: '先行', 差: '差し', 追: '追込' };
+  const SURF = { T: '芝', D: 'ダート', TD: '芝・ダート' };
+  const pairs = [
+    ['生年・性', `${x.birthYear}年生 ${x.sex}　${x.coat}`],
+    ['父 / 母', `${x.sire} / ${x.dam}`],
+    ['区分', `${x.role}（${x.where}）`],
+    ['いま', x.status.text],
+  ];
+  if (t) {
+    pairs.push(
+      [ABILITY_LABEL.speed, pct(t.lvl)],
+      ...(t.ab ? [[ABILITY_LABEL.power, pct(t.ab.power)], [ABILITY_LABEL.guts, pct(t.ab.guts)], [ABILITY_LABEL.wit, pct(t.ab.wit)]] : []),
+      ...(t.sound != null ? [['健康', pct(t.sound)], ['精神力', pct(t.spirit)]] : []),
+      ['適性', `${SURF[t.surf] ?? '—'}　${t.dist ?? '—'}m ±${t.range ?? '—'}　${STYLE[t.style] ?? '—'}　${t.growth ?? '—'}`],
+    );
+  }
+  pairs.push(['史実の主な勝鞍', x.bigWins.length ? x.bigWins.join('、') : '—']);
+  modal(x.name, [
+    el('p.note', { text: 'この世界には（まだ）居ない馬。表にある値を見せている。' }),
+    kv(pairs),
   ]);
 }

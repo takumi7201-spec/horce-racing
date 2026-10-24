@@ -572,6 +572,11 @@ export function realBook(world) {
       bigWins: big.map(([yr, race]) => `${yr} ${race}`),
       g1: big.filter((x) => x[2] === 'GI').length,
       id: h?.id ?? null,
+      // 世界に居ない馬（海外の若駒・これから生まれる馬など）の詳細は、表の値をそのまま見せる。
+      traits: d.lvl == null ? null : {
+        lvl: d.lvl, ab: d.ab ?? null, sound: d.sound ?? null, spirit: d.spirit ?? null,
+        surf: d.surf ?? null, dist: d.dist ?? null, range: d.range ?? null, style: d.style ?? null, growth: d.growth ?? null,
+      },
       mine: h?.ownerId === 'player',
       // この世界で走った成績（史実の数字ではなく、ゲームの中で積み上げたもの）。
       world: h && h.birthYear >= world.startYear - 1 && h.starts > 0
