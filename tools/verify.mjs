@@ -9,6 +9,7 @@ import {
   buildTrack, posToWorld, curvatureAt, gradeAt, allCourses, distancesOf,
   SURFACE, elevationAt, trackBounds,
 } from '../src/sim/course.js';
+import { REAL_HORSES } from '../src/sim/data/real-horses.js';
 import { createWorld, advanceWeek, weekRaces } from '../src/sim/world.js';
 import { collectAncestors, inbreedings, sireLineRoot } from '../src/sim/pedigree.js';
 import {
@@ -269,8 +270,8 @@ check(`生成時間 ${Date.now() - t0}ms`, Date.now() - t0 < 4000);
 // 上限は世界が膨らみ過ぎないための見張り。記事の無い親を名前だけの祖先として表に入れた
 // （--stubs、約 2,200 頭）ので 9,000 から 12,000 に、Wikidata から親を補った（約 1,800 頭の祖先）ので
 // 14,000 に、史実馬の一覧から親を補った（約 2,600 頭の祖先）ので 16,000 に上げた。
-// 生成時間とセーブの大きさは別に見ている。
-check(`総馬数 ${w.horses.size}`, w.horses.size > 2500 && w.horses.size < 16000);
+// 史実馬の一覧の競走馬をすべて足した（約 1 万頭）ので 30,000 に上げた。生成時間とセーブの大きさは別に見ている。
+check(`総馬数 ${w.horses.size}`, w.horses.size > 2500 && w.horses.size < 30000);
 check(`種牡馬 ${w.stallionPool.length} 頭`, w.stallionPool.length >= 30);
 check(`繁殖牝馬 ${w.marePool.length} 頭`, w.marePool.length >= 200);
 {
@@ -562,10 +563,13 @@ section('開始年（史実の名馬）');
   const nbBook = book.find((x) => x.name === 'ナリタブライアン');
   const ssBook = book.find((x) => x.name === 'サンデーサイレンス');
   const deep = book.find((x) => x.name === 'ディープインパクト');
+  // 血統をつなぐだけの母（能力を持たない祖先）は名鑑に載らない。史実馬の一覧に載っている馬は能力を持つので、
+  // パシフィカス（海外の競走馬として一覧に載っている）は載る。
+  const pureDam = REAL_HORSES.find((d) => d.bg && d.lvl == null && d.s === '牝' && d.b < 1985 && d.b > 1960);
   check(`史実馬名鑑が年代ごとに今の姿を出す（ナリタブライアン：${nbBook?.status.text}、ディープ：${deep?.status.text}）`,
     nbBook?.decade === 1990 && nbBook.status.key === 'here' && nbBook.id === nb?.id
     && ssBook?.status.text.startsWith('種牡馬') && deep?.status.text === '2002年に誕生'
-    && !book.some((x) => x.name === 'パシフィカス'));
+    && !book.some((x) => x.name === pureDam?.n));
   check('当歳セールに史実の名馬が上場される', !!lot);
   const back = fromJSON(toJSON(g90));
   check('セーブ往復で実在馬の状態が保たれる',

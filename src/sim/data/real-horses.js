@@ -24,7 +24,7 @@
 
 import { WD_FILL, WD_NEW } from './wikidata-parents.js';
 import { AHO_HORSES } from './ahogame-horses.js';
-import { AHO_FILL, AHO_NEW, AHO_RETIRE, AHO_ALIAS, AHO_STATS } from './ahogame-facts.js';
+import { AHO_FILL, AHO_NEW, AHO_RETIRE, AHO_ALIAS } from './ahogame-facts.js';
 
 /** 系統の祖と、血統をつなぐための海外の祖先。 */
 const ANCESTORS = [
@@ -15357,27 +15357,57 @@ function withAhogame(table) {
   }
   const ok = (n) => (n == null || drop.has(n) ? undefined : n);
   const fill = new Map(AHO_FILL.map(([n, b, sire, dam]) => [`${n}|${b}`, { sire: ok(sire), dam: ok(dam) }]));
-  // 能力の土台。戦績から導いた lvl・距離・脚質は不安定（取り込んだ馬の脚質の 2 割が実際と違った）ので、
-  // 史実馬の一覧の値を土台にする。競走馬（lvl を持つ馬）だけ。血統をつなぐだけの祖先には付けない。
-  const stats = new Map(AHO_STATS.map(([n, b, lvl, surf, dist, range, style, growth]) => [`${n}|${b}`, { lvl, surf, dist, range, style, growth }]));
   const out = table.map((d) => {
     const f = fill.get(`${d.n}|${d.b}`);
-    const t = d.lvl != null ? stats.get(`${d.n}|${d.b}`) : null;
-    if (!f && !t) return d;
-    const o = f ? { ...d, sire: d.sire ?? f.sire, dam: d.dam ?? f.dam } : { ...d };
-    if (t) {
-      o.lvl = t.lvl; o.surf = t.surf; o.dist = t.dist; o.range = t.range;
-      if (t.style) o.style = t.style;
-      if (t.growth) o.growth = t.growth;
-    }
-    return o;
+    return f ? { ...d, sire: d.sire ?? f.sire, dam: d.dam ?? f.dam } : d;
   });
   for (const [n, b, s, c, sire, dam] of adds) {
     out.push({ n, b, ...(s === '牝' ? { s } : {}), ...(c ? { c } : {}),
       ...(ok(sire) ? { sire } : {}), ...(ok(dam) ? { dam } : {}), bg: true });
   }
+  return withAhogameHorses(out);
+}
+
+/**
+ * 史実馬の一覧の競走馬（ahogame-horses.js）を重ねる。能力値は一覧の値のまま。
+ *   表に同じ馬（名前と生年）が居る  → 能力を上書きする。血統用の祖先（bg）だった日本の馬は競走馬にする
+ *                                    （bg のままだと世界を作るときに競走馬として作られない。originOf）。
+ *   居ない                          → 新しい競走馬として足す。日本の馬は競走馬、海外の馬は os（日本のレースには出ない）。
+ * 戦績（出走・勝鞍）は持たない。父母は表か一覧の中に居る名前だけ（居ない名前を書くと realsires.js が落ちる）。
+ */
+function withAhogameHorses(table) {
+  const byName = new Map();
+  for (const d of table) byName.set(d.n, [...(byName.get(d.n) ?? []), d.b]);
+  const rows = new Map(AHO_HORSES.map((r) => [`${r[0]}|${r[1]}`, r]));
+  const traits = ([, , , , , , , lvl, power, guts, wit, sound, spirit, surf, dist, range, style, growth]) => ({
+    lvl, ab: { power, guts, wit }, sound, spirit, surf, dist, range,
+    ...(style ? { style } : {}), ...(growth ? { growth } : {}),
+  });
+  const out = table.map((d) => {
+    const r = rows.get(`${d.n}|${d.b}`);
+    if (!r) return d;
+    rows.delete(`${d.n}|${d.b}`);
+    const o = { ...d, ...traits(r) };
+    // 日本の馬：血統用の祖先だった馬は競走馬にする。
+    // 海外の一覧の馬は旗に触らない。os を付けると 8 歳までは世界を作るときに作られなくなる
+    // （一覧にはブライアンズタイムのような輸入馬も載っていて、1990 年開始で居なくなった）。
+    if (!r[6] && o.bg && !o.os && d.lvl == null) delete o.bg;
+    return o;
+  });
+  const fresh = [];
+  for (const r of rows.values()) {
+    if (claim(byName, r[0], r[1]) === 'ok') fresh.push(r);
+  }
+  const has = (n, child) => n && (byName.get(n) ?? []).some((y) => child - y >= 2 && child - y <= 30);
+  for (const r of fresh) {
+    const [n, b, s, c, sire, dam, osf] = r;
+    out.push({ n, b, ...(s && s !== '牡' ? { s } : {}), ...(c && c !== '鹿毛' ? { c } : {}),
+      ...(has(sire, b) ? { sire } : {}), ...(has(dam, b) ? { dam } : {}),
+      ...traits(r), ...(osf ? { bg: true, os: true } : {}) });
+  }
   return out;
 }
+
 
 /**
  * Wikidata から補った父母を重ねる（wikidata-parents.js は tools/import-wikidata-parents.mjs が書く）。
@@ -15412,28 +15442,7 @@ function withWikidata(table) {
   }
   return out;
 }
-/**
- * 史実馬の一覧にあって本編に居なかった日本の競走馬を足す（ahogame-horses.js）。
- * 足すのは ADD_FROM 年以降に生まれた馬だけ。世界を作るときに競走馬として作られるのは RACING_AGE（8 歳）までで、
- * それより古い馬は血統の祖先として世界を膨らませるだけ。父母は足した後の表に居る名前だけ残す
- * （居ない名前を書くと realsires.js が名前で引いて落ちる）。
- */
-const ADD_FROM = 2018;
-function withAhogameHorses(table) {
-  const byName = new Map();
-  for (const d of table) byName.set(d.n, [...(byName.get(d.n) ?? []), d.b]);
-  const rows = AHO_HORSES.filter(([n, b, , , , , osf]) => !osf && b >= ADD_FROM && !byName.has(n));
-  for (const [n, b] of rows) byName.set(n, [b]);
-  const has = (n, child) => n && (byName.get(n) ?? []).some((y) => child - y >= 2 && child - y <= 30);
-  const out = [...table];
-  for (const [n, b, s, c, sire, dam, , lvl, surf, dist, range, style, growth] of rows) {
-    out.push({ n, b, ...(s !== '牡' ? { s } : {}), ...(c && c !== '鹿毛' ? { c } : {}),
-      ...(has(sire, b) ? { sire } : {}), ...(has(dam, b) ? { dam } : {}),
-      lvl, surf, dist, range, ...(style ? { style } : {}), ...(growth ? { growth } : {}) });
-  }
-  return out;
-}
-const TABLE = withAhogameHorses(withWikidata(withAhogame(TABLE_BASE)));
+const TABLE = withWikidata(withAhogame(TABLE_BASE));
 
 /**
  * 取り込んだ勝ち馬（供用年を持たない日本の牡馬）を種牡馬にする。

@@ -6,10 +6,9 @@
 //
 // 取るもの:
 //   事実   馬名（カタカナ・英字）・生年・性・毛色・生国・父・母、種牡馬の引退年
-//   能力の土台  スピード・スタミナ・柔軟性・芝ダート・脚質・成長型。こちらの尺度（lvl・dist・range・surf・style・growth）に
-//          変換して書く。サイトの数値そのものは出力に残さない。戦績から導いた値より、サイトの値のほうが安定しているので土台にする。
+//   能力   スピード・パワー・勝負根性・賢さ・健康・精神・スタミナ（距離）・柔軟性・芝ダート・脚質・成長型。サイトの値のまま
+//          （÷100 するだけ。水準を合わせる切片は足さない）。競走馬は日本・海外のすべてを本編に足す（ahogame-horses.js）。
 // 取らないもの: 因子・特性・ウマソナ・系統の分類・セリ・引退年齢など、こちらの仕組みに対応が無いゲーム固有の値。
-// 一覧に載っている馬を新しい競走馬として足すことはしない（足すと GI の時計が速くなる。落とし穴 46）。
 //
 // 取り込みの規則（静かに間違った血統を入れないため。落とし穴 43・45・53 と同じ型）:
 //   - 表の馬との照合は「名前（小書きのカナ・長音を均す）と生年」が一致するものだけ。
@@ -199,11 +198,17 @@ console.error(`既存の馬に補った父母 ${dFill.length} 頭、新しい祖
 console.error(`結ばなかった: 同名で決まらない ${ambiguous}、年齢差が合わない同名 ${skippedGap}`);
 
 
-// ---------------------------------------------------------------- 能力の土台
+// ---------------------------------------------------------------- 能力（サイトの値のまま）
 
 // 列（v）: 0 スピード 1 スタミナ 2 瞬発 3 根性 4 パワー 5 柔軟 6 健康 7 精神 8 賢さ 9 計 10 芝 11 ダ 12〜14 適応 15 成長型 16 成長力 17 脚質 18 気性
-// 使うのは 0・1・5・10・11・15・17 だけ。残りはこちらの仕組みに対応が無い。
+// サイトの能力値はそのまま使う（÷100 するだけで、水準を合わせる切片も足さない）:
+//   スピード → speed（サイトは 45〜85 の数値で持つ）
+//   パワー・勝負根性・賢さ → power・guts・wit、健康 → sound、精神 → spirit
+//     （S+〜G の 16 段階は、サイトが示す数値の範囲の中央値。S+ 85-80 / S 79-78 / … / G 51-45）
+// スタミナはサイトでは距離適性に効く隠し値で、こちらの「スタミナ」能力とは意味が違うので、距離（dist）にだけ使う。
+// 瞬発はこちらに対応する能力が無い（差し・追込の脚質で表している）。
 const LEVEL = ['G', 'G+', 'F', 'F+', 'E', 'E+', 'D', 'D+', 'C', 'C+', 'B', 'B+', 'A', 'A+', 'S', 'S+'];
+const LETTER = [48, 52.5, 54.5, 56.5, 58.5, 60.5, 62.5, 64.5, 66.5, 68.5, 70.5, 72.5, 74.5, 76.5, 78.5, 82.5];
 const MARK = { '◎': 3, '○': 2, '〇': 2, '△': 1, '×': 0 };
 const STYLE = { 先行: '先', 逃げ: '逃', 大逃: '逃', 差し: '差', 追込: '追', 自先: '先', 自差: '差', 自在: '先' };
 const GROWTH = { 早熟: '早熟', 早熟鍋: '早熟', 早め: '普通', 早め鍋: '普通', 遅め: '持続', 晩成: '晩成', 晩成超: '晩成', 覚醒: '晩成' };
@@ -218,41 +223,26 @@ function interp(nodes, x) {
   return nodes.at(-1)[1];
 }
 
-/** サイトの値 → こちらの尺度。lvl は切片を後で合わせるので、ここでは傾きだけ決める。 */
+const letter = (s) => { const i = LEVEL.indexOf(s); return i < 0 ? null : LETTER[i] / 100; };
+const r2 = (x) => Math.round(x * 100) / 100;
+
+/** サイトの行 → 能力。読めない行は null。 */
 function convert(v) {
   const sp = Number(v[0]), sta = Number(v[1]);
   if (!Number.isFinite(sp) || !Number.isFinite(sta)) return null;
   const lv = LEVEL.indexOf(v[5]);
   const t = MARK[v[10]], d = MARK[v[11]];
-  if (lv < 0 || t == null || d == null) return null;
+  const pw = letter(v[4]), gt = letter(v[3]), wt = letter(v[8]), hp = letter(v[6]), sd = letter(v[7]);
+  if (lv < 0 || t == null || d == null || [pw, gt, wt, hp, sd].some((x) => x == null)) return null;
   return {
-    lvl0: sp >= 60 ? 0.66 + 0.0125 * (sp - 60) : 0.66 - 0.01 * (60 - sp),
+    lvl: r2(sp / 100),
+    pw: r2(pw), gt: r2(gt), wt: r2(wt), hp: r2(hp), sd: r2(sd),
     dist: Math.min(3600, Math.max(1000, Math.round(interp(DIST_NODES, sta) / 100) * 100)),
     range: Math.round((400 + 5 * lv + 0.9 * lv * lv) / 10) * 10,
     surf: t >= 3 && d >= 3 ? 'TD' : t > d ? 'T' : d > t ? 'D' : 'TD',
     style: STYLE[v[17]] ?? null,
     growth: GROWTH[v[15]] ?? null,
   };
-}
-
-const statRows = [];
-{
-  const old = [];
-  for (const e of table) {
-    if (e.lvl == null) continue;
-    const rec = recFor(e);
-    if (!rec || rec.list === 'br' || !rec.v) continue;
-    const c = convert(rec.v);
-    if (c) statRows.push({ e, c });
-  }
-  // 平均を元に合わせる。スピードの傾きだけがサイトの値で、水準は GI の時計に直結する（落とし穴 8・46）ので動かさない。
-  const meanOld = statRows.reduce((a, { e }) => a + e.lvl, 0) / statRows.length;
-  const meanNew = statRows.reduce((a, { c }) => a + c.lvl0, 0) / statRows.length;
-  const off = meanOld - meanNew;
-  for (const r of statRows) r.c.lvl = Math.min(0.97, Math.max(0.4, Math.round((r.c.lvl0 + off) * 100) / 100));
-  console.error(`能力の土台を結べた馬 ${statRows.length} 頭（lvl の平均 ${meanOld.toFixed(3)} に合わせる切片 ${off >= 0 ? '+' : ''}${off.toFixed(3)}）`);
-  const diff = (k) => statRows.filter(({ e, c }) => e[k] != null && c[k] != null && e[k] !== c[k]).length;
-  console.error(`  置き換わる: surf ${diff('surf')} / style ${diff('style')} / growth ${diff('growth')} / dist ${statRows.filter(({ e, c }) => e.dist != null && Math.abs(e.dist - c.dist) >= 200).length}（200m 以上）`);
 }
 
 // ---------------------------------------------------------------- 種牡馬の引退年
@@ -288,12 +278,10 @@ console.error(`Wikidata の英語名 ${[...usedAlpha].filter((a) => !isKana(a)).
 const q = (s) => (s == null ? 'null' : `'${s.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`);
 const body = `// 「Winning Post 10 2026 攻略」の史実馬の一覧から取った、史実の事実だけ。
 // tools/import-ahogame.mjs が書く（手で直さない）。real-horses.js の withAhogame が表の末尾に重ねる。
-// 能力の土台（AHO_STATS）は、サイトの値をこちらの尺度に変換したもの。サイトの数値そのものは含まない。
 //   AHO_FILL    [馬名, 生年, 父, 母]               表で父母が空だった馬に補う（null は補わない）
 //   AHO_NEW     [馬名, 生年, 性, 毛色, 父, 母]     表に無かった祖先（血統をつなぐだけ）
 //   AHO_RETIRE  [馬名, 生年, 引退年]               日本で供用された種牡馬の引退年
 //   AHO_ALIAS   [英語名, カタカナ名]               Wikidata から補った英語名の馬のカタカナ名
-//   AHO_STATS   [馬名, 生年, lvl, 馬場, 距離, 幅, 脚質, 成長型]  能力の土台（こちらの尺度に変換済み）
 
 export const AHO_FILL = [
 ${dFill.map(([e, f]) => `  [${q(e.n)}, ${e.b}, ${q(f.sire)}, ${q(f.dam)}],`).join('\n')}
@@ -310,90 +298,77 @@ ${retYears.map(([n, b, y]) => `  [${q(n)}, ${b}, ${y}],`).join('\n')}
 export const AHO_ALIAS = [
 ${alias.map(([a, k]) => `  [${q(a)}, ${q(k)}],`).join('\n')}
 ];
-
-export const AHO_STATS = [
-${statRows.map(({ e, c }) => `  [${q(e.n)}, ${e.b}, ${c.lvl.toFixed(2)}, ${q(c.surf)}, ${c.dist}, ${c.range}, ${q(c.style)}, ${q(c.growth)}],`).join('\n')}
-];
 `;
 writeFileSync(OUT, body);
 console.error(`${OUT} に書いた`);
 
-// ---------------------------------------------------------------- --horses：本編に居ない競走馬のデータ
+// ---------------------------------------------------------------- 競走馬（サイトの日本・海外の競走馬すべて）
 
-// サイトの競走馬（日本・海外）のうち、表に競走馬として居ない馬を、表と同じ項目で作る。
-// 本編には組み込まない（src/sim/data/ahogame-horses.js は real-horses.js から読まれない）。組み込むと
-// 世界の馬が 1.3 万頭増え、GI の時計・セーブの大きさ・生成時間が変わる（落とし穴 46・54）。
-// 戦績（出走・勝鞍）はサイトに無いので持たない。父母は表か新しい馬の中に居る名前だけ書く（組み込んだとき
-// realsires.js が名前で表を引くので、居ない親を書くと世界の生成が落ちる。落とし穴 43）。
-if (flag('--horses')) {
-  const { REAL_HORSES } = await import('../src/sim/data/real-horses.js');
-  const appear = (h) => !h.bg || h.os || h.abroad || h.amare || h.mare || h.lvl != null;
-  const appearing = new Set(REAL_HORSES.filter(appear).map((h) => `${norm(h.n)}|${h.b}`));
-  const idx = new Map();       // norm(名) → [{ n, b }]（表の全馬と、これから足す馬）
-  const addIdx = (n, b) => idx.set(norm(n), [...(idx.get(norm(n)) ?? []), { n, b }]);
-  for (const h of REAL_HORSES) addIdx(h.n, h.b);
-  const offset = statRows.length ? statRows[0].c.lvl - statRows[0].c.lvl0 : 0;   // lvl の切片は表の馬と同じ
+// サイトの競走馬を、表と同じ項目で ahogame-horses.js に書く。real-horses.js の withAhogame が表へ重ねる:
+//   表に同じ馬（名前と生年）が居る  → 能力を上書きする。血統用の祖先だった日本の馬は競走馬にする（bg を外す）。
+//   居ない                          → 新しい競走馬として足す（日本は競走馬、海外は os）。
+// 戦績（出走・勝鞍）はサイトに無いので持たない。父母は、表かこの一覧に居る名前だけ書く
+// （居ない名前を書くと、realsires.js が名前で表を引いて世界の生成が落ちる。落とし穴 43）。
+// 同名で年の違う馬が表に居るものは足さない（表は馬名で引くので、後の方が前の方を潰す。落とし穴 54）。
+const { REAL_HORSES: FINAL } = await import('../src/sim/data/real-horses.js');
+const finalByKey = new Map(FINAL.map((h) => [`${norm(h.n)}|${h.b}`, h]));
+const idx2 = new Map();       // norm(名) → [{ n, b }]（表の全馬と、これから足す馬）
+const addIdx2 = (n, b) => idx2.set(norm(n), [...(idx2.get(norm(n)) ?? []), { n, b }]);
+for (const h of FINAL) addIdx2(h.n, h.b);
 
-  const cand = [];
-  for (const r of recs) {
-    if (r.list === 'br' || !r.v || r.b == null) continue;
-    const name = isKana(r.n) ? r.n : kanaOf(r.alpha ?? r.n);
-    if (!name || appearing.has(`${norm(name)}|${r.b}`) || (r.alpha && appearing.has(`${norm(r.alpha)}|${r.b}`))) continue;
-    const c = convert(r.v);
-    if (!c) continue;
-    cand.push({ r, name, c });
-  }
-  // 同名で年の違う馬が表に居ると、表は馬名で引くので後の方が前の方を潰す（落とし穴 54）。足さない。
-  const horses = [];
-  let clash = 0, dupe = 0;
-  const seen = new Set();
-  for (const x of cand) {
-    const k = `${norm(x.name)}|${x.r.b}`;
-    if (seen.has(k)) { dupe++; continue; }
-    seen.add(k);
-    const others = (idx.get(norm(x.name)) ?? []).filter((o) => o.b !== x.r.b);
-    if (others.length) { clash++; continue; }
-    horses.push(x);
-  }
-  for (const x of horses) addIdx(x.name, x.r.b);
-  // 父母。表か新しい馬の中に、親子の年齢差 2〜30 歳で一つに決まる名前があるときだけ書く。
-  const parent = (pstr, child) => {
-    if (!pstr || pstr === '-' || pstr === '不明') return null;
-    const hits = (idx.get(norm(kanaOf(pstr))) ?? []).filter((o) => child.b - o.b >= 2 && child.b - o.b <= 30);
-    const ys = new Set(hits.map((o) => o.b));
-    return ys.size === 1 ? hits[0].n : null;
-  };
-  const rows2 = horses.map(({ r, name, c }) => ({
-    n: name, b: r.b, s: r.sex === '牝' ? '牝' : r.sex === 'セ' ? 'セン' : '牡', c: r.coat,
-    sire: parent(r.sire, r), dam: parent(r.dam, r), os: r.list === 'os',
-    lvl: Math.min(0.97, Math.max(0.4, Math.round((c.lvl0 + offset) * 100) / 100)),
-    surf: c.surf, dist: c.dist, range: c.range, style: c.style, growth: c.growth,
-    country: r.country, org: r.org,
-  }));
-  rows2.sort((a, b) => a.b - b.b || a.n.localeCompare(b.n, 'ja'));
-  const withSire = rows2.filter((x) => x.sire).length, withDam = rows2.filter((x) => x.dam).length;
-  console.error(`\n本編に居ない競走馬 ${rows2.length} 頭（日本 ${rows2.filter((x) => !x.os).length} / 海外 ${rows2.filter((x) => x.os).length}）。` +
-    `同名の別馬で外した ${clash}、重複 ${dupe}。父が表に居る ${withSire}、母が表に居る ${withDam}`);
+const horseRows = [];
+let clash = 0, dupe = 0, unreadable = 0, matched = 0;
+const seenKey = new Set();
+for (const r of recs) {
+  if (r.list === 'br' || !r.v || r.b == null) continue;
+  const c = convert(r.v);
+  if (!c) { unreadable++; continue; }
+  const name = isKana(r.n) ? r.n : kanaOf(r.alpha ?? r.n);
+  if (!name) continue;
+  const ex = finalByKey.get(`${norm(name)}|${r.b}`) ?? (r.alpha ? finalByKey.get(`${norm(r.alpha)}|${r.b}`) : null);
+  const key = `${norm(ex?.n ?? name)}|${r.b}`;
+  if (seenKey.has(key)) { dupe++; continue; }
+  seenKey.add(key);
+  if (ex) { matched++; horseRows.push({ r, c, n: ex.n, isNew: false }); continue; }
+  if ((idx2.get(norm(name)) ?? []).some((o) => o.b !== r.b)) { clash++; continue; }
+  horseRows.push({ r, c, n: name, isNew: true });
+}
+for (const x of horseRows) if (x.isNew) addIdx2(x.n, x.r.b);
+// 父母。表か新しい馬の中に、親子の年齢差 2〜30 歳で一つに決まる名前があるときだけ書く（新しい馬だけ）。
+const parent2 = (pstr, child) => {
+  if (!pstr || pstr === '-' || pstr === '不明') return null;
+  const hits = (idx2.get(norm(kanaOf(pstr))) ?? []).filter((o) => child.b - o.b >= 2 && child.b - o.b <= 30);
+  const ys = new Set(hits.map((o) => o.b));
+  return ys.size === 1 ? hits[0].n : null;
+};
+for (const x of horseRows) {
+  x.sire = x.isNew ? parent2(x.r.sire, x.r) : null;
+  x.dam = x.isNew ? parent2(x.r.dam, x.r) : null;
+}
+horseRows.sort((a, b) => a.r.b - b.r.b || a.n.localeCompare(b.n, 'ja'));
+const nNew = horseRows.filter((x) => x.isNew).length;
+console.error(`\nサイトの競走馬 ${horseRows.length} 頭（表に居る ${matched}、新しく足す ${nNew}［日本 ${horseRows.filter((x) => x.isNew && x.r.list === 'jp').length} / 海外 ${horseRows.filter((x) => x.isNew && x.r.list === 'os').length}］）。` +
+  `同名の別馬で足さない ${clash}、重複 ${dupe}、読めない行 ${unreadable}`);
 
-  const HOUT = join(ROOT, 'src/sim/data/ahogame-horses.js');
-  const rowStr = (x) => `  [${q(x.n)}, ${x.b}, ${q(x.s)}, ${q(x.c)}, ${q(x.sire)}, ${q(x.dam)}, ${x.os ? 1 : 0}, ${x.lvl.toFixed(2)}, ${q(x.surf)}, ${x.dist}, ${x.range}, ${q(x.style)}, ${q(x.growth)}],`;
-  writeFileSync(HOUT, `// 史実馬の一覧にあって、本編（real-horses.js の表）に競走馬として居ない馬。
-// tools/import-ahogame.mjs --horses が書く（手で直さない）。まだどこからも読まれない（組み込むと世界が 1.3 万頭増える）。
-// [馬名, 生年, 性, 毛色, 父, 母, 海外(1)/日本(0), lvl, 馬場, 距離, 幅, 脚質, 成長型]
-// 能力は史実馬の一覧の値をこちらの尺度に変換したもの（表の馬と同じ変換、同じ切片）。戦績は持たない。
-// 父母は表かこの一覧の中に居る名前だけ（null は居ない）。使うときは性 '牝' 以外は牡、'セン' は騸馬。
+const HOUT = join(ROOT, 'src/sim/data/ahogame-horses.js');
+const num = (x) => x.toFixed(2);
+const rowStr = ({ r, c, n, sire, dam, isNew }) => `  [${q(n)}, ${r.b}, ${q(isNew ? (r.sex === '牝' ? '牝' : r.sex === 'セ' ? 'セン' : '牡') : null)}, ${q(isNew ? r.coat : null)}, ${q(sire)}, ${q(dam)}, ${r.list === 'os' ? 1 : 0}, ` +
+  `${num(c.lvl)}, ${num(c.pw)}, ${num(c.gt)}, ${num(c.wt)}, ${num(c.hp)}, ${num(c.sd)}, ${q(c.surf)}, ${c.dist}, ${c.range}, ${q(c.style)}, ${q(c.growth)}],`;
+writeFileSync(HOUT, `// 史実馬の一覧（Winning Post 10 2026 攻略）の競走馬。tools/import-ahogame.mjs が書く（手で直さない）。
+// real-horses.js の withAhogame が表へ重ねる。表に同じ馬（名前と生年）が居れば能力を上書きし、居なければ新しい競走馬として足す。
+// [馬名, 生年, 性, 毛色, 父, 母, 日本(0)/海外(1), speed, power, guts, wit, 健康, 精神, 馬場, 距離, 幅, 脚質, 成長型]
+// 能力値はサイトの値のまま（speed は 45〜85 の数値を ÷100、副能力は段階の中央値）。戦績は持たない。
+// 性・毛色・父母は新しく足す馬だけ（表に居る馬は null）。父母は表かこの一覧に居る名前だけ。
 export const AHO_HORSES = [
-${rows2.map(rowStr).join('\n')}
+${horseRows.map(rowStr).join('\n')}
 ];
 `);
-  // 見るための CSV（スクラッチパッド等へ）。
-  const csvPath = opt('--csv', null);
-  if (csvPath) {
-    const cq = (v) => { const t = v == null ? '' : String(v); return /[",\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
-    const cols = ['馬名', '生年', '性', '毛色', '父', '母', '区分', '生国', '所属', 'lvl', '馬場', '距離', '幅', '脚質', '成長型'];
-    writeFileSync(csvPath, '﻿' + [cols, ...rows2.map((x) => [x.n, x.b, x.s === '牝' ? '牝' : x.s === 'セン' ? 'セ' : '牡', x.c ?? '', x.sire ?? '', x.dam ?? '',
-      x.os ? '海外' : '日本', x.country, x.org, x.lvl, x.surf, x.dist, x.range, x.style ?? '', x.growth ?? ''])].map((r) => r.map(cq).join(',')).join('\n') + '\n');
-    console.error(`${csvPath} に書いた`);
-  }
-  console.error(`${HOUT} に書いた`);
+console.error(`${HOUT} に書いた`);
+const csvPath = opt('--csv', null);
+if (csvPath) {
+  const cq = (v) => { const t = v == null ? '' : String(v); return /[",\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
+  const cols = ['馬名', '生年', '本編', '区分', '生国', '所属', 'speed', 'power', 'guts', 'wit', '健康', '精神', '馬場', '距離', '幅', '脚質', '成長型'];
+  writeFileSync(csvPath, '﻿' + [cols, ...horseRows.map(({ r, c, n, isNew }) => [n, r.b, isNew ? '新規' : '既存', r.list === 'os' ? '海外' : '日本', r.country, r.org,
+    c.lvl, c.pw, c.gt, c.wt, c.hp, c.sd, c.surf, c.dist, c.range, c.style ?? '', c.growth ?? ''])].map((row) => row.map(cq).join(',')).join('\n') + '\n');
+  console.error(`${csvPath} に書いた`);
 }

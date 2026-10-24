@@ -87,6 +87,9 @@ function applyTraits(h, d) {
   const dist = d.dist ?? 2000;
   const surf = d.surf ?? 'T';
   const pot = potentials(lvl, dist, surf);
+  // 史実馬の一覧の能力（d.ab）があれば、スピード・パワー・根性・賢さはその値のまま使う。
+  // スタミナは一覧に対応する値が無い（距離適性の隠し値）ので、距離から導いた値のまま。
+  if (d.ab) Object.assign(pot, { speed: lvl, power: d.ab.power, guts: d.ab.guts, wit: d.ab.wit });
   for (const a of ABILITIES) {
     h.pot[a] = clamp01(pot[a]);
     h.cur[a] = h.pot[a];
@@ -102,8 +105,8 @@ function applyTraits(h, d) {
   h.style = STYLE_VALUE[d.style] ?? 0.45;
   h.styleFlex = 0.55;
   h.temper = d.temper ?? 0.6;
-  h.sound = 0.7;
-  h.spirit = clamp01(0.6 + (lvl - 0.7) * 1.2);
+  h.sound = d.sound ?? 0.7;
+  h.spirit = d.spirit ?? clamp01(0.6 + (lvl - 0.7) * 1.2);
   h.weightKg = female ? 470 : 500;
   h.real = true;
   if (d.head) h.lineHead = true;
