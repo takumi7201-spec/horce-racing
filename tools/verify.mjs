@@ -623,7 +623,9 @@ section('2 年の経過');
   // GI の時計が現実の範囲に収まっているか（良馬場のみ）。
   const band = { 1200: [64, 76], 1600: [88, 106], 1800: [104, 118], 2000: [112, 130], 2200: [124, 145], 2400: [136, 160], 2500: [142, 166], 3000: [175, 205], 3200: [188, 225] };
   const bad = giTimes.filter((x) => x.ground === '良' && band[x.d] && (x.t < band[x.d][0] || x.t > band[x.d][1]));
-  check(`GI の勝ち時計が範囲内（外れ ${bad.length}/${giTimes.length}）`, bad.length <= 3,
+  // 外れは世界の乱数の流れで種ごとに 0〜5 件と揺れる（CLAUDE.md の落とし穴 46）。固定シードの 1 本なので
+  // 上限は 5 件。帯を疑うのは 8 種ほどの平均が 2.5 件を超えたとき（2018 年以降生まれの馬を足した後は平均 1.63 件）。
+  check(`GI の勝ち時計が範囲内（外れ ${bad.length}/${giTimes.length}）`, bad.length <= 5,
     bad.map((x) => `${x.name} ${x.d}m ${formatTime(x.t)}`).join(' / '));
   // 着差。実際の競馬では、最下位でも勝ち馬から 3〜10 秒しか離れない。
   // ここが 20 秒を超えるときは、たいてい馬群の進路判定か能力→速度の写像が壊れている
@@ -647,7 +649,9 @@ section('2 年の経過');
   // （実際に死んでいて、馬の詳細に産駒が出ないことで気づいた）。
   const sires = w.stallionPool.map((id) => w.horses.get(id)).filter(Boolean);
   const withFoals = sires.filter((s2) => (s2.foals ?? []).length > 0).length;
-  check(`種牡馬が産駒を覚えている（${withFoals}/${sires.length} 頭）`, withFoals > sires.length * 0.3);
+  // 史実馬の一覧から 2018 年以降生まれの馬を足した（ahogame-horses.js）ので、産駒の居ない名前だけの種牡馬の割合が
+  // 少し増えた（8 シードの平均で 0.34 → 0.31）。0.3 では固定シードの 1 本が割るので 0.25 にした。
+  check(`種牡馬が産駒を覚えている（${withFoals}/${sires.length} 頭）`, withFoals > sires.length * 0.25);
   const fees = sires.map((s2) => s2.studFee ?? 0).sort((a, b) => b - a);
   check(`種付料 最高 ${fees[0]} 万 / 中央 ${fees[fees.length >> 1]} 万`,
     fees[0] > fees[fees.length >> 1] * 1.8, '産駒成績で差が付いていない');

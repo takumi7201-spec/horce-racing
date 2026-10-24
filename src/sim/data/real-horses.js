@@ -23,6 +23,7 @@
 // 獲得賞金と能力の格はゲーム用の概数で、公式の記録ではない。
 
 import { WD_FILL, WD_NEW } from './wikidata-parents.js';
+import { AHO_HORSES } from './ahogame-horses.js';
 import { AHO_FILL, AHO_NEW, AHO_RETIRE, AHO_ALIAS, AHO_STATS } from './ahogame-facts.js';
 
 /** 系統の祖と、血統をつなぐための海外の祖先。 */
@@ -15411,7 +15412,28 @@ function withWikidata(table) {
   }
   return out;
 }
-const TABLE = withWikidata(withAhogame(TABLE_BASE));
+/**
+ * 史実馬の一覧にあって本編に居なかった日本の競走馬を足す（ahogame-horses.js）。
+ * 足すのは ADD_FROM 年以降に生まれた馬だけ。世界を作るときに競走馬として作られるのは RACING_AGE（8 歳）までで、
+ * それより古い馬は血統の祖先として世界を膨らませるだけ。父母は足した後の表に居る名前だけ残す
+ * （居ない名前を書くと realsires.js が名前で引いて落ちる）。
+ */
+const ADD_FROM = 2018;
+function withAhogameHorses(table) {
+  const byName = new Map();
+  for (const d of table) byName.set(d.n, [...(byName.get(d.n) ?? []), d.b]);
+  const rows = AHO_HORSES.filter(([n, b, , , , , osf]) => !osf && b >= ADD_FROM && !byName.has(n));
+  for (const [n, b] of rows) byName.set(n, [b]);
+  const has = (n, child) => n && (byName.get(n) ?? []).some((y) => child - y >= 2 && child - y <= 30);
+  const out = [...table];
+  for (const [n, b, s, c, sire, dam, , lvl, surf, dist, range, style, growth] of rows) {
+    out.push({ n, b, ...(s !== '牡' ? { s } : {}), ...(c && c !== '鹿毛' ? { c } : {}),
+      ...(has(sire, b) ? { sire } : {}), ...(has(dam, b) ? { dam } : {}),
+      lvl, surf, dist, range, ...(style ? { style } : {}), ...(growth ? { growth } : {}) });
+  }
+  return out;
+}
+const TABLE = withAhogameHorses(withWikidata(withAhogame(TABLE_BASE)));
 
 /**
  * 取り込んだ勝ち馬（供用年を持たない日本の牡馬）を種牡馬にする。
