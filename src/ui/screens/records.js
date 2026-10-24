@@ -48,7 +48,7 @@ function leadersView(app) {
       card('種牡馬（産駒の獲得賞金）', table(['順', '種牡馬', '産駒の総賞金'],
         L.sires.map((s, i) => ({
           cells: [i + 1, s.name, formatMoney(s.earnings)],
-          onclick: () => app.go('stable', { id: s.id }),
+          onclick: () => app.go('stable', { id: s.id, list: L.sires.map((x) => x.id) }),
         })), { align: ['c', , 'r'] })),
       card('馬主', table(['順', '馬主', '獲得賞金'],
         L.owners.map((o, i) => [
@@ -64,6 +64,8 @@ function g1View(app) {
   const g = app.game;
   const hist = G.gradedHistory(g).filter((x) => x.grade === 'GI').sort((a, b) => b.year - a.year || b.week - a.week);
   if (!hist.length) return card('歴代 GI', el('p.empty', { text: 'まだ GI が行われていない。' }));
+  // 同じ馬が何度も勝つので、送る並びは重複を除く
+  const list = [...new Set(hist.map((h) => h.winnerId))];
   return card(`歴代 GI（${hist.length} 戦）`, table(
     ['年', 'レース', '勝ち馬', '騎手', '時計', '頭数'],
     hist.map((h) => ({
@@ -71,7 +73,7 @@ function g1View(app) {
         h.year, el('span', { text: h.name, class: 'grade g1' }), h.winner, h.jockey,
         formatTime(h.time), `${h.field}頭`,
       ],
-      onclick: () => app.go('stable', { id: h.winnerId }),
+      onclick: () => app.go('stable', { id: h.winnerId, list }),
       cls: g.world.horses.get(h.winnerId)?.ownerId === 'player' ? 'mine' : null,
     })), { align: ['c', , , , 'c', 'c'] }));
 }
@@ -79,6 +81,7 @@ function g1View(app) {
 function awardsView(app) {
   const g = app.game;
   const aw = g.world.awards.slice().reverse();
+  const list = [...new Set(aw.map((a) => a.horseId))];
   if (!aw.length) return card('年度代表馬', el('p.empty', { text: 'まだ選出されていない（年末に決まる）。' }));
   return card('年度代表馬', table(['年', '馬名', '戦績', '獲得賞金'],
     aw.map((a) => {
@@ -86,7 +89,7 @@ function awardsView(app) {
       return {
         cells: [a.year, el('b', { text: a.name }),
           h ? `${h.starts}戦${h.wins}勝` : '—', h ? formatMoney(h.earnings) : '—'],
-        onclick: h ? () => app.go('stable', { id: h.id }) : null,
+        onclick: h ? () => app.go('stable', { id: h.id, list }) : null,
         cls: h?.ownerId === 'player' ? 'mine' : null,
       };
     }), { align: ['c', , 'c', 'r'] }));
@@ -139,6 +142,9 @@ function realBookView(app) {
     cls: `sm ${f.id === where ? 'primary' : 'ghost'}`,
   })));
 
+  // 世界に居る馬だけを左右に送れる（生まれなかった馬などは id が無い）
+  const ids = rows.filter((x) => x.id != null).map((x) => x.id);
+
   return el('div', [
     decTabs,
     card(`${decadeName(dec)}生まれの実在馬（${rows.length} 頭）`, [
@@ -164,7 +170,7 @@ function realBookView(app) {
             el('span.book-st', { text: x.status.text, class: `st-${x.status.key}` }),
           ],
           cls: x.mine ? 'mine' : null,
-          onclick: x.id != null ? () => app.go('stable', { id: x.id }) : null,
+          onclick: x.id != null ? () => app.go('stable', { id: x.id, list: ids }) : null,
         })), { align: [, 'c', 'c', , , 'c'] })
         : el('p.empty', { text: 'この年代・区分の実在馬は居ない。' }),
     ]),

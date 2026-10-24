@@ -208,6 +208,7 @@ function pedigreeMini(g, id) {
 function stallionBook(app) {
   const g = app.game;
   const ss = G.stallions(g);
+  const list = ss.map((s) => s.id);
   return card(`種牡馬名鑑（${ss.length} 頭）`, table(
     ['種牡馬', '年齢', '系統', '因子', '種付料', '現役成績', '代表勝鞍', '獲得賞金', '産駒数'],
     ss.map((s) => ({
@@ -215,7 +216,7 @@ function stallionBook(app) {
         sireName(s), `${s.age}歳`, s.line, factorChips(s.factors), formatMoney(s.fee),
         `${s.horse.starts}戦${s.horse.wins}勝`, s.bestWin ?? '—', formatMoney(s.earnings), `${s.foals}頭`,
       ],
-      onclick: () => app.go('stable', { id: s.id }),
+      onclick: () => app.go('stable', { id: s.id, list }),
     })), { align: [, 'c', , , 'r', 'c', , 'r', 'c'] }));
 }
 
@@ -243,6 +244,7 @@ function mareSaleView(app) {
   const open = G.saleOpen(g, 'mare');
   const lots = G.mareSale(g);
   const money = g.world.player.money;
+  const list = lots.map((m) => m.id);
   return card(`繁殖牝馬セール（${lots.length} 頭）`, [
     seasonNote(g, open, '10 月', '繁殖牝馬セール'),
     el('p.note', { text: '値段は格と年齢、母としての実績（GI 馬の母）、受胎していれば父の種付料で決まる。' }),
@@ -253,7 +255,7 @@ function mareSaleView(app) {
           m.inFoal ?? '空胎', formatMoney(m.price),
           m.sold ? el('span.mine', { text: '落札済み' }) : buyButton(app, 'mare', m, open && money >= m.price),
         ],
-        onclick: () => app.go('stable', { id: m.id }),
+        onclick: () => app.go('stable', { id: m.id, list }),
       })), { align: [, 'c', , , , , 'c', , 'r'] }),
   ]);
 }

@@ -147,7 +147,9 @@ function detail(app, id) {
   const t = G.now(g);
 
   // 左右に送れる並び。自分の馬なら同じ区分の中、他人の馬なら呼び出し元が渡した並び。
-  const lineup = mine ? G.myLineup(g, cat) : (app.params.list ?? []);
+  // 呼び出し元が並びを渡したらそれを優先する（着順・名鑑・種牡馬名簿など、どこから開いても送れる）。
+  const given = app.params.list;
+  const lineup = given?.includes(id) ? given : mine ? G.myLineup(g, cat) : [];
   const at = lineup.indexOf(id);
   const go = (d) => {
     if (lineup.length < 2 || at < 0) return;
@@ -207,7 +209,7 @@ function detail(app, id) {
         el('button.hd-arrow', { onclick: () => go(-1), title: '前の馬（←）' }, icon('back', { size: 20 })),
         el('span.hd-count', { text: `${at + 1} / ${lineup.length}` }),
         el('button.hd-arrow.r', { onclick: () => go(1), title: '次の馬（→）' }, icon('back', { size: 20 })),
-        button('所有馬一覧', () => app.go('stable', { cat }), { cls: 'sm' }),
+        mine ? button('所有馬一覧', () => app.go('stable', { cat }), { cls: 'sm' }) : null,
       ] : []),
       el('div.hd-acts', actions(app, v, active)),
       el('button.hd-back', { onclick: () => app.back(), title: '戻る' }, [icon('back', { size: 22 }), el('span', { text: '戻る' })]),
@@ -479,7 +481,7 @@ function tabContent(app, tid, v, career) {
     return table(['馬名', '生年', '性', '戦績', '獲得賞金'],
       v.foals.map((f) => ({
         cells: [f.name, f.birthYear, f.sex, `${f.starts}戦${f.wins}勝`, formatMoney(f.earnings)],
-        onclick: () => app.go('stable', { id: f.id }),
+        onclick: () => app.go('stable', { id: f.id, list: v.foals.map((x) => x.id) }),
       })), { align: [, 'c', 'c', 'c', 'r'] });
   }
 

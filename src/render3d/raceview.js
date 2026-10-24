@@ -13,6 +13,7 @@ import { yawForZForward } from './orient.js';
 import { clamp, lerp } from '../core/util.js';
 
 export const CAMERAS = [
+  { id: 'mark', name: 'マーク馬' },
   { id: 'tv', name: '中継' },
   { id: 'side', name: '並走' },
   { id: 'jockey', name: '騎手' },
@@ -45,6 +46,33 @@ function makeSky(weather) {
   return new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
     vertexColors: true, side: THREE.BackSide, depthWrite: false,
   }));
+}
+
+const MARK_OWN = 0xff8a1e;      // 自分の馬
+const MARK_FOCUS = 0xffe14a;    // いま追っている馬
+
+/**
+ * 馬の頭上の目印。下向きの円錐と、地面の輪。
+ * 遠景で馬が豆粒になっても位置が分かるよう、深度テストを切って常に前面に描く。
+ * 大きさはカメラ距離で毎フレーム掛け直す（draw）。
+ */
+function makeMarker() {
+  const g = new THREE.Group();
+  const mat = new THREE.MeshBasicMaterial({
+    color: MARK_OWN, transparent: true, opacity: 0.92, depthTest: false, depthWrite: false,
+    side: THREE.DoubleSide,
+  });
+  const cone = new THREE.Mesh(new THREE.ConeGeometry(0.42, 0.85, 14), mat);
+  cone.rotation.x = Math.PI;      // 先を下へ
+  cone.position.y = 3.3;
+  cone.renderOrder = 20;
+  const ring = new THREE.Mesh(new THREE.RingGeometry(1.5, 1.95, 28), mat);
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.y = 0.06;
+  ring.renderOrder = 20;
+  g.add(cone, ring);
+  g.visible = false;
+  return { group: g, mat };
 }
 
 /**
@@ -89,11 +117,15 @@ export function createRaceView(canvas, race, opts = {}) {
     });
     const shadow = makeShadowPatch();
     scene.add(h.group, shadow);
-    horses.push({ ...h, shadow, index: i, id: log.ids[i], name: log.names[i], gate: log.gates[i] });
+    const marker = makeMarker();
+    h.group.add(marker.group);
+    horses.push({ ...h, shadow, marker, index: i, id: log.ids[i], name: log.names[i], gate: log.gates[i] });
   }
+  /** マークする馬（自分の馬）。 */
+  let marks = new Set(opts.marks ?? []);
 
   const camera = new THREE.PerspectiveCamera(48, 1, 0.5, 5000);
-  let mode = opts.camera ?? 'tv';
+  let mode = opts.camera ?? (opts.marks?.length ? 'mark' : 'tv');
   let focusId = opts.focusId ?? null;
   let speed = opts.speed ?? 1;
   let time = 0;
@@ -153,7 +185,16 @@ export function createRaceView(canvas, race, opts = {}) {
     const target = focus ?? lead;
     const targetP = track.start + Math.min(target.s, race.distance);
 
-    if (mode === 'tv') {
+    if (mode === 'mark') {
+      // マーク馬を画面の中心に置く。斜め後ろの外側から、馬の背と前方の馬群が一緒に入る位置。
+      // 真横（side）だと前後の馬が見えず、位置取りが分からない。
+      const w = posToWorld(track, targetP - 9, target.off + 9);
+      camPos.set(w.x, elevationAt(track, targetP) + 3.8, w.z);
+      const t = trackPoint(track, targetP + 2, target.off, look);
+      t.point.y += 1.4;
+      camera.position.lerp(camPos, 0.3);
+      camera.lookAt(t.point);
+    } else if (mode === 'tv') {
       // 内馬場を走るカメラ車。馬群の少し前を、内側から見下ろす。
       // 離しすぎると馬が豆粒になるので、走路幅ぶんの外に置く程度に留める。
       const camP = packP + 26;
@@ -222,6 +263,9 @@ export function createRaceView(canvas, race, opts = {}) {
     setSpeed(x) { speed = clamp(x, 0.25, 8); },
     setCamera(m) { mode = m; },
     setFocus(id) { focusId = id; },
+    get focus() { return focusId; },
+    /** マークを付ける馬の id。 */
+    setMarks(ids) { marks = new Set(ids); },
     seek(t) {
       time = clamp(t, 0, duration);
       draw();
@@ -242,10 +286,26 @@ export function createRaceView(canvas, race, opts = {}) {
     },
   };
 
+  function updateMarkers(st) {
+    // 騎手視点では追っている馬の目印が目の前に来て邪魔になる
+    const hide = mode === 'jockey' ? (focusId ?? st.lead.id) : null;
+    for (const h of horses) {
+      const isFocus = h.id === focusId;
+      const on = (marks.has(h.id) || isFocus) && h.id !== hide;
+      h.marker.group.visible = on;
+      if (!on) continue;
+      h.marker.mat.color.setHex(isFocus ? MARK_FOCUS : MARK_OWN);
+      // 遠いほど大きくして、画面上ではおおよそ一定の大きさに保つ
+      const d = camera.position.distanceTo(h.group.position);
+      h.marker.group.scale.setScalar(clamp(d / 36, 0.9, 5) * (isFocus ? 1.15 : 1));
+    }
+  }
+
   function draw() {
     const st = sampleState();
     placeHorses(st);
     updateCamera(st);
+    updateMarkers(st);
     renderer.render(scene, camera);
     if (api.onFrame) {
       api.onFrame({

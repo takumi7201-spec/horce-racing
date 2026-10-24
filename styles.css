@@ -659,12 +659,15 @@ canvas.race3d { width: 100%; height: 100%; display: block; }
   pointer-events: none;
 }
 .rankbox h3 { margin: 0 0 5px; font-size: 11px; color: #a9c0b2; letter-spacing: .1em; }
-.rank { margin: 0; padding: 0; list-style: none; counter-reset: r; }
+.rank { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; }
 .rank li {
-  counter-increment: r; display: grid; grid-template-columns: 1.4em 1.9em 1fr auto;
+  display: grid; grid-template-columns: 1.4em 1.9em 1fr auto;
   gap: 5px; align-items: center; font-size: 12px; padding: 1px 0;
 }
-.rank li::before { content: counter(r); color: #a9c0b2; text-align: right; font-size: 11px; }
+.rank li { cursor: pointer; pointer-events: auto; border-radius: 4px; }
+.rank li[hidden] { display: none; }
+.rank li.focus { background: #ffe14a30; box-shadow: inset 2px 0 0 #ffe14a; }
+.rank li::before { content: attr(data-n); color: #a9c0b2; text-align: right; font-size: 11px; }
 .rank li.mine { color: #ffb15c; font-weight: 800; }
 .rank .rn { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rank .rg { color: #a9c0b2; font-size: 11px; font-variant-numeric: tabular-nums; }
@@ -674,7 +677,9 @@ canvas.race3d { width: 100%; height: 100%; display: block; }
 }
 .controls .tab { box-shadow: none; border-color: var(--line); }
 .controls .tab.on { border-color: var(--gold-d); }
-.cambar, .speedbar { display: flex; gap: 3px; }
+.cambar, .speedbar, .markbar { display: flex; gap: 3px; flex-wrap: wrap; align-items: center; }
+.markbar .mb-l { font-size: 11px; font-weight: 800; color: #b5651d; margin-right: 2px; }
+.markbar .tab.on { background: #fff1c2; }
 .ctrl-right { display: flex; gap: 6px; margin-left: auto; }
 
 /* ---------------- 所有馬（区分とミニアイコン） ---------------- */
@@ -1000,6 +1005,11 @@ canvas.race3d { width: 100%; height: 100%; display: block; }
   .nb-text { font-size: 13px; }
   .nb-count { display: none; }
   .watch { height: calc(100vh - var(--hud-h) - 100px); }
+  /* 順位欄は半分の幅で、行も詰める。HUD と重ならないように。右下は NEXT のために空ける。 */
+  .rankbox { width: 176px; padding: 5px 7px; }
+  .rank li { font-size: 11px; grid-template-columns: 1.2em 1.7em 1fr auto; gap: 3px; }
+  .watch .controls { padding-right: 92px; gap: 8px; }
+  .ctrl-right { margin-left: 0; }
   /* 表は折り返さずに横へ巻く。折り返すと馬名が 1 文字ずつ縦に並ぶ。 */
   .card-b { overflow-x: auto; }
   .tbl td, .tbl th { white-space: nowrap; }

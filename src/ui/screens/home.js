@@ -200,10 +200,12 @@ function horsesPage(app) {
       text: '所有馬が居ない。当歳セール（8 月）や庭先取引（12 月）で買うか、配合で産ませる。',
     }));
   }
-  return page('所有馬', 'horse', `所有馬の様子（${horses.length}頭）`, el('ul.plist.horses', horses.slice(0, 6).map((h) => {
+  const shown = horses.slice(0, 6);
+  const list = shown.map((h) => h.id);
+  return page('所有馬', 'horse', `所有馬の様子（${horses.length}頭）`, el('ul.plist.horses', shown.map((h) => {
     const v = G.horseView(g, h.id);
     const state = v.injury ? v.injury.name : v.stable === 'stable' ? `在厩 ${fitLabel(v.fit)}` : '放牧';
-    return el('li', { class: 'click', onclick: () => app.go('stable', { id: h.id }) }, [
+    return el('li', { class: 'click', onclick: () => app.go('stable', { id: h.id, list }) }, [
       horseImg(h.coat, { size: 'xs', age: v.age }),
       el('div.pl-body', [
         el('div.pl-main', [el('b', { text: h.name }), el('span.pl-cls', { text: `${v.age}歳 ${v.className}` })]),
@@ -245,9 +247,11 @@ const mineIn = (w, r) => (r.results.some((x) => w.horses.get(x.horseId)?.ownerId
 
 function topPage(app) {
   const g = app.game;
-  return page('強豪', 'star', '現役の強豪', el('ul.plist', G.topHorses(g, 6).map((h, i) => el('li', {
+  const top = G.topHorses(g, 6);
+  const list = top.map((h) => h.id);
+  return page('強豪', 'star', '現役の強豪', el('ul.plist', top.map((h, i) => el('li', {
     class: 'click',
-    onclick: () => app.go('stable', { id: h.id, foreign: true }),
+    onclick: () => app.go('stable', { id: h.id, foreign: true, list }),
   }, [
     el('div.pl-main', [
       el('span.pl-rank', { text: String(i + 1) }),

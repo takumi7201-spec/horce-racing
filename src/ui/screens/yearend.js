@@ -17,9 +17,16 @@ export function yearEndScreen(app) {
     app.pendingYearEnd = null;
     app.go('home', {}, { replace: true });
   };
-  const horseLink = (id, text, cls = null) => el('a.hlink', {
-    text, class: cls, href: '#', onclick: (e) => { e.preventDefault(); app.go('stable', { id }); },
-  });
+  // 画面に出した順に馬を積み、どの馬から開いても前後に送れるようにする。
+  // 押された時点で全部が作られているので、並びは onclick で読む。
+  const linked = [];
+  const horseLink = (id, text, cls = null) => {
+    if (!linked.includes(id)) linked.push(id);
+    return el('a.hlink', {
+      text, class: cls, href: '#',
+      onclick: (e) => { e.preventDefault(); app.go('stable', { id, list: linked.slice() }); },
+    });
+  };
 
   return el('div.yearend', [
     el('div.ye-head', [

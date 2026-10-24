@@ -79,7 +79,12 @@ const coatOf = (g, horseId) => g.world.horses.get(horseId)?.coat ?? '鹿毛';
 
 function watchView(app, race, races, idx, next) {
   const g = app.game;
-  const myId = race.results.find((r) => g.world.horses.get(r.horseId)?.ownerId === 'player')?.horseId ?? null;
+  // 自分の馬を着順ではなく馬番順に（追う馬の切替ボタンの並びが安定する）
+  const myIds = race.results
+    .filter((r) => g.world.horses.get(r.horseId)?.ownerId === 'player')
+    .sort((a, b) => a.gate - b.gate)
+    .map((r) => r.horseId);
+  const myId = myIds[0] ?? null;
 
   const canvas = el('canvas.race3d');
   const rankList = el('ol.rank');
@@ -88,39 +93,70 @@ function watchView(app, race, races, idx, next) {
     el('div.hud-time'),
   ]);
   const camBar = el('div.cambar');
+  const markBar = el('div.markbar');
   const speedBar = el('div.speedbar');
   const wrap = el('div.watch', [
     el('div.view', [canvas, hud, el('div.rankbox', [el('h3', { text: '順位' }), rankList])]),
-    el('div.controls', [camBar, speedBar, el('div.ctrl-right')]),
+    el('div.controls', [markBar, camBar, speedBar, el('div.ctrl-right')]),
   ]);
 
   // 画面に入ってから three.js を初期化する（canvas のサイズが決まってから）。
   let view = null;
   requestAnimationFrame(() => {
     try {
-      view = createRaceView(canvas, race, { focusId: myId, camera: 'tv' });
+      view = createRaceView(canvas, race, {
+        focusId: myId, marks: myIds, camera: myId != null ? 'mark' : 'tv',
+      });
     } catch (e) {
       wrap.appendChild(el('p.bad', { text: `3D を初期化できなかった：${e.message}` }));
       return;
     }
     app.onResize = () => view && view.resize();
 
-    const names = new Map(race.results.map((r) => [r.horseId, r]));
+    const info = new Map(race.results.map((r) => [r.horseId, r]));
+    const mineSet = new Set(myIds);
+
+    // 順位欄の行は馬ごとに 1 度だけ作り、順位は CSS の order で並べ替える。
+    // 毎フレーム作り直すと、押した瞬間に行が入れ替わってクリックが落ちる。
+    const rows = new Map();
+    for (const r of race.results) {
+      const row = el('li', {
+        class: mineSet.has(r.horseId) ? 'mine' : null,
+        onclick: () => setFocus(r.horseId),
+      }, [
+        frameChip(r.frame, r.gate),
+        el('span.rn', { text: r.name }),
+        el('span.rg'),
+      ]);
+      rows.set(r.horseId, row);
+      rankList.appendChild(row);
+    }
+
+    function setFocus(id) {
+      view.setFocus(id);
+      for (const [hid, row] of rows) row.classList.toggle('focus', hid === id);
+      [...markBar.querySelectorAll('button')].forEach((b) => {
+        b.classList.toggle('on', (b.dataset.id ? +b.dataset.id : null) === id);
+      });
+      view.draw();
+    }
+
+    // 狭い画面では順位欄が画面の半分を覆うので、上位を減らす
+    const shown = window.innerWidth < 700 ? 5 : 10;
     view.onFrame = (st) => {
       hud.firstChild.textContent = st.remaining > 0.5 ? `残り ${Math.round(st.remaining)}m` : 'ゴール';
       hud.lastChild.textContent = `${st.time.toFixed(1)} 秒`;
-      rankList.textContent = '';
-      for (const r of st.ranked.slice(0, 10)) {
-        const meta = names.get(r.id);
-        rankList.appendChild(el('li', {
-          class: r.id === myId ? 'mine' : null,
-        }, [
-          frameChip(r.frame, r.gate),
-          el('span.rn', { text: r.name }),
-          el('span.rg', { text: r.gap < 0.1 ? '先頭' : `${r.gap.toFixed(1)}m` }),
-        ]));
+      for (const r of st.ranked) {
+        const row = rows.get(r.id);
+        if (!row) continue;
+        row.style.order = r.order;
+        row.dataset.n = r.order;
+        // 上位に加え、自分の馬は圏外でも出す（位置取りが分かる）
+        row.hidden = !(r.order <= shown || mineSet.has(r.id) || r.id === view.focus);
+        row.lastChild.textContent = r.gap < 0.1 ? '先頭' : `${r.gap.toFixed(1)}m`;
       }
     };
+    void info;
     view.onFinish = () => {
       setTimeout(() => {
         if (app.screen === 'raceday') app.go('raceday', { races, index: idx, phase: 'result' });
@@ -130,7 +166,7 @@ function watchView(app, race, races, idx, next) {
     for (const c of CAMERAS) {
       camBar.appendChild(el('button.tab', {
         text: c.name,
-        class: c.id === 'tv' ? 'on' : null,
+        class: c.id === view.camera ? 'on' : null,
         onclick: (e) => {
           view.setCamera(c.id);
           [...camBar.children].forEach((b) => b.classList.remove('on'));
@@ -139,6 +175,18 @@ function watchView(app, race, races, idx, next) {
         },
       }));
     }
+    // 追う馬。自分の馬が無いレースでは出さない（マーク馬カメラは先頭を追う）
+    if (myIds.length) {
+      markBar.appendChild(el('span.mb-l', { text: '追う馬' }));
+      for (const id of myIds) {
+        markBar.appendChild(el('button.tab', {
+          text: info.get(id).name, 'data-id': id, class: id === myId ? 'on' : null,
+          onclick: () => setFocus(id),
+        }));
+      }
+      markBar.appendChild(el('button.tab', { text: '先頭', onclick: () => setFocus(null) }));
+    }
+    setFocus(myId);
     for (const s of [0.5, 1, 2, 4]) {
       speedBar.appendChild(el('button.tab', {
         text: `×${s}`,
@@ -213,7 +261,7 @@ function resultView(app, race, races, idx, next) {
           r.styleLabel, r.comment,
         ],
         cls: g.world.horses.get(r.horseId)?.ownerId === 'player' ? 'mine' : null,
-        onclick: () => app.go('stable', { id: r.horseId }),
+        onclick: () => app.go('stable', { id: r.horseId, list: race.results.map((x) => x.horseId) }),
       })), { align: ['c', 'c', 'c', , 'c', 'c', , 'c', 'c', 'c', 'c', 'c', 'c', 'c'] })),
 
     el('div.race-actions', [
