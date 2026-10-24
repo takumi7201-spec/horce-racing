@@ -23,6 +23,7 @@
 // 獲得賞金と能力の格はゲーム用の概数で、公式の記録ではない。
 
 import { WD_FILL, WD_NEW } from './wikidata-parents.js';
+import { AHO_FILL, AHO_NEW, AHO_RETIRE, AHO_ALIAS } from './ahogame-facts.js';
 
 /** 系統の祖と、血統をつなぐための海外の祖先。 */
 const ANCESTORS = [
@@ -15326,21 +15327,80 @@ const TABLE_BASE = [
 export const BASE_TABLE = TABLE_BASE;
 
 /**
- * Wikidata から補った父母を重ねる（wikidata-parents.js は道具が書く）。
+ * 重ねる祖先を足してよいか。表は馬名で引く（DEFS）ので、同じ名前で年の違う馬が二頭いると
+ * 後の方が前の方を潰す（Sailaway 1974 と 1976 で、開始年より後に生まれる実在馬ができた）。
+ *   'ok'    足す　 'dup'  同じ馬（生年 ±1）が居る　 'clash'  同名の別の馬が居る
+ */
+function claim(byName, n, b) {
+  const ys = byName.get(n);
+  if (ys?.some((y) => Math.abs(y - b) <= 1)) return 'dup';
+  if (ys?.length) return 'clash';
+  byName.set(n, [b]);
+  return 'ok';
+}
+
+/**
+ * 史実馬の一覧（ahogame-facts.js）から取った父母を重ねる。tools/import-ahogame.mjs が書く。
  * 既にある父母は上書きしない。新しい祖先は表の末尾に足す（途中に入れると世界の乱数がずれる）。
  */
-function withWikidata(table) {
-  const fill = new Map(WD_FILL.map(([n, b, sire, dam]) => [`${n}|${b}`, { sire, dam }]));
+function withAhogame(table) {
+  const byName = new Map();
+  for (const d of table) byName.set(d.n, [...(byName.get(d.n) ?? []), d.b]);
+  // 先に足せる祖先を決める。同名の別馬に潰される祖先は足さず、それを指す父母も外す。
+  const drop = new Set();
+  const adds = [];
+  for (const row of AHO_NEW) {
+    const st = claim(byName, row[0], row[1]);
+    if (st === 'ok') adds.push(row);
+    else if (st === 'clash') drop.add(row[0]);
+  }
+  const ok = (n) => (n == null || drop.has(n) ? undefined : n);
+  const fill = new Map(AHO_FILL.map(([n, b, sire, dam]) => [`${n}|${b}`, { sire: ok(sire), dam: ok(dam) }]));
   const out = table.map((d) => {
     const f = fill.get(`${d.n}|${d.b}`);
-    return f ? { ...d, sire: d.sire ?? f.sire ?? undefined, dam: d.dam ?? f.dam ?? undefined } : d;
+    return f ? { ...d, sire: d.sire ?? f.sire, dam: d.dam ?? f.dam } : d;
   });
-  for (const [n, b, s, sire, dam] of WD_NEW) {
-    out.push({ n, b, ...(s === '牝' ? { s } : {}), ...(sire ? { sire } : {}), ...(dam ? { dam } : {}), bg: true });
+  for (const [n, b, s, c, sire, dam] of adds) {
+    out.push({ n, b, ...(s === '牝' ? { s } : {}), ...(c ? { c } : {}),
+      ...(ok(sire) ? { sire } : {}), ...(ok(dam) ? { dam } : {}), bg: true });
   }
   return out;
 }
-const TABLE = withWikidata(TABLE_BASE);
+
+/**
+ * Wikidata から補った父母を重ねる（wikidata-parents.js は tools/import-wikidata-parents.mjs が書く）。
+ * 既にある父母は上書きしない（史実馬の一覧で埋まった分が先）。新しい祖先は表の末尾に足す。
+ * 英語名の祖先は、史実馬の一覧にカタカナ名があればそちらへ直す。同じ馬が一覧からも来ていたら足さない
+ * （二頭に割れて、系統の大きさとインブリードの数が狂う。落とし穴 45）。
+ */
+function withWikidata(table) {
+  const alias = new Map(AHO_ALIAS);
+  const byName = new Map();
+  for (const d of table) byName.set(d.n, [...(byName.get(d.n) ?? []), d.b]);
+  // 英語名 → 最終的な名（null は同名の別馬に潰されるので足さない）。カタカナ名が別の年の馬と衝突するなら英語名のまま。
+  const final = new Map();
+  const adds = [];
+  for (const row of WD_NEW) {
+    const [n, b] = row;
+    const k = alias.get(n);
+    let name = n;
+    if (k && (!byName.has(k) || byName.get(k).some((y) => Math.abs(y - b) <= 1))) name = k;
+    const st = claim(byName, name, b);
+    final.set(n, st === 'clash' ? null : name);
+    if (st === 'ok') adds.push([name, ...row.slice(1)]);
+  }
+  const fin = (n) => (n == null ? undefined : final.has(n) ? final.get(n) ?? undefined : alias.get(n) ?? n);
+  const fill = new Map(WD_FILL.map(([n, b, sire, dam]) => [`${n}|${b}`, { sire: fin(sire), dam: fin(dam) }]));
+  const out = table.map((d) => {
+    const f = fill.get(`${d.n}|${d.b}`);
+    return f ? { ...d, sire: d.sire ?? f.sire, dam: d.dam ?? f.dam } : d;
+  });
+  for (const [n, b, s, sire, dam] of adds) {
+    out.push({ n, b, ...(s === '牝' ? { s } : {}), ...(fin(sire) ? { sire: fin(sire) } : {}), ...(fin(dam) ? { dam: fin(dam) } : {}), bg: true });
+  }
+  return out;
+}
+const TABLE = withWikidata(withAhogame(TABLE_BASE));
 
 /**
  * 取り込んだ勝ち馬（供用年を持たない日本の牡馬）を種牡馬にする。
@@ -15353,6 +15413,8 @@ const TABLE = withWikidata(TABLE_BASE);
  *   種付料 peak：格（GI 220・GII 110・GIII 70）に、素質と産駒の数を足した全盛期の目安（万円）。
  * sd：導いた印。名簿の整理（MAX_STALLIONS）では、手で書いた種牡馬のように外されない扱いにはしない。
  */
+const RETIRE = new Map(AHO_RETIRE.map(([n, b, y]) => [`${n}|${b}`, y]));
+
 function withDerivedStuds(table) {
   const kids = new Map();
   for (const d of table) {
@@ -15370,13 +15432,20 @@ function withDerivedStuds(table) {
     const rank = Math.max(0, ...big.map((x) => RANK[x[2]] ?? 0));
     const g1 = big.filter((x) => RANK[x[2]] === 3).length;
     if (!ks.length && rank < 3) return d;
-    const from = Math.max(d.b + 3, Math.min(d.b + 5, (ks[0] ?? 9999) - 1));
+    let from = Math.max(d.b + 3, Math.min(d.b + 5, (ks[0] ?? 9999) - 1));
     if (d.died != null && d.died < from) return d;
     let to = Math.min(d.b + 22, Math.max(from + 9, (ks[ks.length - 1] ?? 0) - 1));
     if (d.died != null) to = Math.min(to, d.died);
     // 若い馬と、最近まで勝ち馬の産駒が出ている馬は 2026 年も供用中とする（終わりを書かない）。
     // 書くと「始めて 10 年」で切れ、イスラボニータ（2011 年生）が 2025 年に退いたことになる。
     else if (d.b >= 2015 || (ks[ks.length - 1] ?? 0) >= 2021 || to >= 2026) to = null;
+    // 史実の引退年が一覧にあれば、導いた終わりの年を置き換える（始めて 10 年などの推定より確か）。
+    // 終わりが導いた始まりより前なら、始まりを手前へ寄せる（引退年は動かさない）。
+    const ry = RETIRE.get(`${d.n}|${d.b}`);
+    if (ry != null) {
+      to = ry >= 2026 ? null : ry;
+      if (to != null && to <= from) from = Math.max(d.b + 3, to - 3);
+    }
     const raw = (BASE[rank] ?? 40) + Math.max(0, d.lvl - 0.70) * 1500
       + Math.min(3, Math.max(0, g1 - 1)) * 60 + Math.min(10, ks.length) * 15;
     const peak = Math.round(raw / 10) * 10;

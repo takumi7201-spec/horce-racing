@@ -268,8 +268,9 @@ const w = game.world;
 check(`生成時間 ${Date.now() - t0}ms`, Date.now() - t0 < 4000);
 // 上限は世界が膨らみ過ぎないための見張り。記事の無い親を名前だけの祖先として表に入れた
 // （--stubs、約 2,200 頭）ので 9,000 から 12,000 に、Wikidata から親を補った（約 1,800 頭の祖先）ので
-// 14,000 に上げた。生成時間とセーブの大きさは別に見ている。
-check(`総馬数 ${w.horses.size}`, w.horses.size > 2500 && w.horses.size < 14000);
+// 14,000 に、史実馬の一覧から親を補った（約 2,600 頭の祖先）ので 16,000 に上げた。
+// 生成時間とセーブの大きさは別に見ている。
+check(`総馬数 ${w.horses.size}`, w.horses.size > 2500 && w.horses.size < 16000);
 check(`種牡馬 ${w.stallionPool.length} 頭`, w.stallionPool.length >= 30);
 check(`繁殖牝馬 ${w.marePool.length} 頭`, w.marePool.length >= 200);
 {
