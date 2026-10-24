@@ -317,3 +317,83 @@ ${statRows.map(({ e, c }) => `  [${q(e.n)}, ${e.b}, ${c.lvl.toFixed(2)}, ${q(c.s
 `;
 writeFileSync(OUT, body);
 console.error(`${OUT} に書いた`);
+
+// ---------------------------------------------------------------- --horses：本編に居ない競走馬のデータ
+
+// サイトの競走馬（日本・海外）のうち、表に競走馬として居ない馬を、表と同じ項目で作る。
+// 本編には組み込まない（src/sim/data/ahogame-horses.js は real-horses.js から読まれない）。組み込むと
+// 世界の馬が 1.3 万頭増え、GI の時計・セーブの大きさ・生成時間が変わる（落とし穴 46・54）。
+// 戦績（出走・勝鞍）はサイトに無いので持たない。父母は表か新しい馬の中に居る名前だけ書く（組み込んだとき
+// realsires.js が名前で表を引くので、居ない親を書くと世界の生成が落ちる。落とし穴 43）。
+if (flag('--horses')) {
+  const { REAL_HORSES } = await import('../src/sim/data/real-horses.js');
+  const appear = (h) => !h.bg || h.os || h.abroad || h.amare || h.mare || h.lvl != null;
+  const appearing = new Set(REAL_HORSES.filter(appear).map((h) => `${norm(h.n)}|${h.b}`));
+  const idx = new Map();       // norm(名) → [{ n, b }]（表の全馬と、これから足す馬）
+  const addIdx = (n, b) => idx.set(norm(n), [...(idx.get(norm(n)) ?? []), { n, b }]);
+  for (const h of REAL_HORSES) addIdx(h.n, h.b);
+  const offset = statRows.length ? statRows[0].c.lvl - statRows[0].c.lvl0 : 0;   // lvl の切片は表の馬と同じ
+
+  const cand = [];
+  for (const r of recs) {
+    if (r.list === 'br' || !r.v || r.b == null) continue;
+    const name = isKana(r.n) ? r.n : kanaOf(r.alpha ?? r.n);
+    if (!name || appearing.has(`${norm(name)}|${r.b}`) || (r.alpha && appearing.has(`${norm(r.alpha)}|${r.b}`))) continue;
+    const c = convert(r.v);
+    if (!c) continue;
+    cand.push({ r, name, c });
+  }
+  // 同名で年の違う馬が表に居ると、表は馬名で引くので後の方が前の方を潰す（落とし穴 54）。足さない。
+  const horses = [];
+  let clash = 0, dupe = 0;
+  const seen = new Set();
+  for (const x of cand) {
+    const k = `${norm(x.name)}|${x.r.b}`;
+    if (seen.has(k)) { dupe++; continue; }
+    seen.add(k);
+    const others = (idx.get(norm(x.name)) ?? []).filter((o) => o.b !== x.r.b);
+    if (others.length) { clash++; continue; }
+    horses.push(x);
+  }
+  for (const x of horses) addIdx(x.name, x.r.b);
+  // 父母。表か新しい馬の中に、親子の年齢差 2〜30 歳で一つに決まる名前があるときだけ書く。
+  const parent = (pstr, child) => {
+    if (!pstr || pstr === '-' || pstr === '不明') return null;
+    const hits = (idx.get(norm(kanaOf(pstr))) ?? []).filter((o) => child.b - o.b >= 2 && child.b - o.b <= 30);
+    const ys = new Set(hits.map((o) => o.b));
+    return ys.size === 1 ? hits[0].n : null;
+  };
+  const rows2 = horses.map(({ r, name, c }) => ({
+    n: name, b: r.b, s: r.sex === '牝' ? '牝' : r.sex === 'セ' ? 'セン' : '牡', c: r.coat,
+    sire: parent(r.sire, r), dam: parent(r.dam, r), os: r.list === 'os',
+    lvl: Math.min(0.97, Math.max(0.4, Math.round((c.lvl0 + offset) * 100) / 100)),
+    surf: c.surf, dist: c.dist, range: c.range, style: c.style, growth: c.growth,
+    country: r.country, org: r.org,
+  }));
+  rows2.sort((a, b) => a.b - b.b || a.n.localeCompare(b.n, 'ja'));
+  const withSire = rows2.filter((x) => x.sire).length, withDam = rows2.filter((x) => x.dam).length;
+  console.error(`\n本編に居ない競走馬 ${rows2.length} 頭（日本 ${rows2.filter((x) => !x.os).length} / 海外 ${rows2.filter((x) => x.os).length}）。` +
+    `同名の別馬で外した ${clash}、重複 ${dupe}。父が表に居る ${withSire}、母が表に居る ${withDam}`);
+
+  const HOUT = join(ROOT, 'src/sim/data/ahogame-horses.js');
+  const rowStr = (x) => `  [${q(x.n)}, ${x.b}, ${q(x.s)}, ${q(x.c)}, ${q(x.sire)}, ${q(x.dam)}, ${x.os ? 1 : 0}, ${x.lvl.toFixed(2)}, ${q(x.surf)}, ${x.dist}, ${x.range}, ${q(x.style)}, ${q(x.growth)}],`;
+  writeFileSync(HOUT, `// 史実馬の一覧にあって、本編（real-horses.js の表）に競走馬として居ない馬。
+// tools/import-ahogame.mjs --horses が書く（手で直さない）。まだどこからも読まれない（組み込むと世界が 1.3 万頭増える）。
+// [馬名, 生年, 性, 毛色, 父, 母, 海外(1)/日本(0), lvl, 馬場, 距離, 幅, 脚質, 成長型]
+// 能力は史実馬の一覧の値をこちらの尺度に変換したもの（表の馬と同じ変換、同じ切片）。戦績は持たない。
+// 父母は表かこの一覧の中に居る名前だけ（null は居ない）。使うときは性 '牝' 以外は牡、'セン' は騸馬。
+export const AHO_HORSES = [
+${rows2.map(rowStr).join('\n')}
+];
+`);
+  // 見るための CSV（スクラッチパッド等へ）。
+  const csvPath = opt('--csv', null);
+  if (csvPath) {
+    const cq = (v) => { const t = v == null ? '' : String(v); return /[",\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
+    const cols = ['馬名', '生年', '性', '毛色', '父', '母', '区分', '生国', '所属', 'lvl', '馬場', '距離', '幅', '脚質', '成長型'];
+    writeFileSync(csvPath, '﻿' + [cols, ...rows2.map((x) => [x.n, x.b, x.s === '牝' ? '牝' : x.s === 'セン' ? 'セ' : '牡', x.c ?? '', x.sire ?? '', x.dam ?? '',
+      x.os ? '海外' : '日本', x.country, x.org, x.lvl, x.surf, x.dist, x.range, x.style ?? '', x.growth ?? ''])].map((r) => r.map(cq).join(',')).join('\n') + '\n');
+    console.error(`${csvPath} に書いた`);
+  }
+  console.error(`${HOUT} に書いた`);
+}
