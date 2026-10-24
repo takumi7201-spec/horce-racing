@@ -23,7 +23,7 @@
 // 獲得賞金と能力の格はゲーム用の概数で、公式の記録ではない。
 
 import { WD_FILL, WD_NEW } from './wikidata-parents.js';
-import { AHO_FILL, AHO_NEW, AHO_RETIRE, AHO_ALIAS } from './ahogame-facts.js';
+import { AHO_FILL, AHO_NEW, AHO_RETIRE, AHO_ALIAS, AHO_STATS } from './ahogame-facts.js';
 
 /** 系統の祖と、血統をつなぐための海外の祖先。 */
 const ANCESTORS = [
@@ -15356,9 +15356,20 @@ function withAhogame(table) {
   }
   const ok = (n) => (n == null || drop.has(n) ? undefined : n);
   const fill = new Map(AHO_FILL.map(([n, b, sire, dam]) => [`${n}|${b}`, { sire: ok(sire), dam: ok(dam) }]));
+  // 能力の土台。戦績から導いた lvl・距離・脚質は不安定（取り込んだ馬の脚質の 2 割が実際と違った）ので、
+  // 史実馬の一覧の値を土台にする。競走馬（lvl を持つ馬）だけ。血統をつなぐだけの祖先には付けない。
+  const stats = new Map(AHO_STATS.map(([n, b, lvl, surf, dist, range, style, growth]) => [`${n}|${b}`, { lvl, surf, dist, range, style, growth }]));
   const out = table.map((d) => {
     const f = fill.get(`${d.n}|${d.b}`);
-    return f ? { ...d, sire: d.sire ?? f.sire, dam: d.dam ?? f.dam } : d;
+    const t = d.lvl != null ? stats.get(`${d.n}|${d.b}`) : null;
+    if (!f && !t) return d;
+    const o = f ? { ...d, sire: d.sire ?? f.sire, dam: d.dam ?? f.dam } : { ...d };
+    if (t) {
+      o.lvl = t.lvl; o.surf = t.surf; o.dist = t.dist; o.range = t.range;
+      if (t.style) o.style = t.style;
+      if (t.growth) o.growth = t.growth;
+    }
+    return o;
   });
   for (const [n, b, s, c, sire, dam] of adds) {
     out.push({ n, b, ...(s === '牝' ? { s } : {}), ...(c ? { c } : {}),

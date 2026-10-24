@@ -4,11 +4,12 @@
 //   node tools/import-ahogame.mjs --offline  # キャッシュ（.cache/ahogame）だけで組み直す
 //   node tools/import-ahogame.mjs --depth 1  # 一覧に載っている親のさらに親を何代たどるか
 //
-// 取るのは史実の事実だけ。ゲームの数値は取らない（CLAUDE.md の方針「数値はウイポのものではなく独自」）。
-//   取る   馬名（カタカナ・英字）・生年・性・毛色・生国・父・母、種牡馬の引退年
-//   取らない  能力・適性・成長型・因子・特性・系統の分類・セリ・競走馬/繁殖の引退年齢など、ゲームが決めた値
-// 表をそのまま写すのでもない。表にある馬の空いた父母と、親の名前（海外馬のカタカナ名）を引くのに使う。
-// 一覧に載っている馬を新しい競走馬として足すことはしない（能力はこちらで導く。落とし穴 43・46）。
+// 取るもの:
+//   事実   馬名（カタカナ・英字）・生年・性・毛色・生国・父・母、種牡馬の引退年
+//   能力の土台  スピード・スタミナ・柔軟性・芝ダート・脚質・成長型。こちらの尺度（lvl・dist・range・surf・style・growth）に
+//          変換して書く。サイトの数値そのものは出力に残さない。戦績から導いた値より、サイトの値のほうが安定しているので土台にする。
+// 取らないもの: 因子・特性・ウマソナ・系統の分類・セリ・引退年齢など、こちらの仕組みに対応が無いゲーム固有の値。
+// 一覧に載っている馬を新しい競走馬として足すことはしない（足すと GI の時計が速くなる。落とし穴 46）。
 //
 // 取り込みの規則（静かに間違った血統を入れないため。落とし穴 43・45・53 と同じ型）:
 //   - 表の馬との照合は「名前（小書きのカナ・長音を均す）と生年」が一致するものだけ。
@@ -71,9 +72,9 @@ const year = (s) => { const m = /^(\d{4})/.exec(s ?? ''); return m ? Number(m[1]
 const COAT = { 栗毛: '栗毛', 鹿毛: '鹿毛', 黒鹿: '黒鹿毛', 黒鹿毛: '黒鹿毛', 青鹿: '青鹿毛', 青鹿毛: '青鹿毛', 青毛: '青毛', 芦毛: '芦毛', 栃栗: '栃栗毛', 栃栗毛: '栃栗毛', 白毛: '白毛' };
 
 /** 事実の列だけを取る（能力・因子などの列は読まない）。 */
-const readJp = (r) => ({ n: r[0], b: year(r[2]), sex: r[3], coat: COAT[r[4]] ?? null, sire: r[7], dam: r[8] });
-const readOs = (r) => ({ alpha: r[0], n: r[1], b: year(r[3]), sex: r[4], coat: COAT[r[5]] ?? null, sire: r[8], dam: r[9] });
-const readBr = (r) => ({ n: r[0], alpha: r[1] || null, b: year(r[3]), sex: r[4], coat: COAT[r[5]] ?? null, sire: r[8], dam: r[9] });
+const readJp = (r) => ({ n: r[0], b: year(r[2]), sex: r[3], coat: COAT[r[4]] ?? null, sire: r[7], dam: r[8], v: r.slice(9) });
+const readOs = (r) => ({ alpha: r[0], n: r[1], b: year(r[3]), sex: r[4], coat: COAT[r[5]] ?? null, sire: r[8], dam: r[9], v: r.slice(10) });
+const readBr = (r) => ({ n: r[0], alpha: r[1] || null, b: year(r[3]), sex: r[4], coat: COAT[r[5]] ?? null, sire: r[8], dam: r[9], v: r.slice(10) });
 
 const recs = [];
 for (const [key, reader, col] of [['jp', readJp, 2], ['os', readOs, 3], ['br', readBr, 3]]) {
@@ -197,6 +198,63 @@ const dFill = [...fills].filter(([e]) => !e._new);
 console.error(`既存の馬に補った父母 ${dFill.length} 頭、新しい祖先 ${added.length} 頭（一覧に記録あり ${createdRec}、名前だけ ${createdStub}）、表の既存馬を再利用 ${reused}`);
 console.error(`結ばなかった: 同名で決まらない ${ambiguous}、年齢差が合わない同名 ${skippedGap}`);
 
+
+// ---------------------------------------------------------------- 能力の土台
+
+// 列（v）: 0 スピード 1 スタミナ 2 瞬発 3 根性 4 パワー 5 柔軟 6 健康 7 精神 8 賢さ 9 計 10 芝 11 ダ 12〜14 適応 15 成長型 16 成長力 17 脚質 18 気性
+// 使うのは 0・1・5・10・11・15・17 だけ。残りはこちらの仕組みに対応が無い。
+const LEVEL = ['G', 'G+', 'F', 'F+', 'E', 'E+', 'D', 'D+', 'C', 'C+', 'B', 'B+', 'A', 'A+', 'S', 'S+'];
+const MARK = { '◎': 3, '○': 2, '〇': 2, '△': 1, '×': 0 };
+const STYLE = { 先行: '先', 逃げ: '逃', 大逃: '逃', 差し: '差', 追込: '追', 自先: '先', 自差: '差', 自在: '先' };
+const GROWTH = { 早熟: '早熟', 早熟鍋: '早熟', 早め: '普通', 早め鍋: '普通', 遅め: '持続', 晩成: '晩成', 晩成超: '晩成', 覚醒: '晩成' };
+// スタミナ → 最適距離。表の馬（手で入れた距離と戦績から導いた距離）の平均に合わせた折れ線。
+const DIST_NODES = [[5, 1150], [10, 1250], [30, 1600], [50, 1960], [75, 2420], [100, 3200]];
+
+function interp(nodes, x) {
+  if (x <= nodes[0][0]) return nodes[0][1];
+  for (let i = 1; i < nodes.length; i++) {
+    if (x <= nodes[i][0]) { const [x0, y0] = nodes[i - 1], [x1, y1] = nodes[i]; return y0 + (y1 - y0) * (x - x0) / (x1 - x0); }
+  }
+  return nodes.at(-1)[1];
+}
+
+/** サイトの値 → こちらの尺度。lvl は切片を後で合わせるので、ここでは傾きだけ決める。 */
+function convert(v) {
+  const sp = Number(v[0]), sta = Number(v[1]);
+  if (!Number.isFinite(sp) || !Number.isFinite(sta)) return null;
+  const lv = LEVEL.indexOf(v[5]);
+  const t = MARK[v[10]], d = MARK[v[11]];
+  if (lv < 0 || t == null || d == null) return null;
+  return {
+    lvl0: sp >= 60 ? 0.66 + 0.0125 * (sp - 60) : 0.66 - 0.01 * (60 - sp),
+    dist: Math.min(3600, Math.max(1000, Math.round(interp(DIST_NODES, sta) / 100) * 100)),
+    range: Math.round((400 + 5 * lv + 0.9 * lv * lv) / 10) * 10,
+    surf: t >= 3 && d >= 3 ? 'TD' : t > d ? 'T' : d > t ? 'D' : 'TD',
+    style: STYLE[v[17]] ?? null,
+    growth: GROWTH[v[15]] ?? null,
+  };
+}
+
+const statRows = [];
+{
+  const old = [];
+  for (const e of table) {
+    if (e.lvl == null) continue;
+    const rec = recFor(e);
+    if (!rec || rec.list === 'br' || !rec.v) continue;
+    const c = convert(rec.v);
+    if (c) statRows.push({ e, c });
+  }
+  // 平均を元に合わせる。スピードの傾きだけがサイトの値で、水準は GI の時計に直結する（落とし穴 8・46）ので動かさない。
+  const meanOld = statRows.reduce((a, { e }) => a + e.lvl, 0) / statRows.length;
+  const meanNew = statRows.reduce((a, { c }) => a + c.lvl0, 0) / statRows.length;
+  const off = meanOld - meanNew;
+  for (const r of statRows) r.c.lvl = Math.min(0.97, Math.max(0.4, Math.round((r.c.lvl0 + off) * 100) / 100));
+  console.error(`能力の土台を結べた馬 ${statRows.length} 頭（lvl の平均 ${meanOld.toFixed(3)} に合わせる切片 ${off >= 0 ? '+' : ''}${off.toFixed(3)}）`);
+  const diff = (k) => statRows.filter(({ e, c }) => e[k] != null && c[k] != null && e[k] !== c[k]).length;
+  console.error(`  置き換わる: surf ${diff('surf')} / style ${diff('style')} / growth ${diff('growth')} / dist ${statRows.filter(({ e, c }) => e.dist != null && Math.abs(e.dist - c.dist) >= 200).length}（200m 以上）`);
+}
+
 // ---------------------------------------------------------------- 種牡馬の引退年
 
 // 引退年と年齢から生年が決まる。日本で供用された馬だけ（海外の引退年は日本の名簿に関係しない）。
@@ -230,11 +288,12 @@ console.error(`Wikidata の英語名 ${[...usedAlpha].filter((a) => !isKana(a)).
 const q = (s) => (s == null ? 'null' : `'${s.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`);
 const body = `// 「Winning Post 10 2026 攻略」の史実馬の一覧から取った、史実の事実だけ。
 // tools/import-ahogame.mjs が書く（手で直さない）。real-horses.js の withAhogame が表の末尾に重ねる。
-// ゲームの数値（能力・因子・成長型など）は含まない。
+// 能力の土台（AHO_STATS）は、サイトの値をこちらの尺度に変換したもの。サイトの数値そのものは含まない。
 //   AHO_FILL    [馬名, 生年, 父, 母]               表で父母が空だった馬に補う（null は補わない）
 //   AHO_NEW     [馬名, 生年, 性, 毛色, 父, 母]     表に無かった祖先（血統をつなぐだけ）
 //   AHO_RETIRE  [馬名, 生年, 引退年]               日本で供用された種牡馬の引退年
 //   AHO_ALIAS   [英語名, カタカナ名]               Wikidata から補った英語名の馬のカタカナ名
+//   AHO_STATS   [馬名, 生年, lvl, 馬場, 距離, 幅, 脚質, 成長型]  能力の土台（こちらの尺度に変換済み）
 
 export const AHO_FILL = [
 ${dFill.map(([e, f]) => `  [${q(e.n)}, ${e.b}, ${q(f.sire)}, ${q(f.dam)}],`).join('\n')}
@@ -250,6 +309,10 @@ ${retYears.map(([n, b, y]) => `  [${q(n)}, ${b}, ${y}],`).join('\n')}
 
 export const AHO_ALIAS = [
 ${alias.map(([a, k]) => `  [${q(a)}, ${q(k)}],`).join('\n')}
+];
+
+export const AHO_STATS = [
+${statRows.map(({ e, c }) => `  [${q(e.n)}, ${e.b}, ${c.lvl.toFixed(2)}, ${q(c.surf)}, ${c.dist}, ${c.range}, ${q(c.style)}, ${q(c.growth)}],`).join('\n')}
 ];
 `;
 writeFileSync(OUT, body);
