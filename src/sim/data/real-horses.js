@@ -22,6 +22,8 @@
 // 種付料は 2025 年 11 月〜2026 年 2 月に各スタリオンが発表した 2026 年度の額。
 // 獲得賞金と能力の格はゲーム用の概数で、公式の記録ではない。
 
+import { WD_FILL, WD_NEW } from './wikidata-parents.js';
+
 /** 系統の祖と、血統をつなぐための海外の祖先。 */
 const ANCESTORS = [
   { n: 'ナスルーラ', b: 1940, head: true },
@@ -15268,7 +15270,7 @@ const IMPORTED = new Set([
 // abroad：海外で供用された種牡馬（海外種付けができる）。os：海外の名馬（1 歳でセールに出る）。
 const bg = (d) => ({ ...d, bg: true });
 const os = (d) => ({ ...d, bg: true, os: true });
-const TABLE = [
+const TABLE_BASE = [
   ...ANCESTORS.map(bg), ...DAMS.map((d) => (d.mare ? d : bg(d))), ...EXTRA_DAMS.map(bg),
   ...PAST_SIRES, ...STANDING, ...MARES,
   ...SHOWA_ANCESTORS.map(bg), ...SHOWA_DAMS.map(bg), ...SHOWA,
@@ -15319,6 +15321,26 @@ const TABLE = [
   if (FACTORS[d.n]) o = { ...o, f: FACTORS[d.n] };
   return o;
 });
+
+/** tools/import-wikidata-parents.mjs が読む、Wikidata を重ねる前の表。 */
+export const BASE_TABLE = TABLE_BASE;
+
+/**
+ * Wikidata から補った父母を重ねる（wikidata-parents.js は道具が書く）。
+ * 既にある父母は上書きしない。新しい祖先は表の末尾に足す（途中に入れると世界の乱数がずれる）。
+ */
+function withWikidata(table) {
+  const fill = new Map(WD_FILL.map(([n, b, sire, dam]) => [`${n}|${b}`, { sire, dam }]));
+  const out = table.map((d) => {
+    const f = fill.get(`${d.n}|${d.b}`);
+    return f ? { ...d, sire: d.sire ?? f.sire ?? undefined, dam: d.dam ?? f.dam ?? undefined } : d;
+  });
+  for (const [n, b, s, sire, dam] of WD_NEW) {
+    out.push({ n, b, ...(s === '牝' ? { s } : {}), ...(sire ? { sire } : {}), ...(dam ? { dam } : {}), bg: true });
+  }
+  return out;
+}
+const TABLE = withWikidata(TABLE_BASE);
 
 /**
  * 取り込んだ勝ち馬（供用年を持たない日本の牡馬）を種牡馬にする。
