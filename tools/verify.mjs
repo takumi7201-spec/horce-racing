@@ -11,7 +11,7 @@ import {
 } from '../src/sim/course.js';
 import { REAL_HORSES } from '../src/sim/data/real-horses.js';
 import { createWorld, advanceWeek, weekRaces } from '../src/sim/world.js';
-import { collectAncestors, inbreedings, sireLineRoot } from '../src/sim/pedigree.js';
+import { collectAncestors, inbreedings, sireLineRoot, bloodDominance } from '../src/sim/pedigree.js';
 import {
   yawForZForward, yawForXForward, zForwardOfYaw, xForwardOfYaw,
 } from '../src/render3d/orient.js';
@@ -858,6 +858,30 @@ section('v1.0.2：配合理論');
   // 爆発力の大きい配合ほど、仔のスピードが高い傾向（理論が効いている）。
   const ev0 = GG.evaluateMating(g10, mares[0].id, sires[0].id);
   check('評価に爆発力・危険度・星が出る', ev0.burst >= 0 && ev0.riskPoints >= 0 && ev0.stars >= 1 && typeof ev0.burstComment === 'string');
+}
+
+
+section('血統支配率の高い種牡馬の因子');
+{
+  const gd = sideGame({ seed: 'verify-dominance' });
+  const wd = gd.world;
+  const dom = bloodDominance(wd);
+  const top = [...dom.entries()].map(([id, d]) => ({ h: wd.horses.get(id), d })).filter((x) => x.h && x.h.sex === SEX.MALE)
+    .sort((a, b) => b.d - a.d);
+  const high = top.filter((x) => x.d >= 0.01);
+  check(`支配率 1% 以上の種牡馬 ${high.length} 頭はすべて因子を持つ（亡くなった馬を含む：${high.filter((x) => x.h.dead).length} 頭）`,
+    high.length >= 10 && high.every((x) => (x.h.factors ?? []).length >= 1) && high.some((x) => x.h.dead));
+  const higher = top.filter((x) => x.d >= 0.015);
+  check(`支配率 1.5% 以上（${higher.length} 頭）は因子を 2 つ持つ`, higher.length >= 3 && higher.every((x) => (x.h.factors ?? []).length >= 2));
+  check('支配率の低い種牡馬には付けない（0.5% 未満の因子持ちが全体の半分以下）',
+    (() => {
+      const low = top.filter((x) => x.d < 0.005);
+      return low.length > 50 && low.filter((x) => (x.h.factors ?? []).length > 0).length < low.length * 0.5;
+    })());
+  // セーブから読み込んでも、付け終えた世界は変わらない。
+  const back = fromJSON(toJSON(gd));
+  const same = high.every((x) => JSON.stringify(back.world.horses.get(x.h.id).factors) === JSON.stringify(x.h.factors));
+  check('セーブ往復で因子が保たれる', same);
 }
 
 console.log(`\n合計 ${pass} ok / ${fail} NG`);

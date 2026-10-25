@@ -7,6 +7,7 @@
 import { makeRng, attach } from '../core/rng.js';
 import { resetHorseIds, peekHorseId } from './horse.js';
 import { healRealPedigrees } from './realsires.js';
+import { grantDominantFactors } from './pedigree.js';
 
 export const SAVE_VERSION = 2;
 
@@ -90,6 +91,8 @@ export function deserialize(data) {
   resetHorseIds(data.nextHorseId ?? 1);
   // 古いセーブの実在馬に、今の表の血統をつなぐ（新しく作る馬の id は続きから）。
   healRealPedigrees(world);
+  // 古いセーブの、血統支配率の高い種牡馬（亡くなった馬も含む）に因子を付ける。付け終えた世界では何もしない。
+  grantDominantFactors(world);
   return { world, version: data.v };
 }
 

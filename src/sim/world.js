@@ -33,7 +33,7 @@ import { createJockey, createTrainer, ageJockey, ageTrainer, resetPersonIds, acc
 import { breed, canBeBroodmare, canBeStallion, studFeeOf, conceives, POP_MEAN, STALLION_FOAL_MEMORY } from './breeding.js';
 import { trainWeek, pastureWeek, autoMenu, readyToRun } from './training.js';
 import { facilityEffects, NO_EFFECT, advanceFacilities, facilityUpkeep } from './facilities.js';
-import { sireLineRoot, nicksKey, recordNicksResult, breedQuality, lineLabel, grantFactors, establishLines } from './pedigree.js';
+import { sireLineRoot, nicksKey, recordNicksResult, breedQuality, lineLabel, grantFactors, grantDominantFactors, establishLines } from './pedigree.js';
 import { clamp, clamp01, lerp, sum, byDesc } from '../core/util.js';
 import {
   seedRealHorses, syncRealStud, syncRealMares, settleRealHorses, realNewYear, realCoverings, bornReal,
@@ -205,6 +205,8 @@ export function createWorld(seed, { startYear = 2026, playerName = '', farmName 
   buildNicks(world, rng);
   // 開始時点で確立している系統（2026 年ならディープインパクト系など）。
   establishLines(world, rng);
+  // 血統支配率の高い種牡馬（亡くなった馬も含む）に因子を付ける。
+  grantDominantFactors(world);
 
   // 開始時点の 1 歳馬はまだ馬名登録前（登録は 1 歳の年末）。仮の名で呼ぶ。
   for (const h of world.horses.values()) {
@@ -1220,6 +1222,7 @@ function yearEnd(world, rng) {
   const newSires = world.stallionPool.filter((id) => !poolBefore.has(id));
   // 系統の確立（息子が何頭も種牡馬になった馬は「○○系」として独立する）。
   const newLines = establishLines(world, rng, news).map((h) => ({ id: h.id, name: h.name }));
+  grantDominantFactors(world);
   const newMares = world.marePool.filter((id) => !poolBefore.has(id));
 
   // 翌年の馬名登録。
