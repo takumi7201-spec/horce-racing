@@ -42,6 +42,7 @@ const DEPTH = Number(opt('--depth', 3));
 // 一覧に記録の無い親（名前だけの祖先）は、子がこの頭数以上居るときだけ作る。1 頭しか子の居ない名前だけの親は
 // 血統表の枠を一つ埋めるだけで、世界を膨らませる（子 1 頭だけにすると名前だけの祖先が 6,000 頭増えた）。
 const STUB_KIDS = Number(opt('--stub-kids', 2));
+const DAM_STUB_KIDS = Number(opt('--dam-stub-kids', STUB_KIDS));   // 母だけ子1頭でも作ると +4,000 頭で母系が 7.3→7.8/15 にしか伸びない（親の資料が無い）。既定は同じ
 const CACHE = resolve(ROOT, opt('--cache', '.cache/ahogame'));
 mkdirSync(CACHE, { recursive: true });
 
@@ -232,7 +233,7 @@ while (queue.length) {
 }
 // 名前だけの祖先を作る。子が STUB_KIDS 頭に満たない名前は作らず、結んだ父母からも外す。
 for (const [key, st] of pendingStubs) {
-  if (st.bs.length < STUB_KIDS || st.role === 'both' || (nameIdx.get(key) ?? []).length) continue;
+  if (st.bs.length < (st.role === 'dam' ? DAM_STUB_KIDS : STUB_KIDS) || st.role === 'both' || (nameIdx.get(key) ?? []).length) continue;
   const lo = Math.min(...st.bs), hi = Math.max(...st.bs);
   let b = lo - 8;
   if (hi - b > 30) b = hi - 30;
