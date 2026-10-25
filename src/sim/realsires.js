@@ -634,6 +634,7 @@ export function realBook(world) {
       name: d.n, birthYear: d.b, sex: female ? '牝' : '牡', coat: d.c ?? '鹿毛',
       sire: d.sire ?? '—', dam: d.dam ?? '—', role, where,
       decade: decadeOf(d.b),
+      style: d.style ?? null,
       bigWins: big.map(([yr, race]) => `${yr} ${race}`),
       g1: big.filter((x) => x[2] === 'GI').length,
       id: h?.id ?? null,

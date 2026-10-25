@@ -1188,3 +1188,9 @@ canvas.race3d { width: 100%; height: 100%; display: block; }
 .ped-cell:has(.pmarks) > .pmarks { flex: none; margin: 0; }
 .ped-cell:has(.pmarks) > small { flex-basis: 100%; }
 .nofactors .ped-cell:has(.pmarks) { flex-direction: column; flex-wrap: nowrap; align-items: stretch; }
+.book-ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin: 6px 0 10px; }
+.book-ctl input[type="search"] { flex: 1 1 220px; min-width: 0; }
+.book-ctl label { display: flex; align-items: center; gap: 4px; font-size: 12px; white-space: nowrap; }
+.book-ctl .book-year { width: 72px; }
+.book-title { margin: 4px 0 2px; font-size: 14px; }
+.book-style { white-space: nowrap; }
