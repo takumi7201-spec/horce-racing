@@ -16,6 +16,7 @@
 
 import { REAL_HORSES } from './data/real-horses.js';
 import { createHorse } from './horse.js';
+import { makeRng } from '../core/rng.js';
 import { breed } from './breeding.js';
 import { SEX, ABILITIES, classForWins } from './params.js';
 import { clamp01 } from '../core/util.js';
@@ -145,6 +146,49 @@ const madeHorse = (world, name) => {
   const id = world.real?.ids[name];
   return id != null ? world.horses.get(id) ?? null : null;
 };
+
+/**
+ * 古いセーブで、実在馬の父母がつながっていない馬を、今の表の血統でつなぎ直す。
+ * セーブは世界の馬そのものを保存するので、表の血統を足したあとも、昔のセーブのミスタープロスペクターなどは
+ * 父母の無いまま読み込まれ、血統表が真っ白に見える。世界を作り直さずに済ませるため、ロードのたびに
+ * 「表には父母がいるのに、世界の馬には無い」実在馬だけを結ぶ（結び終えた世界では何もしない）。
+ * 世界に居ない親は作る（表の馬を作るのと同じ make。亡くなっているかは年で決める）。
+ * 乱数は世界の主乱数に触らない（ロード後の 1 週が保存前と同じ結果になるように、別の乱数を使う）。
+ */
+export function healRealPedigrees(world) {
+  if (!world.real) return 0;
+  const year = world.year;
+  const rng = makeRng(((year * 53 + world.week) ^ 0x5bd1e995) >>> 0);
+  let linked = 0;
+  for (const d of REAL_HORSES) {
+    const h = madeHorse(world, d.n);
+    if (!h) continue;
+    for (const role of ['sire', 'dam']) {
+      const key = role === 'sire' ? 'sireId' : 'damId';
+      if (h[key] != null || !d[role]) continue;
+      const pd = DEFS.get(d[role]);
+      if (!pd || pd.b > h.birthYear - 2) continue;
+      let p = madeHorse(world, d[role]);
+      if (!p) {
+        const before = new Set(Object.keys(world.real.ids));
+        p = make(world, rng, d[role], { year });
+        for (const [name, id] of Object.entries(world.real.ids)) {
+          if (before.has(name)) continue;
+          const nh = world.horses.get(id), nd = DEFS.get(name);
+          if (!nh || !nd) continue;
+          nh.dead = nd.died != null ? nd.died < year : year - nh.birthYear > (nh.sex === SEX.FEMALE ? 22 : 25);
+          nh.stallion = false;
+          nh.broodmare = false;
+        }
+      }
+      h[key] = p.id;
+      p.foals ??= [];
+      if (!p.foals.includes(h.id)) p.foals.push(h.id);
+      linked++;
+    }
+  }
+  return linked;
+}
 
 /**
  * 表の馬を 1 頭作る。親が居なければ親から作る。

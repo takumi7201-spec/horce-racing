@@ -6,6 +6,7 @@
 
 import { makeRng, attach } from '../core/rng.js';
 import { resetHorseIds, peekHorseId } from './horse.js';
+import { healRealPedigrees } from './realsires.js';
 
 export const SAVE_VERSION = 2;
 
@@ -87,6 +88,8 @@ export function deserialize(data) {
   };
   // 馬 id の採番を続きから。
   resetHorseIds(data.nextHorseId ?? 1);
+  // 古いセーブの実在馬に、今の表の血統をつなぐ（新しく作る馬の id は続きから）。
+  healRealPedigrees(world);
   return { world, version: data.v };
 }
 

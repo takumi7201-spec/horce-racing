@@ -670,6 +670,26 @@ section('2 年の経過');
 // ---------------------------------------------------------------- セーブ
 section('セーブとロード');
 {
+  // 古いセーブ（実在馬に父母が無い）を読み込むと、表の血統がつながる。祖先の馬ごと無いセーブも直る
+  // （昔のセーブのミスタープロスペクターは血統表が真っ白だった）。
+  const old = sideGame({ seed: 'verify-heal', startYear: 2026 });
+  const ow = old.world;
+  const ancestors = (world, n) => {
+    const h = world.horses.get(world.real.ids[n]);
+    let c = 0;
+    (function walk(x, d) { if (!x || d > 5) return; c++; walk(world.horses.get(x.sireId), d + 1); walk(world.horses.get(x.damId), d + 1); })(h, 1);
+    return c - 1;
+  };
+  const full = ancestors(ow, 'ミスタープロスペクター');
+  const prospector = ow.horses.get(ow.real.ids['ミスタープロスペクター']);
+  const sireOfProspector = prospector.sireId;
+  prospector.sireId = null; prospector.damId = null;                       // 父母のリンクが無い古いセーブ
+  ow.horses.delete(sireOfProspector); delete ow.real.ids['レイズアネイティヴ'];   // 親の馬そのものが無い
+  const healed = ancestors(fromJSON(toJSON(old)).world, 'ミスタープロスペクター');
+  check(`古いセーブの実在馬に表の血統がつながる（ミスタープロスペクターの祖先 ${full} → 欠けた状態 0 → ロード後 ${healed}）`,
+    full >= 20 && healed >= full - 4);
+}
+{
   const json = toJSON(game);
   const back = fromJSON(json);
   check(`セーブサイズ ${(json.length / 1024 / 1024).toFixed(2)} MB`, json.length < 40 * 1024 * 1024);
