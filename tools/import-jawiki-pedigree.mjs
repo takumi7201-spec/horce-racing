@@ -225,7 +225,10 @@ for (const { a, root } of roots) {
     if (!dam) continue;
     if (parentOf(dam, 'sire')) continue;                   // 既に分かっている
     const rd = depth.get(root.n) ?? 9;
-    const r = lookup(node, dam.b);
+    let r = lookup(node, dam.b);
+    // 母の生年が子から推した値のとき（名前だけの母）は、孫（記事の馬）から見た年で当て直す。
+    if (r.badAge && stubLike(dam)) r = lookup(node, root.b - 10);
+    if (process.env.DBG && root.n === process.env.DBG) console.error('DBG2', dam.n, dam.b, dam.sire, dam.dam, JSON.stringify({a: r.ambiguous, b: r.badAge, e: r.e?.n}));
     let e = r.e ?? null;
     if (e) damSireStats.reused++;
     else if (!r.ambiguous && !r.badAge) {
