@@ -675,6 +675,10 @@ export const eventsNow = (g) => eventsAt(g.world.week);
 export const saleOpen = (g, kind) => S.saleOpen(g.world, kind);
 export const foalSale = (g) => S.foalSaleLots(g.world);
 export const privateSale = (g) => S.privateLots(g.world);
+export const privateWindow = (g) => S.privateWindow(g.world);
+/** 牧場取引（通年）：dFoal 当歳 / dYearling 1 歳 / dMare 繁殖牝馬。割高だが時期を問わない。 */
+export const directSale = (g, kind) => S.directLots(g.world, kind);
+export const DIRECT_PREMIUM = S.DIRECT_PREMIUM;
 export const mareSale = (g) => S.mareSaleLots(g.world);
 export const overseasSale = (g) => S.overseasLots(g.world);
 export const buyLot = (g, kind, id) => S.buyLot(g.world, kind, id);

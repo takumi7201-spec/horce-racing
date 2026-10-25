@@ -97,6 +97,8 @@ const EVENT_GO = {
   mareSale: ['farm', { tab: 'mares' }],
   overseas: ['farm', { tab: 'overseas' }],
   private: ['farm', { tab: 'overseas' }],
+  privateSpring: ['farm', { tab: 'overseas' }],
+  privateSummer: ['farm', { tab: 'overseas' }],
   entry: ['farm', { tab: 'entry' }],
 };
 

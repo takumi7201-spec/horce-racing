@@ -750,5 +750,34 @@ section('v1.0.2：登録・史実馬の初期値');
   check('現役の史実馬が見つかる', rows.length >= 3, rows.join(' '));
 }
 
+
+section('v1.0.2：庭先の追加・牧場取引（通年）');
+{
+  const g7 = sideGame({ seed: 'verify-direct' });
+  const w7 = g7.world;
+  w7.player.money = 5e6;
+  // 4 月（当歳が生まれる）まで進めて、セールの外でも当歳・1 歳・繁殖牝馬を買える。
+  while (w7.week < 14) nextWeek(g7);
+  check('セールの時期ではない', !GG.saleOpen(g7, 'foal') && !GG.saleOpen(g7, 'mare') && !GG.saleOpen(g7, 'private'));
+  const bought = {};
+  for (const k of ['dFoal', 'dYearling', 'dMare']) {
+    const lots = GG.directSale(g7, k);
+    const r = lots.length ? GG.buyLot(g7, k, lots[0].id) : { ok: false, why: '上場なし' };
+    bought[k] = r;
+    check(`牧場取引で買える（${k}：${lots.length} 頭、${r.ok ? lots[0].name : r.why}）`, lots.length >= 5 && r.ok);
+    if (r.ok) check(`  買った馬は落札済みで出て、持ち主になる（${k}）`, GG.directSale(g7, k).some((x) => x.id === lots[0].id && x.sold) && g7.world.horses.get(lots[0].id).ownerId === 'player');
+  }
+  check('牧場取引は割高（セール価格より高い）', (() => {
+    const l = GG.directSale(g7, 'dYearling')[0];
+    return l.price > 0 && GG.DIRECT_PREMIUM > 1.2;
+  })());
+  check('買った繁殖牝馬が自分の繁殖牝馬に入る', g7.world.player.broodmares.includes(GG.directSale(g7, 'dMare').find((x) => x.sold)?.id));
+  // 庭先の開催（春 3 月・夏 7 月・冬 12 月）。
+  const wins = new Set();
+  const g8 = sideGame({ seed: 'verify-private' });
+  for (let i = 0; i < WEEKS_PER_YEAR; i++) { if (GG.saleOpen(g8, 'private')) wins.add(GG.privateWindow(g8).label); nextWeek(g8); }
+  check(`庭先取引が年に 3 回開く（${[...wins].join('・')}）`, wins.size === 3);
+}
+
 console.log(`\n合計 ${pass} ok / ${fail} NG`);
 process.exit(fail === 0 ? 0 : 1);
