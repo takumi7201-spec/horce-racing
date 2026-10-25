@@ -57,7 +57,16 @@ const depth = new Map();
 // ---------------------------------------------------------------- 記事の読み取り
 const unParen = (t) => t.replace(/_/g, ' ').replace(/\s*[（(][^）)]*[）)]\s*$/, '').trim();
 function parseNode(v) {
-  v = v.replace(/<ref[^>]*>[\s\S]*?<\/ref>/g, '').replace(/<ref[^>]*\/>/g, '').replace(/'{2,3}/g, '').trim();
+  v = v.replace(/<ref[^>]*>[\s\S]*?<\/ref>/g, '').replace(/<ref[^>]*\/>/g, '').replace(/'{2,3}/g, '')
+    // 牝系の番号（「Eureka [[ファミリーナンバー|F-No.]][[27号族|27-a]]」）は馬名ではない。拾うと「ファミリーナンバー」という馬ができる。
+    .replace(/\[\[(?:ファミリーナンバー|[^\]|]*号族)[^\]]*\]\]/g, '').replace(/\bF-No\.?\s*[\w\-]*/g, '')
+    // 輸入馬の印（「*オーロイ」「＊」）は名前ではない。付いたままだとカタカナの判定に通らず、その枝が丸ごと落ちる。
+    .replace(/^\s*[*＊]/, '').replace(/[.\s]+$/, '').trim();
+  // 同じ行に次の引数が続く書き方（「Thelma Berger |flin = [[9号族]] |ref3 = …[[netkeiba.com]]」）。次の「|名前 =」の手前で切る。
+  // 切らないと、出典のリンクの netkeiba.com が馬名になる。
+  v = v.split(/\s\|\s*[A-Za-z]+\d*\s*=/)[0].trim();
+  // {{仮リンク|日本語名|…}} は先頭が日本語名（落とし穴 45）。
+  v = v.replace(/\{\{仮リンク\|([^|}]+)[^}]*\}\}/g, '[[$1]]');
   const [head, tail] = v.split(/<br\s*\/?>/i);
   if (!head) return null;
   const link = /\[\[([^\]|#]+)(?:\|([^\]]*))?\]\]/.exec(head);
@@ -75,11 +84,23 @@ function parseNode(v) {
   const y = tail && /(1[6-9]\d\d|20\d\d)/.exec(tail);
   return { ja, en, year: y ? Number(y[1]) : null };
 }
+/** 競走馬血統表の中身。閉じ方は記事によって「\n}}」「|}}」「行末の }}」とまちまちなので、括弧の対で切る
+ * （「\n}}」だけを見ていたら、カブトシローなど「|}}」で閉じる記事の血統表が丸ごと読めていなかった）。 */
+function pedigreeBody(text) {
+  const i = text.indexOf('{{競走馬血統表');
+  if (i < 0) return null;
+  let depth = 0;
+  for (let j = i; j < text.length - 1; j++) {
+    if (text[j] === '{' && text[j + 1] === '{') { depth++; j++; }
+    else if (text[j] === '}' && text[j + 1] === '}') { depth--; j++; if (depth === 0) return text.slice(i + 8, j - 1); }
+  }
+  return null;
+}
 function readPedigree(text) {
-  const m = /\{\{競走馬血統表([\s\S]*?)\n\}\}/.exec(text);
-  if (!m) return null;
+  const body = pedigreeBody(text);
+  if (body == null) return null;
   const nodes = new Map();
-  for (const line of m[1].split('\n')) {
+  for (const line of body.split('\n')) {
     const mm = /^\|\s*([fm]{1,5})\s*=\s*(.*)$/.exec(line);
     if (!mm) continue;
     const n = parseNode(mm[2]);
@@ -121,6 +142,7 @@ function findRoot(a) {
   }
   return c.length === 1 && c[0].lvl != null ? c[0] : null;
 }
+if (process.env.DBG) { const a = articles.find((x) => x.name === process.env.DBG); console.error('DBGA', a && { name: a.name, year: a.year, n: a.nodes.size }, (byName.get(process.env.DBG) ?? []).map((h) => [h.n, h.b])); }
 const roots = articles.map((a) => ({ a, root: findRoot(a) })).filter((x) => x.root);
 stats.noRoot = articles.length - roots.length;
 roots.sort((x, y) => (depth.get(x.root.n) ?? 9) - (depth.get(y.root.n) ?? 9));
@@ -168,6 +190,7 @@ function processArticle(a, root, rd) {
     const role = code.slice(-1) === 'f' ? 'sire' : 'dam';
     const node = a.nodes.get(code);
     const existing = parentOf(child, role);
+    if (process.env.DBG && root.n === process.env.DBG) console.error('DBGP', code, JSON.stringify(node), 'child', child.n, child.b, 'existing', existing);
     let e = null;
     if (existing) {
       // 表に既に居る親。構造を信じる。生年が合わなければ食い違い。

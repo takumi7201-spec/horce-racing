@@ -661,7 +661,7 @@ export function realBook(world) {
  */
 export function fillPedigreeFromTable(world, rootId, tree, gens) {
   const root = world.horses.get(rootId);
-  if (!tree || !root?.real) return tree;
+  if (!tree || !root) return tree;
   const tableNode = (name, g) => {
     if (!name || g > gens) return null;
     const d = DEFS.get(name);
@@ -680,7 +680,9 @@ export function fillPedigreeFromTable(world, rootId, tree, gens) {
       else if (d?.[role]) sub[role] = tableNode(d[role], g);
     }
   };
-  patch(root.name, tree, 1);
+  // 架空の馬でも、血統表の中の実在馬（付け替えた祖先）の先は表で補える。根が架空なら根の父母は補わない。
+  if (root.real) patch(root.name, tree, 1);
+  else for (const role of ['sire', 'dam']) if (tree[role]?.real) patch(tree[role].name, tree[role], 2);
   return tree;
 }
 
