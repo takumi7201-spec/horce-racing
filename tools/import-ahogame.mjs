@@ -179,8 +179,27 @@ function resolveParent(pstr, child, role, depth) {
   return pk;
 }
 
+// 名前だけの母（生年が子からの推定値）は、名前だけでは一覧に結べない。生年が推定値から 12 年以内で、子すべての親として
+// 成り立つ一頭に決まるときだけ結ぶ（Wikidata の道具の 1b と同じ規則）。一覧の「繁殖専用」には、こういう母の父母が載っている。
+{
+  const kidsOf = new Map();
+  for (const h of table) for (const p of [h.sire, h.dam]) if (p) kidsOf.set(p, [...(kidsOf.get(p) ?? []), h.b]);
+  let matchedStubs = 0;
+  for (const e of table) {
+    if (!stubLike(e)) continue;
+    const cs = kidsOf.get(e.n) ?? [];
+    const rs = (recByName.get(norm(e.n)) ?? []).filter((r) => Math.abs(r.b - e.b) <= 12
+      && (cs.length ? cs.every((c) => c - r.b >= 2 && c - r.b <= 30) : true));
+    const ys = [...new Set(rs.map((r) => r.b))];
+    if (ys.length !== 1) continue;
+    e._rec = rs.find((r) => r.b === ys[0]);
+    e._trueB = ys[0];
+    matchedStubs++;
+  }
+  console.error(`名前だけの母のうち、一覧に結べた ${matchedStubs} 頭`);
+}
 for (const e of table) {
-  if (stubLike(e) || (e.sire != null && e.dam != null)) continue;
+  if ((stubLike(e) && !e._rec) || (e.sire != null && e.dam != null)) continue;
   if (recFor(e)) { queued.add(e); queue.push({ e, depth: 0 }); }
 }
 // 表に居ない一覧の馬（本編に新しく足す競走馬）も、表の馬と同じ手順で父母を結ぶ。一覧の外の親は名前だけの祖先にする。
@@ -203,9 +222,10 @@ while (queue.length) {
   const rec = recFor(e);
   if (!rec) continue;
   const f = fills.get(e) ?? {};
+  const child = e._trueB ? { ...e, b: e._trueB } : e;     // 推定した生年は一覧の値で親子の年齢差を見る
   for (const role of ['sire', 'dam']) {
     if (e[role] != null || f[role]) continue;
-    const n = resolveParent(rec[role], e, role, depth);
+    const n = resolveParent(rec[role], child, role, depth);
     if (n) f[role] = n;
   }
   if (f.sire || f.dam) fills.set(e, f);
