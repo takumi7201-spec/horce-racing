@@ -16,7 +16,7 @@ import { previewOdds } from './race.js';
 import { makeRng, hashSeed } from '../core/rng.js';
 import { EVENTS, eventsAt, eventOpen } from './calendar.js';
 import * as F from './facilities.js';
-import { evaluateTheories, THEORY_GUIDE, theoryName } from './theories.js';
+import { evaluateTheories, THEORY_GUIDE, theoryName, burstComment, riskComment } from './theories.js';
 import * as S from './sales.js';
 import {
   ABILITIES, SEX, WEEKS_PER_YEAR, classOrder, className, standardWeight,
@@ -108,7 +108,7 @@ export function horseView(g, id) {
     foreign: !!h.foreign,
     factors: (h.factors ?? []).map((f) => FACTORS[f]),
     // 生まれたときに成立していた配合理論。
-    theories: (h.theories ?? []).map(theoryName),
+    theories: (h.theories ?? []).map(theoryName).filter(Boolean),
     // 系統を確立した馬（系祖）。実在の系祖は「○○系の祖」、ゲーム中に確立したらその年。
     lineHead: !!h.lineHead,
     lineEstablished: h.lineEstablished ?? null,
@@ -342,22 +342,27 @@ export function evaluateMating(g, damId, sireId) {
   const ev = matingEval(w, sireId, damId);
   if (!ev) return null;
   const nk = ev.nicks;
-  // 成立した配合理論は星にも効く（1 つにつき 0.03、最大 0.09）。
-  const theories = evaluateTheories(w, ev.sire, ev.dam);
-  const score = Math.min(1, ev.score + Math.min(0.09, theories.length * 0.03));
+  // 配合理論（theories.js）が爆発力と危険度を決める。星は親の格・爆発力・距離の噛み合いで付ける。
+  const T = evaluateTheories(w, ev.sire, ev.dam);
+  const score = Math.min(1, ev.parentPower * 0.5 + Math.min(1, T.burst / 30) * 0.32 + ev.coherence * 0.18);
   const stars = Math.max(1, Math.min(5, 1 + Math.round(score * 4.4)));
   return {
     stars,
     score,
-    theories: theories.map((t) => ({ id: t.id, name: t.name, text: t.text })),
-    risk: ev.risk,
+    burst: T.burst,
+    burstComment: burstComment(T.burst),
+    risk: Math.min(1, T.risk / 7),
+    riskPoints: T.risk,
+    riskComment: riskComment(T.risk, T.blocked),
+    blocked: T.blocked,
+    theories: T.list.map((t) => ({ id: t.id, name: t.name, text: t.text, burst: t.burst, risk: t.risk })),
     fee: feeOf(w, ev.sire),
     inbreed: ev.inbreed.map((x) => ({ name: x.name, label: x.label })),
     inbreedNote: ev.inbreedEffect.notes,
     nicks: nk.known ? { grade: nicksGradeOf(nk.value), samples: nk.samples } : { grade: '？', samples: nk.samples },
     sireLine: lineLabel(w, sireId),
     damSireLine: ev.dam.sireId != null ? lineLabel(w, ev.dam.sireId) : '—',
-    comment: matingComment(ev),
+    comment: matingComment(ev, T),
     factors: factorSummary(w, sireId, damId),
     vigor: vigorOf(w, sireId, damId),
   };
@@ -389,12 +394,13 @@ function nicksGradeOf(v) {
   return '×';
 }
 
-function matingComment(ev) {
+function matingComment(ev, T) {
   const c = [];
   const best3x4 = ev.inbreed.find((x) => x.label === '3×4');
-  if (best3x4) c.push(`${best3x4.name} の 3×4 が入る`);
-  if (ev.risk > 0.4) c.push('近交が強く、丈夫さに不安が出る');
+  if (best3x4) c.push(`${best3x4.name} の 3×4 が入る（奇跡の血量）`);
+  if (T.risk >= 4) c.push('近交が強く、丈夫さに不安が出る');
   if (ev.coherence < 0.6) c.push('父と母で距離の指向が離れている');
+  if (T.burst >= 21) c.push('大きな爆発力が期待できる');
   if (ev.parentPower > 0.7) c.push('両親ともに血統的な裏付けがある');
   if (c.length === 0) c.push('無難な配合');
   return c.join('。');
@@ -409,6 +415,8 @@ export function bookMating(g, damId, sireId) {
   if (!canBeBroodmare(dam, w.year + 1)) return { ok: false, why: 'この牝馬は繁殖に上がれない' };
   if (dam.ownerId !== 'player') return { ok: false, why: '自分の繁殖牝馬ではない' };
   if (!matingOpen(g)) return { ok: false, why: '種付けは 5〜6 月（種付けシーズン）だけ' };
+  const blocked = evaluateTheories(w, sire, dam).blocked;
+  if (blocked) return { ok: false, why: blocked };
   const fee = feeOf(w, sire);
   if (w.player.money < fee) return { ok: false, why: `資金が足りない（${formatMoney(fee)}必要）` };
   // 同じ牝馬の予約は上書き。

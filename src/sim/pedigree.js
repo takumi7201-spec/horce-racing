@@ -400,6 +400,7 @@ export function establishLines(world, rng, news = []) {
   }
   for (const { s, root, n } of made) {
     s.lineHead = true;
+    world._lineEpoch = (world._lineEpoch ?? 0) + 1;     // 系統の判定の使い回し（theories.js）を捨てる
     s.lineFrom = root;
     s.lineEstablished = world.year;
     // 元の系統のニックスを写す。新しい系統だけ相性が空になると、配合の評価がいきなり「―」になる。

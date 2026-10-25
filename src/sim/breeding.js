@@ -12,7 +12,7 @@ import {
   inbreedings, inbreedEffect, nicksValue, nicksKey, sireLineRoot, factorsOf, factorBonus, vigorOf,
 } from './pedigree.js';
 import { makeHorseName } from '../core/names.js';
-import { evaluateTheories, theoryEffect, THEORY_BASE } from './theories.js';
+import { evaluateTheories, BURST_STEP, BURST_SPREAD, THEORY_BASE } from './theories.js';
 
 /** 競走馬全体の能力の中心。回帰の行き先。 */
 export const POP_MEAN = 0.42;
@@ -31,7 +31,6 @@ export const STALLION_FOAL_MEMORY = 80;
  */
 export function breed(world, rng, sire, dam, { year, farmId = null, ownerId = null } = {}) {
   const ib = inbreedings(world, sire.id, dam.id);
-  const ibe = inbreedEffect(ib);
   const nk = nicksValue(world, sire.id, dam.id);
 
   const foal = createHorse(rng, {
@@ -45,21 +44,24 @@ export function breed(world, rng, sire, dam, { year, farmId = null, ownerId = nu
   // --- 能力 ---
   // 項目ごとに父母から別々に抽選する。父のスピードと母のスタミナ、という
   // 組み合わせが出るようにしたいので、一括平均にはしない。
-  const bonus = ibe.gain * 0.085 + (nk.value ?? 0) * 0.055;
-  // 因子（3 代までの名馬の得意）と血の活力（4 系統が別々の異系配合）。
-  // どちらも乱数の幅（0.1 前後）よりずっと小さく、配合の「後押し」に留める。
+  // 因子（3 代までの名馬の得意）と血の活力（4 系統が別々の異系配合）は、乱数の幅（0.1 前後）よりずっと小さい「後押し」。
   const fb = factorBonus(factorsOf(world, sire.id, dam.id).counts);
   const vg = vigorOf(world, sire.id, dam.id);
-  // 配合理論（成立した組み合わせの後押し）。基準点を引いて、世界全体の水準を動かさない（落とし穴 41）。
-  const theories = evaluateTheories(world, sire, dam, { ib, vg });
-  const te = theoryEffect(theories);
-  if (theories.length) foal.theories = theories.map((t) => t.id);
+  // 配合理論（theories.js）。成立した理論の爆発力の合計が上限になり、仔の抽選は 0〜(爆発力−1)。
+  // スピードを底上げし、ほかの能力にも少しずつ配る。基準点を引いて、世界全体の水準を動かさない（落とし穴 41）。
+  const T = evaluateTheories(world, sire, dam, { ib });
+  if (T.list.length) foal.theories = T.list.map((t) => t.id);
+  const roll = T.burst > 0 ? rng.irange(0, T.burst - 1) : 0;
+  const subAbilities = ['stamina', 'power', 'guts', 'wit'];
+  const rolled = T.subRoll ? subAbilities[rng.irange(0, subAbilities.length - 1)] : null;
+  const bonus = roll * BURST_STEP;
   for (const a of ABILITIES) {
     const mid = sire.pot[a] * 0.5 + dam.pot[a] * 0.5;
     const regressed = lerp(mid, POP_MEAN, REGRESSION);
     // 分散は親の能力が高いほど大きい（大物も駄馬も出る）。
     const sd = 0.095 + mid * 0.075;
-    foal.pot[a] = clamp01(regressed + rng.normal(0, sd) + bonus + (fb.pot[a] ?? 0) + vg.gain + (te.pot[a] ?? 0) - THEORY_BASE);
+    foal.pot[a] = clamp01(regressed + rng.normal(0, sd) + bonus * (BURST_SPREAD[a] ?? 0.4) + (fb.pot[a] ?? 0) + vg.gain
+      + (T.pot[a] ?? 0) + (a === rolled ? T.subRoll.amount : 0) - THEORY_BASE[a]);
     // 初期の現在値は潜在の 2 割程度。ここから調教と出走で埋めていく。
     foal.cur[a] = clamp01(foal.pot[a] * rng.range(0.16, 0.26));
   }
@@ -69,7 +71,7 @@ export function breed(world, rng, sire, dam, { year, farmId = null, ownerId = nu
   const midDist = sire.dist * 0.5 + dam.dist * 0.5;
   foal.dist = clamp(Math.round((midDist + rng.normal(0, 260)) / 100) * 100, 1000, 3400);
   if (rng.chance(0.06)) foal.dist = clamp(foal.dist + rng.pick([-600, 600]), 1000, 3400);
-  foal.distRange = clamp(Math.round((sire.distRange + dam.distRange) / 2 + rng.normal(0, 90) + (te.extra.distRange ?? 0)), 160, 900);
+  foal.distRange = clamp(Math.round((sire.distRange + dam.distRange) / 2 + rng.normal(0, 90) + (T.extra.distRange ?? 0)), 160, 900);
 
   // --- 馬場適性 ---
   foal.turf = clamp01((sire.turf + dam.turf) / 2 + rng.normal(0, 0.12));
@@ -88,9 +90,10 @@ export function breed(world, rng, sire, dam, { year, farmId = null, ownerId = nu
   foal.styleFlex = clamp01((sire.styleFlex + dam.styleFlex) / 2 + rng.normal(0, 0.14));
   foal.temper = clamp01((sire.temper + dam.temper) / 2 + rng.normal(0, 0.15));
   // インブリードのリスクは丈夫さと気性に出る。能力だけ上がる都合のいい配合は無い。
-  foal.sound = clamp01((sire.sound + dam.sound) / 2 + rng.normal(0, 0.12) - ibe.risk * 0.22 + fb.sound + (te.extra.sound ?? 0));
-  foal.temper = clamp01(foal.temper - ibe.risk * 0.10 + fb.temper + (te.extra.temper ?? 0));
-  foal.spirit = clamp01((sire.spirit + dam.spirit) / 2 + rng.normal(0, 0.13) + ibe.gain * 0.06);
+  // 危険度（0〜7）は理論ごとの近親・ラインブリードの積み上げ。丈夫さと気性に出る。
+  foal.sound = clamp01((sire.sound + dam.sound) / 2 + rng.normal(0, 0.12) - T.risk * 0.032 + fb.sound + (T.extra.sound ?? 0));
+  foal.temper = clamp01(foal.temper - T.risk * 0.014 + fb.temper + (T.extra.temper ?? 0));
+  foal.spirit = clamp01((sire.spirit + dam.spirit) / 2 + rng.normal(0, 0.13) + (T.extra.spirit ?? 0));
 
   // --- 成長型 ---
   // 親と同じ型が出やすいが固定ではない。

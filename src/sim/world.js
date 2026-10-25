@@ -292,6 +292,8 @@ function replaceFictionalAncestors(world) {
   }
   world.stallionPool = world.stallionPool.filter((id) => world.horses.has(id));
   world.marePool = world.marePool.filter((id) => world.horses.has(id));
+  world._strongMemo = null;      // 血統を付け替えたので、理論（基準交配）の使い回しを捨てる
+  world._lineMemo = null;
   return removed;
 }
 

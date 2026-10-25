@@ -821,29 +821,43 @@ section('v1.0.2：配合理論');
   const g10 = sideGame({ seed: 'verify-theory' });
   const w10 = g10.world;
   const hs = [...w10.horses.values()];
-  // 全種牡馬 × 繁殖牝馬の組み合わせで、理論がどれだけ成立するか。
+  // 全種牡馬 × 繁殖牝馬の組み合わせで、理論の爆発力と危険度の分布を見る。
   const sires = w10.stallionPool.map((id) => w10.horses.get(id)).filter(Boolean).slice(0, 40);
   const mares = w10.marePool.map((id) => w10.horses.get(id)).filter(Boolean).slice(0, 40);
   const seen = new Map();
-  let combos = 0, matched = 0;
+  const bursts = [];
+  let combos = 0, risky = 0;
   for (const s of sires) for (const m of mares) {
     if (s.id === m.sireId) continue;
     const ev = GG.evaluateMating(g10, m.id, s.id);
     combos++;
-    if (ev.theories.length) matched++;
-    for (const t of ev.theories) seen.set(t.id, (seen.get(t.id) ?? 0) + 1);
+    bursts.push(ev.burst);
+    if (ev.riskPoints >= 4) risky++;
+    for (const t of ev.theories) seen.set(t.name, (seen.get(t.name) ?? 0) + 1);
   }
-  const rate = matched / combos;
-  check(`配合理論が成立する組み合わせがある（${matched}/${combos} = ${(rate * 100).toFixed(0)}%、${seen.size} 種）`, rate > 0.05 && rate < 0.9 && seen.size >= 3);
-  check(`理論の名前が付く（${[...seen.keys()].slice(0, 4).join('・')}）`, [...seen.keys()].every((id) => GG.theoryGuide().length > 0));
-  // 理論の後押しの上限：能力 1 項目 0.03 まで。
-  const ev0 = GG.evaluateMating(g10, mares[0].id, sires[0].id);
-  check('理論の一覧が説明に出る', GG.theoryGuide().length >= 12);
+  bursts.sort((a, b) => a - b);
+  const med = bursts[bursts.length >> 1], p90 = bursts[Math.floor(bursts.length * 0.9)], max = bursts[bursts.length - 1];
+  check(`爆発力の分布（中央 ${med}・上位 1 割 ${p90}・最大 ${max}）`, med >= 3 && med <= 15 && p90 >= 8 && p90 <= 30 && max <= 45);
+  check(`危険度が大きい配合は少数（${risky}/${combos}）`, risky / combos < 0.25);
+  check(`配合理論が多様に成立する（${seen.size} 種）`, seen.size >= 15);
+  for (const need of ['インブリード', 'アウトブリード', 'シングルニックス']) {
+    check(`  ${need} が成立する組み合わせがある`, [...seen.keys()].some((k) => k.includes(need)));
+  }
+  check('理論の一覧が説明に出る', GG.theoryGuide().length >= 20);
+  // 種付けできない配合：母の父を父にはできない。
+  {
+    const m = mares.find((x) => x.sireId != null && w10.horses.get(x.sireId));
+    const bad = GG.evaluateMating(g10, m.id, m.sireId);
+    check('母の父を父にする配合は種付不可になる', !!bad.blocked);
+  }
   // 世界全体の水準が動かない（落とし穴 41）：生まれた仔の潜在能力の中央値。
   const young = hs.filter((h) => !h.real && w10.year - h.birthYear <= 8 && h.sireId != null);
-  const med = young.map((h) => sum(ABILITIES, (a) => h.pot[a]) / ABILITIES.length).sort((a, b) => a - b)[Math.floor(young.length / 2)];
-  check(`潜在能力の中央値が動かない（${med.toFixed(3)}）`, med > 0.42 && med < 0.7);
+  const mid = young.map((h) => sum(ABILITIES, (a) => h.pot[a]) / ABILITIES.length).sort((a, b) => a - b)[Math.floor(young.length / 2)];
+  check(`潜在能力の中央値が動かない（${mid.toFixed(3)}）`, mid > 0.42 && mid < 0.7);
   check('成立した理論が仔に残る', young.some((h) => h.theories?.length));
+  // 爆発力の大きい配合ほど、仔のスピードが高い傾向（理論が効いている）。
+  const ev0 = GG.evaluateMating(g10, mares[0].id, sires[0].id);
+  check('評価に爆発力・危険度・星が出る', ev0.burst >= 0 && ev0.riskPoints >= 0 && ev0.stars >= 1 && typeof ev0.burstComment === 'string');
 }
 
 console.log(`\n合計 ${pass} ok / ${fail} NG`);

@@ -1165,3 +1165,8 @@ canvas.race3d { width: 100%; height: 100%; display: block; }
 .theories li { margin-bottom: 4px; }
 
 .ver { display: block; margin-top: 2px; font-size: 11px; letter-spacing: .08em; color: var(--fg3); }
+
+.tb { color: #2f7d32; font-size: 11px; font-weight: 700; }
+.tr { color: #b3402a; font-size: 11px; font-weight: 700; }
+.warn { color: #b3402a; font-weight: 700; margin: 6px 0; }
+.theories small { color: var(--fg3); }

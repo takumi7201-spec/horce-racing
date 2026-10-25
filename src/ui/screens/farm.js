@@ -110,12 +110,19 @@ function matingView(app) {
         ['母の父の系統', ev.damSireLine],
         ['ニックス', `${ev.nicks.grade}（産駒 ${ev.nicks.samples} 頭の実績）`],
         ['血の活力', ev.vigor.label],
-        ['近交の危うさ', bar(ev.risk, { color: ev.risk > 0.4 ? '#c75' : '#687' })],
+        ['爆発力', el('span', [el('b', { text: `${ev.burst}` }), el('small', { text: `　${ev.burstComment}` })])],
+        ['危険度', el('span', [bar(ev.risk, { color: ev.riskPoints >= 4 ? '#c75' : '#687' }), el('small', { text: ` ${ev.riskComment}` })])],
       ]),
+      ev.blocked ? el('p.warn', { text: ev.blocked }) : null,
       ev.theories.length
         ? el('div', [
           el('h4', { text: `成立する配合理論（${ev.theories.length}）` }),
-          el('ul.inb.theories', ev.theories.map((t) => el('li', [el('i.tchip', { text: t.name }), ` ${t.text}`]))),
+          el('ul.inb.theories', ev.theories.map((t) => el('li', [
+            el('i.tchip', { text: t.name }),
+            el('b.tb', { text: t.burst ? ` 爆発力 +${t.burst}` : '' }),
+            t.risk ? el('b.tr', { text: ` 危険度 +${t.risk}` }) : null,
+            el('br'), el('small', { text: t.text }),
+          ]))),
         ])
         : el('p.note', { text: '成立する配合理論は無い。' }),
       ev.factors.list.length
@@ -139,7 +146,7 @@ function matingView(app) {
         toast(`${sire.name} との配合を予約した`);
         app.render();
         return undefined;
-      }, { cls: 'primary big', disabled: g.world.player.money < ev.fee || !G.matingOpen(g) || !!dam.pregnancy }),
+      }, { cls: 'primary big', disabled: g.world.player.money < ev.fee || !G.matingOpen(g) || !!dam.pregnancy || !!ev.blocked }),
       el('p.note', {
         text: dam.pregnancy ? `${dam.name} は受胎している（${dv.pregnancy.year}年 4 月に出産）。`
           : '種付けは 5〜6 月。6 月末に受胎が分かり、翌年 4 月に生まれる。不受胎なら種付料は返る。',
@@ -191,12 +198,13 @@ function matingView(app) {
       dv ? card(`${dv.name} の血統`, pedigreeMini(g, damId)) : null,
       card('配合の評価', evalBox),
       card('配合理論', [
-        el('p.note', { text: '成り立った理論は、仔の能力や丈夫さを少しだけ後押しし、評価の星にも出る。効果は小さく、重ねても上限がある。' }),
+        el('p.note', { text: '「ウイニングポスト 10 2026 攻略」の配合理論に合わせた。成り立った理論は爆発力（スピードの底上げ）とサブパラを上げ、近親やラインブリードは危険度が上がる。ウマソナ・ライバル・牝系・ドラマ因子・繋養地域に関わる理論はこのゲームには無い。' }),
         el('ul.howto', G.theoryGuide().map((t) => el('li', [el('b', { text: t.name }), el('br'), el('small', { text: t.text })]))),
       ]),
       card('配合の考えかた', el('ul.howto', [
-        el('li', { text: '3×4 のインブリードがいちばん効く。近すぎる配合は能力より丈夫さを削る。' }),
-        el('li', { text: 'ニックス（父系 × 母父系の相性）は産駒 12 頭ぶんの実績が出るまで「？」のまま。' }),
+        el('li', { text: '3×4 のインブリード（奇跡の血量）が効く。近すぎる配合は爆発力が大きいぶん、丈夫さと気性を削る（危険度）。' }),
+        el('li', { text: '爆発力は、仔のスピードの底上げの上限。0〜(爆発力−1) の抽選で決まり、サブパラは理論ごとに上がる。' }),
+        el('li', { text: 'ニックス（父系 × 母方の系統の相性）は産駒 12 頭ぶんの実績が出るまで「？」のまま。成立すると爆発力が上がる。' }),
         el('li', { text: '父と母で得意距離が離れていると、中途半端な仔が出やすい。' }),
         el('li', { text: '両親の能力はそのまま伝わらない。平均へ戻る力が働く（名馬の仔が凡馬で終わることもある）。' }),
       ])),
