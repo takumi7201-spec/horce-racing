@@ -101,7 +101,7 @@ export function start(root) {
     next() {
       if (!app.game || app.skipping) return;
       sound.play('next');
-      const hadEntries = G.myEntries(app.game).length > 0;
+      const hadEntries = G.myEntriesNow(app.game).length > 0;
       const out = G.nextWeek(app.game);
       app.afterWeek(out);
       if (!out.myRaces.length && !out.yearSummary && hadEntries) toast('登録した馬は出走できなかった');
@@ -143,7 +143,7 @@ export function start(root) {
       document.body.appendChild(veil);
       app.skipping = true;
       const mine = [];
-      const hadEntries = G.myEntries(g).length > 0;
+      const hadEntries = G.myEntriesNow(g).length > 0;
       let out = null;
       let first = null;
       try {
@@ -413,7 +413,7 @@ function muteButton() {
 
 /** 左下の NEXT と小さなセーブ。タップで 1 週、長押しでまとめて送るメニュー。 */
 function dock(app) {
-  const entries = G.myEntries(app.game).length;
+  const entries = G.myEntriesNow(app.game).length;
   const next = el('button.nextb', { title: '次の週へ（N）／長押しで月送り（Shift+N）' }, [
     el('span.nb-ring', [
       icon('next', { size: 34 }),
@@ -470,6 +470,7 @@ function openSkipMenu(app, anchor) {
     el('div.sm-h', [el('b', { text: '週送り' }), el('small', { text: `いま ${G.now(g).label}` })]),
     item('次の週', null, 1, () => go(null)),
     ...G.skipTargets(g).map((t) => item(t.label, t.events.join('・'), t.weeks, () => go(t))),
+    customSkip(g, (t) => go(t)),
     el('p.sm-note', { text: '自分の馬が走る週と年末処理では途中で止まる' }),
   ]);
   const wrap = el('div.skipmenu-wrap', {
@@ -482,4 +483,42 @@ function openSkipMenu(app, anchor) {
   else menu.style.left = `${Math.round(r.right + 12)}px`;
   menu.style.bottom = `${Math.max(8, Math.round(window.innerHeight - r.bottom))}px`;
   document.body.appendChild(wrap);
+}
+
+/**
+ * 週数を自分で決める週送り（1 週〜1 年）。スライダーと、よく使う週数のボタン。
+ * 行き先の「○年○月○週」は動かしながら見える。年末（12 月 4 週）は表彰と馬名登録で必ず止まるので、
+ * 年をまたぐ指定は年末処理で一度止まる（残りは年明けにもう一度送る）。
+ */
+function customSkip(g, go) {
+  const now = G.now(g);
+  const dest = (n) => {
+    let wk = now.week + n, yr = now.year;
+    while (wk > 48) { wk -= 48; yr++; }
+    return `${yr}年 ${weekLabel(wk)}`;
+  };
+  const label = el('b', { text: dest(8) });
+  const num = el('span.sm-num', { text: '8週' });
+  const slider = el('input', { type: 'range', min: 1, max: 48, value: 8, class: 'sm-range' });
+  const set = (n) => {
+    slider.value = n;
+    num.textContent = `${n}週`;
+    label.textContent = dest(n);
+  };
+  slider.addEventListener('input', () => set(Number(slider.value)));
+  const presets = [1, 4, 13, 26, 48].map((n) => el('button.sm-chip', {
+    onclick: () => set(n),
+  }, n === 48 ? '1年' : n === 26 ? '半年' : n === 13 ? '3か月' : n === 4 ? '1か月' : '1週'));
+  return el('div.sm-custom', [
+    el('div.sm-ch', [el('b', { text: '週数を指定' }), num]),
+    slider,
+    el('div.sm-chips', presets),
+    el('div.sm-dest', [el('small', { text: '行き先' }), label]),
+    el('button.sm-go', {
+      onclick: () => {
+        const n = Number(slider.value);
+        go({ weeks: n, label: `${n}週`, events: [] });
+      },
+    }, 'この週数で進める'),
+  ]);
 }

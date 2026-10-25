@@ -706,5 +706,49 @@ section('セーブとロード');
   check('ロード後の 1 週が同じ結果になる', a === b);
 }
 
+
+// ---------------------------------------------------------------- v1.0.2
+section('v1.0.2：登録・史実馬の初期値');
+{
+  // 先の週（1 年先まで）に登録でき、その週に走る。今週の分だけが消える。
+  const g5 = sideGame({ seed: 'verify-entry' });
+  const mine = myHorses(g5).filter((h) => h.stable === 'stable');
+  const placed = [];
+  for (const off of [0, 5, 12, 30, 47]) {
+    for (const h of mine) {
+      const rs = racesFor(g5, h.id, off);
+      if (!rs.length) continue;
+      const r = enterRace(g5, h.id, rs[0].raceId);
+      if (r.ok) { placed.push({ off, horse: h.id, raceId: rs[0].raceId }); break; }
+    }
+  }
+  check(`先の週にも登録できる（${placed.map((x) => `${x.off}週後`).join('・')}）`, placed.length >= 4 && new Set(placed.map((x) => x.off)).size === placed.length);
+  check('1 年を超える先は登録できない', !enterRace(g5, mine[0].id, 'no-such-race').ok);
+  const before = GG.myEntries(g5).length;
+  nextWeek(g5);
+  const afterOne = GG.myEntries(g5).length;
+  check(`1 週進めても先の週の登録は残る（${before} → ${afterOne}）`, afterOne >= before - 1 && afterOne >= 3);
+  for (let i = 0; i < 12; i++) nextWeek(g5);
+  const left = GG.myEntries(g5);
+  check(`過ぎた週の登録は消え、先のものだけ残る（${left.length} 件）`, left.every((e) => e.year > g5.world.year || e.week > g5.world.week));
+  check('登録した馬は走った（記録がある）', mine.some((h) => (g5.world.horses.get(h.id).starts ?? 0) > 0));
+  // セーブ往復で先の登録が保たれる。
+  const back = fromJSON(toJSON(g5));
+  check('先の登録がセーブで保たれる', GG.myEntries(back).length === left.length);
+}
+{
+  // 表に能力のある現役の史実馬は、名馬が全部 E 評価で始まらない。
+  const g6 = sideGame({ seed: 'verify-real-ability', startYear: 2020 });
+  const names = ['コントレイル', 'デアリングタクト', 'アーモンドアイ', 'グランアレグリア'];
+  const rows = [];
+  for (const h of g6.world.horses.values()) {
+    if (!names.includes(h.name)) continue;
+    const t = horseView(g6, h.id);
+    rows.push(`${h.name} 総合${t.summary?.total?.toFixed?.(2) ?? '—'}`);
+    check(`${h.name} は表の能力から下げずに始まる`, ABILITIES.every((a) => h.cur[a] >= h.pot[a] * 0.94), JSON.stringify(h.cur));
+  }
+  check('現役の史実馬が見つかる', rows.length >= 3, rows.join(' '));
+}
+
 console.log(`\n合計 ${pass} ok / ${fail} NG`);
 process.exit(fail === 0 ? 0 : 1);

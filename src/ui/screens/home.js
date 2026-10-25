@@ -159,20 +159,29 @@ function page(tag, ic, title, body, action = null) {
 
 function entriesPage(app) {
   const g = app.game;
-  const entries = G.myEntries(g);
-  if (!entries.length) {
+  const all = G.myEntries(g);
+  const now = all.filter((e) => e.thisWeek);
+  const later = all.filter((e) => !e.thisWeek);
+  if (!all.length) {
     return page('出走', 'gate', '今週の出走予定', [
-      el('p.pc-empty', { text: '今週の登録は無い。番組表から選ぶか、所有馬の画面から登録する。' }),
+      el('p.pc-empty', { text: '今週の登録は無い。番組表から選ぶか、所有馬の画面から登録する。先の週（1 年先まで）にも登録できる。' }),
     ], button('番組表を開く', () => app.go('races'), { cls: 'sm primary' }));
   }
-  return page('出走', 'gate', `今週の出走予定（${entries.length}頭）`, el('ul.plist', entries.map((e) => el('li', [
+  const row = (e, withDate) => el('li', [
     el('div.pl-main', [
+      withDate ? el('small.pl-date', { text: `${e.year}年 ${e.label}` }) : null,
       el('b.mine', { text: e.horse.name }),
       el('span', { text: e.race.name, class: e.race.grade ? 'grade' : null }),
     ]),
     el('div.pl-sub', { text: `${e.race.courseName}${e.race.surface}${e.race.distance}m ／ ${e.jockeyName}` }),
     button('取消', () => { G.cancelEntry(g, e.raceId); app.render(); }, { cls: 'sm ghost' }),
-  ]))), el('span.pc-note', { text: 'NEXT で発走する' }));
+  ]);
+  const title = now.length ? `今週の出走予定（${now.length}頭）${later.length ? `・先に ${later.length} 件` : ''}` : `先の出走予定（${later.length} 件）`;
+  return page('出走', 'gate', title, [
+    now.length ? el('ul.plist', now.map((e) => row(e, false))) : el('p.pc-empty', { text: '今週の登録は無い。' }),
+    later.length ? el('ul.plist.later', later.slice(0, 4).map((e) => row(e, true))) : null,
+    later.length > 4 ? el('p.pc-note', { text: `ほか ${later.length - 4} 件` }) : null,
+  ], el('span.pc-note', { text: 'NEXT で発走する' }));
 }
 
 function gradedPage(app, graded) {

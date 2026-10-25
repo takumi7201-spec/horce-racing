@@ -1119,3 +1119,21 @@ canvas.race3d { width: 100%; height: 100%; display: block; }
 .book-st.st-dead { color: #fff; background: #8d856a; }
 .book-st.st-lost { color: #9a3b2b; background: #f6ddd5; }
 .book-st.st-none { color: var(--fg3); }
+
+/* 週数を指定する週送り */
+.sm-custom { margin: 6px 4px 2px; padding: 8px 8px 6px; border-top: 1px dashed var(--line, #ccd8c4); }
+.sm-ch { display: flex; justify-content: space-between; align-items: baseline; font-size: 12px; }
+.sm-num { font-weight: 700; color: var(--green); }
+.sm-range { width: 100%; margin: 6px 0 4px; accent-color: var(--green); }
+.sm-chips { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 6px; }
+.sm-chip { border: 1px solid var(--line, #ccd8c4); background: #fff; border-radius: 12px; padding: 2px 9px; font-size: 11px; cursor: pointer; }
+.sm-chip:hover { border-color: var(--green); background: #f4fbef; }
+.sm-dest { display: flex; justify-content: space-between; align-items: baseline; font-size: 12px; margin-bottom: 6px; }
+.sm-go { width: 100%; border: 1px solid var(--green); background: var(--green); color: #fff; border-radius: 6px; padding: 6px 0; font-size: 12px; cursor: pointer; }
+.sm-go:hover { filter: brightness(1.08); }
+
+/* 番組表・出走登録の週の選択 */
+.week-picker { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin: 4px 0 10px; }
+.week-picker select { flex: 1 1 200px; min-width: 0; }
+.pl-date { display: block; font-size: 10.5px; color: var(--fg3); }
+.plist.later { margin-top: 8px; padding-top: 6px; border-top: 1px dashed var(--line, #ccd8c4); }

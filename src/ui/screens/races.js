@@ -24,7 +24,11 @@ export function racesScreen(app) {
     { id: 'results', name: '先週の結果' },
   ], mode, (id) => app.go('races', { tab: id }));
 
-  if (mode === 'week') body.appendChild(weekTable(app, 0));
+  if (mode === 'week') {
+    app.raceWeek ??= 0;
+    body.appendChild(weekPicker(app));
+    body.appendChild(weekTable(app, app.raceWeek));
+  }
   else if (mode === 'ahead') body.appendChild(ahead(app));
   else if (mode === 'graded') body.appendChild(gradedTable(app));
   else body.appendChild(resultsTable(app));
@@ -60,15 +64,15 @@ function weekTable(app, offset) {
           ent ? el('b.mine', { text: ent.horse.name }) : (cands.length ? `${cands.length}頭 可` : '—'),
           ent
             ? button('取消', () => { G.cancelEntry(g, r.raceId); app.render(); }, { cls: 'sm ghost' })
-            : (cands.length && offset === 0
-              ? button('登録', () => pickHorse(app, r, cands), { cls: 'sm primary' })
+            : (cands.length
+              ? button('登録', () => pickHorse(app, r, cands, offset), { cls: 'sm primary' })
               : null),
         ],
         cls: r.graded ? 'graded-row' : null,
       };
     });
 
-  return card(`${sch.year}年 ${sch.label} の番組（${sch.races.length} レース）`,
+  return card(`${sch.year}年 ${sch.label} の番組（${sch.races.length} レース）${offset ? `・${offset}週後` : '・今週'}`,
     table(['レース', '条件', '場', '距離', '出走資格', '1着賞金', '登録', ''], rows,
       { align: [, 'c', 'c', 'c', 'c', 'r', 'c'] }));
 }
@@ -163,7 +167,7 @@ export function showResult(r) {
   ], { wide: true });
 }
 
-function pickHorse(app, race, cands) {
+function pickHorse(app, race, cands, offset = 0) {
   const g = app.game;
   const jockeySel = el('select.inp');
   for (const j of G.availableJockeys(g, 40)) {
@@ -184,7 +188,7 @@ function pickHorse(app, race, cands) {
     table(['馬名', '性齢', 'クラス', '仕上がり', '調子', '適性', ''],
       cands.map((h) => {
         const v = G.horseView(g, h.id);
-        const r = G.racesFor(g, h.id, 0).find((x) => x.raceId === race.raceId);
+        const r = G.racesFor(g, h.id, offset).find((x) => x.raceId === race.raceId);
         return [
           el('b', { text: h.name }), `${h.sex}${v.age}`, v.className,
           v.fitLabel, v.condLabel, bar(r?.apt ?? 0),
@@ -204,4 +208,38 @@ function pickHorse(app, race, cands) {
   ], { wide: true });
   // 先頭の馬の主戦騎手を初期値にする。
   if (cands[0]?.jockeyId != null) jockeySel.value = String(cands[0].jockeyId);
+}
+
+/**
+ * 番組表の週の選択。今週から 1 年先まで、前後の送りと「重賞のある週」へのジャンプ。
+ * 先の週のレースにも登録できる（その週に出走資格と体調を見直す）。
+ */
+function weekPicker(app) {
+  const g = app.game;
+  const horizon = G.ENTRY_HORIZON;
+  const set = (n) => { app.raceWeek = Math.max(0, Math.min(horizon - 1, n)); app.render(); };
+  const weeks = G.schedule(g, horizon);
+  const sel = el('select.inp', {
+    onchange: (e) => set(Number(e.target.value)),
+  }, weeks.map((w, i) => {
+    const gr = w.races.filter((r) => r.graded).length;
+    return el('option', {
+      value: String(i), selected: i === app.raceWeek,
+      text: `${i === 0 ? '今週' : `${i}週後`}　${w.year}年 ${w.label}${gr ? `（重賞${gr}）` : ''}`,
+    });
+  }));
+  const jump = (dir) => {
+    for (let i = app.raceWeek + dir; i >= 0 && i < horizon; i += dir) {
+      if (weeks[i].races.some((r) => r.graded)) return set(i);
+    }
+    return null;
+  };
+  return el('div.week-picker', [
+    button('◀', () => set(app.raceWeek - 1), { cls: 'sm', disabled: app.raceWeek === 0 }),
+    sel,
+    button('▶', () => set(app.raceWeek + 1), { cls: 'sm', disabled: app.raceWeek >= horizon - 1 }),
+    button('前の重賞', () => jump(-1), { cls: 'sm ghost' }),
+    button('次の重賞', () => jump(1), { cls: 'sm ghost' }),
+    button('今週', () => set(0), { cls: 'sm ghost' }),
+  ]);
 }

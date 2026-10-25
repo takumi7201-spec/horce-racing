@@ -616,48 +616,65 @@ export function entryModal(app, id) {
     el('option', { value: '', text: '指示なし（馬の持ち味）' }),
     ...STYLES.map((s) => el('option', { value: s, text: s })),
   ]);
+  const horizon = G.ENTRY_HORIZON;
+  const sch = G.schedule(g, horizon);
+  const mine = new Map(G.myEntries(g).filter((e) => e.horseId === id).map((e) => [e.raceId, e]));
 
   const render = () => {
     body.textContent = '';
     const races = G.racesFor(g, id, week);
+    const at = sch[week];
+    const sel = el('select.inp', {
+      onchange: (e) => { week = Number(e.target.value); render(); },
+    }, sch.map((w, i) => {
+      const n = G.racesFor(g, id, i).length;
+      return el('option', {
+        value: String(i), selected: i === week,
+        text: `${i === 0 ? '今週' : `${i}週後`}　${w.year}年 ${w.label}（${n}レース）`,
+      });
+    }));
+    body.appendChild(el('div.week-picker', [
+      button('◀', () => { week = Math.max(0, week - 1); render(); }, { cls: 'sm', disabled: week === 0 }),
+      sel,
+      button('▶', () => { week = Math.min(horizon - 1, week + 1); render(); }, { cls: 'sm', disabled: week >= horizon - 1 }),
+      button('今週', () => { week = 0; render(); }, { cls: 'sm ghost' }),
+    ]));
     body.appendChild(el('div.form-row', [
       el('label', ['騎手', jockeySel]),
       el('label', ['脚質指示', styleSel]),
     ]));
     if (!races.length) {
-      body.appendChild(el('p.empty', { text: 'この週に出られるレースは無い。' }));
+      body.appendChild(el('p.empty', { text: `${at.year}年 ${at.label} に出られるレースは無い。` }));
     } else {
       body.appendChild(table(
         ['レース', '場', '条件', '距離', '賞金', '適性', ''],
-        races.map((r) => [
-          el('span', { text: r.name, class: r.grade ? 'grade' : null }),
-          r.courseName, `${r.className}・${r.ageLabel}${r.sexLabel}`,
-          `${r.surface}${r.distance}m`,
-          formatMoney(r.prize),
-          bar(r.apt),
-          button('登録', () => {
-            const res = G.enterRace(g, id, r.raceId, {
-              jockeyId: Number(jockeySel.value),
-              styleOrder: styleSel.value || null,
-            });
-            if (!res.ok) return toast(res.why, { bad: true });
-            toast(`${v.name} を ${r.name} に登録した`);
-            m.close();
-            app.render();
-          }, { cls: 'sm primary', disabled: week !== 0 }),
-        ]), { align: [, 'c', 'c', 'c', 'r', 'c'] }));
-      if (week !== 0) body.appendChild(el('p.note', { text: '登録できるのは今週のレースだけ。' }));
+        races.map((r) => {
+          const ent = mine.get(r.raceId);
+          return [
+            el('span', { text: r.name, class: r.grade ? 'grade' : null }),
+            r.courseName, `${r.className}・${r.ageLabel}${r.sexLabel}`,
+            `${r.surface}${r.distance}m`,
+            formatMoney(r.prize),
+            bar(r.apt),
+            ent
+              ? button('取消', () => { G.cancelEntry(g, r.raceId); mine.delete(r.raceId); render(); app.render(); }, { cls: 'sm ghost' })
+              : button('登録', () => {
+                const res = G.enterRace(g, id, r.raceId, {
+                  jockeyId: Number(jockeySel.value),
+                  styleOrder: styleSel.value || null,
+                });
+                if (!res.ok) return toast(res.why, { bad: true });
+                toast(`${v.name} を ${r.name} に登録した（${at.year}年 ${at.label}）`);
+                m.close();
+                app.render();
+              }, { cls: 'sm primary' }),
+          ];
+        }), { align: [, 'c', 'c', 'c', 'r', 'c'] }));
+      if (week !== 0) body.appendChild(el('p.note', { text: '先の週の登録は、その週に出走資格と体調を見直す（外れたら取り消される）。' }));
     }
   };
 
-  const m = modal(`${v.name} の出走登録`, [
-    el('nav.tabs', [0, 1, 2, 3].map((k) => el('button.tab', {
-      text: k === 0 ? '今週' : `${k}週後`,
-      class: k === week ? 'on' : null,
-      onclick: () => { week = k; render(); },
-    }))),
-    body,
-  ], { wide: true });
+  const m = modal(`${v.name} の出走登録`, [body], { wide: true });
   render();
   return m;
 }

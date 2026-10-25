@@ -175,42 +175,77 @@ export function racesFor(g, horseId, weekOffset = 0) {
     .sort(byDesc((r) => r.apt * (r.classGap === 0 ? 1 : r.classGap === 1 ? 0.75 : 0.4)));
 }
 
-/** 出走登録。1 頭 1 週 1 レース。 */
+/** 先 n 週ぶんの (年, 週)。登録は今週から 1 年先（48 週）まで。 */
+function weekAt(w, offset) {
+  let wk = w.week + offset, yr = w.year;
+  while (wk > WEEKS_PER_YEAR) { wk -= WEEKS_PER_YEAR; yr++; }
+  return { year: yr, week: wk };
+}
+
+/** 登録できる最大の先の週数。 */
+export const ENTRY_HORIZON = WEEKS_PER_YEAR;
+
+/**
+ * 出走登録。今週から 1 年先までの番組に登録できる（1 頭は同じ週に 1 レースだけ）。
+ * 先の週の登録は、その週が来たときに出走資格・体調を見直す。
+ * 条件戦は賞金や勝ち星で資格が変わるので、登録した時点では通っても、当日に外れることがある。
+ */
 export function enterRace(g, horseId, raceId, { jockeyId = null, styleOrder = null } = {}) {
   const w = g.world;
   const h = w.horses.get(horseId);
   if (!h) return { ok: false, why: '馬が見つからない' };
-  const ready = readyToRun(h);
-  if (!ready.ok) return { ok: false, why: ready.why };
-  const race = weekRaces(w).find((r) => r.raceId === raceId);
-  if (!race) return { ok: false, why: 'そのレースは今週ではない' };
-  if (!eligible(race, h, w.year)) return { ok: false, why: '出走条件を満たさない' };
-  // 同じ馬の二重登録と、同じレースへの複数登録を外す。
+  let found = null;
+  for (let i = 0; i < ENTRY_HORIZON && !found; i++) {
+    const at = weekAt(w, i);
+    const race = weekRaces(w, at.week, at.year).find((r) => r.raceId === raceId);
+    if (race) found = { race, ...at, offset: i };
+  }
+  if (!found) return { ok: false, why: 'そのレースは登録できる期間に無い' };
+  // 今週のレースは今の体調で見る。先の週は、その週に見直す（けがは治っているかもしれない）。
+  if (found.offset === 0) {
+    const ready = readyToRun(h);
+    if (!ready.ok) return { ok: false, why: ready.why };
+  } else if (h.stable !== 'stable' && h.stable !== 'pasture') {
+    return { ok: false, why: '現役の馬ではない' };
+  }
+  if (!eligible(found.race, h, found.year)) return { ok: false, why: '出走条件を満たさない' };
+  // 同じ馬が同じ週に二つのレースへは登録できない（登録し直すと入れ替わる）。
   for (const [rid, e] of [...w.player.entries]) {
-    if (e.horseId === horseId) w.player.entries.delete(rid);
+    if (e.horseId === horseId && e.year === found.year && e.week === found.week) w.player.entries.delete(rid);
   }
   w.player.entries.set(raceId, {
-    raceId, horseId,
+    raceId, horseId, year: found.year, week: found.week,
     jockeyId: jockeyId ?? h.jockeyId,
     styleOrder: styleOrder ?? null,
   });
-  return { ok: true, race: decorate(w, race) };
+  return { ok: true, race: decorate(w, found.race), year: found.year, week: found.week };
 }
 
 export function cancelEntry(g, raceId) {
   g.world.player.entries.delete(raceId);
 }
 
+/**
+ * 自分の登録の一覧（日付順）。thisWeek が今週の分。
+ * 古いセーブの登録は年と週を持たないので、今週のものとして扱う。
+ */
 export function myEntries(g) {
   const w = g.world;
-  const races = weekRaces(w);
-  return [...w.player.entries.values()].map((e) => ({
-    ...e,
-    race: decorate(w, races.find((r) => r.raceId === e.raceId) ?? {}),
-    horse: w.horses.get(e.horseId),
-    jockeyName: w.jockeys.get(e.jockeyId)?.name ?? '—',
-  }));
+  return [...w.player.entries.values()].map((e) => {
+    const year = e.year ?? w.year, week = e.week ?? w.week;
+    const race = weekRaces(w, week, year).find((r) => r.raceId === e.raceId);
+    return {
+      ...e, year, week, label: weekLabel(week),
+      thisWeek: year === w.year && week === w.week,
+      race: decorate(w, race ?? {}),
+      horse: w.horses.get(e.horseId),
+      jockeyName: w.jockeys.get(e.jockeyId)?.name ?? '—',
+    };
+  }).sort((a, b) => a.year - b.year || a.week - b.week);
 }
+
+/** 今週走る予定の登録。 */
+export const myEntriesNow = (g) => myEntries(g).filter((e) => e.thisWeek);
 
 /** 騎乗を頼める騎手の一覧（腕順）。 */
 export function availableJockeys(g, limit = 40) {
@@ -552,12 +587,12 @@ export function horseCareer(g, id) {
     .slice(0, 4).map((r) => ({ name: r.name, grade: r.grade ?? null, year: r.year }));
   const surface = (h.dirt ?? 0) > (h.turf ?? 0) + 0.05 ? 'ダート' : '芝';
   const band = h.dist <= 1400 ? '短距離' : h.dist <= 1800 ? 'マイル' : h.dist <= 2400 ? '中距離' : '長距離';
-  const entry = [...w.player.entries.values()].find((e) => e.horseId === id);
-  const next = entry ? decorate(w, weekRaces(w).find((r) => r.raceId === entry.raceId) ?? {}) : null;
+  const entry = myEntries(g).find((e) => e.horseId === id);
+  const next = entry ? entry.race : null;
   return {
     counts: c, bigWins,
     route: `${surface}${band}`,
-    next: next && next.name ? { name: next.name, grade: next.grade ?? null, label: weekLabel(w.week) } : null,
+    next: next && next.name ? { name: next.name, grade: next.grade ?? null, label: entry.thisWeek ? weekLabel(w.week) : `${entry.year}年 ${entry.label}` } : null,
   };
 }
 

@@ -31,7 +31,7 @@ import {
 import { simulateRace, computeOdds } from './race.js';
 import { createJockey, createTrainer, ageJockey, ageTrainer, resetPersonIds, acceptsRide } from './jockey.js';
 import { breed, canBeBroodmare, canBeStallion, studFeeOf, conceives, POP_MEAN, STALLION_FOAL_MEMORY } from './breeding.js';
-import { trainWeek, pastureWeek, autoMenu } from './training.js';
+import { trainWeek, pastureWeek, autoMenu, readyToRun } from './training.js';
 import { sireLineRoot, nicksKey, recordNicksResult, breedQuality, lineLabel, grantFactors, establishLines } from './pedigree.js';
 import { clamp, clamp01, lerp, sum, byDesc } from '../core/util.js';
 import {
@@ -176,6 +176,16 @@ export function createWorld(seed, { startYear = 2026, playerName = '', farmName 
     // 開始時点で現役の実在馬（1975 年開始ならトウショウボーイやテンポイント）。
     // 2 歳以上は紙の戦績を持たせる。開始年の 4 月に生まれる名馬は、ここで母に受胎させる。
     for (const h of liveReal) if (Y0 - h.birthYear >= 2) paperCareer(world, h, rng, Y0);
+    // 表に能力が設定されている馬は、その値から下げてスタートしない。紙の戦績は現在値を潜在値の 82% にし、
+    // 仕上がり 0.2 も掛かるので、名馬が全部 E 評価で始まっていた。成長が止まっている古馬は潜在値そのもの。
+    for (const h of liveReal) {
+      const age = Y0 - h.birthYear;
+      if (age < 2) continue;
+      const reach = age >= 3 ? 1 : 0.95;
+      for (const a of ABILITIES) h.cur[a] = clamp01(h.pot[a] * reach);
+      h.fit = Math.max(h.fit, 0.7);
+      h.cond = Math.max(h.cond, 0.7);
+    }
     realCoverings(world, rng, Y0);
   }
   // 名簿の種付料を開始年の値にそろえる。供用を始めた年の値のままだと、
@@ -902,6 +912,17 @@ export function advanceWeek(world, opts = {}) {
     if (!race) continue;
     const h = world.horses.get(ent.horseId);
     if (!h || !canRun(h, world.year)) continue;
+    // 先の週に登録した馬は、当日に見直す。クラスは勝ち星で変わり、けがや疲れも出る。
+    // 条件を外れた登録は取り消し、出られない理由を知らせる。
+    if (!eligible(race, h, world.year)) {
+      news.push(`★${h.name} は出走資格を外れ、${race.name} への登録が取り消された`);
+      continue;
+    }
+    const ready = readyToRun(h);
+    if (!ready.ok) {
+      news.push(`★${h.name} は${ready.why}のため、${race.name} を回避した`);
+      continue;
+    }
     const f = fields.get(raceId);
     if (f.length >= race.maxField) f.pop(); // 抽選で弱い馬を外す
     f.push(h);
@@ -949,7 +970,11 @@ export function advanceWeek(world, opts = {}) {
   }
 
   world.results = results;
-  world.player.entries = new Map();
+  // 今週の登録だけを消す。先の週の登録は残す（年単位で登録できる）。年と週を持たない古い登録は今週のもの。
+  for (const [rid, e] of [...world.player.entries]) {
+    const past = e.year == null || e.year < world.year || (e.year === world.year && e.week <= world.week);
+    if (past) world.player.entries.delete(rid);
+  }
 
   // --- 全馬の 1 週 ---
   weeklyHorseUpkeep(world, rng);
