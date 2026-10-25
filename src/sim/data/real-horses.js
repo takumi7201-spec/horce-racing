@@ -15524,9 +15524,17 @@ function withEnwiki(table) {
   const kana = new Map(KATAKANA);
   const names = new Set(table.map((d) => d.n));
   const final = new Map();
+  const merges = new Map();
   const adds = [];
   for (const row of EW_NEW) {
     const k = kana.get(row[0]);
+    // カタカナ名が既に表に居て生年が近ければ同じ馬（道具は表の馬の英語名を知らないことがある: Nijinsky II = ニジンスキー）。
+    // 二頭に割れないよう、その馬へ向けて、空いている父母だけを引き継ぐ。
+    if (k && names.has(k) && table.some((d) => d.n === k && Math.abs(d.b - row[1]) <= 3)) {
+      final.set(row[0], k);
+      merges.set(k, row);
+      continue;
+    }
     const name = k && !names.has(k) ? k : row[0];
     if (names.has(name)) { final.set(row[0], null); continue; }
     names.add(name);
@@ -15536,7 +15544,7 @@ function withEnwiki(table) {
   const fin = (n) => (n == null ? undefined : final.has(n) ? final.get(n) ?? undefined : n);
   const fill = new Map(EW_FILL.map(([n, b, sire, dam]) => [`${n}|${b}`, { sire: fin(sire), dam: fin(dam) }]));
   const out = table.map((d) => {
-    const f = fill.get(`${d.n}|${d.b}`);
+    const f = fill.get(`${d.n}|${d.b}`) ?? (merges.has(d.n) && Math.abs(merges.get(d.n)[1] - d.b) <= 3 ? { sire: fin(merges.get(d.n)[3]), dam: fin(merges.get(d.n)[4]) } : null);
     return f ? { ...d, sire: d.sire ?? f.sire, dam: d.dam ?? f.dam } : d;
   });
   for (const [n, b, s, sire, dam] of adds) {

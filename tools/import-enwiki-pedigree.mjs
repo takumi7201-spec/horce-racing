@@ -198,7 +198,7 @@ function resolve1(ep, cy, d, role) {
   if ((enIdx.get(k) ?? []).length) { stats.badAge++; return null; }   // 同名の別馬
   if (addedByEn.has(k)) return addedByEn.get(k).n;
   if (d + 1 > MAXD) return null;
-  const e = { n: ep.text, b: cy - 8, s: role === 'dam' ? '牝' : '牡', sire: null, dam: null, _d: d + 1, _title: ep.title };
+  const e = { n: ep.text, b: cy - 8, s: role === 'dam' ? '牝' : '牡', sire: null, dam: null, _d: d + 1, _cy: cy, _title: ep.title };
   added.push(e); addedByEn.set(k, e); stats.created++;
   push(e, d + 1, [ep.text, ...(ep.title ? [ep.title] : [])]);
   return e.n;
@@ -215,6 +215,8 @@ for (let i = 0; i < queue.length; i++) {
   stats.pages++;
   const cs = kids.get(node.n) ?? [];
   const tol = node._d ? 99 : stubLike(node) ? 12 : 2;
+  // 新しい祖先は、子の生年から見た親子の年齢差で同名の別馬を弾く（Lady Lightfoot は 1812 年生の別の牝馬が先に当たった）。
+  if (node._d && found.year != null && (node._cy - found.year < 2 || node._cy - found.year > 30)) { stats.badYear++; continue; }
   if (found.year != null) {
     if (Math.abs(found.year - node.b) > tol || !cs.every((c) => c - found.year >= 2 && c - found.year <= 30)) { stats.badYear++; continue; }
   } else if (!stubLike(node) && !node._d) { stats.badYear++; continue; }
