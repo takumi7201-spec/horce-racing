@@ -1137,3 +1137,25 @@ canvas.race3d { width: 100%; height: 100%; display: block; }
 .week-picker select { flex: 1 1 200px; min-width: 0; }
 .pl-date { display: block; font-size: 10.5px; color: var(--fg3); }
 .plist.later { margin-top: 8px; padding-top: 6px; border-top: 1px dashed var(--line, #ccd8c4); }
+
+/* 牧場施設 */
+.fac-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; }
+.fac { border: 1px solid var(--line, #ccd8c4); border-radius: 10px; padding: 10px 12px; background: #fff; }
+.fac.built { border-color: var(--green); background: #f7fbf3; }
+.fac-h { display: flex; gap: 10px; align-items: center; }
+.fac-h > div { flex: 1; min-width: 0; }
+.fac-h b { display: block; }
+.fac-h small { display: block; color: var(--fg3); font-size: 11px; }
+.fac-i { color: var(--green); display: grid; place-items: center; width: 34px; height: 34px; border-radius: 8px; background: #edf6e6; }
+.fac-lv { font-size: 11px; font-weight: 700; color: var(--green); white-space: nowrap; }
+.fac-pips { display: flex; gap: 4px; margin: 8px 0 4px; }
+.fac-pips i { width: 26px; height: 6px; border-radius: 3px; background: #e3e8de; }
+.fac-pips i.on { background: var(--green); }
+.fac-pips i.wip { background: repeating-linear-gradient(45deg, #e9c46a, #e9c46a 4px, #f4dd9b 4px, #f4dd9b 8px); }
+.fac-now { margin: 4px 0; font-size: 12px; color: var(--fg2, #445); }
+.fac-next { display: flex; gap: 8px; align-items: center; justify-content: space-between; margin-top: 6px; }
+.fac-next small { display: block; color: var(--fg3); font-size: 11px; }
+.fac-wip { display: flex; flex-direction: column; gap: 4px; font-size: 12px; margin-top: 6px; }
+.fac-bar { display: block; height: 8px; border-radius: 4px; background: #e3e8de; overflow: hidden; }
+.fac-bar i { display: block; height: 100%; background: linear-gradient(90deg, #e9c46a, #6aa84f); }
+.fac-why { color: #a33; font-size: 11px; }

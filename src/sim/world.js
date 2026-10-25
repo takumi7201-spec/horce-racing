@@ -32,6 +32,7 @@ import { simulateRace, computeOdds } from './race.js';
 import { createJockey, createTrainer, ageJockey, ageTrainer, resetPersonIds, acceptsRide } from './jockey.js';
 import { breed, canBeBroodmare, canBeStallion, studFeeOf, conceives, POP_MEAN, STALLION_FOAL_MEMORY } from './breeding.js';
 import { trainWeek, pastureWeek, autoMenu, readyToRun } from './training.js';
+import { facilityEffects, NO_EFFECT, advanceFacilities, facilityUpkeep } from './facilities.js';
 import { sireLineRoot, nicksKey, recordNicksResult, breedQuality, lineLabel, grantFactors, establishLines } from './pedigree.js';
 import { clamp, clamp01, lerp, sum, byDesc } from '../core/util.js';
 import {
@@ -981,6 +982,7 @@ export function advanceWeek(world, opts = {}) {
 
   // --- 経営 ---
   settleWeeklyCost(world);
+  advanceFacilities(world, news);
 
   // --- 牧場の行事（誕生・種付け） ---
   if (world.week === W(4, 1)) foaling(world, rng, news);
@@ -1128,22 +1130,33 @@ function checkTripleCrown(world, horseId, news) {
 
 /** 全馬の調教・回復。世界でいちばん重い処理なので、素直なループに留めている。 */
 function weeklyHorseUpkeep(world, rng) {
+  // 施設の効果は自分の馬だけに効く。
+  const fxMine = facilityEffects(world);
   for (const h of world.horses.values()) {
     if (h.dead || h.retired) continue;
     const age = horseAge(h, world.year);
     if (age < 2) continue;
-    if (h.injury) { weeklyRecover(h, rng); continue; }
+    const fx = h.ownerId === 'player' ? fxMine : NO_EFFECT;
+    if (h.injury) {
+      // 診療所：治りが早い（乱数を使わず、治癒の持ち越しを足して 1 を超えるたびに 1 週縮める）。
+      if (fx.healShare > 0 && h.injury.weeks > 1) {
+        h.injury.heal = (h.injury.heal ?? 0) + fx.healShare;
+        if (h.injury.heal >= 1) { h.injury.heal -= 1; h.injury.weeks--; }
+      }
+      weeklyRecover(h, rng);
+      continue;
+    }
     if (h.stable === 'stable') {
       const menu = h.ownerId === 'player'
         ? (h.trainingMenu ?? 'normal')
         : autoMenu(h, rng);
-      trainWeek(h, rng, { year: world.year, trainer: world.trainers.get(h.trainerId), menuId: menu });
+      trainWeek(h, rng, { year: world.year, trainer: world.trainers.get(h.trainerId), menuId: menu, fx });
       // NPC は疲れたら放牧に出す。
       // 放牧に出すとその間に仕上がりが抜け、戻しても 5 週は使えない。
       // 軽い疲れは在厩のまま「休養」メニューで抜く（実際の調整もそうしている）。
       if (h.ownerId !== 'player' && h.fatigue > 0.88) h.stable = 'pasture';
     } else {
-      pastureWeek(h, rng, { year: world.year });
+      pastureWeek(h, rng, { year: world.year, fx });
       // NPC は疲れが抜けたら入厩させる。
       if (h.ownerId !== 'player' && h.fatigue < 0.30 && rng.chance(0.6)) {
         h.stable = 'stable';
@@ -1163,6 +1176,8 @@ function settleWeeklyCost(world) {
   }
   cost += world.player.broodmares.length * COST.broodmareWeekly;
   cost += world.player.stallions.length * COST.stallionWeekly;
+  // 牧場事務所で経費が下がる。施設の維持費は別に払う。
+  cost = Math.round(cost * facilityEffects(world).costMul) + facilityUpkeep(world);
   world.player.weeklyCost = cost;
   world.player.money -= cost;
 }
@@ -1310,7 +1325,7 @@ function covering(world, rng, news) {
     const sire = world.horses.get(m.sireId);
     if (!dam || !sire || dam.dead || sire.dead) continue;
     booked.add(dam.id);
-    if (!conceives(rng, dam, birth)) {
+    if (!conceives(rng, dam, birth, facilityEffects(world).conceiveBonus)) {
       world.player.money += m.fee;
       news.push(`★${dam.name} は不受胎だった（種付料 ${m.fee} 万円は返金）。`);
       continue;

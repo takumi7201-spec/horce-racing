@@ -5,6 +5,7 @@ import { el, card, table, button, kv, bar, modal, toast, tabs, ask } from '../do
 import * as G from '../../sim/game.js';
 import { formatMoney } from '../../core/util.js';
 import { horseImg } from '../horse-sprite.js';
+import { icon } from '../icons.js';
 
 export function farmScreen(app) {
   const g = app.game;
@@ -18,6 +19,7 @@ export function farmScreen(app) {
     { id: 'foal', name: `当歳セール${mark(G.saleOpen(g, 'foal'))}` },
     { id: 'overseas', name: `海外・庭先${mark(G.saleOpen(g, 'overseas') || G.saleOpen(g, 'private'))}` },
     { id: 'direct', name: '牧場取引（通年）' },
+    { id: 'facilities', name: `施設${G.facilities(g).some((f) => f.build) ? '（建設中）' : ''}` },
     { id: 'entry', name: `入厩・馬名登録${mark(G.entryOpen(g))}` },
   ], tab, (id) => app.go('farm', { tab: id, damId: app.params.damId }, { replace: true }));
 
@@ -25,6 +27,7 @@ export function farmScreen(app) {
     : tab === 'mares' ? mareSaleView(app)
       : tab === 'foal' ? horseSaleView(app, 'foal')
         : tab === 'overseas' ? el('div', [overseasView(app), horseSaleView(app, 'private'), mareSaleView(app, 'pMare')])
+          : tab === 'facilities' ? facilitiesView(app)
           : tab === 'direct' ? el('div', [
             el('p.note', { text: `セールの外でも、牧場から直接買える。相対取引なので割高（セール価格のおよそ ${G.DIRECT_PREMIUM} 倍）。顔ぶれは 12 週ごとに入れ替わる。史実の名馬になる幼駒と実在の名牝は出ない。` }),
             horseSaleView(app, 'dFoal'), horseSaleView(app, 'dYearling'), mareSaleView(app, 'dMare'),
@@ -391,5 +394,58 @@ function entryView(app) {
         return [horseImg(c.coat, { size: 'xs', age: 1 }), el('b', { text: c.name }), c.sire, c.dam, input, sel];
       }))
       : el('p.empty', { text: '来年 2 歳になる馬が居ない。' }),
+  ]);
+}
+
+// ---------------------------------------------------------------- 牧場施設
+
+/**
+ * 牧場施設。建てると自分の馬だけに効く。完成まで工期がかかり、完成後は毎週の維持費が要る。
+ * 効果は小さいので、資金が少ないうちは先に馬を買うほうが得になる。
+ */
+function facilitiesView(app) {
+  const g = app.game;
+  const list = G.facilities(g);
+  const sum = G.facilitySummary(g);
+  const money = g.world.player.money;
+  const building = list.filter((f) => f.build).length;
+  const cardOf = (f) => {
+    const pct = f.build ? Math.round((1 - f.build.weeksLeft / f.build.total) * 100) : 0;
+    return el('div.fac', { class: f.level > 0 ? 'built' : null }, [
+      el('div.fac-h', [
+        el('span.fac-i', icon(f.icon, { size: 22 })),
+        el('div', [el('b', { text: f.name }), el('small', { text: f.desc })]),
+        el('span.fac-lv', { text: f.level ? `Lv ${f.level} / ${f.maxLevel}` : `未建設（最大 Lv ${f.maxLevel}）` }),
+      ]),
+      el('div.fac-pips', Array.from({ length: f.maxLevel }, (_, i) => el('i', { class: i < f.level ? 'on' : (f.build && i === f.level ? 'wip' : null) }))),
+      f.current ? el('p.fac-now', { text: `いまの効果：${f.current.text}　維持費 ${f.upkeep}万/週` }) : null,
+      f.build
+        ? el('div.fac-wip', [
+          el('span', { text: `Lv ${f.build.to} を建設中（あと ${f.build.weeksLeft} 週）` }),
+          el('span.fac-bar', el('i', { style: `width:${pct}%` })),
+        ])
+        : f.next
+          ? el('div.fac-next', [
+            el('div', [
+              el('b', { text: `次：Lv ${f.level + 1}` }),
+              el('small', { text: `${f.next.text}` }),
+              el('small', { text: `費用 ${formatMoney(f.next.cost)}・工期 ${f.next.weeks} 週・維持費 ${f.next.upkeep}万/週` }),
+            ]),
+            button('建設する', async () => {
+              if (!await ask(`${f.name} Lv ${f.level + 1} を ${formatMoney(f.next.cost)} で建設する？（工期 ${f.next.weeks} 週）`, { ok: '建設する' })) return;
+              const r = G.buildFacility(g, f.id);
+              if (!r.ok) return toast(r.why, { bad: true });
+              toast(`${r.name} Lv ${r.level} の建設を始めた（${r.weeks} 週）`);
+              app.render();
+            }, { cls: 'sm primary', disabled: !f.canBuild }),
+          ])
+          : el('p.fac-now', { text: '最大まで建てた' }),
+      !f.canBuild && f.next && !f.build ? el('small.fac-why', { text: f.why }) : null,
+    ]);
+  };
+  return card('牧場施設', [
+    el('p.note', { text: `建てると自分の馬だけに効く（ほかの馬主の馬には効かない）。同時に建設できるのは ${G.facilityLimit} つまで。完成後は毎週の維持費が要る。` }),
+    el('p.note', { text: `維持費の合計 ${sum.upkeep}万/週・建設中 ${building} つ・資金 ${formatMoney(money)}` }),
+    el('div.fac-list', list.map(cardOf)),
   ]);
 }

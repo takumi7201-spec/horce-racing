@@ -203,12 +203,12 @@ export function studFeeOf(world, stallion, year) {
 }
 
 /** 受胎するか。高齢の繁殖牝馬は空胎が増える。 */
-export function conceives(rng, dam, year) {
+export function conceives(rng, dam, year, bonus = 0) {
   const age = year - dam.birthYear;
   let p = 0.88;
   if (age >= 14) p -= (age - 13) * 0.055;
   if (age <= 4) p -= 0.05;
-  return rng.chance(clamp01(p));
+  return rng.chance(clamp01(p + bonus));
 }
 
 export { resetHorseIds, nicksKey, sireLineRoot };

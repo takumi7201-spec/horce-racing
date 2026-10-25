@@ -15,6 +15,7 @@ import { studFeeOf, canBeBroodmare } from './breeding.js';
 import { previewOdds } from './race.js';
 import { makeRng, hashSeed } from '../core/rng.js';
 import { EVENTS, eventsAt, eventOpen } from './calendar.js';
+import * as F from './facilities.js';
 import * as S from './sales.js';
 import {
   ABILITIES, SEX, WEEKS_PER_YEAR, classOrder, className, standardWeight,
@@ -780,3 +781,13 @@ export function ownerRank(g) {
 }
 
 export { formatMoney, formatTime, weekLabel, SURFACE, SEX, ABILITIES, STYLES };
+
+// ---------------------------------------------------------------- 牧場施設
+
+/** 施設の一覧（レベル・建設の進み・次の値段）。 */
+export const facilities = (g) => F.facilityList(g.world);
+export const facilityLimit = F.MAX_BUILDS;
+/** 建設を始める。完成まで数週間かかり、完成すると自分の馬だけに効く。 */
+export const buildFacility = (g, id) => F.startBuild(g.world, id);
+/** 施設の効果と維持費（画面の要約用）。 */
+export const facilitySummary = (g) => ({ upkeep: F.facilityUpkeep(g.world), effects: F.facilityEffects(g.world) });

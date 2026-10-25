@@ -779,5 +779,41 @@ section('v1.0.2：庭先の追加・牧場取引（通年）');
   check(`庭先取引が年に 3 回開く（${[...wins].join('・')}）`, wins.size === 3);
 }
 
+
+section('v1.0.2：牧場施設');
+{
+  const g9 = sideGame({ seed: 'verify-facility' });
+  const w9 = g9.world;
+  check('施設の一覧が取れる（6 種・最初は全部レベル 0）', GG.facilities(g9).length === 6 && GG.facilities(g9).every((f) => f.level === 0));
+  // 資金が足りなければ建てられない。
+  w9.player.money = 100;
+  check('資金が足りなければ建てられない', !GG.buildFacility(g9, 'slope').ok);
+  w9.player.money = 100000;
+  const money0 = w9.player.money;
+  const r1 = GG.buildFacility(g9, 'slope');
+  check(`建設を始められる（${r1.cost}万・${r1.weeks}週）`, r1.ok && w9.player.money === money0 - r1.cost);
+  check('同じ施設を二重に建てられない', !GG.buildFacility(g9, 'slope').ok);
+  check('同時に建てられるのは 2 つまで', GG.buildFacility(g9, 'pool').ok && !GG.buildFacility(g9, 'clinic').ok);
+  // 工期のあいだは効かず、完成すると効く。
+  check('建設中は効果が無い', GG.facilitySummary(g9).effects.growMul === 1);
+  for (let i = 0; i < r1.weeks; i++) nextWeek(g9);
+  const slope = GG.facilities(g9).find((f) => f.id === 'slope');
+  check(`工期が過ぎると完成する（Lv ${slope.level}）`, slope.level === 1 && !slope.build);
+  check('完成後は効果が出て、維持費がかかる', GG.facilitySummary(g9).effects.growMul > 1 && GG.facilitySummary(g9).upkeep > 0);
+  check('完成の知らせが流れる', w9.log.some((l) => l.news.some((n) => n.includes('坂路コース が完成'))));
+  // セーブ往復
+  const back9 = fromJSON(toJSON(g9));
+  check('施設がセーブで保たれる', GG.facilities(back9).find((f) => f.id === 'slope').level === 1);
+  // 効果の向き：自分の馬だけに効く。調教の伸びが施設ありのほうが大きい。
+  const gA = sideGame({ seed: 'verify-facility-fx' });
+  const gB = sideGame({ seed: 'verify-facility-fx' });
+  gB.world.player.money = 1e6;
+  for (const id of ['slope', 'pool', 'clinic', 'paddock']) gB.world.player.facilities = { ...(gB.world.player.facilities ?? {}), [id]: { level: 3, build: null } };
+  for (let i = 0; i < 8; i++) { nextWeek(gA); nextWeek(gB); }
+  // 馬の id は世界ごとに違う（sideGame が番号を離す）ので、自分の馬を世界ごとに数える。
+  const grow = (g) => sum(myHorses(g), (h) => sum(ABILITIES, (a) => h.cur[a]));
+  check(`施設（坂路・プール）で自分の馬の能力が伸びる（${grow(gA).toFixed(2)} → ${grow(gB).toFixed(2)}）`, grow(gB) > grow(gA));
+}
+
 console.log(`\n合計 ${pass} ok / ${fail} NG`);
 process.exit(fail === 0 ? 0 : 1);

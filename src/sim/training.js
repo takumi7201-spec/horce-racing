@@ -8,6 +8,7 @@ import { ABILITIES } from './params.js';
 import { clamp01, lerp } from '../core/util.js';
 import { rollInjury, horseAge } from './horse.js';
 import { trainerBonus } from './jockey.js';
+import { NO_EFFECT } from './facilities.js';
 
 /**
  * 調教メニュー。
@@ -43,7 +44,7 @@ export const MENU_BY_ID = new Map(MENUS.map((m) => [m.id, m]));
  * 1 週ぶんの調教を当てる。在厩馬にだけ呼ぶ。
  * @returns {{injury:object|null, grew:boolean}}
  */
-export function trainWeek(horse, rng, { year, trainer, menuId = 'normal' }) {
+export function trainWeek(horse, rng, { year, trainer, menuId = 'normal', fx = NO_EFFECT }) {
   const menu = MENU_BY_ID.get(menuId) ?? MENU_BY_ID.get('normal');
   const tb = trainerBonus(trainer);
   const age = horseAge(horse, year);
@@ -52,14 +53,15 @@ export function trainWeek(horse, rng, { year, trainer, menuId = 'normal' }) {
   const tired = clamp01(horse.fatigue);
   const eff = 1 - tired * 0.55;
 
-  horse.fit = clamp01(horse.fit + menu.fit * eff * tb.fit * lerp(1.15, 0.85, clamp01((age - 2) / 6)));
-  horse.fatigue = clamp01(horse.fatigue + menu.load * lerp(1.1, 0.85, horse.sound));
+  horse.fit = clamp01(horse.fit + menu.fit * eff * tb.fit * lerp(1.15, 0.85, clamp01((age - 2) / 6)) * (menu.fit > 0 ? fx.fitMul : 1));
+  // 施設（プール）で疲れが抜ける。
+  horse.fatigue = clamp01(horse.fatigue + menu.load * lerp(1.1, 0.85, horse.sound) - fx.relief);
 
   // 現在値を潜在値へ寄せる。若いほど速い。
   let grew = false;
   if (menu.grow > 0) {
     const youth = clamp01((8 - age) / 6);
-    const base = 0.0090 * menu.grow * tb.growth * (0.5 + youth) * eff;
+    const base = 0.0090 * menu.grow * tb.growth * (0.5 + youth) * eff * fx.growMul;
     for (const a of ABILITIES) {
       const room = horse.pot[a] - horse.cur[a];
       if (room <= 0.0005) continue;
@@ -72,7 +74,8 @@ export function trainWeek(horse, rng, { year, trainer, menuId = 'normal' }) {
   // 気性はゲート練習で少しだけ良くなる。
   if (menu.id === 'gate') horse.temper = clamp01(horse.temper + 0.006);
 
-  const injury = rollInjury(horse, rng, { extra: menu.risk * tb.injury });
+  const risk = menu.risk * tb.injury;
+  const injury = rollInjury(horse, rng, { extra: risk > 0 ? risk * (1 - fx.safety) : risk });
   return { injury, grew };
 }
 
@@ -80,12 +83,12 @@ export function trainWeek(horse, rng, { year, trainer, menuId = 'normal' }) {
  * 放牧中の 1 週。疲労が抜け、仕上がりは落ちる。
  * 若い馬は放牧でも体が出来るので潜在値には少し近づく。
  */
-export function pastureWeek(horse, rng, { year }) {
+export function pastureWeek(horse, rng, { year, fx = NO_EFFECT }) {
   const age = horseAge(horse, year);
-  horse.fatigue = clamp01(horse.fatigue - 0.16 * rng.range(0.8, 1.2));
+  horse.fatigue = clamp01(horse.fatigue - 0.16 * rng.range(0.8, 1.2) * fx.pastureMul);
   horse.fit = clamp01(horse.fit - 0.05);
   if (age <= 4) {
-    const base = 0.0022 * clamp01((8 - age) / 6);
+    const base = 0.0022 * clamp01((8 - age) / 6) * fx.youthMul;
     for (const a of ABILITIES) {
       const room = horse.pot[a] - horse.cur[a];
       if (room > 0) horse.cur[a] = clamp01(horse.cur[a] + Math.min(room, base * rng.range(0.5, 1.5)));
