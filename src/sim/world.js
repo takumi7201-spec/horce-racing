@@ -187,6 +187,8 @@ export function createWorld(seed, { startYear = 2026, playerName = '', farmName 
 
   // 血統表に出てこない古い馬は捨てる。放っておくと一万頭を超えてセーブが膨らむ。
   pruneAncestry(world);
+  // 血統表の根にいる架空の始祖を、同じ時代の実在馬に置き換える。
+  if (realSires) replaceFounders(world, foundYear);
 
   // --- 系統の相性（ニックス）を決める ---
   buildNicks(world, rng);
@@ -208,6 +210,47 @@ export function createWorld(seed, { startYear = 2026, playerName = '', farmName 
 
   world.news.push(`${startYear}年、${world.player.farmName} が競馬界に参入した。`);
   return world;
+}
+
+/**
+ * 血統表の根にいる架空の創始世代（親の居ない馬）を、同じ時代に生まれた実在馬に置き換える。
+ * 創始世代は血統の根を作るためだけの存在だが、6 代さかのぼれる 5 代血統表には名前が出てしまい、
+ * 実在馬の世界に架空の始祖が混ざっていた。仔の親を実在馬へ付け替え、始祖は世界から消す。
+ * 乱数は世界の主乱数と別にする（主乱数を使うと、これ以降の世界がすべてずれる）。
+ */
+function replaceFounders(world, foundYear) {
+  const rng = makeRng(hashSeed(`founders:${world.seed}:${world.startYear}`));
+  const founders = [...world.horses.values()].filter((h) => !h.real && h.sireId == null && h.damId == null && h.birthYear === foundYear);
+  if (!founders.length) return 0;
+  const isFounder = new Set(founders.map((h) => h.id));
+  const reals = [...world.horses.values()].filter((h) => h.real && h.birthYear >= foundYear - 12 && h.birthYear <= foundYear + 6)
+    .sort((a, b) => a.id - b.id);
+  const pickFor = (sex) => {
+    const c = reals.filter((h) => h.sex === sex);
+    return c.length ? rng.pick(c) : null;
+  };
+  const repl = new Map();
+  for (const f of founders) {
+    const r = pickFor(f.sex);
+    if (r) repl.set(f.id, r);
+  }
+  for (const k of world.horses.values()) {
+    for (const [field, listKey] of [['sireId', 'foals'], ['damId', 'foals']]) {
+      const r = isFounder.has(k[field]) ? repl.get(k[field]) : null;
+      if (!r) continue;
+      k[field] = r.id;
+      (r[listKey] ??= []).push(k.id);
+    }
+  }
+  let removed = 0;
+  for (const f of founders) {
+    if (!repl.has(f.id)) continue;
+    world.horses.delete(f.id);
+    removed++;
+  }
+  world.stallionPool = world.stallionPool.filter((id) => world.horses.has(id));
+  world.marePool = world.marePool.filter((id) => world.horses.has(id));
+  return removed;
 }
 
 /** 親の居ない馬。創始世代だけに使う。 */
