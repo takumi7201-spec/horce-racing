@@ -171,9 +171,10 @@ function realBookView(app) {
             el('span.book-st', { text: x.status.text, class: `st-${x.status.key}` }),
           ],
           cls: x.mine ? 'mine' : null,
-          // 世界に居る馬は馬の詳細へ。居ない馬（海外の若駒・これから生まれる馬など）は表の値の詳細を出す。
-          // どちらでもない行を作ると、押しても何も起きない行が大半になる（2020 年代は新しく足した海外馬が多い）。
-          onclick: x.id != null ? () => app.go('stable', { id: x.id, list: ids }) : () => showRealProfile(x),
+          // 世界に居る馬は馬の詳細へ。居ない馬（これから生まれる馬・海外の若駒など）も、同じ馬の詳細で表の値を見せる
+          // （仮の世界に作る。世界そのものには足さない）。作れない馬だけ表の値のモーダル。
+          onclick: x.id != null ? () => app.go('stable', { id: x.id, list: ids })
+            : () => (G.realPreview(g, x.name) ? app.go('stable', { real: x.name }) : showRealProfile(x)),
         })), { align: [, 'c', 'c', , , 'c'] })
         : el('p.empty', { text: 'この年代・区分の実在馬は居ない。' }),
     ]),

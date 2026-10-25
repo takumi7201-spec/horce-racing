@@ -572,6 +572,17 @@ section('開始年（史実の名馬）');
     && ssBook?.status.text.startsWith('種牡馬') && deep?.status.text === '2002年に誕生'
     && !book.some((x) => x.name === pureDam?.n));
   check('当歳セールに史実の名馬が上場される', !!lot);
+  // 世界に居ない馬（ディープインパクト：2002 年に誕生）も、名鑑から馬の詳細で見られる。世界は変わらない。
+  {
+    const n0 = g90.world.horses.size, id0 = peekHorseId();
+    const pv = GG.realPreview(g90, 'ディープインパクト');
+    const v = pv && GG.horseView(pv.game, pv.id);
+    const ped = pv && GG.pedigree(pv.game, pv.id, 4);
+    check(`世界に居ない実在馬を馬の詳細で見られる（${v?.name}：${v?.preview}、父 ${v?.sire}・母 ${v?.dam}）`,
+      !!v && v.preview === '2002年に誕生' && v.sire === 'サンデーサイレンス' && v.horse.damId === g90.world.real.ids['ウインドインハーヘア']   // 1991 年に生まれていれば、まだ仮の名
+      && !!ped?.dam?.sire && v.record.length > 0 && g90.world.horses.size === n0 && peekHorseId() === id0
+      && !g90.world.horses.has(pv.id));
+  }
   const back = fromJSON(toJSON(g90));
   check('セーブ往復で実在馬の状態が保たれる',
     back.world.real?.ids['ナリタブライアン'] === nb?.id && back.world.real.entered.includes('サンデーサイレンス'));

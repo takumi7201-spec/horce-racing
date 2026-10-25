@@ -309,7 +309,9 @@ function syncBackdrop(app, screen) {
     }
   }
   // 馬の詳細では放牧地を「見せ場」にして、その馬を 1 頭だけ大きく立たせる。
-  const portraitId = screen === 'stable' && app.params.id != null && app.game ? app.params.id : null;
+  // 名鑑から開いた世界に居ない馬は、仮の世界の馬を立たせる。
+  const prev = screen === 'stable' && app.params.real && app.game ? G.realPreview(app.game, app.params.real) : null;
+  const portraitId = screen === 'stable' && app.params.id != null && app.game ? app.params.id : prev?.id ?? null;
   const live = screen === 'home' || screen === 'title' || portraitId != null;
   bg.classList.toggle('dim', !live);
   bg.classList.toggle('portrait', portraitId != null);
@@ -334,9 +336,9 @@ function syncBackdrop(app, screen) {
     else p.setShift(0, Math.round(window.innerHeight * 0.16));
   }
   if (portraitId != null) {
-    const v = G.horseView(app.game, portraitId);
+    const v = G.horseView(prev?.game ?? app.game, portraitId);
     const racing = v && !v.dead && !v.retired && !v.broodmare && !v.stallion;
-    p.setPortrait(v ? { id: v.id, coat: v.coat, age: v.age, tack: racing } : null);
+    p.setPortrait(v ? { id: v.id, coat: v.coat, age: v.age ?? 4, tack: racing } : null);
   } else {
     p.setPortrait(null);
   }

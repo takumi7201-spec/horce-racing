@@ -10,7 +10,7 @@ import { readyToRun, MENUS, fitLabel, condLabel } from './training.js';
 import {
   matingEval, pedigreeTree, nicksValue, lineLabel, breedQuality, FACTORS, factorsOf, factorBonus, vigorOf,
 } from './pedigree.js';
-import { abroadSires, realBook as realBookOf } from './realsires.js';
+import { abroadSires, realBook as realBookOf, realPreview as realPreviewOf } from './realsires.js';
 import { studFeeOf, canBeBroodmare } from './breeding.js';
 import { previewOdds } from './race.js';
 import { makeRng, hashSeed } from '../core/rng.js';
@@ -66,12 +66,14 @@ export function horseView(g, id) {
   const w = g.world;
   const h = w.horses.get(id);
   if (!h) return null;
-  const eff = effectiveAbility(h, w.year);
-  const raw = effectiveAbility(h, w.year, { ignoreCondition: true });
+  // 名鑑から開いた世界に居ない馬は、まだ生まれていないこともあるので、4 歳（盛り）の姿で見せる。
+  const vy = h.preview ? h.birthYear + 4 : w.year;
+  const eff = effectiveAbility(h, vy);
+  const raw = effectiveAbility(h, vy, { ignoreCondition: true });
   return {
     horse: h,
     id: h.id, name: h.name, sex: h.sex, coat: h.coat,
-    age: horseAge(h, w.year),
+    age: h.preview ? null : horseAge(h, w.year),
     owner: w.owners.get(h.ownerId)?.name ?? '—',
     isMine: h.ownerId === 'player',
     trainer: w.trainers.get(h.trainerId)?.name ?? '—',
@@ -119,6 +121,8 @@ export function horseView(g, id) {
     provisional: h.regName != null,
     foals: (h.foals ?? []).map((fid) => w.horses.get(fid)).filter(Boolean),
     retired: h.retired,
+    // 名鑑から開いた、世界に居ない実在馬（「1980年に誕生」など）。
+    preview: h.preview ?? null,
   };
 }
 
@@ -520,6 +524,24 @@ export function skipTargets(g) {
 
 /** 史実馬名鑑（年代ごとに見る実在の馬と、この世界での今の姿）。 */
 export const realBook = (g) => realBookOf(g.world);
+
+/**
+ * 世界に居ない実在馬を、馬の詳細と同じ形で見るための仮のゲーム。{ game, id }。
+ * 世界には何も足さない（realsires.js の realPreview）。同じ週のあいだは作り直さない（画面を描き直すたびに作ると重い）。
+ */
+const previewCache = new WeakMap();
+export function realPreview(g, name) {
+  const w = g.world;
+  const key = `${name}|${w.year}|${w.week}`;
+  let m = previewCache.get(w);
+  if (!m) previewCache.set(w, (m = new Map()));
+  if (!m.has(key)) {
+    if (m.size > 40) m.clear();
+    const r = realPreviewOf(w, name);
+    m.set(key, r && { game: { ...g, world: r.world }, id: r.id, phantom: r.world !== w });
+  }
+  return m.get(key);
+}
 
 /** 直近の結果一覧（重賞優先）。 */
 export function recentResults(g) {

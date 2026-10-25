@@ -17,6 +17,7 @@ const CAT_ICON = { active: 'horse', mares: 'mare', stallions: 'star', young: 'sp
  */
 export function stableScreen(app) {
   const g = app.game;
+  if (app.params.real) return previewDetail(app, app.params.real);
   if (app.params.id) return detail(app, app.params.id);
 
   const st = G.myStable(g);
@@ -134,6 +135,21 @@ const TABS = [
   { id: 'foals', name: '産駒', needFoals: true },
 ];
 
+/**
+ * 世界に居ない実在馬（名鑑から開く）。仮の世界の馬を、ふつうの馬の詳細と同じ画面で見せる。
+ * 画面の中の G.* の呼び出しが仮の世界を見るよう、game だけを差し替えた app を渡す（書き込みは本物の app へ）。
+ */
+function previewDetail(app, name) {
+  const r = G.realPreview(app.game, name);
+  if (!r) return el('p.empty', { text: '馬が見つからない' });
+  if (!r.phantom) return detail(app, r.id);
+  const papp = new Proxy(app, {
+    get: (t, k) => (k === 'game' ? r.game : t[k]),
+    set: (t, k, val) => { t[k] = val; return true; },
+  });
+  return detail(papp, r.id);
+}
+
 function detail(app, id) {
   const g = app.game;
   const v = G.horseView(g, id);
@@ -186,7 +202,7 @@ function detail(app, id) {
     el('header.hd-top', [
       el('span.hd-silk', horseImg(h.coat, { size: 'xs', age: v.age })),
       el('h1', { text: v.name }),
-      el('span.hd-sa', { text: `${h.sex}${v.age}　${h.coat}` }),
+      el('span.hd-sa', { text: v.preview ? `${h.sex}　${h.coat}　${h.birthYear}年生` : `${h.sex}${v.age}　${h.coat}` }),
       el('div.hd-pills', [
         el('span', { text: standing(v), class: mine ? 'on' : null }),
         active ? el('span', {
@@ -195,6 +211,7 @@ function detail(app, id) {
         }) : null,
         v.inbreed.length ? el('span', { text: `インブリード ${v.inbreed.length}` }) : null,
         v.real ? el('span.real', { text: '実在' }) : null,
+        v.preview ? el('span', { text: `この世界：${v.preview}` }) : null,
       ]),
     ]),
     cat ? stableRail(app, cat, id) : null,
@@ -254,7 +271,7 @@ function infoPanel(v, career) {
       laurel('l'),
       el('div.hi-crest-b', [
         el('div.hi-ribbon', { text: ribbon }),
-        row('クラス', v.age < 2 ? 'デビュー前' : v.className),
+        row('クラス', v.preview ? '史実の成績' : v.age < 2 ? 'デビュー前' : v.className),
         row('戦績', `${v.starts}戦${v.wins}勝`),
         row('獲得賞金', formatMoney(v.earnings)),
       ]),
@@ -347,6 +364,10 @@ function statePanel(v) {
     r('調子', v.condLabel),
     r('疲労', fatMark, fat >= 0.6 ? 'bad' : null),
     r('状態', v.injury ? v.injury.name : v.stable === 'stable' ? '在厩' : '放牧', v.injury ? 'bad' : null),
+  ] : v.preview ? [
+    r('いま', v.preview),
+    r('史実', `${v.starts}戦${v.wins}勝`),
+    r('区分', v.stallion ? '種牡馬' : v.broodmare ? '繁殖牝馬' : '競走馬'),
   ] : [
     r('年齢', `${v.age}歳`),
     v.pregnancy ? r('受胎', `${v.pregnancy.sire}（${v.pregnancy.year}年4月）`)
@@ -528,6 +549,7 @@ function tabContent(app, tid, v, career) {
  * 引退した種牡馬・繁殖牝馬には馬主が居ないので、そこは馬主を出さない。
  */
 function standing(v) {
+  if (v.preview) return '史実馬（この世界に居ない）';
   // 種牡馬リーディングには供用を終えた馬も載る（産駒が走り続けるため）。
   // その馬を開いたときに種付料が出ていては、まだ付けられるように見える。
   if (v.dead) return v.stallion ? '故・種牡馬' : v.broodmare ? '故・繁殖牝馬' : '故';

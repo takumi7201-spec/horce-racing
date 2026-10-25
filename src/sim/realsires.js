@@ -15,7 +15,7 @@
 // 自分で持った実在の馬をいつ引退させ、何に付けるかはプレイヤーが決める。
 
 import { REAL_HORSES } from './data/real-horses.js';
-import { createHorse } from './horse.js';
+import { createHorse, resetHorseIds, peekHorseId } from './horse.js';
 import { makeRng } from '../core/rng.js';
 import { breed } from './breeding.js';
 import { SEX, ABILITIES, classForWins } from './params.js';
@@ -205,7 +205,8 @@ function make(world, rng, name, { year, live = false }) {
   const parent = (pn) => {
     if (!pn) return null;
     const pd = DEFS.get(pn);
-    if (!madeHorse(world, pn) && originOf(pd) === 'born' && pd.b >= world.startYear) return null;
+    // 仮の世界（名鑑から見るだけ）では、まだ生まれていない親も表のとおりに作る。
+    if (!world._preview && !madeHorse(world, pn) && originOf(pd) === 'born' && pd.b >= world.startYear) return null;
     return make(world, rng, pn, { year });
   };
   const sire = parent(d.sire);
@@ -585,6 +586,37 @@ export const decadeOf = (b) => (b < 1970 ? 1960 : Math.floor(b / 10) * 10);
  * 血統をつなぐためだけの母や祖先は載せない。
  * status.key は future（これから生まれる・来る）/ here（この世界に居る）/ dead / lost（生まれなかった）/ none。
  */
+/** 名鑑の「いま」。 */
+function statusOf(world, d, h, o = originOf(d)) {
+  const y = world.year;
+  let status;
+  if (!h) {
+    const e = entryOf(d);
+    if (d.b >= y) status = { key: 'future', text: `${d.b}年に誕生` };
+    else if (d.abroad && d.abroad[0] > y) status = { key: 'future', text: `${d.abroad[0]}年から海外で供用` };
+    else if ((o === 'imp' || o === 'appear') && e != null && e > y) {
+      status = { key: 'future', text: `${e}年に${d.stud ? '種牡馬入り' : '繁殖入り'}` };
+    } else if (o === 'born' && d.b >= world.startYear) status = { key: 'lost', text: 'この世界では生まれなかった' };
+    else if (d.amare && d.amare[0] <= y + 1 && (d.amare[1] == null || y + 1 <= d.amare[1])
+      && (d.died == null || d.died > y)) status = { key: 'abroad', text: '海外で繁殖牝馬' };
+    else if (d.os && y - d.b <= 5) status = { key: 'abroad', text: y - d.b < 2 ? '海外の幼駒' : '海外で現役' };
+    else status = { key: 'none', text: '—' };
+  } else if (h.dead) status = { key: 'dead', text: '故馬' };
+  else if (h.abroadFee && h.retired && h.ownerId !== 'player') status = { key: 'here', text: '海外で供用中' };
+  else if (h.stallion) status = { key: 'here', text: `種牡馬 ${h.studFee ?? 0}万` };
+  else if (h.broodmare) status = { key: 'here', text: '繁殖牝馬' };
+  else if (d.os && h.retired && !d.abroad && !d.imp && y - h.birthYear <= RACING_AGE) {
+    status = { key: 'here', text: y - h.birthYear < 2 ? '海外の幼駒' : '海外で現役' };
+  }
+  else if (!h.retired) {
+    const age = y - h.birthYear;
+    status = { key: 'here', text: age < 2 ? `幼駒（${age}歳）` : `現役 ${age}歳` };
+  } else status = { key: 'here', text: '引退' };
+  return status;
+}
+
+const realBook1 = (world, d) => statusOf(world, d, madeHorse(world, d.n));
+
 export function realBook(world) {
   if (!world.real) return [];
   const y = world.year;
@@ -596,29 +628,7 @@ export function realBook(world) {
     const female = d.s === '牝';
     const role = d.stud || d.abroad ? '種牡馬' : d.mare || d.amare ? '繁殖牝馬' : '競走馬';
     const where = d.imp ? '輸入' : d.os || d.abroad || d.amare ? '海外' : '日本';
-    let status;
-    if (!h) {
-      const e = entryOf(d);
-      if (d.b >= y) status = { key: 'future', text: `${d.b}年に誕生` };
-      else if (d.abroad && d.abroad[0] > y) status = { key: 'future', text: `${d.abroad[0]}年から海外で供用` };
-      else if ((o === 'imp' || o === 'appear') && e != null && e > y) {
-        status = { key: 'future', text: `${e}年に${d.stud ? '種牡馬入り' : '繁殖入り'}` };
-      } else if (o === 'born' && d.b >= world.startYear) status = { key: 'lost', text: 'この世界では生まれなかった' };
-      else if (d.amare && d.amare[0] <= y + 1 && (d.amare[1] == null || y + 1 <= d.amare[1])
-        && (d.died == null || d.died > y)) status = { key: 'abroad', text: '海外で繁殖牝馬' };
-      else if (d.os && y - d.b <= 5) status = { key: 'abroad', text: y - d.b < 2 ? '海外の幼駒' : '海外で現役' };
-      else status = { key: 'none', text: '—' };
-    } else if (h.dead) status = { key: 'dead', text: '故馬' };
-    else if (h.abroadFee && h.retired && h.ownerId !== 'player') status = { key: 'here', text: '海外で供用中' };
-    else if (h.stallion) status = { key: 'here', text: `種牡馬 ${h.studFee ?? 0}万` };
-    else if (h.broodmare) status = { key: 'here', text: '繁殖牝馬' };
-    else if (d.os && h.retired && !d.abroad && !d.imp && y - h.birthYear <= RACING_AGE) {
-      status = { key: 'here', text: y - h.birthYear < 2 ? '海外の幼駒' : '海外で現役' };
-    }
-    else if (!h.retired) {
-      const age = y - h.birthYear;
-      status = { key: 'here', text: age < 2 ? `幼駒（${age}歳）` : `現役 ${age}歳` };
-    } else status = { key: 'here', text: '引退' };
+    const status = statusOf(world, d, h, o);
     const big = d.big ?? [];
     out.push({
       name: d.n, birthYear: d.b, sex: female ? '牝' : '牡', coat: d.c ?? '鹿毛',
@@ -640,6 +650,51 @@ export function realBook(world) {
     });
   }
   return out;
+}
+
+/** 名鑑から開く「世界に居ない馬」の仮の id。世界の馬の id と重ならない帯に置く。 */
+export const PREVIEW_ID_BASE = 1e9;
+
+/**
+ * 世界に居ない実在馬（これから生まれる・この世界では生まれなかった・海外の若駒）を、馬の詳細で見せるための仮の世界。
+ * 名鑑の行を押しても表の値のモーダルしか出なかったので、世界の馬と同じ詳細画面（血統表・能力・成績）で見せたい。
+ * 世界そのものには何も足さない：馬の索引は世界の上に重ねた別の Map、実在馬の状態も写し、
+ * 馬の id は別の帯（PREVIEW_ID_BASE〜）で採ってから採番を元に戻す（セーブとロード後の 1 週を変えない。落とし穴 14・47）。
+ * 乱数も世界の主乱数に触らない。
+ */
+export function realPreview(world, name) {
+  const d = DEFS.get(name);
+  if (!d || !world.real) return null;
+  const have = madeHorse(world, name);
+  if (have) return { world, id: have.id };
+  const base = world.horses;
+  const own = new Map();
+  const horses = new Map();
+  horses.get = (id) => own.get(id) ?? base.get(id);
+  horses.has = (id) => own.has(id) || base.has(id);
+  horses.set = (id, h) => own.set(id, h);
+  const shadow = Object.create(world);
+  Object.assign(shadow, {
+    horses, nameSet: new Set(),
+    real: { ids: { ...world.real.ids }, entered: [] },
+    _lineMemo: null, _strongMemo: null, _lineShare: null, _raceCache: null, _preview: true,
+  });
+  let seed = 7;
+  for (const c of name) seed = (seed * 31 + c.charCodeAt(0)) >>> 0;
+  const saved = peekHorseId();
+  resetHorseIds(PREVIEW_ID_BASE);
+  let h;
+  try {
+    // 戦績は史実のすべてを見せる（世界の年で切ると、これから生まれる馬は勝鞍が空になる）。
+    h = make(shadow, makeRng(seed), name, { year: 9999 });
+  } finally {
+    resetHorseIds(saved);
+  }
+  const st = realBook1(world, d);
+  h.preview = st.text;
+  if (d.died != null) h.dead = d.died < world.year;
+  if (d.b >= world.year) h.dead = false;
+  return { world: shadow, id: h.id };
 }
 
 /** 史実の名で登録される予定の馬か（セールで「史実」と分かるように）。 */
