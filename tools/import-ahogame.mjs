@@ -37,8 +37,11 @@ const args = process.argv.slice(2);
 const flag = (f) => args.includes(f);
 const opt = (f, d) => { const i = args.indexOf(f); return i >= 0 ? args[i + 1] : d; };
 const OFFLINE = flag('--offline');
-// 既定は 1。2 にすると祖先が約 700 頭増えて埋まり率は 2 ポイントしか上がらない（74% → 76%）。
-const DEPTH = Number(opt('--depth', 1));
+// 既定は 3。新しく足す馬の父母を結ぶようにしたので、一覧に載っている祖先を 3 世代先までたどる（1 だと 5 代血統の平均 22 枠、3 で 27 枠）。
+const DEPTH = Number(opt('--depth', 3));
+// 一覧に記録の無い親（名前だけの祖先）は、子がこの頭数以上居るときだけ作る。1 頭しか子の居ない名前だけの親は
+// 血統表の枠を一つ埋めるだけで、世界を膨らませる（子 1 頭だけにすると名前だけの祖先が 6,000 頭増えた）。
+const STUB_KIDS = Number(opt('--stub-kids', 2));
 const CACHE = resolve(ROOT, opt('--cache', '.cache/ahogame'));
 mkdirSync(CACHE, { recursive: true });
 
@@ -119,6 +122,7 @@ const stubLike = (h) => h.bg && h.s === '牝' && !h.sire && !h.dam && h.lvl == n
 
 /** 表の馬に対応する一覧の記録（名前と生年が一致）。 */
 function recFor(e) {
+  if (e._rec) return e._rec;   // 表に居ない一覧の馬（仮の項目）
   const hit = (list) => (list ?? []).filter((r) => r.b === e.b);
   const a = hit(recByName.get(norm(e.n)));
   if (a.length === 1) return a[0];
@@ -134,6 +138,7 @@ const added = [];            // 新しい祖先
 let reused = 0, createdRec = 0, createdStub = 0, ambiguous = 0, skippedGap = 0;
 const queue = [];            // 父母を調べる馬 { e, depth }
 const queued = new Set();
+const pendingStubs = new Map();   // 名前だけの親の候補 → { n, bs: 子の生年, role }
 
 /** 親の名前（一覧の文字列）を表の名に直す。結べないときは null。 */
 function resolveParent(pstr, child, role, depth) {
@@ -166,8 +171,11 @@ function resolveParent(pstr, child, role, depth) {
   if (ents.length > 1) { ambiguous++; return null; }
   if ((nameIdx.get(key) ?? []).length) { skippedGap++; return null; }   // 同名の別馬（年齢差が合わない）
   if (!/^[ァ-ヶー・ヴ]{2,}$|^[A-Za-z][A-Za-z' .\-]+$/.test(pk)) return null;
-  const e = { n: pk, b: child.b - 8, s: role === 'dam' ? '牝' : undefined, sire: null, dam: null, bg: true, _new: true };
-  add(e); added.push(e); createdStub++;
+  // 作るかどうかは、全部の子が分かってから決める（作る馬の数は子の数で決まる）。ここでは名前を返しておく。
+  const st = pendingStubs.get(key) ?? { n: pk, bs: [], role };
+  if (st.role !== role) st.role = 'both';
+  st.bs.push(child.b);
+  pendingStubs.set(key, st);
   return pk;
 }
 
@@ -175,7 +183,21 @@ for (const e of table) {
   if (stubLike(e) || (e.sire != null && e.dam != null)) continue;
   if (recFor(e)) { queued.add(e); queue.push({ e, depth: 0 }); }
 }
-console.error(`父母が空で、一覧に載っている表の馬 ${queue.length} 頭`);
+// 表に居ない一覧の馬（本編に新しく足す競走馬）も、表の馬と同じ手順で父母を結ぶ。一覧の外の親は名前だけの祖先にする。
+// 以前は「表か一覧に居る名前だけ」を父母にしていたので、新しく足した馬の父母の大半が空で、血統表がスカスカだった。
+// 仮の項目を nameIdx に入れておくと、ほかの馬の親として再利用される（二頭に割れない）。
+const virtuals = [];
+for (const r of recs) {
+  if (r.list === 'br' || r.b == null) continue;
+  const vname = isKana(r.n) ? r.n : kanaOf(r.alpha ?? r.n);
+  if (!vname) continue;
+  const same = nameIdx.get(norm(vname)) ?? [];
+  if (same.length) continue;                                   // 表に居る馬、または同名の別馬（足せない）
+  const e = { n: vname, b: r.b, sire: null, dam: null, _virtual: true, _rec: r };
+  add(e); virtuals.push(e);
+  queued.add(e); queue.push({ e, depth: 0 });
+}
+console.error(`父母が空で、一覧に載っている馬 ${queue.length} 頭（うち表に居ない馬 ${virtuals.length}）`);
 while (queue.length) {
   const { e, depth } = queue.shift();
   const rec = recFor(e);
@@ -188,12 +210,28 @@ while (queue.length) {
   }
   if (f.sire || f.dam) fills.set(e, f);
 }
+// 名前だけの祖先を作る。子が STUB_KIDS 頭に満たない名前は作らず、結んだ父母からも外す。
+for (const [key, st] of pendingStubs) {
+  if (st.bs.length < STUB_KIDS || st.role === 'both' || (nameIdx.get(key) ?? []).length) continue;
+  const lo = Math.min(...st.bs), hi = Math.max(...st.bs);
+  let b = lo - 8;
+  if (hi - b > 30) b = hi - 30;
+  if (lo - b < 2) continue;
+  const e = { n: st.n, b, s: st.role === 'dam' ? '牝' : undefined, sire: null, dam: null, bg: true, _new: true };
+  add(e); added.push(e); createdStub++;
+}
+for (const f of fills.values()) {
+  for (const role of ['sire', 'dam']) {
+    if (f[role] && !(nameIdx.get(norm(f[role])) ?? []).length) f[role] = null;
+  }
+}
 // 新しい祖先の父母は、その馬自身に書く。
 for (const e of added) {
   const f = fills.get(e);
   if (f) { e.sire = f.sire ?? null; e.dam = f.dam ?? null; fills.delete(e); }
 }
-const dFill = [...fills].filter(([e]) => !e._new);
+const dFill = [...fills].filter(([e]) => !e._new && !e._virtual);
+const vfill = new Map([...fills].filter(([e]) => e._virtual).map(([e, f]) => [`${norm(e.n)}|${e.b}`, f]));
 console.error(`既存の馬に補った父母 ${dFill.length} 頭、新しい祖先 ${added.length} 頭（一覧に記録あり ${createdRec}、名前だけ ${createdStub}）、表の既存馬を再利用 ${reused}`);
 console.error(`結ばなかった: 同名で決まらない ${ambiguous}、年齢差が合わない同名 ${skippedGap}`);
 
@@ -353,8 +391,9 @@ const parent2 = (pstr, child) => {
   return ys.size === 1 ? hits[0].n : null;
 };
 for (const x of horseRows) {
-  x.sire = x.isNew ? parent2(x.r.sire, x.r) : null;
-  x.dam = x.isNew ? parent2(x.r.dam, x.r) : null;
+  const vf = vfill.get(`${norm(x.n)}|${x.r.b}`);
+  x.sire = x.isNew ? (vf?.sire ?? parent2(x.r.sire, x.r)) : null;
+  x.dam = x.isNew ? (vf?.dam ?? parent2(x.r.dam, x.r)) : null;
 }
 horseRows.sort((a, b) => a.r.b - b.r.b || a.n.localeCompare(b.n, 'ja'));
 const nNew = horseRows.filter((x) => x.isNew).length;

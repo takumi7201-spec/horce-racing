@@ -15497,8 +15497,24 @@ export const WD_BASE = withAhogame(TABLE_BASE);
  * tools/import-ahogame.mjs が読む、ahogame-horses.js を重ねる前の表。道具は自分が前回書いた馬を
  * 「表に居る馬」とみなすと、新しく足した馬の性・毛色・父母を落として書き直してしまう（道具を二度流すと劣化する）。
  */
-export const TABLE_WITHOUT_AHO_HORSES = withKatakana(withWikidata(withAhogame(TABLE_BASE, { horses: false })));
-const TABLE = withKatakana(withWikidata(WD_BASE));
+export const TABLE_WITHOUT_AHO_HORSES = withoutDangling(withKatakana(withWikidata(withAhogame(TABLE_BASE, { horses: false }))));
+/**
+ * 表に居ない名前を指す父母を外す。realsires.js は父母の名で表を引く（DEFS.get）ので、居ない名前が一つでもあると
+ * 世界の生成が落ちる。重ねるデータ（wikidata-parents.js など）は道具が書いた時点の表に対する名前なので、
+ * 表が変わると古いデータが消えた馬を指すことがある。道具を回し直すまでの安全網（落とし穴 43）。
+ */
+function withoutDangling(table) {
+  const names = new Set(table.map((d) => d.n));
+  return table.map((d) => {
+    const badSire = d.sire && !names.has(d.sire), badDam = d.dam && !names.has(d.dam);
+    if (!badSire && !badDam) return d;
+    const o = { ...d };
+    if (badSire) delete o.sire;
+    if (badDam) delete o.dam;
+    return o;
+  });
+}
+const TABLE = withoutDangling(withKatakana(withWikidata(WD_BASE)));
 
 /**
  * 取り込んだ勝ち馬（供用年を持たない日本の牡馬）を種牡馬にする。
