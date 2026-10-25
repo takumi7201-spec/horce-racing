@@ -23,6 +23,7 @@
 // 獲得賞金と能力の格はゲーム用の概数で、公式の記録ではない。
 
 import { WD_FILL, WD_NEW } from './wikidata-parents.js';
+import { EW_FILL, EW_NEW } from './enwiki-parents.js';
 import { KATAKANA } from './katakana-names.js';
 import { AHO_HORSES } from './ahogame-horses.js';
 import { AHO_FILL, AHO_NEW, AHO_RETIRE, AHO_ALIAS } from './ahogame-facts.js';
@@ -15514,7 +15515,36 @@ function withoutDangling(table) {
     return o;
   });
 }
-const TABLE = withoutDangling(withKatakana(withWikidata(WD_BASE)));
+export const EW_BASE = withoutDangling(withKatakana(withWikidata(WD_BASE)));
+/**
+ * 英語版 Wikipedia から補った父母（enwiki-parents.js）を重ねる。道具が読む表は EW_BASE（カタカナ化の後）なので、
+ * 補う馬の名前はカタカナ名。新しい祖先の英語名は対応表でカタカナにする（無ければ英語のまま。同名が表に居れば足さない）。
+ */
+function withEnwiki(table) {
+  const kana = new Map(KATAKANA);
+  const names = new Set(table.map((d) => d.n));
+  const final = new Map();
+  const adds = [];
+  for (const row of EW_NEW) {
+    const k = kana.get(row[0]);
+    const name = k && !names.has(k) ? k : row[0];
+    if (names.has(name)) { final.set(row[0], null); continue; }
+    names.add(name);
+    final.set(row[0], name);
+    adds.push([name, ...row.slice(1)]);
+  }
+  const fin = (n) => (n == null ? undefined : final.has(n) ? final.get(n) ?? undefined : n);
+  const fill = new Map(EW_FILL.map(([n, b, sire, dam]) => [`${n}|${b}`, { sire: fin(sire), dam: fin(dam) }]));
+  const out = table.map((d) => {
+    const f = fill.get(`${d.n}|${d.b}`);
+    return f ? { ...d, sire: d.sire ?? f.sire, dam: d.dam ?? f.dam } : d;
+  });
+  for (const [n, b, s, sire, dam] of adds) {
+    out.push({ n, b, ...(s === '牝' ? { s } : {}), ...(fin(sire) ? { sire: fin(sire) } : {}), ...(fin(dam) ? { dam: fin(dam) } : {}), bg: true });
+  }
+  return out;
+}
+const TABLE = withoutDangling(withEnwiki(EW_BASE));
 
 /**
  * 取り込んだ勝ち馬（供用年を持たない日本の牡馬）を種牡馬にする。
