@@ -94,6 +94,33 @@ const foaledOf = (text) => {
 };
 const isHorsePage = (text) => /\{\{\s*Infobox\s+(racehorse|horse)/i.test(text);
 
+
+// ---------------------------------------------------------------- 日本語名 → 英語版の記事名（Wikidata）
+// 対応表にも一覧にも英語名が無い馬（Wikidata の日本語ラベルで入った祖先: プリンスパラタインなど）は、
+// 日本語ラベルが一致する馬（P31 = 馬）の英語版の記事名を Wikidata から引く。生年は後で記事の値と照らす。
+const WDC = resolve(ROOT, '.cache/wikidata-ja');
+mkdirSync(WDC, { recursive: true });
+async function sparql(query) {
+  const path = join(WDC, `${createHash('sha1').update(query).digest('hex')}.json`);
+  if (existsSync(path)) return JSON.parse(readFileSync(path, 'utf8'));
+  if (OFFLINE) return [];
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const res = await fetch(`https://query.wikidata.org/sparql?format=json&query=${encodeURIComponent(query)}`, { headers: { 'User-Agent': UA, Accept: 'application/sparql-results+json' } });
+    if (res.ok) { const rows = (await res.json()).results.bindings; writeFileSync(path, JSON.stringify(rows)); await sleep(1200); return rows; }
+    await sleep(5000 * (attempt + 1));
+  }
+  return [];
+}
+async function enTitlesByJa(names) {
+  const out = new Map();     // 日本語ラベル → [英語版の記事名]
+  for (let i = 0; i < names.length; i += 50) {
+    const part = names.slice(i, i + 50);
+    const rows = await sparql(`SELECT ?l ?t WHERE { VALUES ?l { ${part.map((n) => `"${n.replace(/"/g, '')}"@ja`).join(' ')} } ?h rdfs:label ?l ; wdt:P31 wd:Q726 . ?a schema:about ?h ; schema:isPartOf <https://en.wikipedia.org/> ; schema:name ?t }`);
+    for (const r of rows) out.set(r.l.value, [...new Set([...(out.get(r.l.value) ?? []), r.t.value])]);
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------- 表の索引
 const latin = (n) => /^[A-Za-z]/.test(n);
 const normEn = (s) => s.toLowerCase().replace(/\bst\.?\s/g, 'st ').replace(/[^a-z0-9]/g, '');
@@ -145,12 +172,16 @@ async function find(ens) {
 const queue = [];
 const seen = new Set();
 const push = (node, d, ens) => { const k = key(node.n, node.b); if (seen.has(k)) return; seen.add(k); queue.push({ node, d, ens }); };
-for (const h of EW_BASE) {
-  if (h.sire && h.dam) continue;
-  const d = depth.get(h.n);
-  if (d == null || d >= MAXD) continue;
-  const ens = enNamesOf(h);
-  if (ens.length) push(h, d, ens);
+const targets = EW_BASE.filter((h) => !(h.sire && h.dam) && depth.get(h.n) != null && depth.get(h.n) < MAXD);
+// 親として結ぶ相手（父母がそろっている馬も）の英語名が要るので、5 代の範囲の全部に引く。
+const needJa = EW_BASE.filter((h) => depth.has(h.n) && !enNamesOf(h).length && !latin(h.n)).map((h) => h.n);
+const jaTitles = await enTitlesByJa([...new Set(needJa)]);
+console.error(`英語名が無い ${needJa.length} 頭のうち、Wikidata で英語版の記事が見つかった名前 ${jaTitles.size}`);
+const stripParen = (t) => t.replace(/\s*\([^)]*\)\s*$/, '');
+for (const h of EW_BASE) for (const t of jaTitles.get(h.n) ?? []) enIdx.set(normEn(stripParen(t)), [...(enIdx.get(normEn(stripParen(t))) ?? []), h]);
+for (const h of targets) {
+  const ens = [...enNamesOf(h), ...(jaTitles.get(h.n) ?? [])];
+  if (ens.length) push(h, depth.get(h.n), ens);
 }
 queue.sort((a, b) => a.d - b.d);
 console.error(`対象 ${queue.length} 頭（父母のどちらかが空で、英語名がある）`);
