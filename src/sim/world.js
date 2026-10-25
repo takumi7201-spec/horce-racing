@@ -30,7 +30,7 @@ import {
 } from './schedule.js';
 import { simulateRace, computeOdds } from './race.js';
 import { createJockey, createTrainer, ageJockey, ageTrainer, resetPersonIds, acceptsRide } from './jockey.js';
-import { breed, canBeBroodmare, canBeStallion, studFeeOf, conceives, POP_MEAN } from './breeding.js';
+import { breed, canBeBroodmare, canBeStallion, studFeeOf, conceives, POP_MEAN, STALLION_FOAL_MEMORY } from './breeding.js';
 import { trainWeek, pastureWeek, autoMenu } from './training.js';
 import { sireLineRoot, nicksKey, recordNicksResult, breedQuality, lineLabel, grantFactors, establishLines } from './pedigree.js';
 import { clamp, clamp01, lerp, sum, byDesc } from '../core/util.js';
@@ -187,8 +187,8 @@ export function createWorld(seed, { startYear = 2026, playerName = '', farmName 
 
   // 血統表に出てこない古い馬は捨てる。放っておくと一万頭を超えてセーブが膨らむ。
   pruneAncestry(world);
-  // 血統表の根にいる架空の始祖を、同じ時代の実在馬に置き換える。
-  if (realSires) replaceFounders(world, foundYear);
+  // 古い架空馬（血統表を作るためだけの祖先）を、同じ時代の実在馬に置き換える。
+  if (realSires) replaceFictionalAncestors(world);
 
   // --- 系統の相性（ニックス）を決める ---
   buildNicks(world, rng);
@@ -213,38 +213,69 @@ export function createWorld(seed, { startYear = 2026, playerName = '', farmName 
 }
 
 /**
- * 血統表の根にいる架空の創始世代（親の居ない馬）を、同じ時代に生まれた実在馬に置き換える。
- * 創始世代は血統の根を作るためだけの存在だが、6 代さかのぼれる 5 代血統表には名前が出てしまい、
- * 実在馬の世界に架空の始祖が混ざっていた。仔の親を実在馬へ付け替え、始祖は世界から消す。
+ * 架空馬の血統表にあった「オリジナルの血統」を、実在の血統に置き換える。
+ * 世界の中に居る架空馬（現役・近年に生まれた馬・名簿の馬）はそのまま残し、その祖先になっていた古い架空馬
+ * （血統表を作るためだけに居た馬。創始世代から数十年ぶん）を、同じ時代に生まれた同じ性別の実在馬へ付け替えて消す。
+ * 創始世代だけを置き換えても、6 代さかのぼれる 5 代血統表の 2〜5 代目に架空の祖先が残っていた。
+ * 実在馬は血統表がそろっているほど選ばれやすくする（架空の馬の血統表が、実在の血統で 5 代まで埋まるように）。
  * 乱数は世界の主乱数と別にする（主乱数を使うと、これ以降の世界がすべてずれる）。
  */
-function replaceFounders(world, foundYear) {
-  const rng = makeRng(hashSeed(`founders:${world.seed}:${world.startYear}`));
-  const founders = [...world.horses.values()].filter((h) => !h.real && h.sireId == null && h.damId == null && h.birthYear === foundYear);
-  if (!founders.length) return 0;
-  const isFounder = new Set(founders.map((h) => h.id));
-  const reals = [...world.horses.values()].filter((h) => h.real && h.birthYear >= foundYear - 12 && h.birthYear <= foundYear + 6)
-    .sort((a, b) => a.id - b.id);
-  const pickFor = (sex) => {
-    const c = reals.filter((h) => h.sex === sex);
-    return c.length ? rng.pick(c) : null;
+function replaceFictionalAncestors(world) {
+  const Y0 = world.startYear;
+  const rng = makeRng(hashSeed(`ancestors:${world.seed}:${world.startYear}`));
+  const pools = new Set([...world.stallionPool, ...world.marePool]);
+  const keep = (h) => h.real || h.dead === false && (h.birthYear >= Y0 - 11 || pools.has(h.id)) || h.ownerId != null;
+  const gone = [...world.horses.values()].filter((h) => !keep(h));
+  if (!gone.length) return 0;
+  const goneIds = new Set(gone.map((h) => h.id));
+  const reals = [...world.horses.values()].filter((h) => h.real).sort((a, b) => a.id - b.id);
+  // 血統表のそろい具合（4 代までに分かっている祖先の数）。
+  const depthMemo = new Map();
+  const known = (id, d) => {
+    if (id == null || d > 4) return 0;
+    const h = world.horses.get(id);
+    if (!h) return 0;
+    return 1 + known(h.sireId, d + 1) + known(h.damId, d + 1);
+  };
+  const weightOf = (h) => {
+    if (!depthMemo.has(h.id)) depthMemo.set(h.id, known(h.sireId, 1) + known(h.damId, 1));
+    const k = depthMemo.get(h.id);
+    return 1 + k * k;
+  };
+  const byYear = new Map();
+  for (const h of reals) {
+    const key = `${h.sex}${h.birthYear}`;
+    byYear.set(key, [...(byYear.get(key) ?? []), h]);
+  }
+  const candidates = (sex, year) => {
+    for (const w of [6, 12, 20]) {
+      const c = [];
+      for (let y = year - w; y <= year + w; y++) c.push(...(byYear.get(`${sex}${y}`) ?? []));
+      if (c.length >= 3) return c;
+    }
+    return [];
   };
   const repl = new Map();
-  for (const f of founders) {
-    const r = pickFor(f.sex);
-    if (r) repl.set(f.id, r);
+  for (const f of gone) {
+    const c = candidates(f.sex, f.birthYear);
+    if (c.length) repl.set(f.id, rng.weighted(c, c.map(weightOf)));
   }
   for (const k of world.horses.values()) {
-    for (const [field, listKey] of [['sireId', 'foals'], ['damId', 'foals']]) {
-      const r = isFounder.has(k[field]) ? repl.get(k[field]) : null;
+    if (goneIds.has(k.id)) continue;
+    for (const field of ['sireId', 'damId']) {
+      const r = goneIds.has(k[field]) ? repl.get(k[field]) : null;
       if (!r) continue;
       k[field] = r.id;
-      (r[listKey] ??= []).push(k.id);
+      (r.foals ??= []).push(k.id);
+      if (field === 'sireId' && r.foals.length > STALLION_FOAL_MEMORY) r.foals.shift();
     }
   }
+  // 置き換え先が無く、まだ誰かの親のままの馬は残す。
+  const parents = new Set();
+  for (const k of world.horses.values()) if (!goneIds.has(k.id)) { parents.add(k.sireId); parents.add(k.damId); }
   let removed = 0;
-  for (const f of founders) {
-    if (!repl.has(f.id)) continue;
+  for (const f of gone) {
+    if (!repl.has(f.id) || parents.has(f.id)) continue;
     world.horses.delete(f.id);
     removed++;
   }

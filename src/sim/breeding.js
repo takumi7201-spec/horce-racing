@@ -18,7 +18,7 @@ export const POP_MEAN = 0.42;
 /** 回帰の強さ。0.30 なら両親の平均から 30% だけ全体平均に引き戻される。 */
 export const REGRESSION = 0.26;
 /** 種牡馬が覚えている産駒の数。種付料の算定と詳細画面の表示に使う。 */
-const STALLION_FOAL_MEMORY = 80;
+export const STALLION_FOAL_MEMORY = 80;
 
 /**
  * 仔を作る。
