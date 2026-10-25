@@ -570,8 +570,21 @@ function pruneAncestry(world) {
   }
   for (const id of world.stallionPool) walk(id, 0);
   for (const id of world.marePool) walk(id, 0);
-  // 実在の馬は数十頭なので全部残す。古い祖先を消すと「○○系」の系統名がたどれなくなる。
-  for (const h of world.horses.values()) if (h.real) keep.add(h.id);
+  // 実在の馬は全部残す（名鑑・種牡馬名鑑・史実の誕生に使う）。ただし血統をつなぐだけの祖先（pedOnly）は、
+  // 血統表から遠くなったら捨てる。名前だけの祖先は 5,000 頭を超え、世界が 3 万頭の上限に迫っていた。
+  // 系統名（「○○系」）は父系をたどって系祖で止まるので、残した馬の父系の鎖は系祖の先まで残す。
+  const chain = (id) => {
+    const seen = new Set();
+    while (id != null && !seen.has(id)) {
+      seen.add(id);
+      const h = world.horses.get(id);
+      if (!h) return;
+      keep.add(id);
+      id = h.sireId;
+    }
+  };
+  for (const id of [...keep]) chain(id);
+  for (const h of world.horses.values()) if (h.real && !h.pedOnly) { keep.add(h.id); chain(h.id); }
   let removed = 0;
   for (const id of [...world.horses.keys()]) {
     if (!keep.has(id)) { world.horses.delete(id); removed++; }

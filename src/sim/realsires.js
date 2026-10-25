@@ -214,6 +214,8 @@ function make(world, rng, name, { year, live = false }) {
     sireId: sire?.id ?? null, damId: dam?.id ?? null,
   });
   applyTraits(h, d);
+  // 血統をつなぐだけの祖先（競走馬としての能力を持たない）は、血統表から遠くなったら世界から捨てる（pruneAncestry）。
+  if (originOf(d) === 'bg' && d.lvl == null) h.pedOnly = true;
   if (live) {
     // 現役の馬は表の戦績を持ち込まない（この世界のレースで勝ち負けを決める）。
     // 開始年より前の勝鞍だけは事実として残す。

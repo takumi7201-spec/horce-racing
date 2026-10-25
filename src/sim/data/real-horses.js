@@ -15480,16 +15480,19 @@ function withKatakana(table) {
   }
   const to = (n) => (n == null ? n : rename.get(n) ?? n);
   const out = [];
+  const srcs = [];             // out の各行の元の行（引き継ぎを引くため）
   const gain = new Map();      // 残すカタカナ名の馬 → 捨てた英語名の馬から引き継ぐ父母
   for (const d of table) {
     const m = merge.get(`${d.n}|${d.b}`);
     if (m) { gain.set(m, { sire: to(d.sire), dam: to(d.dam) }); continue; }
     const n = to(d.n), sire = to(d.sire), dam = to(d.dam);
     out.push(n === d.n && sire === d.sire && dam === d.dam ? d : { ...d, n, ...(sire ? { sire } : {}), ...(dam ? { dam } : {}) });
+    srcs.push(d);
   }
   // 捨てた馬の父母は、残す馬に無ければ引き継ぐ。
-  return out.map((d) => {
-    const g = gain.get(table.find((x) => x.n === d.n && x.b === d.b)) ?? null;
+  // （行ごとに表全体を find すると O(n²)。2.6 万頭で読み込みに 3.5 秒かかっていた。）
+  return out.map((d, i) => {
+    const g = gain.get(srcs[i]) ?? null;
     return g && ((!d.sire && g.sire) || (!d.dam && g.dam)) ? { ...d, sire: d.sire ?? g.sire, dam: d.dam ?? g.dam } : d;
   });
 }

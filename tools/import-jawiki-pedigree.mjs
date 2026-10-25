@@ -27,11 +27,13 @@ const WIKI = join(ROOT, '.cache/wiki');
 const MAXD = 5;
 
 const latin = (n) => /^[A-Za-z]/.test(n);
+// 名前の照合用。英字は記号と大小を均す。カタカナはそのまま（均すと空文字になり、別の馬が同じ名前になる）。
 const normEn = (s) => s.toLowerCase().replace(/\bst\.?\s/g, 'st ').replace(/[^a-z0-9]/g, '');
 const alpha = JSON.parse(readFileSync(join(ROOT, 'tools/data/alpha-names.json'), 'utf8'));
 const rev = new Map();
 for (const [en, k] of KATAKANA) rev.set(k, [...(rev.get(k) ?? []), en]);
 const key = (n, b) => `${n}|${b}`;
+const nk = (s) => (/^[A-Za-z]/.test(s) ? normEn(s) : s);
 const enNamesOf = (h) => [...new Set([...(latin(h.n) ? [h.n] : []), ...(rev.get(h.n) ?? []), ...(alpha[h.n] ? [alpha[h.n]] : [])])];
 const byName = new Map();
 for (const h of JW_BASE) byName.set(h.n, [...(byName.get(h.n) ?? []), h]);
@@ -145,12 +147,12 @@ function lookup(node, cy) {
 function newAncestor(node, cy, role, d) {
   const label = node.ja ?? node.en;
   const k = normEn(label) + (node.year ?? '');
-  const hit = addedByKey.get(normEn(label));
+  const hit = addedByKey.get(nk(label));
   if (hit && (node.year == null || Math.abs(hit.b - node.year) <= 1)) return hit;
   if (d > MAXD) return null;
   const e = { n: label, b: node.year ?? cy - 8, s: role === 'dam' ? '牝' : '牡', sire: null, dam: null, _new: true };
   added.push(e);
-  addedByKey.set(normEn(label), e);
+  addedByKey.set(nk(label), e);
   stats.created++;
   return e;
 }
@@ -170,7 +172,7 @@ for (const { a, root } of roots) {
     let e = null;
     if (existing) {
       // 表に既に居る親。構造を信じる。生年が合わなければ食い違い。
-      const cands = [...(byName.get(existing) ?? []), ...(addedByKey.has(normEn(existing)) ? [addedByKey.get(normEn(existing))] : [])];
+      const cands = [...(byName.get(existing) ?? []), ...(addedByKey.has(nk(existing)) ? [addedByKey.get(nk(existing))] : [])];
       const p = cands.find((c) => node.year == null || Math.abs(c.b - node.year) <= 3);
       if (!p) { stats.conflict++; continue; }
       e = p; stats.structural++;
@@ -190,6 +192,53 @@ for (const { a, root } of roots) {
     }
     ents.set(code, e);
   }
+}
+// ---- 母父の補完：記事のインフォボックスの「母父」。血統表（{{競走馬血統表}}）の無い記事でも、母の父が分かる。
+// 母が表に居て父が空なら、母父をその母の父にする。母父が表に居なければ新しい祖先にする（5 代血統表に出る範囲だけ）。
+{
+  const damSireStats = { articles: 0, filled: 0, created: 0, reused: 0, skipped: 0 };
+  const infoParse = (text) => {
+    const m = /\|\s*母父\s*=\s*([^\n]*)/.exec(text);
+    return m ? parseNode(m[1]) : null;
+  };
+  const todo = [];
+  for (const f of readdirSync(WIKI)) {
+    if (!f.endsWith('.txt')) continue;
+    let title;
+    try { title = decodeURIComponent(f.slice(0, -4)); } catch { continue; }
+    if (title.startsWith(':')) continue;
+    const text = readFileSync(join(WIKI, f), 'utf8');
+    if (!text.includes('母父')) continue;
+    const a = { name: unParen(title), year: birthOf(text) };
+    const root = findRoot(a);
+    if (!root) continue;
+    const node = infoParse(text);
+    if (node) todo.push({ root, node });
+  }
+  todo.sort((x, y) => (depth.get(x.root.n) ?? 9) - (depth.get(y.root.n) ?? 9));
+  for (const { root, node } of todo) {
+    damSireStats.articles++;
+    if (process.env.DBG && root.n === process.env.DBG) console.error('DBG', root.n, root.dam, JSON.stringify(node), parentOf(root, 'dam'));
+    const dn = parentOf(root, 'dam');
+    if (!dn) continue;
+    const dam = (byName.get(dn) ?? [])[0] ?? addedByKey.get(nk(dn));
+    if (!dam) continue;
+    if (parentOf(dam, 'sire')) continue;                   // 既に分かっている
+    const rd = depth.get(root.n) ?? 9;
+    const r = lookup(node, dam.b);
+    let e = r.e ?? null;
+    if (e) damSireStats.reused++;
+    else if (!r.ambiguous && !r.badAge) {
+      e = newAncestor(node, dam.b, 'sire', rd + 2);
+      if (e) damSireStats.created++;
+    }
+    if (!e) { damSireStats.skipped++; continue; }
+    const f = fills.get(key(dam.n, dam.b)) ?? {};
+    f.sire = e.n;
+    fills.set(key(dam.n, dam.b), f);
+    damSireStats.filled++;
+  }
+  console.error('母父の補完', damSireStats);
 }
 // 血統が循環する・親が子より若い結びは捨てる（名前の取り違えで起きる。循環すると世界の生成がスタックを溢れさせる）。
 {

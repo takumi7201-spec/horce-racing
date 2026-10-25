@@ -686,8 +686,9 @@ section('セーブとロード');
   prospector.sireId = null; prospector.damId = null;                       // 父母のリンクが無い古いセーブ
   ow.horses.delete(sireOfProspector); delete ow.real.ids['レイズアネイティヴ'];   // 親の馬そのものが無い
   const healed = ancestors(fromJSON(toJSON(old)).world, 'ミスタープロスペクター');
+  // 血統をつなぐだけの祖先は、血統表から遠くなると世界から捨てる（pedOnly）ので、世界に居る祖先は 11 頭ほど。
   check(`古いセーブの実在馬に表の血統がつながる（ミスタープロスペクターの祖先 ${full} → 欠けた状態 0 → ロード後 ${healed}）`,
-    full >= 20 && healed >= full - 4);
+    full >= 10 && healed >= full - 4);
 }
 {
   const json = toJSON(game);
