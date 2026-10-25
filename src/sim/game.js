@@ -16,6 +16,7 @@ import { previewOdds } from './race.js';
 import { makeRng, hashSeed } from '../core/rng.js';
 import { EVENTS, eventsAt, eventOpen } from './calendar.js';
 import * as F from './facilities.js';
+import { evaluateTheories, THEORY_GUIDE, theoryName } from './theories.js';
 import * as S from './sales.js';
 import {
   ABILITIES, SEX, WEEKS_PER_YEAR, classOrder, className, standardWeight,
@@ -106,6 +107,8 @@ export function horseView(g, id) {
     real: !!h.real,
     foreign: !!h.foreign,
     factors: (h.factors ?? []).map((f) => FACTORS[f]),
+    // 生まれたときに成立していた配合理論。
+    theories: (h.theories ?? []).map(theoryName),
     // 系統を確立した馬（系祖）。実在の系祖は「○○系の祖」、ゲーム中に確立したらその年。
     lineHead: !!h.lineHead,
     lineEstablished: h.lineEstablished ?? null,
@@ -330,15 +333,23 @@ export function stallions(g, { maxFee = Infinity, search = '' } = {}) {
 }
 
 
+/** 配合理論の一覧（説明用）。 */
+export const theoryGuide = () => THEORY_GUIDE;
+
 /** 配合の評価。プレイヤーに見せる期待度と注意点。 */
 export function evaluateMating(g, damId, sireId) {
   const w = g.world;
   const ev = matingEval(w, sireId, damId);
   if (!ev) return null;
   const nk = ev.nicks;
+  // 成立した配合理論は星にも効く（1 つにつき 0.03、最大 0.09）。
+  const theories = evaluateTheories(w, ev.sire, ev.dam);
+  const score = Math.min(1, ev.score + Math.min(0.09, theories.length * 0.03));
+  const stars = Math.max(1, Math.min(5, 1 + Math.round(score * 4.4)));
   return {
-    stars: ev.stars,
-    score: ev.score,
+    stars,
+    score,
+    theories: theories.map((t) => ({ id: t.id, name: t.name, text: t.text })),
     risk: ev.risk,
     fee: feeOf(w, ev.sire),
     inbreed: ev.inbreed.map((x) => ({ name: x.name, label: x.label })),

@@ -1,6 +1,6 @@
 {
   "name": "keiba-sim",
-  "version": "0.1.0",
+  "version": "1.0.2",
   "description": "three.js による本格競馬シミュレーション（牧場経営・配合・3D レース）",
   "type": "module",
   "private": true,

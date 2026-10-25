@@ -12,6 +12,7 @@ import {
   inbreedings, inbreedEffect, nicksValue, nicksKey, sireLineRoot, factorsOf, factorBonus, vigorOf,
 } from './pedigree.js';
 import { makeHorseName } from '../core/names.js';
+import { evaluateTheories, theoryEffect, THEORY_BASE } from './theories.js';
 
 /** 競走馬全体の能力の中心。回帰の行き先。 */
 export const POP_MEAN = 0.42;
@@ -49,12 +50,16 @@ export function breed(world, rng, sire, dam, { year, farmId = null, ownerId = nu
   // どちらも乱数の幅（0.1 前後）よりずっと小さく、配合の「後押し」に留める。
   const fb = factorBonus(factorsOf(world, sire.id, dam.id).counts);
   const vg = vigorOf(world, sire.id, dam.id);
+  // 配合理論（成立した組み合わせの後押し）。基準点を引いて、世界全体の水準を動かさない（落とし穴 41）。
+  const theories = evaluateTheories(world, sire, dam, { ib, vg });
+  const te = theoryEffect(theories);
+  if (theories.length) foal.theories = theories.map((t) => t.id);
   for (const a of ABILITIES) {
     const mid = sire.pot[a] * 0.5 + dam.pot[a] * 0.5;
     const regressed = lerp(mid, POP_MEAN, REGRESSION);
     // 分散は親の能力が高いほど大きい（大物も駄馬も出る）。
     const sd = 0.095 + mid * 0.075;
-    foal.pot[a] = clamp01(regressed + rng.normal(0, sd) + bonus + (fb.pot[a] ?? 0) + vg.gain);
+    foal.pot[a] = clamp01(regressed + rng.normal(0, sd) + bonus + (fb.pot[a] ?? 0) + vg.gain + (te.pot[a] ?? 0) - THEORY_BASE);
     // 初期の現在値は潜在の 2 割程度。ここから調教と出走で埋めていく。
     foal.cur[a] = clamp01(foal.pot[a] * rng.range(0.16, 0.26));
   }
@@ -64,7 +69,7 @@ export function breed(world, rng, sire, dam, { year, farmId = null, ownerId = nu
   const midDist = sire.dist * 0.5 + dam.dist * 0.5;
   foal.dist = clamp(Math.round((midDist + rng.normal(0, 260)) / 100) * 100, 1000, 3400);
   if (rng.chance(0.06)) foal.dist = clamp(foal.dist + rng.pick([-600, 600]), 1000, 3400);
-  foal.distRange = clamp(Math.round((sire.distRange + dam.distRange) / 2 + rng.normal(0, 90)), 160, 900);
+  foal.distRange = clamp(Math.round((sire.distRange + dam.distRange) / 2 + rng.normal(0, 90) + (te.extra.distRange ?? 0)), 160, 900);
 
   // --- 馬場適性 ---
   foal.turf = clamp01((sire.turf + dam.turf) / 2 + rng.normal(0, 0.12));
@@ -83,8 +88,8 @@ export function breed(world, rng, sire, dam, { year, farmId = null, ownerId = nu
   foal.styleFlex = clamp01((sire.styleFlex + dam.styleFlex) / 2 + rng.normal(0, 0.14));
   foal.temper = clamp01((sire.temper + dam.temper) / 2 + rng.normal(0, 0.15));
   // インブリードのリスクは丈夫さと気性に出る。能力だけ上がる都合のいい配合は無い。
-  foal.sound = clamp01((sire.sound + dam.sound) / 2 + rng.normal(0, 0.12) - ibe.risk * 0.22 + fb.sound);
-  foal.temper = clamp01(foal.temper - ibe.risk * 0.10 + fb.temper);
+  foal.sound = clamp01((sire.sound + dam.sound) / 2 + rng.normal(0, 0.12) - ibe.risk * 0.22 + fb.sound + (te.extra.sound ?? 0));
+  foal.temper = clamp01(foal.temper - ibe.risk * 0.10 + fb.temper + (te.extra.temper ?? 0));
   foal.spirit = clamp01((sire.spirit + dam.spirit) / 2 + rng.normal(0, 0.13) + ibe.gain * 0.06);
 
   // --- 成長型 ---

@@ -112,6 +112,12 @@ function matingView(app) {
         ['血の活力', ev.vigor.label],
         ['近交の危うさ', bar(ev.risk, { color: ev.risk > 0.4 ? '#c75' : '#687' })],
       ]),
+      ev.theories.length
+        ? el('div', [
+          el('h4', { text: `成立する配合理論（${ev.theories.length}）` }),
+          el('ul.inb.theories', ev.theories.map((t) => el('li', [el('i.tchip', { text: t.name }), ` ${t.text}`]))),
+        ])
+        : el('p.note', { text: '成立する配合理論は無い。' }),
       ev.factors.list.length
         ? el('div', [
           el('h4', { text: '受け継ぐ因子（3 代まで）' }),
@@ -184,6 +190,10 @@ function matingView(app) {
     el('div.col', [
       dv ? card(`${dv.name} の血統`, pedigreeMini(g, damId)) : null,
       card('配合の評価', evalBox),
+      card('配合理論', [
+        el('p.note', { text: '成り立った理論は、仔の能力や丈夫さを少しだけ後押しし、評価の星にも出る。効果は小さく、重ねても上限がある。' }),
+        el('ul.howto', G.theoryGuide().map((t) => el('li', [el('b', { text: t.name }), el('br'), el('small', { text: t.text })]))),
+      ]),
       card('配合の考えかた', el('ul.howto', [
         el('li', { text: '3×4 のインブリードがいちばん効く。近すぎる配合は能力より丈夫さを削る。' }),
         el('li', { text: 'ニックス（父系 × 母父系の相性）は産駒 12 頭ぶんの実績が出るまで「？」のまま。' }),

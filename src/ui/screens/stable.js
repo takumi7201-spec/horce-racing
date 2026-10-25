@@ -284,6 +284,9 @@ function infoPanel(v, career) {
           v.abroadStud ? el('i.fchip.abroad', { text: '海外で供用中' }) : null,
         ])])
         : null,
+      v.theories?.length
+        ? el('div.hi-r', [el('span', { text: '配合理論' }), el('div.hi-chips', v.theories.map((t) => el('i.tchip', { text: t })))])
+        : null,
     ]),
   ]);
 }

@@ -815,5 +815,36 @@ section('v1.0.2：牧場施設');
   check(`施設（坂路・プール）で自分の馬の能力が伸びる（${grow(gA).toFixed(2)} → ${grow(gB).toFixed(2)}）`, grow(gB) > grow(gA));
 }
 
+
+section('v1.0.2：配合理論');
+{
+  const g10 = sideGame({ seed: 'verify-theory' });
+  const w10 = g10.world;
+  const hs = [...w10.horses.values()];
+  // 全種牡馬 × 繁殖牝馬の組み合わせで、理論がどれだけ成立するか。
+  const sires = w10.stallionPool.map((id) => w10.horses.get(id)).filter(Boolean).slice(0, 40);
+  const mares = w10.marePool.map((id) => w10.horses.get(id)).filter(Boolean).slice(0, 40);
+  const seen = new Map();
+  let combos = 0, matched = 0;
+  for (const s of sires) for (const m of mares) {
+    if (s.id === m.sireId) continue;
+    const ev = GG.evaluateMating(g10, m.id, s.id);
+    combos++;
+    if (ev.theories.length) matched++;
+    for (const t of ev.theories) seen.set(t.id, (seen.get(t.id) ?? 0) + 1);
+  }
+  const rate = matched / combos;
+  check(`配合理論が成立する組み合わせがある（${matched}/${combos} = ${(rate * 100).toFixed(0)}%、${seen.size} 種）`, rate > 0.05 && rate < 0.9 && seen.size >= 3);
+  check(`理論の名前が付く（${[...seen.keys()].slice(0, 4).join('・')}）`, [...seen.keys()].every((id) => GG.theoryGuide().length > 0));
+  // 理論の後押しの上限：能力 1 項目 0.03 まで。
+  const ev0 = GG.evaluateMating(g10, mares[0].id, sires[0].id);
+  check('理論の一覧が説明に出る', GG.theoryGuide().length >= 12);
+  // 世界全体の水準が動かない（落とし穴 41）：生まれた仔の潜在能力の中央値。
+  const young = hs.filter((h) => !h.real && w10.year - h.birthYear <= 8 && h.sireId != null);
+  const med = young.map((h) => sum(ABILITIES, (a) => h.pot[a]) / ABILITIES.length).sort((a, b) => a - b)[Math.floor(young.length / 2)];
+  check(`潜在能力の中央値が動かない（${med.toFixed(3)}）`, med > 0.42 && med < 0.7);
+  check('成立した理論が仔に残る', young.some((h) => h.theories?.length));
+}
+
 console.log(`\n合計 ${pass} ok / ${fail} NG`);
 process.exit(fail === 0 ? 0 : 1);
