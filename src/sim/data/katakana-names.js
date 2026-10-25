@@ -5318,4 +5318,7 @@ export const KATAKANA = [
   ['Mazurka', 'マズルカ'],
   ['See Saw', 'シーソー'],
   ['Mabille', 'マビーユ'],
+  ['Wait a Bit', 'ウェイトアビット'],
+  ['Marching Home', 'マーチングホーム'],
+  ['Crepe Myrtle', 'クレープマートル'],
 ];

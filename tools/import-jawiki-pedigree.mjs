@@ -150,15 +150,14 @@ function newAncestor(node, cy, role, d) {
   const hit = addedByKey.get(nk(label));
   if (hit && (node.year == null || Math.abs(hit.b - node.year) <= 1)) return hit;
   if (d > MAXD) return null;
-  const e = { n: label, b: node.year ?? cy - 8, s: role === 'dam' ? '牝' : '牡', sire: null, dam: null, _new: true };
+  const e = { n: label, b: node.year ?? cy - 8, s: role === 'dam' ? '牝' : '牡', sire: null, dam: null, _new: true, _d: d };
   added.push(e);
   addedByKey.set(nk(label), e);
   stats.created++;
   return e;
 }
 
-for (const { a, root } of roots) {
-  const rd = depth.get(root.n) ?? 9;
+function processArticle(a, root, rd) {
   const ents = new Map([['', root]]);
   const codes = [...a.nodes.keys()].sort((x, y) => x.length - y.length || (x < y ? -1 : 1));
   stats.articles++;
@@ -194,6 +193,31 @@ for (const { a, root } of roots) {
       fills.set(key(child.n, child.b), f);
     }
     ents.set(code, e);
+  }
+}
+for (const { a, root } of roots) processArticle(a, root, depth.get(root.n) ?? 9);
+// この道具が足した祖先にも記事がある（ブッシャー：セイアトルスルーの母の母の父の母）。表の馬ではないので最初の照合では
+// 根にならない。名前で当てて、記事の生年が推定値（子 − 8）から 12 年以内なら同じ馬とし、生年を記事の値に直して読む。
+// 読んだ記事がまた祖先を足すので、増えなくなるまで回す。
+{
+  const done = new Set();
+  for (let round = 0; round < 4; round++) {
+    let n = 0;
+    for (const a of articles) {
+      if (done.has(a) || findRoot(a)) continue;
+      const e = addedByKey.get(nk(a.name));
+      if (!e || (a.year != null && Math.abs(e.b - a.year) > 12)) continue;
+      done.add(a);
+      if (a.year != null && e.b !== a.year) {
+        const f = fills.get(key(e.n, e.b));
+        if (f) { fills.delete(key(e.n, e.b)); fills.set(key(e.n, a.year), f); }
+        e.b = a.year;
+      }
+      processArticle(a, e, e._d ?? 9);
+      n++;
+    }
+    console.error(`足した祖先の記事 ${round + 1} 巡目 ${n} 本`);
+    if (!n) break;
   }
 }
 // ---- 母父の補完：記事のインフォボックスの「母父」。血統表（{{競走馬血統表}}）の無い記事でも、母の父が分かる。
