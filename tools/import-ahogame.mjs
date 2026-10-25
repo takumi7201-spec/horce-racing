@@ -77,7 +77,7 @@ const COAT = { 栗毛: '栗毛', 鹿毛: '鹿毛', 黒鹿: '黒鹿毛', 黒鹿�
 /** 事実の列だけを取る（能力・因子などの列は読まない）。 */
 const readJp = (r) => ({ n: r[0], b: year(r[2]), sex: r[3], coat: COAT[r[4]] ?? null, sire: r[7], dam: r[8], v: r.slice(9) });
 const readOs = (r) => ({ alpha: r[0], n: r[1], b: year(r[3]), sex: r[4], coat: COAT[r[5]] ?? null, sire: r[8], dam: r[9], v: r.slice(10) });
-const readBr = (r) => ({ n: r[0], alpha: r[1] || null, b: year(r[3]), sex: r[4], coat: COAT[r[5]] ?? null, sire: r[8], dam: r[9], v: r.slice(10) });
+const readBr = (r) => ({ n: r[0], alpha: r[1] || null, b: year(r[3]), sex: r[4], coat: COAT[r[5]] ?? null, sire: r[8], dam: r[9], home: r[7], v: r.slice(10) });
 
 const recs = [];
 for (const [key, reader, col] of [['jp', readJp, 2], ['os', readOs, 3], ['br', readBr, 3]]) {
@@ -346,11 +346,18 @@ mkdirSync(join(ROOT, 'tools/data'), { recursive: true });
 // ---------------------------------------------------------------- 書き出し
 
 const q = (s) => (s == null ? 'null' : `'${s.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`);
+// 繁殖専用史実馬の牝馬のうち、日本（中央・地方）で繁殖に上がる馬だけ。海外で繁殖する馬は日本の名簿に入れない（落とし穴 42）。
+// [馬名, 生年, 競走馬引退年齢, 繁殖引退年齢, 仔出]。末尾の三列が 仔出・競引退齢・繁引退齢。
+const brood = recs.filter((r) => r.list === 'br' && r.sex === '牝' && r.b != null && /^(中央|地方)$/.test(r.home)).map((r) => {
+  const [fert, raceAge, breedAge] = r.v.slice(-3).map(Number);
+  return [r.n, r.b, raceAge, breedAge, fert];
+}).filter((x) => x.slice(2).every(Number.isFinite));
 const body = `// 「Winning Post 10 2026 攻略」の史実馬の一覧から取った、史実の事実だけ。
 // tools/import-ahogame.mjs が書く（手で直さない）。real-horses.js の withAhogame が表の末尾に重ねる。
 //   AHO_FILL    [馬名, 生年, 父, 母]               表で父母が空だった馬に補う（null は補わない）
 //   AHO_NEW     [馬名, 生年, 性, 毛色, 父, 母]     表に無かった祖先（血統をつなぐだけ）
 //   AHO_RETIRE  [馬名, 生年, 引退年]               日本で供用された種牡馬の引退年
+//   AHO_BROOD   [馬名, 生年, 競走馬引退年齢, 繁殖引退年齢, 仔出]  繁殖専用の牝馬（繁殖に上がる年と終える年）
 //   AHO_ALIAS   [英語名, カタカナ名]               Wikidata から補った英語名の馬のカタカナ名
 
 export const AHO_FILL = [
@@ -363,6 +370,10 @@ ${added.map((e) => `  [${q(e.n)}, ${e.b}, ${q(e.s ?? '牡')}, ${q(e.c ?? null)},
 
 export const AHO_RETIRE = [
 ${retYears.map(([n, b, y]) => `  [${q(n)}, ${b}, ${y}],`).join('\n')}
+];
+
+export const AHO_BROOD = [
+${brood.map((x) => `  [${q(x[0])}, ${x.slice(1).join(', ')}],`).join('\n')}
 ];
 
 export const AHO_ALIAS = [

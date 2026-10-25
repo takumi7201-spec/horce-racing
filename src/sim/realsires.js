@@ -116,6 +116,7 @@ function applyTraits(h, d) {
   if (d.os || d.abroad) h.foreign = true;
   // 表の供用年を導いた馬（取り込んだ勝ち馬）。名簿の整理では架空の馬と同じ扱いにする。
   if (d.sd) h.studDerived = true;
+  if (d.fert != null) h.fert = d.fert;
 }
 
 /** 表の戦績を写す。big は upto 年より前の勝鞍だけ（まだ行われていないレースを並べない）。 */
@@ -215,7 +216,7 @@ function make(world, rng, name, { year, live = false }) {
   });
   applyTraits(h, d);
   // 血統をつなぐだけの祖先（競走馬としての能力を持たない）は、血統表から遠くなったら世界から捨てる（pruneAncestry）。
-  if (originOf(d) === 'bg' && d.lvl == null) h.pedOnly = true;
+  if (originOf(d) === 'bg' && d.lvl == null && !d.mare) h.pedOnly = true;
   if (live) {
     // 現役の馬は表の戦績を持ち込まない（この世界のレースで勝ち負けを決める）。
     // 開始年より前の勝鞍だけは事実として残す。

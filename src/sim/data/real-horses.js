@@ -27,7 +27,7 @@ import { EW_FILL, EW_NEW } from './enwiki-parents.js';
 import { JW_FILL, JW_NEW } from './jawiki-pedigree.js';
 import { KATAKANA } from './katakana-names.js';
 import { AHO_HORSES } from './ahogame-horses.js';
-import { AHO_FILL, AHO_NEW, AHO_RETIRE, AHO_ALIAS } from './ahogame-facts.js';
+import { AHO_FILL, AHO_NEW, AHO_RETIRE, AHO_BROOD, AHO_ALIAS } from './ahogame-facts.js';
 
 /** 系統の祖と、血統をつなぐための海外の祖先。 */
 const ANCESTORS = [
@@ -15624,4 +15624,21 @@ function withDerivedStuds(table) {
   });
 }
 
-export const REAL_HORSES = withDerivedStuds(TABLE);
+/**
+ * 繁殖専用の史実牝馬（日本で繁殖に上がる馬）に繁殖の年を与える。これまでは血統をつなぐだけの祖先で、
+ * 世界の繁殖牝馬の名簿に入らず、1 頭も産まなかった。競走馬引退年齢の翌年に繁殖に上がり、繁殖引退年齢まで産む
+ * （mare は産駒の生年）。表に mare を持つ馬と競走馬として走る馬には手を出さない。
+ */
+const BROOD = new Map(AHO_BROOD.map(([n, b, raceAge, breedAge, fert]) => [`${n}|${b}`, { raceAge, breedAge, fert }]));
+function withBroodmares(table) {
+  return table.map((d) => {
+    if (d.mare || d.lvl != null || d.s !== '牝' || d.os) return d;
+    const r = BROOD.get(`${d.n}|${d.b}`);
+    if (!r) return d;
+    const from = d.b + r.raceAge + 2, to = d.b + r.breedAge;
+    if (to < from) return d;
+    return { ...d, mare: [from, to], fert: r.fert };
+  });
+}
+
+export const REAL_HORSES = withDerivedStuds(withBroodmares(TABLE));

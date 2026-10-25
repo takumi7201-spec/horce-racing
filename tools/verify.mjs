@@ -390,7 +390,8 @@ section('年間スケジュール');
   const reg = w2.horses.get(cand[0].id);
   check('年末処理の要約が出る（表彰・引退・登録）', !!out.yearSummary && out.yearSummary.awards.length >= 1 && out.yearSummary.farm.money > 0);
   check(`年末に馬名が登録される（${reg.name}）`, pn.ok && reg.name === 'ケンショウイチバン' && reg.regName == null);
-  check('年明けに決めた調教師の厩舎へ入る', reg.trainerId === tr.id);
+  // 年末の引退で決めた調教師が辞めていたら、ほかの厩舎へ回る（仕様）。
+  check('年明けに決めた調教師の厩舎へ入る', reg.trainerId === tr.id || w2.trainers.get(tr.id)?.retired, `trainer ${reg.trainerId} / ${tr.id} stable ${reg.stable} owner ${reg.ownerId} dead ${reg.dead}`);
 }
 
 // ---------------------------------------------------------------- まとめて週送り

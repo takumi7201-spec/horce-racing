@@ -216,6 +216,8 @@ export function conceives(rng, dam, year, bonus = 0) {
   let p = 0.88;
   if (age >= 14) p -= (age - 13) * 0.055;
   if (age <= 4) p -= 0.05;
+  // 史実の繁殖牝馬は一覧の「仔出」（3〜6 が大半）で受胎しやすさが違う。
+  if (dam.fert != null) p += (dam.fert - 5) * 0.02;
   return rng.chance(clamp01(p + bonus));
 }
 
