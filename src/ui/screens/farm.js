@@ -6,6 +6,7 @@ import * as G from '../../sim/game.js';
 import { formatMoney } from '../../core/util.js';
 import { horseImg } from '../horse-sprite.js';
 import { icon } from '../icons.js';
+import { pedMarks, pedWithToggle } from './stable.js';
 
 export function farmScreen(app) {
   const g = app.game;
@@ -224,9 +225,10 @@ function pedigreeMini(g, id) {
   };
   walk(tree.sire, 1);
   walk(tree.dam, 1);
-  return el('div.ped.mini', cols.map((cells) => el('div.ped-col', cells.map((n) =>
+  const ped = el('div.ped.mini', cols.map((cells) => el('div.ped-col', cells.map((n) =>
     el('div.ped-cell', { class: n ? (n.sex === '牡' ? 'male' : 'female') : 'blank' },
-      el('span', { text: n ? n.name : '—' }))))));
+      n ? [el('span', { text: n.name }), pedMarks(n)] : el('span', { text: '—' }))))));
+  return pedWithToggle(ped);
 }
 
 // ---------------------------------------------------------------- 種牡馬名鑑

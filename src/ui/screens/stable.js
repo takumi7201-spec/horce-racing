@@ -579,10 +579,51 @@ function pedigreeTable(g, id, gens = 4) {
   };
   walk(tree.sire, 1);
   walk(tree.dam, 1);
-  return el('div.ped', cols.map((cells, i) => el('div.ped-col', cells.map((n) => el('div.ped-cell', {
+  const ped = el('div.ped', cols.map((cells, i) => el('div.ped-col', cells.map((n) => el('div.ped-cell', {
     class: n ? (n.sex === '牡' ? 'male' : 'female') : 'blank',
-    title: n ? `${n.name}${n.line ? `（${n.line}）` : ''}` : '',
-  }, n ? [el('span', { text: n.name }), n.line ? el('small', { text: n.line }) : null] : el('span', { text: '—' }))))));
+    title: n ? `${n.name}${n.line ? `（${n.line}）` : ''}${pedFactorText(n)}` : '',
+  }, n ? [el('span', { text: n.name }), pedMarks(n), n.line ? el('small', { text: n.line }) : null] : el('span', { text: '—' }))))));
+  return pedWithToggle(ped);
+}
+
+/** 血統図の因子の印の 1 文字（スピード＝速…）。 */
+const FACTOR_MARK = { speed: '速', stamina: '持', power: '力', burst: '瞬', guts: '根', mind: '精', health: '健' };
+
+/** 血統図の 1 マスの因子の印（因子ごとの色付きの 1 文字と、系祖の「祖」）。 */
+export function pedMarks(n) {
+  const fs = n?.factors ?? [];
+  if (!fs.length && !n?.head) return null;
+  const labels = G.factorLabels();
+  return el('span.pmarks', [
+    ...fs.map((f) => el(`i.pm.pm-${f}`, { text: FACTOR_MARK[f] ?? '?', title: labels[f] ?? f })),
+    n.head ? el('i.pm.pm-head', { text: '祖', title: '系統の祖' }) : null,
+  ]);
+}
+
+function pedFactorText(n) {
+  const labels = G.factorLabels();
+  const fs = (n.factors ?? []).map((f) => labels[f] ?? f);
+  return fs.length ? ` 因子：${fs.join('・')}` : '';
+}
+
+/** 血統図の因子の表示・非表示（見る人の好みなので、この端末だけに覚える）。 */
+export function pedWithToggle(ped) {
+  const KEY = 'keiba-ped-factors';
+  const read = () => { try { return localStorage.getItem(KEY) !== 'off'; } catch { return true; } };
+  let on = read();
+  const btn = el('button.ped-toggle', { type: 'button' });
+  const sync = () => {
+    ped.classList.toggle('nofactors', !on);
+    btn.textContent = on ? '因子：表示中' : '因子：非表示';
+    btn.classList.toggle('off', !on);
+  };
+  btn.addEventListener('click', () => {
+    on = !on;
+    try { localStorage.setItem(KEY, on ? 'on' : 'off'); } catch { /* 保存できなくても動く */ }
+    sync();
+  });
+  sync();
+  return el('div.ped-wrap', [el('div.ped-bar', [btn, el('small', { text: '速=スピード 持=スタミナ 力=パワー 瞬=瞬発 根=根性 精=精神 健=健康 祖=系統の祖' })]), ped]);
 }
 
 // ---------------------------------------------------------------- 操作

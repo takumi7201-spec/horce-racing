@@ -1170,3 +1170,21 @@ canvas.race3d { width: 100%; height: 100%; display: block; }
 .tr { color: #b3402a; font-size: 11px; font-weight: 700; }
 .warn { color: #b3402a; font-weight: 700; margin: 6px 0; }
 .theories small { color: var(--fg3); }
+
+/* 血統図の因子 */
+.ped-bar { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; flex-wrap: wrap; }
+.ped-bar small { color: var(--fg3); font-size: 10px; }
+.ped-toggle { border: 1px solid var(--green); background: #f4fbef; color: var(--green-dd, #2d6a2d); border-radius: 12px; padding: 2px 10px; font-size: 11px; cursor: pointer; }
+.ped-toggle.off { background: #fff; color: var(--fg3); border-color: #ccd8c4; }
+.pmarks { display: inline-flex; gap: 2px; margin-top: 1px; }
+.pm { font-style: normal; font-size: 9px; font-weight: 700; line-height: 1; padding: 1px 3px; border-radius: 3px; color: #fff; background: #888; }
+.pm-speed { background: #d9534f; } .pm-stamina { background: #3a7bd5; } .pm-power { background: #8a5a2b; }
+.pm-burst { background: #e08a1e; } .pm-guts { background: #7b3fa0; } .pm-mind { background: #2a9d8f; }
+.pm-health { background: #5a9a3a; } .pm-head { background: #b8962e; }
+.nofactors .pmarks { display: none; }
+/* 因子の印は名前の右に並べる（段の低い列でも切れないように） */
+.ped-cell:has(.pmarks) { flex-direction: row; flex-wrap: wrap; align-items: center; align-content: center; column-gap: 3px; }
+.ped-cell:has(.pmarks) > span:first-child { flex: 1 1 0; min-width: 0; }
+.ped-cell:has(.pmarks) > .pmarks { flex: none; margin: 0; }
+.ped-cell:has(.pmarks) > small { flex-basis: 100%; }
+.nofactors .ped-cell:has(.pmarks) { flex-direction: column; flex-wrap: nowrap; align-items: stretch; }

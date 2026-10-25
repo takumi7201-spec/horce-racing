@@ -130,6 +130,8 @@ function damSireName(w, h) {
 
 /** 血統表（世代数指定）。 */
 export const pedigree = (g, id, gens = 4) => pedigreeTree(g.world, id, gens);
+/** 因子の id → 表示名。血統図の因子の印に使う。 */
+export const factorLabels = () => FACTORS;
 
 // ---------------------------------------------------------------- 番組と登録
 
