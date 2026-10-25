@@ -1,0 +1,246 @@
+// ja.wikipedia の記事の「競走馬血統表」から、表の馬の父母を埋める道具。
+//
+//   node tools/import-jawiki-pedigree.mjs            # .cache/wiki の記事から src/sim/data/jawiki-pedigree.js を書く
+//
+// パーソロンの記事には 5 代の血統表（{{競走馬血統表}}）が載っていて、父マイリージャンの母オートフレーク、
+// 母パレオの父ファリス・母カロニスなど、自分の記事を持たない祖先の父母まで分かる。
+// import-real-horses.mjs が取った記事（.cache/wiki）にあるので、ネットワークは要らない。
+//
+// 規則（静かに間違った血統を入れないため。CLAUDE.md の落とし穴 43・45 と同じ型）:
+//   - 記事の馬は「記事名（括弧は除く）と、インフォボックスの生年が表と一致」する馬だけ。再登録された同名の別馬を避ける。
+//   - 表に父母が既にある祖先は、名前を照合せずその馬と結ぶ（血統表の構造を信じる）。生年が分かっていて 3 年以上
+//     ずれるときは食い違いなので、その枝は採らない。
+//   - 表に父母が無い祖先は名前（日本語のリンク先・英語名）で表を引く。親子の年齢差が 2〜30 歳で、一頭に決まるときだけ。
+//     見つからなければ新しい祖先（5 代血統表に出る範囲だけ）。英語名はカタカナ化の対応表（katakana-names.js）で直す。
+//   - 表に既にある父母は上書きしない。
+// 出力は表の末尾に重ねるだけ（real-horses.js の withParents）。
+
+import { readFileSync, writeFileSync, readdirSync } from 'node:fs';
+import { join, dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { JW_BASE } from '../src/sim/data/real-horses.js';
+import { KATAKANA } from '../src/sim/data/katakana-names.js';
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+const OUT = join(ROOT, 'src/sim/data/jawiki-pedigree.js');
+const WIKI = join(ROOT, '.cache/wiki');
+const MAXD = 5;
+
+const latin = (n) => /^[A-Za-z]/.test(n);
+const normEn = (s) => s.toLowerCase().replace(/\bst\.?\s/g, 'st ').replace(/[^a-z0-9]/g, '');
+const alpha = JSON.parse(readFileSync(join(ROOT, 'tools/data/alpha-names.json'), 'utf8'));
+const rev = new Map();
+for (const [en, k] of KATAKANA) rev.set(k, [...(rev.get(k) ?? []), en]);
+const key = (n, b) => `${n}|${b}`;
+const enNamesOf = (h) => [...new Set([...(latin(h.n) ? [h.n] : []), ...(rev.get(h.n) ?? []), ...(alpha[h.n] ? [alpha[h.n]] : [])])];
+const byName = new Map();
+for (const h of JW_BASE) byName.set(h.n, [...(byName.get(h.n) ?? []), h]);
+const enIdx = new Map();
+for (const h of JW_BASE) for (const e of enNamesOf(h)) enIdx.set(normEn(e), [...(enIdx.get(normEn(e)) ?? []), h]);
+const stubLike = (h) => h.bg && h.lvl == null;
+
+// 競走馬からの世代（新しい祖先を作る範囲）
+const depth = new Map();
+{
+  const byN = new Map(JW_BASE.map((h) => [h.n, h]));
+  let fr = JW_BASE.filter((h) => h.lvl != null);
+  for (const h of fr) depth.set(h.n, 0);
+  for (let d = 0; d < MAXD; d++) {
+    const nx = [];
+    for (const h of fr) for (const k of ['sire', 'dam']) { const p = byN.get(h[k]); if (p && !depth.has(p.n)) { depth.set(p.n, d + 1); nx.push(p); } }
+    fr = nx;
+  }
+}
+
+// ---------------------------------------------------------------- 記事の読み取り
+const unParen = (t) => t.replace(/_/g, ' ').replace(/\s*[（(][^）)]*[）)]\s*$/, '').trim();
+function parseNode(v) {
+  v = v.replace(/<ref[^>]*>[\s\S]*?<\/ref>/g, '').replace(/<ref[^>]*\/>/g, '').replace(/'{2,3}/g, '').trim();
+  const [head, tail] = v.split(/<br\s*\/?>/i);
+  if (!head) return null;
+  const link = /\[\[([^\]|#]+)(?:\|([^\]]*))?\]\]/.exec(head);
+  let ja = null, en = null;
+  if (link) {
+    const t = unParen(link[1]);
+    if (/^[ァ-ヶー・ヴ]+$/.test(t)) ja = t; else if (/^[A-Za-z]/.test(t)) en = t;
+    if (link[2] && /^[A-Za-z][A-Za-z' .\-]*$/.test(link[2].trim())) en = en ?? link[2].trim();
+  } else {
+    const t = head.replace(/\[\[|\]\]/g, '').trim();
+    if (/^[A-Za-z][A-Za-z' .\-]+$/.test(t) && t.length <= 40) en = t;
+    else if (/^[ァ-ヶー・ヴ]{2,}$/.test(t)) ja = t;
+  }
+  if (!ja && !en) return null;
+  const y = tail && /(1[6-9]\d\d|20\d\d)/.exec(tail);
+  return { ja, en, year: y ? Number(y[1]) : null };
+}
+function readPedigree(text) {
+  const m = /\{\{競走馬血統表([\s\S]*?)\n\}\}/.exec(text);
+  if (!m) return null;
+  const nodes = new Map();
+  for (const line of m[1].split('\n')) {
+    const mm = /^\|\s*([fm]{1,5})\s*=\s*(.*)$/.exec(line);
+    if (!mm) continue;
+    const n = parseNode(mm[2]);
+    if (n) nodes.set(mm[1], n);
+  }
+  return nodes.size ? nodes : null;
+}
+const birthOf = (text) => {
+  const m = /\|\s*生\s*=\s*([^\n]*)/.exec(text);
+  const y = m && /(1[6-9]\d\d|20\d\d)/.exec(m[1]);
+  return y ? Number(y[1]) : null;
+};
+
+// ---------------------------------------------------------------- 本体
+const fills = new Map();          // key(n,b) → { sire, dam }
+const added = [];
+const addedByKey = new Map();     // 正規化した名前 → 新しい祖先
+const stats = { articles: 0, noRoot: 0, filled: 0, created: 0, reused: 0, structural: 0, conflict: 0, ambiguous: 0, badAge: 0 };
+
+const articles = [];
+for (const f of readdirSync(WIKI)) {
+  if (!f.endsWith('.txt')) continue;
+  let title;
+  try { title = decodeURIComponent(f.slice(0, -4)); } catch { continue; }
+  const text = readFileSync(join(WIKI, f), 'utf8');
+  if (!text.includes('競走馬血統表')) continue;
+  const nodes = readPedigree(text);
+  if (!nodes) continue;
+  articles.push({ name: unParen(title), year: birthOf(text), nodes });
+}
+console.error(`血統表のある記事 ${articles.length} 本`);
+
+function findRoot(a) {
+  const c = (byName.get(a.name) ?? []);
+  if (!c.length) return null;
+  if (a.year != null) {
+    const m = c.filter((h) => Math.abs(h.b - a.year) <= 1);
+    return m.length === 1 ? m[0] : null;
+  }
+  return c.length === 1 && c[0].lvl != null ? c[0] : null;
+}
+const roots = articles.map((a) => ({ a, root: findRoot(a) })).filter((x) => x.root);
+stats.noRoot = articles.length - roots.length;
+roots.sort((x, y) => (depth.get(x.root.n) ?? 9) - (depth.get(y.root.n) ?? 9));
+
+const fillOf = (e) => fills.get(key(e.n, e.b)) ?? {};
+const parentOf = (e, role) => e[role] ?? fillOf(e)[role] ?? null;
+
+/** 名前で表の馬を探す。子の生年 cy から見た親子の年齢差で絞り、一頭に決まるときだけ。 */
+function lookup(node, cy) {
+  let cands = [];
+  if (node.ja) cands = byName.get(node.ja) ?? [];
+  if (!cands.length && node.en) cands = enIdx.get(normEn(node.en)) ?? [];
+  const ok = cands.filter((p) => {
+    if (node.year != null && Math.abs(p.b - node.year) > (stubLike(p) ? 12 : 1)) return false;
+    const g = cy - (node.year ?? p.b);
+    return stubLike(p) ? g >= -4 && g <= 34 : g >= 2 && g <= 30;
+  });
+  if (ok.length === 1) return { e: ok[0] };
+  if (ok.length > 1) return { ambiguous: true };
+  if (cands.length) return { badAge: true };
+  return {};
+}
+
+function newAncestor(node, cy, role, d) {
+  const label = node.ja ?? node.en;
+  const k = normEn(label) + (node.year ?? '');
+  const hit = addedByKey.get(normEn(label));
+  if (hit && (node.year == null || Math.abs(hit.b - node.year) <= 1)) return hit;
+  if (d > MAXD) return null;
+  const e = { n: label, b: node.year ?? cy - 8, s: role === 'dam' ? '牝' : '牡', sire: null, dam: null, _new: true };
+  added.push(e);
+  addedByKey.set(normEn(label), e);
+  stats.created++;
+  return e;
+}
+
+for (const { a, root } of roots) {
+  const rd = depth.get(root.n) ?? 9;
+  const ents = new Map([['', root]]);
+  const codes = [...a.nodes.keys()].sort((x, y) => x.length - y.length || (x < y ? -1 : 1));
+  stats.articles++;
+  for (const code of codes) {
+    const parentCode = code.slice(0, -1);
+    const child = ents.get(parentCode);
+    if (!child) continue;                    // 枝が途切れた
+    const role = code.slice(-1) === 'f' ? 'sire' : 'dam';
+    const node = a.nodes.get(code);
+    const existing = parentOf(child, role);
+    let e = null;
+    if (existing) {
+      // 表に既に居る親。構造を信じる。生年が合わなければ食い違い。
+      const cands = [...(byName.get(existing) ?? []), ...(addedByKey.has(normEn(existing)) ? [addedByKey.get(normEn(existing))] : [])];
+      const p = cands.find((c) => node.year == null || Math.abs(c.b - node.year) <= 3);
+      if (!p) { stats.conflict++; continue; }
+      e = p; stats.structural++;
+    } else {
+      const cy = (a.nodes.get(parentCode)?.year) ?? child.b;
+      const r = lookup(node, cy);
+      if (r.e) { e = r.e; stats.reused++; }
+      else if (r.ambiguous) { stats.ambiguous++; continue; }
+      else if (r.badAge) { stats.badAge++; continue; }
+      else {
+        e = newAncestor(node, cy, role, rd + code.length);
+        if (!e) continue;
+      }
+      const f = fills.get(key(child.n, child.b)) ?? {};
+      f[role] = e.n;
+      fills.set(key(child.n, child.b), f);
+    }
+    ents.set(code, e);
+  }
+}
+// 血統が循環する・親が子より若い結びは捨てる（名前の取り違えで起きる。循環すると世界の生成がスタックを溢れさせる）。
+{
+  const all = new Map(JW_BASE.map((h) => [h.n, h]));
+  for (const e of added) all.set(e.n, e);
+  const par = new Map();
+  for (const h of all.values()) par.set(h.n, [h.sire ?? null, h.dam ?? null]);
+  for (const e of added) par.set(e.n, [null, null]);
+  const reaches = (from, target, seen = new Set()) => {
+    if (from == null || seen.has(from)) return false;
+    if (from === target) return true;
+    seen.add(from);
+    return (par.get(from) ?? []).some((p) => reaches(p, target, seen));
+  };
+  let dropped = 0;
+  for (const [k, f] of [...fills]) {
+    const [cn] = k.split('|');
+    const c = all.get(cn);
+    for (const [i, role] of ['sire', 'dam'].entries()) {
+      const pn = f[role];
+      if (!pn) continue;
+      const p = all.get(pn);
+      if (!p || p.b >= c.b || reaches(pn, cn)) { f[role] = null; dropped++; continue; }
+      par.get(cn)[i] = pn;
+    }
+    if (!f.sire && !f.dam) fills.delete(k);
+  }
+  console.error(`循環・年齢の食い違いで捨てた結び ${dropped}`);
+}
+// 新しい祖先の父母は、その祖先自身に書く。
+for (const e of added) {
+  const f = fills.get(key(e.n, e.b));
+  if (f) { e.sire = f.sire ?? null; e.dam = f.dam ?? null; fills.delete(key(e.n, e.b)); }
+}
+stats.filled = fills.size;
+console.error(stats);
+console.error(`既存の馬に補った父母 ${fills.size} 頭、新しい祖先 ${added.length} 頭`);
+
+const q = (s) => (s == null ? 'null' : `'${s.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`);
+const body = `// ja.wikipedia の「競走馬血統表」から補った父母。tools/import-jawiki-pedigree.mjs が書く（手で直さない）。
+// real-horses.js の withParents が表の末尾に重ねる。
+//   JW_FILL  [馬名, 生年, 父, 母]   表で父母が空だった馬に補う（null は補わない）
+//   JW_NEW   [馬名, 生年, 性, 父, 母]  表に無かった祖先（血統をつなぐだけ。英語名は katakana-names.js でカタカナにする）
+
+export const JW_FILL = [
+${[...fills].map(([k, f]) => { const [nm, b] = k.split('|'); return `  [${q(nm)}, ${b}, ${q(f.sire)}, ${q(f.dam)}],`; }).join('\n')}
+];
+
+export const JW_NEW = [
+${added.map((e) => `  [${q(e.n)}, ${e.b}, ${q(e.s)}, ${q(e.sire)}, ${q(e.dam)}],`).join('\n')}
+];
+`;
+writeFileSync(OUT, body);
+console.error(`${OUT} に書いた`);

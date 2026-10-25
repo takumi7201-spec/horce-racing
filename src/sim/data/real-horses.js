@@ -24,6 +24,7 @@
 
 import { WD_FILL, WD_NEW } from './wikidata-parents.js';
 import { EW_FILL, EW_NEW } from './enwiki-parents.js';
+import { JW_FILL, JW_NEW } from './jawiki-pedigree.js';
 import { KATAKANA } from './katakana-names.js';
 import { AHO_HORSES } from './ahogame-horses.js';
 import { AHO_FILL, AHO_NEW, AHO_RETIRE, AHO_ALIAS } from './ahogame-facts.js';
@@ -15520,22 +15521,35 @@ export const EW_BASE = withoutDangling(withKatakana(withWikidata(WD_BASE)));
  * 英語版 Wikipedia から補った父母（enwiki-parents.js）を重ねる。道具が読む表は EW_BASE（カタカナ化の後）なので、
  * 補う馬の名前はカタカナ名。新しい祖先の英語名は対応表でカタカナにする（無ければ英語のまま。同名が表に居れば足さない）。
  */
-function withEnwiki(table) {
+function withParents(table, EW_FILL, EW_NEW) {
   const kana = new Map(KATAKANA);
   const names = new Set(table.map((d) => d.n));
+  const byName = new Map();
+  for (const d of table) byName.set(d.n, [...(byName.get(d.n) ?? []), d]);
+  // 英語名の祖先を子として見たときの子の生年（同じ馬かを、親子の年齢差で決めるため）。
+  const kids = new Map();
+  for (const row of EW_NEW) for (const p of [row[3], row[4]]) if (p) kids.set(p, [...(kids.get(p) ?? []), row[1]]);
+  for (const row of EW_FILL) for (const p of [row[2], row[3]]) if (p) kids.set(p, [...(kids.get(p) ?? []), row[1]]);
   const final = new Map();
   const merges = new Map();
   const adds = [];
   for (const row of EW_NEW) {
     const k = kana.get(row[0]);
-    // カタカナ名が既に表に居て生年が近ければ同じ馬（道具は表の馬の英語名を知らないことがある: Nijinsky II = ニジンスキー）。
-    // 二頭に割れないよう、その馬へ向けて、空いている父母だけを引き継ぐ。
-    if (k && names.has(k) && table.some((d) => d.n === k && Math.abs(d.b - row[1]) <= 3)) {
-      final.set(row[0], k);
-      merges.set(k, row);
-      continue;
-    }
-    const name = k && !names.has(k) ? k : row[0];
+    let name = row[0];
+    if (k && names.has(k)) {
+      // カタカナ名が既に表に居る。英語名の馬の生年は子から推した値のことが多いので（Man o' War 1931 と マンノウォー 1917）、
+      // 既にいる馬が英語名の馬の子すべての親として成り立つか（年齢差 2〜30 歳）で同じ馬かを決める。
+      // 二頭に割れないよう、同じ馬ならその馬へ向けて、空いている父母だけ引き継ぐ。別の馬なら生年を添える。
+      const cs = kids.get(row[0]) ?? [];
+      const ok = (byName.get(k) ?? []).filter((o) => (cs.length ? cs.every((c) => c - o.b >= 2 && c - o.b <= 30) : Math.abs(o.b - row[1]) <= 3))
+        .sort((x, y) => Math.abs(x.b - row[1]) - Math.abs(y.b - row[1]));
+      if (ok.length) {
+        final.set(row[0], k);
+        merges.set(`${k}|${ok[0].b}`, row);
+        continue;
+      }
+      name = `${k}（${row[1]}）`;
+    } else if (k) name = k;
     if (names.has(name)) { final.set(row[0], null); continue; }
     names.add(name);
     final.set(row[0], name);
@@ -15544,7 +15558,8 @@ function withEnwiki(table) {
   const fin = (n) => (n == null ? undefined : final.has(n) ? final.get(n) ?? undefined : n);
   const fill = new Map(EW_FILL.map(([n, b, sire, dam]) => [`${n}|${b}`, { sire: fin(sire), dam: fin(dam) }]));
   const out = table.map((d) => {
-    const f = fill.get(`${d.n}|${d.b}`) ?? (merges.has(d.n) && Math.abs(merges.get(d.n)[1] - d.b) <= 3 ? { sire: fin(merges.get(d.n)[3]), dam: fin(merges.get(d.n)[4]) } : null);
+    const m = merges.get(`${d.n}|${d.b}`);
+    const f = fill.get(`${d.n}|${d.b}`) ?? (m ? { sire: fin(m[3]), dam: fin(m[4]) } : null);
     return f ? { ...d, sire: d.sire ?? f.sire, dam: d.dam ?? f.dam } : d;
   });
   for (const [n, b, s, sire, dam] of adds) {
@@ -15552,7 +15567,8 @@ function withEnwiki(table) {
   }
   return out;
 }
-const TABLE = withoutDangling(withEnwiki(EW_BASE));
+export const JW_BASE = withoutDangling(withParents(EW_BASE, EW_FILL, EW_NEW));
+const TABLE = withoutDangling(withParents(JW_BASE, JW_FILL, JW_NEW));
 
 /**
  * 取り込んだ勝ち馬（供用年を持たない日本の牡馬）を種牡馬にする。
