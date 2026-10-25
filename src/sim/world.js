@@ -556,10 +556,13 @@ function promotePools(world, rng, year) {
  */
 function pruneAncestry(world) {
   const keep = new Set();
+  // 一度通った馬でも、より浅い世代で来たらその先をもう一度たどる（深い世代で先に来ると、その先が切れる）。
+  const best = new Map();
   const walk = (id, depth) => {
-    if (id == null || depth > 6 || keep.has(id)) return;
+    if (id == null || depth > 6 || (best.get(id) ?? 99) <= depth) return;
     const h = world.horses.get(id);
     if (!h) return;
+    best.set(id, depth);
     keep.add(id);
     walk(h.sireId, depth + 1);
     walk(h.damId, depth + 1);
@@ -584,6 +587,7 @@ function pruneAncestry(world) {
     }
   };
   for (const id of [...keep]) chain(id);
+  // 実在の馬は 5 代血統表まで残す（名鑑から開く昔の名馬。セクレタリアトの母の側が消えて 58 → 20 枠になっていた）。
   for (const h of world.horses.values()) if (h.real && !h.pedOnly) { keep.add(h.id); chain(h.id); }
   let removed = 0;
   for (const id of [...world.horses.keys()]) {

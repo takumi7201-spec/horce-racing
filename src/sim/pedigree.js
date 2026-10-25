@@ -75,6 +75,7 @@ export function pedigreeTree(world, horseId, gens = 3) {
       // 血統図に出す因子（id）と、系祖（系統の祖）か。
       factors: h.factors ?? [],
       head: !!h.lineHead,
+      real: !!h.real,
       sire: build(h.sireId, g + 1),
       dam: build(h.damId, g + 1),
     };

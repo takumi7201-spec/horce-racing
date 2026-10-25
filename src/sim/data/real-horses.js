@@ -15641,4 +15641,16 @@ function withBroodmares(table) {
   });
 }
 
-export const REAL_HORSES = withDerivedStuds(withBroodmares(TABLE));
+/**
+ * 因子を表で決める馬。史実馬の一覧（Winning Post 10 2026 攻略）の「因子」の列のとおり。
+ * 戦績から導く因子（deriveFactors）は勝鞍の記録が無い祖先には付かず、血統支配率の因子（grantDominantFactors）は
+ * 最も秀でた能力で決めるので、名種牡馬が一覧どおりの因子を持たなかった。
+ */
+const FACTOR_FIX = {
+  レイズアネイティヴ: ['speed', 'power'],   // スピ パワ
+  トムフール: ['speed', 'power'],           // スピ パワ
+  ニアークティック: ['speed', 'guts'],      // スピ 根性
+};
+const withFactorFix = (table) => table.map((d) => (FACTOR_FIX[d.n] ? { ...d, f: FACTOR_FIX[d.n] } : d));
+
+export const REAL_HORSES = withDerivedStuds(withFactorFix(withBroodmares(TABLE)));

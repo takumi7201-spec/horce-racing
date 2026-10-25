@@ -653,6 +653,57 @@ export function realBook(world) {
   return out;
 }
 
+/**
+ * 血統表の欠けを表の血統で補う（表示だけ。世界には足さない）。
+ * 世界は名前だけの祖先を、血統表から遠くなると捨てる（pruneAncestry。総馬数の上限のため）。昔の名馬
+ * （セクレタリアト・アファームド）の母の側はそれで欠け、表には 58 枠あるのに血統表は 20 枠しか出なかった。
+ * 実在馬の枠が空いていて、表にその親が居れば、表から名前・性・因子を出す。
+ */
+export function fillPedigreeFromTable(world, rootId, tree, gens) {
+  const root = world.horses.get(rootId);
+  if (!tree || !root?.real) return tree;
+  const tableNode = (name, g) => {
+    if (!name || g > gens) return null;
+    const d = DEFS.get(name);
+    if (!d) return null;
+    return {
+      id: null, name, sex: d.s === '牝' ? SEX.FEMALE : SEX.MALE, line: null,
+      factors: d.f ?? [], head: !!d.head, real: true, fromTable: true,
+      sire: tableNode(d.sire, g + 1), dam: tableNode(d.dam, g + 1),
+    };
+  };
+  const patch = (name, sub, g) => {
+    const d = DEFS.get(name);
+    for (const role of ['sire', 'dam']) {
+      const child = sub[role];
+      if (child) { if (child.real && g < gens) patch(child.name, child, g + 1); }
+      else if (d?.[role]) sub[role] = tableNode(d[role], g);
+    }
+  };
+  patch(root.name, tree, 1);
+  return tree;
+}
+
+/**
+ * 表で因子を決めた馬（d.f）の因子を、世界の馬に写す。能力と同じく因子も馬を作るときにしか写さないので、
+ * 古いセーブの馬は表に足した因子を持たない（落とし穴 60）。読み込みのたびに呼ぶ。足りない因子だけ足す。乱数は使わない。
+ */
+export function syncRealFactors(world) {
+  if (!world.real) return 0;
+  let n = 0;
+  for (const d of REAL_HORSES) {
+    if (!d.f?.length) continue;
+    const h = madeHorse(world, d.n);
+    if (!h) continue;
+    const have = new Set(h.factors ?? []);
+    if (d.f.every((f) => have.has(f))) continue;
+    // 表の因子を先に置く（因子は 2 つまで。血統支配率で付いた因子より表を優先する）。
+    h.factors = [...new Set([...d.f, ...have])].slice(0, Math.max(2, d.f.length));
+    n++;
+  }
+  return n;
+}
+
 /** 名鑑から開く「世界に居ない馬」の仮の id。世界の馬の id と重ならない帯に置く。 */
 export const PREVIEW_ID_BASE = 1e9;
 

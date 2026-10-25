@@ -10,7 +10,7 @@ import { readyToRun, MENUS, fitLabel, condLabel } from './training.js';
 import {
   matingEval, pedigreeTree, nicksValue, lineLabel, breedQuality, FACTORS, factorsOf, factorBonus, vigorOf,
 } from './pedigree.js';
-import { abroadSires, realBook as realBookOf, realPreview as realPreviewOf } from './realsires.js';
+import { abroadSires, realBook as realBookOf, realPreview as realPreviewOf, fillPedigreeFromTable } from './realsires.js';
 import { studFeeOf, canBeBroodmare } from './breeding.js';
 import { previewOdds } from './race.js';
 import { makeRng, hashSeed } from '../core/rng.js';
@@ -133,7 +133,8 @@ function damSireName(w, h) {
 }
 
 /** 血統表（世代数指定）。 */
-export const pedigree = (g, id, gens = 4) => pedigreeTree(g.world, id, gens);
+/** 実在馬の欠けた枠は表の血統で補う（表示だけ。fillPedigreeFromTable）。 */
+export const pedigree = (g, id, gens = 4) => fillPedigreeFromTable(g.world, id, pedigreeTree(g.world, id, gens), gens);
 /** 因子の id → 表示名。血統図の因子の印に使う。 */
 export const factorLabels = () => FACTORS;
 

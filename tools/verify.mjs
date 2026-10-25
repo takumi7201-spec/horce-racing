@@ -895,6 +895,15 @@ section('血統支配率の高い種牡馬の因子');
   const back = fromJSON(toJSON(gd));
   const same = high.every((x) => JSON.stringify(back.world.horses.get(x.h.id).factors) === JSON.stringify(x.h.factors));
   check('セーブ往復で因子が保たれる', same);
+  // 一覧の因子のとおり 2 つ（レイズアネイティヴ・トムフール：スピ パワ、ニアークティック：スピ 根性）。
+  const fx = (n) => (gd.world.horses.get(gd.world.real.ids[n])?.factors ?? []).join(',');
+  check(`名種牡馬が一覧どおりの因子を持つ（レイズアネイティヴ ${fx('レイズアネイティヴ')}・ニアークティック ${fx('ニアークティック')}）`,
+    fx('レイズアネイティヴ') === 'speed,power' && fx('トムフール') === 'speed,power' && fx('ニアークティック') === 'speed,guts');
+  // 世界が捨てた名前だけの祖先も、実在馬の血統表には表から出る（アファームドの母の側）。
+  const cnt = (t) => (!t ? 0 : 1 + cnt(t.sire) + cnt(t.dam));
+  const af = GG.pedigree(gd, gd.world.real.ids['アファームド'], 5);
+  const afN = cnt(af?.sire) + cnt(af?.dam);
+  check(`アファームドの 5 代血統表が埋まる（${afN}/62）`, afN >= 50);
 }
 
 console.log(`\n合計 ${pass} ok / ${fail} NG`);

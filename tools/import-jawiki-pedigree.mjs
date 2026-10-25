@@ -181,7 +181,10 @@ for (const { a, root } of roots) {
       const r = lookup(node, cy);
       if (r.e) { e = r.e; stats.reused++; }
       else if (r.ambiguous) { stats.ambiguous++; continue; }
-      else if (r.badAge) { stats.badAge++; continue; }
+      // 同名の馬が表に居ても年が合わないなら別の馬。記事に生年が書いてあれば、新しい祖先として作る
+      // （Scarlet Ribbon 1957 が 1985 年生のスカーレットリボンに当たって、アファームドの母の母が空いていた）。
+      // 名前の衝突は real-horses.js の withParents が生年を添えて分ける。
+      else if (r.badAge && node.year == null) { stats.badAge++; continue; }
       else {
         e = newAncestor(node, cy, role, rd + code.length);
         if (!e) continue;
