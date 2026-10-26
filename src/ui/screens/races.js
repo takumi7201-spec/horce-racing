@@ -57,7 +57,7 @@ function weekTable(app, offset) {
         cells: [
           el('span', { text: r.name, class: r.grade ? 'grade' : null }),
           r.grade ?? r.className,
-          SHORT[r.courseId] ?? r.courseId,
+          SHORT[r.courseId] ?? G.courseShort(r.courseId),
           `${r.surface}${r.distance}m`,
           `${r.ageLabel}${r.sexLabel}`,
           formatMoney(r.prize),
@@ -84,7 +84,7 @@ function ahead(app) {
     table(['レース', '条件', '場', '距離', '出走資格', '1着賞金'],
       wk.races.filter((r) => r.graded).map((r) => [
         el('span', { text: r.name, class: 'grade' }),
-        r.grade, SHORT[r.courseId] ?? r.courseId, `${r.surface}${r.distance}m`,
+        r.grade, SHORT[r.courseId] ?? G.courseShort(r.courseId), `${r.surface}${r.distance}m`,
         `${r.ageLabel}${r.sexLabel}`, formatMoney(r.prize),
       ]), { align: [, 'c', 'c', 'c', 'c', 'r'] }),
   )));
@@ -106,7 +106,7 @@ function gradedTable(app) {
         weekLabel(r.week),
         el('span', { text: r.name, class: r.grade === 'GI' ? 'grade g1' : 'grade' }),
         r.grade,
-        SHORT[r.courseId] ?? r.courseId,
+        SHORT[r.courseId] ?? G.courseShort(r.courseId),
         `${r.surface}${r.distance}m`,
         r.age[1] >= 99 ? `${r.age[0]}歳以上` : `${r.age[0]}歳`,
         r.sex === '牝' ? '牝' : '',
@@ -138,7 +138,7 @@ function resultsTable(app) {
     res.map((r) => ({
       cells: [
         el('span', { text: r.name, class: r.grade ? 'grade' : null }),
-        r.grade ?? '', SHORT[r.courseId] ?? r.courseId, `${r.surface}${r.distance}`,
+        r.grade ?? '', SHORT[r.courseId] ?? G.courseShort(r.courseId), `${r.surface}${r.distance}`,
         r.ground, r.results[0].name, r.results[0].jockeyName,
         r.winnerTime.toFixed(1), r.pace?.label ?? '—',
         el('div.row-btns', [
@@ -180,7 +180,8 @@ function pickHorse(app, race, cands, offset = 0) {
     el('option', { value: '', text: '指示なし（馬の持ち味）' }),
     ...STYLES.map((s) => el('option', { value: s, text: s })),
   ]);
-  const m = modal(`${race.name}（${SHORT[race.courseId]}${race.surface}${race.distance}m）に登録`, [
+  const m = modal(`${race.name}（${SHORT[race.courseId] ?? G.courseShort(race.courseId)}${race.surface}${race.distance}m）に登録`, [
+    race.abroadCost ? el('p.note', { text: `海外遠征。走るときに遠征費 ${formatMoney(race.abroadCost)} が掛かる（登録を取り消せば掛からない）。相手は海外の馬。` }) : null,
     el('div.form-row', [
       el('label', ['騎手', jockeySel]),
       el('label', ['脚質指示', styleSel]),

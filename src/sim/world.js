@@ -38,7 +38,8 @@ import { clamp, clamp01, lerp, sum, byDesc } from '../core/util.js';
 import {
   seedRealHorses, syncRealStud, syncRealMares, settleRealHorses, realNewYear, realCoverings, bornReal,
 } from './realsires.js';
-import { W } from './schedule.js';
+import { W, ABROAD_COST } from './schedule.js';
+import { historicalRunners, foreignRunners, ghostRunners, readyAbroad, FOREIGN_JOCKEYS, isAbroadRunnerOf } from './abroad.js';
 
 /**
  * 1 世代あたりの産駒数。
@@ -837,6 +838,7 @@ function assignNpcEntries(world, races, rng) {
   for (const h of cands) {
     let best = null, bestScore = 0;
     for (const r of races) {
+      if (r.abroad) continue;   // 米国のレースに日本の NPC は出ない（史実の遠征馬は下で別に足す）
       const f = fields.get(r.raceId);
       if (f.length >= r.maxField) continue;
       const s = raceFit(world, h, r) - f.length * 0.02;
@@ -849,7 +851,27 @@ function assignNpcEntries(world, races, rng) {
   // 重賞は必ず成立させる。頭数が足りなければ、条件を満たす馬を強い順に足す。
   // 実際の競馬でも GI が頭数不足で中止になることは無い。
   for (const r of races) {
-    if (r.graded) fillField(world, r, races, fields, 12);
+    if (r.graded && !r.abroad) fillField(world, r, races, fields, 12);
+  }
+  // 海外のレース。史実でその年に遠征した日本馬は、国内のレースから外して遠征させる。相手は海外の実在馬。
+  // 同じ週に海外のレースが重なる（ブリーダーズカップは 6 レース）。1 頭は 1 レースだけ。
+  const abroadTaken = new Set();
+  for (const r of races) {
+    if (!r.abroad) continue;
+    const f = fields.get(r.raceId);
+    for (const h of historicalRunners(world, r)) {
+      for (const [rid, list] of fields) {
+        const i = list.indexOf(h);
+        if (i >= 0 && rid !== r.raceId) list.splice(i, 1);
+      }
+      if (!f.includes(h)) { readyAbroad(h, !!h.foreign); f.push(h); }
+    }
+    for (const h of f) abroadTaken.add(h.id);
+    for (const h of foreignRunners(world, r, r.maxField - f.length - 2, abroadTaken)) {
+      readyAbroad(h, true); f.push(h); abroadTaken.add(h.id);
+    }
+    // 表の海外馬が足りない年（取り込んだ年より先）は、架空の海外馬で 10 頭まで埋める（世界には足さない）。
+    if (f.length < 10) f.push(...ghostRunners(world, r, 10 - f.length, new Set(f.map((h) => h.name))));
   }
   return fields;
 }
@@ -949,6 +971,12 @@ export function advanceWeek(world, opts = {}) {
     if (f.length >= race.maxField) f.pop(); // 抽選で弱い馬を外す
     f.push(h);
     ent.accepted = true;
+    if (race.abroad) {
+      // 遠征費は走るときに払う（登録を取り消せば掛からない）。相手は海外の馬で、日本の NPC で埋めない。
+      world.player.money -= ABROAD_COST;
+      news.push(`★${h.name} が${race.name}へ遠征した（遠征費 ${ABROAD_COST} 万円）`);
+      continue;
+    }
     // 自分が登録したレースは必ず成立させる。番組に載っている以上、
     // 相手が集まらなかったので中止、ではプレイヤーは何もできない。
     fillField(world, race, races, fields, 10);
@@ -960,7 +988,10 @@ export function advanceWeek(world, opts = {}) {
     const minField = race.graded ? 3 : 5;
     if (horses.length < minField) continue; // 頭数不足のレースは不成立
     const gw = ground[race.courseId] ?? { ground: '良', weather: '晴' };
-    const jk = assignJockeys(world, race, horses, rng);
+    // 海外の馬には米国の騎手。日本の騎手は日本馬にだけ回す（海外の馬に日本の騎手が乗る絵にしない）。
+    const isForeign = (h) => h.foreign && h.ownerId !== 'player' && !isAbroadRunnerOf(race, h);
+    const jk = assignJockeys(world, race, race.abroad ? horses.filter((h) => !isForeign(h)) : horses, rng);
+    if (race.abroad) horses.filter(isForeign).forEach((h, i) => jk.set(h.id, FOREIGN_JOCKEYS[i % FOREIGN_JOCKEYS.length]));
     const playerEnt = [...world.player.entries.values()].find((e) => e.raceId === race.raceId);
 
     rng.shuffle(horses);
@@ -980,6 +1011,7 @@ export function advanceWeek(world, opts = {}) {
 
     const spec = {
       raceId: race.raceId, name: race.name, classId: race.classId, grade: race.grade,
+      abroad: race.abroad ?? null,
       courseId: race.courseId, surface: race.surface, distance: race.distance,
       ground: gw.ground, weather: gw.weather,
       year: world.year, week: world.week,

@@ -23,7 +23,7 @@ import {
   effectiveAbility, distanceAptitude, surfaceAptitude, groundAptitude,
   styleLabel, STYLE_TARGET, horseAge,
 } from './horse.js';
-import { buildTrack, curvatureAt, gradeAt, SURFACE, posToWorld } from './course.js';
+import { buildTrack, curvatureAt, gradeAt, SURFACE, posToWorld, getCourse } from './course.js';
 import { clamp, clamp01, lerp, formatMargin } from '../core/util.js';
 
 /** 馬 1 頭が横に必要とする幅（m）。進路の取り合いの判定に使う。 */
@@ -63,6 +63,8 @@ function prepareRunner(entry, spec, rng) {
 
   let vMax = (PHYS.V_BASE + PHYS.V_SPEED_GAIN * eff.speed) * apt * ge.speed * jkSpeed * wPen;
   if (spec.surface === SURFACE.DIRT) vMax -= PHYS.V_DIRT_PENALTY;
+  // 競馬場ごとの補正（米国のダート）。日本の競馬場は持たない（0）。
+  vMax += (spec.surface === SURFACE.DIRT ? getCourse(spec.courseId).dirt : getCourse(spec.courseId).turf).vAdj ?? 0;
 
   // 適性は速度ではなく余力に効かせる。
   // マイラーが 3200m を持たないのも、ダート馬が芝で止まるのもこの項。
@@ -404,6 +406,7 @@ export function simulateRace(spec, rng, opts = {}) {
 
   return {
     raceId: spec.raceId, name: spec.name, classId: spec.classId, grade: spec.grade,
+    abroad: spec.abroad ?? null,
     courseId: spec.courseId, courseName: track.courseName,
     surface: spec.surface, distance: dist, ground: spec.ground, weather: spec.weather,
     year: spec.year, week: spec.week,

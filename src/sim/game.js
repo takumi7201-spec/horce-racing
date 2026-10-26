@@ -4,7 +4,7 @@
 // 「セーブ可能な状態」と「表示のための導出値」を分けている。
 
 import { createWorld, advanceWeek, weekRaces, weekGround, horsesOf, stallionList, computeLeaders, retireHorse } from './world.js';
-import { eligible, weekLabel, gradedCalendar, GRADED_BY_ID, meetingsOf } from './schedule.js';
+import { eligible, weekLabel, gradedCalendar, GRADED_BY_ID, meetingsOf, ABROAD_COST } from './schedule.js';
 import { horseAge, effectiveAbility, styleLabel, distanceAptitude, canRun, STYLE_TARGET } from './horse.js';
 import { readyToRun, MENUS, fitLabel, condLabel } from './training.js';
 import {
@@ -22,7 +22,7 @@ import {
   ABILITIES, SEX, WEEKS_PER_YEAR, classOrder, className, standardWeight,
   weekToMonth, STYLES,
 } from './params.js';
-import { SURFACE, courseName, getCourse, DIR } from './course.js';
+import { SURFACE, courseName, courseShort as courseShortOf, getCourse, DIR } from './course.js';
 import { clamp01, sum, byDesc, formatMoney, formatTime, rankOf } from '../core/util.js';
 
 /** 新規ゲーム。 */
@@ -159,6 +159,9 @@ function decorate(w, r) {
   return {
     ...r,
     courseName: courseName(r.courseId),
+    courseShort: courseShortOf(r.courseId),
+    // 海外のレースは走るときに遠征費を払う（world.js）。
+    abroadCost: r.abroad ? ABROAD_COST : 0,
     className: r.grade ?? className(r.classId),
     ageLabel: r.age[1] >= 99 ? `${r.age[0]}歳以上` : `${r.age[0]}歳`,
     sexLabel: r.sex === '牝' ? '牝' : '',
@@ -525,6 +528,8 @@ export function skipTargets(g) {
 
 /** 史実馬名鑑（年代ごとに見る実在の馬と、この世界での今の姿）。 */
 export const realBook = (g) => realBookOf(g.world);
+/** 番組表の「場」の短い名前（海外は国を添える）。 */
+export const courseShort = (id) => courseShortOf(id);
 
 /**
  * 世界に居ない実在馬を、馬の詳細と同じ形で見るための仮のゲーム。{ game, id }。

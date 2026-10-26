@@ -82,7 +82,7 @@ function potentials(lvl, dist, surf) {
 }
 
 /** 表の素質・適性を馬に写す。戦績には触らない。 */
-function applyTraits(h, d) {
+export function applyTraits(h, d) {
   const female = d.s === '牝';
   const lvl = d.lvl ?? (female ? 0.62 : 0.8);
   const dist = d.dist ?? 2000;

@@ -569,7 +569,7 @@ const SHORT = {
   tokyo: '東京', nakayama: '中山', hanshin: '阪神', kyoto: '京都', chukyo: '中京',
   niigata: '新潟', sapporo: '札幌', hakodate: '函館', fukushima: '福島', kokura: '小倉',
 };
-const courseShort = (g, id) => SHORT[id] ?? id ?? '—';
+const courseShort = (g, id) => SHORT[id] ?? (id ? G.courseShort(id) : '—');
 
 /** 距離適性の折れ線。棒を並べるだけで十分読める。 */
 function distChart(g, h) {
@@ -717,8 +717,9 @@ export function entryModal(app, id) {
         races.map((r) => {
           const ent = mine.get(r.raceId);
           return [
-            el('span', { text: r.name, class: r.grade ? 'grade' : null }),
-            r.courseName, `${r.className}・${r.ageLabel}${r.sexLabel}`,
+            el('span', { text: r.name, class: r.grade ? 'grade' : null,
+              title: r.abroadCost ? `海外遠征（遠征費 ${formatMoney(r.abroadCost)}）` : null }),
+            r.abroadCost ? `${r.courseShort}・遠征費${formatMoney(r.abroadCost)}` : r.courseName, `${r.className}・${r.ageLabel}${r.sexLabel}`,
             `${r.surface}${r.distance}m`,
             formatMoney(r.prize),
             bar(r.apt),

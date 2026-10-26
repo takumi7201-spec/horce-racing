@@ -614,6 +614,7 @@ section('2 年の経過');
 {
   let races = 0, starts = 0, g1 = 0;
   const giTimes = [];
+  const usRaces = [];
   const allGaps = [];
   const top3Gaps = [];
   for (let y = 0; y < 2; y++) {
@@ -624,11 +625,21 @@ section('2 年の経過');
       for (const r of results) {
         allGaps.push(r.results[r.results.length - 1].marginTotal);
         if (r.results.length >= 3) top3Gaps.push(r.results[2].marginTotal);
+        if (r.abroad) usRaces.push({ name: r.name, year: w.year, field: r.results.map((x) => w.horses.get(x.horseId)) });
         if (r.grade !== 'GI') continue;
         g1++;
         giTimes.push({ name: r.name, d: r.distance, t: r.winnerTime, field: r.results.length, ground: r.ground });
       }
     }
+  }
+  // 米国のレース：海外の実在馬が走り、日本の NPC は史実でその年に遠征した馬だけ。
+  {
+    const { ABROAD_RUNS } = await import('../src/sim/data/abroad-runs.js');
+    const hist = new Set(ABROAD_RUNS.map(([, y, n]) => `${y}|${n}`));
+    const jpNpc = usRaces.flatMap((r) => r.field.filter((h) => h && !h.foreign && h.ownerId !== 'player' && !hist.has(`${r.year}|${h.name}`)).map((h) => `${r.name}:${h.name}`));
+    check(`米国のレースが走る（${usRaces.length} 回／2 年、${[...new Set(usRaces.map((r) => r.name))].length} 競走）`,
+      usRaces.length >= 18 && usRaces.every((r) => r.field.length >= 3));
+    check('米国のレースに史実に無い日本の NPC が出ない', jpNpc.length === 0, jpNpc.slice(0, 5).join(' '));
   }
   check(`年間レース数 ${Math.round(races / 2)}`, races / 2 > 500);
   check(`年間出走数 ${Math.round(starts / 2)}`, starts / 2 > 6000);
