@@ -451,6 +451,7 @@ function paperCareer(world, horse, rng, uptoYear) {
             grade: g.toUpperCase(), order: 1, field: rng.irange(12, 18), past: 1,
           });
           if (g === 'g1') horse.g1Wins = (horse.g1Wins ?? 0) + 1;
+          horse.gradedWins = (horse.gradedWins ?? 0) + 1;
         }
       } else if (rng.chance(0.34)) {
         horse.earnings += Math.round(cls.prize * 0.22);
@@ -1088,6 +1089,7 @@ function applyResult(world, race, res, rng, news) {
       h.wins++;
       // 戦績は 30 走（他人の馬は 6 走）しか残さないので、GI の勝ち数は別に数える。
       if (race.grade === 'GI') h.g1Wins = (h.g1Wins ?? 0) + 1;
+      if (race.graded) h.gradedWins = (h.gradedWins ?? 0) + 1;
     } else if (r.order === 2) h.seconds++;
     else if (r.order === 3) h.thirds++;
     h.earnings += r.prize;
@@ -1338,6 +1340,20 @@ function yearEnd(world, rng) {
   };
 }
 
+/** 重賞を勝ったことがあるか。戦績は 30 走しか残さないので数（gradedWins）で見て、古いセーブは戦績と GI の勝ち数で見る。 */
+export function gradedWinner(h) {
+  return (h.gradedWins ?? 0) > 0 || (h.g1Wins ?? 0) > 0
+    || (h.record ?? []).some((r) => r.order === 1 && /^(G|Jpn)/.test(r.grade ?? ''));
+}
+
+/** 引退させたらどうなるか（確認の文に出す）。 */
+export function retireOutcome(world, h) {
+  if (h.sex === SEX.MALE) {
+    return canBeStallion(h, world.year) || (h.ownerId === 'player' && gradedWinner(h)) ? 'stallion' : 'none';
+  }
+  return canBeBroodmare(h, world.year) ? 'broodmare' : 'none';
+}
+
 /** 引退させ、繁殖・種牡馬・用途変更に振り分ける。 */
 export function retireHorse(world, h, rng, news = []) {
   h.retired = true;
@@ -1346,7 +1362,12 @@ export function retireHorse(world, h, rng, news = []) {
   const year = world.year;
   // 名馬は因子を持って繁殖に上がる（血統に残す「得意」）。
   grantFactors(h);
-  if (h.sex === SEX.MALE && canBeStallion(h, year)) {
+  // プレイヤーの馬は重賞を勝っていれば種牡馬にできる（画面の案内どおり）。実際も重賞馬は馬主が
+  // 種牡馬の口を探して供用されることが多い。条件を獲得賞金 3 億（canBeStallion）だけにしていたので、
+  // 重賞を勝った自分の馬が種牡馬になれなかった。ほかの牧場の馬は canBeStallion のまま
+  // （緩めると名簿が 220 頭を超える）。
+  const ownStud = h.ownerId === 'player' && h.sex === SEX.MALE && !h.dead && gradedWinner(h);
+  if (h.sex === SEX.MALE && (canBeStallion(h, year) || ownStud)) {
     h.stallion = true;
     h.studFee = studFeeOf(world, h, year);
     world.stallionPool.push(h.id);

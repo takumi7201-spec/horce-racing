@@ -775,6 +775,20 @@ section('v1.0.2：登録・史実馬の初期値');
 }
 
 
+section('自分の重賞馬の種牡馬入り');
+{
+  // 重賞を勝った自分の牡馬は、獲得賞金が 3 億に届かなくても引退で種牡馬になれる（画面の案内どおり）。
+  const gs = sideGame({ seed: 'verify-stud' });
+  const raw = gs.world.horses.get(myHorses(gs)[0].id);
+  Object.assign(raw, { sex: '牡', earnings: 9000, g1Wins: 0, gradedWins: 0, record: [] });
+  check('重賞未勝利の自分の牡馬は種牡馬にならない', GG.retireOutcome(gs, raw.id) === 'none');
+  raw.gradedWins = 1;
+  check('重賞を勝った自分の牡馬は「種牡馬になる」と出る', GG.retireOutcome(gs, raw.id) === 'stallion');
+  GG.retire(gs, raw.id);
+  check('引退すると種牡馬の名簿と自分の種牡馬に入る',
+    raw.stallion && gs.world.stallionPool.includes(raw.id) && gs.world.player.stallions.includes(raw.id) && raw.studFee > 0);
+}
+
 section('v1.0.2：庭先の追加・牧場取引（通年）');
 {
   const g7 = sideGame({ seed: 'verify-direct' });

@@ -3,7 +3,7 @@
 // 画面はここだけを見る。world.js の中身を直接いじらせないことで、
 // 「セーブ可能な状態」と「表示のための導出値」を分けている。
 
-import { createWorld, advanceWeek, weekRaces, weekGround, horsesOf, stallionList, computeLeaders, retireHorse } from './world.js';
+import { createWorld, advanceWeek, weekRaces, weekGround, horsesOf, stallionList, computeLeaders, retireHorse, retireOutcome as worldRetireOutcome } from './world.js';
 import { eligible, weekLabel, gradedCalendar, GRADED_BY_ID, meetingsOf, ABROAD_COST } from './schedule.js';
 import { horseAge, effectiveAbility, styleLabel, distanceAptitude, canRun, STYLE_TARGET } from './horse.js';
 import { readyToRun, MENUS, fitLabel, condLabel } from './training.js';
@@ -298,6 +298,12 @@ export function setMainJockey(g, horseId, jockeyId) {
   if (!h) return false;
   h.jockeyId = jockeyId;
   return true;
+}
+
+/** 引退させたらどうなるか：'stallion'（種牡馬）・'broodmare'（繁殖牝馬）・'none'。 */
+export function retireOutcome(g, horseId) {
+  const h = g.world.horses.get(horseId);
+  return h ? worldRetireOutcome(g.world, h) : 'none';
 }
 
 /** 引退させる。 */

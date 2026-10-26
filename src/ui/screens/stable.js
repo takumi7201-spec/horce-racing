@@ -30,7 +30,7 @@ export function stableScreen(app) {
   const empty = {
     active: '現役の所有馬が居ない。当歳セール（8 月）や庭先取引（12 月）で買うか、配合で産ませる。',
     mares: '繁殖牝馬が居ない。牝馬を引退させると繁殖に上がる。',
-    stallions: '種牡馬が居ない。重賞を勝った牡馬を引退させると種牡馬になれる。',
+    stallions: '種牡馬が居ない。重賞を勝った牡馬を引退させると種牡馬になれる（引退の確認に、引退後どうなるかが出る）。',
     young: '幼駒が居ない。5〜6 月に繁殖牝馬へ種付けすると翌年 4 月に生まれる。当歳セール（8 月）でも買える。',
   };
 
@@ -416,9 +416,12 @@ function actions(app, v, active) {
           return undefined;
         }, { disabled: !!v.injury }),
       button('引退', async () => {
-        if (!await ask(`${v.name} を引退させる？`, { ok: '引退させる' })) return;
+        // 引退した後どうなるかを先に見せる（種牡馬になれない馬を、なれると思って引退させないように）。
+        const out = G.retireOutcome(g, id);
+        const after = { stallion: '種牡馬になる', broodmare: '繁殖牝馬になる', none: '繁殖には上がらない（乗馬・用途変更）' }[out];
+        if (!await ask(`${v.name} を引退させる？\n引退後は${after}。`, { ok: '引退させる' })) return;
         G.retire(g, id);
-        toast(`${v.name} を引退させた`);
+        toast(`${v.name} を引退させた（${after}）`);
         app.go('stable');
       }, { cls: 'ghost' }),
     ];
