@@ -277,7 +277,8 @@ export function createRaceView(canvas, race, opts = {}) {
       disposed = true;
       api.pause();
       scene.traverse((o) => {
-        if (o.geometry) o.geometry.dispose();
+        // 馬の形は全頭・放牧地と使い回している（horse3d.js）。捨てると放牧地の馬まで作り直しになる。
+        if (o.geometry && !o.geometry.userData?.shared) o.geometry.dispose();
         const m = o.material;
         if (Array.isArray(m)) m.forEach((x) => x.dispose());
         else if (m) m.dispose();

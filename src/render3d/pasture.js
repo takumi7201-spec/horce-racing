@@ -8,7 +8,7 @@
 // 座標：カメラは -z 側から +z を向いて立つ。この向きでは画面の右が -x になる。
 
 import * as THREE from '../../vendor/three/three.module.min.js';
-import { makeHorse } from './horse3d.js';
+import { makeHorse, disposeHorse } from './horse3d.js';
 import { yawForZForward } from './orient.js';
 
 /** 放牧地（柵の内側で馬が歩ける範囲）。 */
@@ -442,7 +442,7 @@ export function createPasture(canvas, labelLayer) {
   function clearHorses() {
     for (const h of horses) {
       scene.remove(h.model.group);
-      h.model.group.traverse((o) => { if (o.isMesh) { o.geometry.dispose(); o.material.dispose?.(); } });
+      disposeHorse(h.model.group);
       h.label?.remove();
     }
     horses = [];
@@ -497,9 +497,8 @@ export function createPasture(canvas, labelLayer) {
   }
   setHorses.key = '';
 
-  const disposeModel = (m) => m.group.traverse((o) => {
-    if (o.isMesh) { o.geometry.dispose(); o.material.dispose?.(); }
-  });
+  // 馬の形は全頭で使い回している（horse3d.js）。捨てるのは材質だけ。
+  const disposeModel = (m) => disposeHorse(m.group);
 
   /**
    * 馬の詳細の見せ場。1 頭だけを鞍付きで柵の手前に立たせ、ほかの馬は隠す。
@@ -730,7 +729,7 @@ export function createPasture(canvas, labelLayer) {
       cancelAnimationFrame(raf);
       clearHorses();
       scene.traverse((o) => {
-        if (o.geometry) o.geometry.dispose();
+        if (o.geometry && !o.geometry.userData?.shared) o.geometry.dispose();
         if (o.material) {
           if (o.material.map) o.material.map.dispose();
           o.material.dispose();
