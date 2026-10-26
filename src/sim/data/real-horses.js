@@ -27,7 +27,7 @@ import { EW_FILL, EW_NEW } from './enwiki-parents.js';
 import { JW_FILL, JW_NEW } from './jawiki-pedigree.js';
 import { KATAKANA } from './katakana-names.js';
 import { AHO_HORSES } from './ahogame-horses.js';
-import { AHO_FILL, AHO_NEW, AHO_RETIRE, AHO_BROOD, AHO_ALIAS } from './ahogame-facts.js';
+import { AHO_FILL, AHO_NEW, AHO_RETIRE, AHO_BROOD, AHO_ALIAS, AHO_YEAR } from './ahogame-facts.js';
 
 /** 系統の祖と、血統をつなぐための海外の祖先。 */
 const ANCESTORS = [
@@ -15348,6 +15348,13 @@ function claim(byName, n, b) {
  * 既にある父母は上書きしない。新しい祖先は表の末尾に足す（途中に入れると世界の乱数がずれる）。
  */
 function withAhogame(table, { horses = true } = {}) {
+  // 名前だけの母の生年（子から推した値）を一覧の生年に直す。後の段の補いは表の生年で書かれているので、
+  // 元の値を _b0 に残して、そちらでも引けるようにする（bkeys）。
+  const years = new Map(AHO_YEAR.map(([n, b0, b]) => [`${n}|${b0}`, b]));
+  table = table.map((d) => {
+    const b = years.get(`${d.n}|${d.b}`);
+    return b == null ? d : { ...d, b, _b0: d.b };
+  });
   const byName = new Map();
   for (const d of table) byName.set(d.n, [...(byName.get(d.n) ?? []), d.b]);
   // 先に足せる祖先を決める。同名の別馬に潰される祖先は足さず、それを指す父母も外す。
@@ -15361,7 +15368,7 @@ function withAhogame(table, { horses = true } = {}) {
   const ok = (n) => (n == null || drop.has(n) ? undefined : n);
   const fill = new Map(AHO_FILL.map(([n, b, sire, dam]) => [`${n}|${b}`, { sire: ok(sire), dam: ok(dam) }]));
   const out = table.map((d) => {
-    const f = fill.get(`${d.n}|${d.b}`);
+    const f = fill.get(`${d.n}|${d._b0 ?? d.b}`) ?? fill.get(`${d.n}|${d.b}`);
     return f ? { ...d, sire: d.sire ?? f.sire, dam: d.dam ?? f.dam } : d;
   });
   for (const [n, b, s, c, sire, dam] of adds) {
@@ -15437,7 +15444,7 @@ function withWikidata(table) {
   const fin = (n) => (n == null ? undefined : final.has(n) ? final.get(n) ?? undefined : alias.get(n) ?? n);
   const fill = new Map(WD_FILL.map(([n, b, sire, dam]) => [`${n}|${b}`, { sire: fin(sire), dam: fin(dam) }]));
   const out = table.map((d) => {
-    const f = fill.get(`${d.n}|${d.b}`);
+    const f = fill.get(`${d.n}|${d._b0 ?? d.b}`) ?? fill.get(`${d.n}|${d.b}`);
     return f ? { ...d, sire: d.sire ?? f.sire, dam: d.dam ?? f.dam } : d;
   });
   for (const [n, b, s, sire, dam] of adds) {
@@ -15562,7 +15569,7 @@ function withParents(table, EW_FILL, EW_NEW) {
   const fill = new Map(EW_FILL.map(([n, b, sire, dam]) => [`${n}|${b}`, { sire: fin(sire), dam: fin(dam) }]));
   const out = table.map((d) => {
     const m = merges.get(`${d.n}|${d.b}`);
-    const f = fill.get(`${d.n}|${d.b}`) ?? (m ? { sire: fin(m[3]), dam: fin(m[4]) } : null);
+    const f = fill.get(`${d.n}|${d.b}`) ?? (d._b0 != null ? fill.get(`${d.n}|${d._b0}`) : null) ?? (m ? { sire: fin(m[3]), dam: fin(m[4]) } : null);
     return f ? { ...d, sire: d.sire ?? f.sire, dam: d.dam ?? f.dam } : d;
   });
   for (const [n, b, s, sire, dam] of adds) {

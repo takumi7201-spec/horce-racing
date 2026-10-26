@@ -570,7 +570,8 @@ function pruneAncestry(world) {
   };
   for (const h of world.horses.values()) {
     if (h.dead) continue;
-    if (world.year - h.birthYear <= 11) walk(h.id, 0);
+    // お腹に仔の居る母も残す（史実の仔を宿した 12 歳のレールデュタンが消え、メジロブライトが生まれなかった）。
+    if (world.year - h.birthYear <= 11 || h.pregnancy) walk(h.id, 0);
   }
   for (const id of world.stallionPool) walk(id, 0);
   for (const id of world.marePool) walk(id, 0);

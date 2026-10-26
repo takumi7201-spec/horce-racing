@@ -195,6 +195,9 @@ function resolveParent(pstr, child, role, depth) {
     if (ys.length !== 1) continue;
     e._rec = rs.find((r) => r.b === ys[0]);
     e._trueB = ys[0];
+    // 生年も一覧の値に直す（AHO_YEAR）。推定値のままだと、子より若い母になって結べない
+    // （バラードが 1981 年で、1976 年生のグロリアスソングの母になれず、ラーイの母系が空いた）。
+    if (e.b !== ys[0]) { e._b0 = e.b; e.b = ys[0]; }
     matchedStubs++;
   }
   console.error(`名前だけの母のうち、一覧に結べた ${matchedStubs} 頭`);
@@ -355,13 +358,18 @@ const brood = recs.filter((r) => r.list === 'br' && r.sex === '牝' && r.b != nu
 const body = `// 「Winning Post 10 2026 攻略」の史実馬の一覧から取った、史実の事実だけ。
 // tools/import-ahogame.mjs が書く（手で直さない）。real-horses.js の withAhogame が表の末尾に重ねる。
 //   AHO_FILL    [馬名, 生年, 父, 母]               表で父母が空だった馬に補う（null は補わない）
+//   AHO_YEAR    [馬名, 表の生年, 一覧の生年]       名前だけの母の推定した生年を、一覧の生年に直す
 //   AHO_NEW     [馬名, 生年, 性, 毛色, 父, 母]     表に無かった祖先（血統をつなぐだけ）
 //   AHO_RETIRE  [馬名, 生年, 引退年]               日本で供用された種牡馬の引退年
 //   AHO_BROOD   [馬名, 生年, 競走馬引退年齢, 繁殖引退年齢, 仔出]  繁殖専用の牝馬（繁殖に上がる年と終える年）
 //   AHO_ALIAS   [英語名, カタカナ名]               Wikidata から補った英語名の馬のカタカナ名
 
 export const AHO_FILL = [
-${dFill.map(([e, f]) => `  [${q(e.n)}, ${e.b}, ${q(f.sire)}, ${q(f.dam)}],`).join('\n')}
+${dFill.map(([e, f]) => `  [${q(e.n)}, ${e._b0 ?? e.b}, ${q(f.sire)}, ${q(f.dam)}],`).join('\n')}
+];
+
+export const AHO_YEAR = [
+${table.filter((e) => e._b0 != null).map((e) => `  [${q(e.n)}, ${e._b0}, ${e.b}],`).join('\n')}
 ];
 
 export const AHO_NEW = [
