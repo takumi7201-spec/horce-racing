@@ -71,30 +71,45 @@ function matingView(app) {
   let sireId = null;
 
   const fm = G.fame(g);
+  // 並べ替えと「自分の種牡馬だけ」。画面を作り直しても残るよう app に覚える。
+  const opt = app.matingOpt ??= { sort: 'fee', mine: false };
+  const sortSel = el('select.inp', [
+    ['fee', '種付料の高い順'], ['rank', 'ランクの高い順'], ['burst', '爆発力の高い順'], ['risk', '危険度の低い順'],
+  ].map(([v, t]) => el('option', { value: v, text: t, selected: opt.sort === v ? '' : null })));
+  sortSel.value = opt.sort;
+  const mineBox = el('input', { type: 'checkbox' });
+  mineBox.checked = opt.mine;
+  const RANK_CLS = { S: 'rk-s', A: 'rk-a', B: 'rk-b', C: 'rk-c', D: 'rk-d', E: 'rk-e' };
+  const rankChip = (r) => el(`b.rank.${RANK_CLS[r] ?? 'rk-e'}`, { text: r });
+
   const renderList = () => {
     list.textContent = '';
+    opt.sort = sortSel.value;
+    opt.mine = mineBox.checked;
     const maxFee = Number(budgetInput.value) || Infinity;
-    const ss = G.stallions(g, { maxFee, search: search.value.trim() }).slice(0, 60);
+    const ss = G.matingCandidates(g, damId, { maxFee, search: search.value.trim(), mine: opt.mine, sort: opt.sort }).slice(0, 80);
     if (!ss.length) {
-      list.appendChild(el('p.empty', { text: 'その条件の種牡馬は居ない。予算を上げてみる。' }));
+      list.appendChild(el('p.empty', { text: opt.mine ? '自分の種牡馬が居ない。重賞を勝った牡馬や実在の牡馬を引退させると種牡馬になる。' : 'その条件の種牡馬は居ない。予算を上げてみる。' }));
       return;
     }
-    list.appendChild(table(['種牡馬', '年齢', '系統', '因子', '種付料', '産駒', '評価', ''],
+    // 列が多いので年齢は名前の下に添える（系統の列が細くなって 1 文字ずつ折り返していた）。
+    // 行を押すと選ぶ（「選ぶ」の列は幅を食って危険度の列がはみ出したので外した）。
+    list.appendChild(table(['種牡馬', '系統', '因子', '種付料', 'ランク', '爆発力', '危険度'],
       ss.map((s) => {
-        const ev = damId ? G.evaluateMating(g, damId, s.id) : null;
+        const ev = s.ev;
         return {
           cells: [
-            sireName(s), `${s.age}歳`, s.line, factorChips(s.factors),
-            formatMoney(s.fee), `${s.foals}頭`,
-            ev ? el('span.stars', { text: '★'.repeat(ev.stars) + '☆'.repeat(5 - ev.stars) }) : '—',
-            s.locked
-              ? el('small.locked', { text: `名声${fm.need}〜`, title: `海外の種牡馬は名声 ${fm.need} から（いま ${fm.fame}）` })
-              : button('選ぶ', () => { sireId = s.id; renderEval(); }, { cls: 'sm' }),
+            el('div', [sireName(s), el('small.age', { text: `${s.age}歳` })]), el('small.line', { text: s.line }), factorChips(s.factors),
+            s.mine ? el('span.free', { text: '無料' }) : formatMoney(s.fee),
+            s.locked ? el('small.locked', { text: `名声${fm.need}〜`, title: `海外の種牡馬は名声 ${fm.need} から（いま ${fm.fame}）` })
+              : ev ? rankChip(ev.rank) : '—',
+            ev ? el('b.tb', { text: String(ev.burst) }) : '—',
+            ev ? (ev.blocked ? el('small.locked', { text: '種付不可' }) : el('span', { text: String(ev.riskPoints), class: ev.riskPoints >= 4 ? 'tr' : null })) : '—',
           ],
           cls: sireId === s.id ? 'sel' : null,
           onclick: s.locked ? null : () => { sireId = s.id; renderEval(); renderList(); },
         };
-      }), { align: [, 'c', , , 'r', 'c', 'c'] }));
+      }), { align: [, , , 'r', 'c', 'c', 'c'] }));
   };
 
   const renderEval = () => {
@@ -107,9 +122,9 @@ function matingView(app) {
     const sire = G.getHorse(g, sireId);
     evalBox.appendChild(el('div', [
       el('h3', { text: `${sire.name} × ${dam.name}` }),
-      el('div.stars.big', { text: '★'.repeat(ev.stars) + '☆'.repeat(5 - ev.stars) }),
+      el('div.rank-line', [rankChip(ev.rank), el('div.stars.big', { text: '★'.repeat(ev.stars) + '☆'.repeat(5 - ev.stars) })]),
       kv([
-        ['種付料', formatMoney(ev.fee)],
+        ['種付料', ev.fee === 0 ? '無料（自分の種牡馬）' : formatMoney(ev.fee)],
         ['父の系統', ev.sireLine],
         ['母の父の系統', ev.damSireLine],
         ['ニックス', `${ev.nicks.grade}（産駒 ${ev.nicks.samples} 頭の実績）`],
@@ -144,7 +159,7 @@ function matingView(app) {
         ])
         : el('p.note', { text: 'インブリードは入らない（アウトブリード）。' }),
       el('p.comment', { text: ev.comment }),
-      button(`この配合で種付けする（${formatMoney(ev.fee)}）`, () => {
+      button(ev.fee === 0 ? 'この配合で種付けする（無料）' : `この配合で種付けする（${formatMoney(ev.fee)}）`, () => {
         const r = G.bookMating(g, damId, sireId);
         if (!r.ok) return toast(r.why, { bad: true });
         toast(`${sire.name} との配合を予約した`);
@@ -160,6 +175,8 @@ function matingView(app) {
 
   budgetInput.addEventListener('input', renderList);
   search.addEventListener('input', renderList);
+  sortSel.addEventListener('change', renderList);
+  mineBox.addEventListener('change', renderList);
   renderList();
   renderEval();
 
@@ -198,6 +215,11 @@ function matingView(app) {
           el('label', ['予算（万円）', budgetInput]),
           el('label', ['名前', search]),
         ]),
+        el('div.form-row', [
+          el('label', ['並べ替え', sortSel]),
+          el('label.chk', [mineBox, '自分の種牡馬だけ（種付料無料）']),
+        ]),
+        el('p.note', { text: 'ランクは S〜E（親の格・爆発力・距離の噛み合い）。爆発力は仔の素質の上振れの大きさ、危険度は丈夫さと気性を削る度合い（0〜7）。行を押すと右に評価が出る。' }),
         list,
       ]),
     ]),

@@ -804,6 +804,17 @@ section('自分の重賞馬の種牡馬入り');
     GG.retire(gs, b2.id, { breed: false });
     check('実在馬は種牡馬になり、「上げない」を選べば上がらない', a2.stallion && !b2.stallion && !gs.world.stallionPool.includes(b2.id));
   }
+  // 自分の種牡馬は種付料が無料で、配合の候補の「自分の種牡馬だけ」に出る。
+  const mare = gs.world.player.broodmares[0];
+  const ownList = GG.stallions(gs, { mine: true });
+  check('自分の種牡馬が「自分の種牡馬だけ」に出て、種付料は無料', ownList.some((s) => s.id === raw.id) && ownList.every((s) => s.fee === 0 && s.mine));
+  const evOwn = GG.evaluateMating(gs, mare, raw.id);
+  check(`自分の種牡馬との配合は無料でランクが付く（${evOwn?.rank}）`, evOwn && evOwn.fee === 0 && /^[SABCDE]$/.test(evOwn.rank));
+  const byBurst = GG.matingCandidates(gs, mare, { sort: 'burst' }).filter((r) => !r.ev?.blocked);
+  const byRisk = GG.matingCandidates(gs, mare, { sort: 'risk' }).filter((r) => !r.ev?.blocked);
+  check('配合の候補を爆発力の高い順・危険度の低い順に並べられる',
+    byBurst.every((r, i) => i === 0 || byBurst[i - 1].ev.burst >= r.ev.burst)
+    && byRisk.every((r, i) => i === 0 || byRisk[i - 1].ev.riskPoints <= r.ev.riskPoints));
   // 名声は勝つと上がる（GI 15・重賞 5〜8・オープン 3・条件 1）。
   check('名声の配点（GI 15・GII 8・GIII 5・海外 GI 25）',
     WW.famePoints({ grade: 'GI' }) === 15 && WW.famePoints({ grade: 'GII' }) === 8 && WW.famePoints({ grade: 'GIII' }) === 5

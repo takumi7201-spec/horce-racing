@@ -127,6 +127,18 @@ html, body {
   box-shadow: inset 0 -2px 0 #0000000d;
 }
 .hb-chip.ok { border-color: #d9a520; }
+.rank { display: inline-block; min-width: 22px; padding: 1px 6px; border-radius: 6px; font-weight: 900; text-align: center; color: #fff; }
+.rk-s { background: #d4a017; } .rk-a { background: #e0703a; } .rk-b { background: #3a8fd0; }
+.rk-c { background: #4aa064; } .rk-d { background: #8a8f96; } .rk-e { background: #b5b9be; }
+.rank-line { display: flex; align-items: center; gap: 10px; } .rank-line .rank { font-size: 22px; padding: 2px 12px; }
+span.free { color: var(--green-d); font-weight: 900; }
+.form-row label.chk { display: flex; align-items: center; gap: 6px; flex-direction: row; align-self: end; padding-bottom: 8px; }
+.stallion-list { overflow-x: auto; }
+.stallion-list td { white-space: nowrap; }
+.stallion-list tr { cursor: pointer; }
+.stallion-list small.age { display: block; color: var(--fg3); font-size: 11px; }
+.stallion-list small.line { font-size: 12px; white-space: normal; display: inline-block; min-width: 6em; }
+.stallion-list button { white-space: nowrap; }
 small.locked { color: var(--fg3); white-space: nowrap; }
 .hc-l { font-size: 11px; font-weight: 700; color: var(--fg2); }
 .hc-v { font-size: 16px; font-weight: 900; color: var(--fg); font-variant-numeric: tabular-nums; }

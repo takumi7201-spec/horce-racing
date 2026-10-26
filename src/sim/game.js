@@ -331,17 +331,30 @@ export function fame(g) {
  * 海外の馬は studFee を持たない（0 のまま）ので、?? で拾うと無料になってしまう。
  */
 const feeOf = (w, s) => (s.abroadFee ? studFeeOf(w, s, w.year) : s.studFee ?? studFeeOf(w, s, w.year));
+/** プレイヤーが払う種付料。自分の種牡馬は無料（自分の牧場で付けるので）。 */
+const myFee = (w, s) => (s.ownerId === 'player' ? 0 : feeOf(w, s));
 
-export function stallions(g, { maxFee = Infinity, search = '' } = {}) {
+/**
+ * 配合のランク。score（親の格・爆発力・距離の噛み合い）の分布に合わせて切る。
+ * 2026 年開始の繁殖牝馬 × 全種牡馬で、中央 0.55・上位 1 割 0.64・上位 3% 0.70。
+ */
+const RANKS = [[0.70, 'S'], [0.63, 'A'], [0.57, 'B'], [0.51, 'C'], [0.45, 'D'], [-1, 'E']];
+export const matingRank = (score) => RANKS.find(([t]) => score >= t)[1];
+
+export function stallions(g, { maxFee = Infinity, search = '', mine = false } = {}) {
   const w = g.world;
   // 国内の名簿と、海外で供用中の名馬（海外種付け。プレイヤーだけが付けられる）。
-  const abroad = abroadSires(w, w.year).filter((s) => studFeeOf(w, s, w.year) <= maxFee);
-  return [...stallionList(w, { maxFee }), ...abroad]
+  // 自分の種牡馬は無料なので予算に関わらず並べる。
+  const own = w.stallionPool.map((id) => w.horses.get(id)).filter((h) => h && !h.dead && h.ownerId === 'player');
+  const abroad = mine ? [] : abroadSires(w, w.year).filter((s) => studFeeOf(w, s, w.year) <= maxFee);
+  const domestic = mine ? own : [...new Set([...own, ...stallionList(w, { maxFee })])];
+  return [...domestic, ...abroad]
     .filter((s) => !search || s.name.includes(search))
     .map((s) => ({
       horse: s, id: s.id, name: s.name,
       age: horseAge(s, w.year),
-      fee: feeOf(w, s),
+      fee: myFee(w, s),
+      mine: s.ownerId === 'player',
       line: lineLabel(w, s.id),
       earnings: s.earnings,
       foals: (s.foals ?? []).length,
@@ -354,10 +367,31 @@ export function stallions(g, { maxFee = Infinity, search = '' } = {}) {
       lineHead: !!s.lineHead,
       bestWin: S.bestWin(s),
     }))
-    // 国内の名簿を種付料の順に、海外種付けはその後ろにまとめる（別の市場なので混ぜない）。
-    .sort((a, b) => (a.abroad - b.abroad) || (b.fee - a.fee));
+    // 自分の種牡馬を先頭に、国内の名簿を種付料の順に、海外種付けはその後ろにまとめる（別の市場なので混ぜない）。
+    .sort((a, b) => (b.mine - a.mine) || (a.abroad - b.abroad) || (b.fee - a.fee));
 }
 
+
+/**
+ * 配合の候補。種牡馬ごとに評価（ランク・爆発力・危険度）を付けて並べる。
+ * sort: 'fee'（種付料）・'rank'（ランク）・'burst'（爆発力）・'risk'（危険度の低い順）。
+ * 評価は 1 頭 0.15ms ほどなので、絞り込んだ全頭を評価してから並べる（上位だけ評価すると、並べ替えの意味が無い）。
+ */
+export function matingCandidates(g, damId, { maxFee = Infinity, search = '', mine = false, sort = 'fee' } = {}) {
+  const rows = stallions(g, { maxFee, search, mine }).map((s) => {
+    const ev = damId != null ? evaluateMating(g, damId, s.id) : null;
+    return { ...s, ev };
+  });
+  const key = {
+    fee: null,
+    rank: (r) => -(r.ev?.score ?? 0),
+    burst: (r) => -(r.ev?.burst ?? 0) * 10 - (r.ev?.score ?? 0),
+    risk: (r) => (r.ev?.riskPoints ?? 9) * 10 - (r.ev?.score ?? 0),
+  }[sort];
+  // 付けられない配合（種付不可）は後ろへ。
+  if (key) rows.sort((a, b) => (!!a.ev?.blocked - !!b.ev?.blocked) || (key(a) - key(b)));
+  return rows;
+}
 
 /** 配合理論の一覧（説明用）。 */
 export const theoryGuide = () => THEORY_GUIDE;
@@ -375,6 +409,7 @@ export function evaluateMating(g, damId, sireId) {
   return {
     stars,
     score,
+    rank: matingRank(score),
     burst: T.burst,
     burstComment: burstComment(T.burst),
     risk: Math.min(1, T.risk / 7),
@@ -382,7 +417,7 @@ export function evaluateMating(g, damId, sireId) {
     riskComment: riskComment(T.risk, T.blocked),
     blocked: T.blocked,
     theories: T.list.map((t) => ({ id: t.id, name: t.name, text: t.text, burst: t.burst, risk: t.risk })),
-    fee: feeOf(w, ev.sire),
+    fee: myFee(w, ev.sire),
     inbreed: ev.inbreed.map((x) => ({ name: x.name, label: x.label })),
     inbreedNote: ev.inbreedEffect.notes,
     nicks: nk.known ? { grade: nicksGradeOf(nk.value), samples: nk.samples } : { grade: '？', samples: nk.samples },
@@ -446,7 +481,7 @@ export function bookMating(g, damId, sireId) {
   }
   const blocked = evaluateTheories(w, sire, dam).blocked;
   if (blocked) return { ok: false, why: blocked };
-  const fee = feeOf(w, sire);
+  const fee = myFee(w, sire);
   if (w.player.money < fee) return { ok: false, why: `資金が足りない（${formatMoney(fee)}必要）` };
   // 同じ牝馬の予約は上書き。
   w.pendingMatings = w.pendingMatings.filter((m) => m.damId !== damId);
