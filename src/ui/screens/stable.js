@@ -1,6 +1,6 @@
 // 所有馬の一覧と、1 頭の詳細（能力・適性・血統表・戦績・調教）。
 
-import { el, card, table, button, kv, bar, modal, toast, frameChip, tabs, ask } from '../dom.js';
+import { el, card, table, button, kv, bar, modal, toast, frameChip, tabs, ask, choose } from '../dom.js';
 import * as G from '../../sim/game.js';
 import { formatMoney, formatTime, formatSec, rankOf } from '../../core/util.js';
 import { fitLabel, condLabel, MENUS } from '../../sim/training.js';
@@ -417,14 +417,36 @@ function actions(app, v, active) {
         }, { disabled: !!v.injury }),
       button('引退', async () => {
         // 引退した後どうなるかを先に見せる（種牡馬になれない馬を、なれると思って引退させないように）。
+        // 種牡馬・繁殖に上がる馬（実在馬は必ず上がる）は、上げない選択もできる。
         const out = G.retireOutcome(g, id);
-        const after = { stallion: '種牡馬になる', broodmare: '繁殖牝馬になる', none: '繁殖には上がらない（乗馬・用途変更）' }[out];
-        if (!await ask(`${v.name} を引退させる？\n引退後は${after}。`, { ok: '引退させる' })) return;
-        G.retire(g, id);
-        toast(`${v.name} を引退させた（${after}）`);
+        if (out === 'none') {
+          if (!await ask(`${v.name} を引退させる？\n引退後は繁殖には上がらない（乗馬・用途変更）。`, { ok: '引退させる' })) return;
+          G.retire(g, id);
+          toast(`${v.name} を引退させた`);
+        } else {
+          const up = out === 'stallion' ? '種牡馬' : '繁殖牝馬';
+          const pick = await choose(`${v.name} を引退させる？\n引退後は${up}になる${v.real ? '（実在の馬は史実どおり繁殖に上がる）' : ''}。`, [
+            { label: `${up}にしない`, value: 'no', cls: 'ghost' },
+            { label: `${up}にする`, value: 'yes' },
+          ]);
+          if (!pick) return;
+          G.retire(g, id, { breed: pick === 'yes' });
+          toast(pick === 'yes' ? `${v.name} は引退して${up}になった` : `${v.name} を引退させた（${up}にはしない）`);
+        }
         app.go('stable');
       }, { cls: 'ghost' }),
     ];
+  }
+  // 幼駒はいつでも売れる（セールを待たない）。値段は血統だけで決まる。
+  const quote = v.isMine ? G.youngsterQuote(g, id) : null;
+  if (quote != null) {
+    return [button(`売却する（${formatMoney(quote)}）`, async () => {
+      if (!await ask(`${v.name} を ${formatMoney(quote)} で売る？\n売った馬はほかの牧場の馬になる。`, { ok: '売る' })) return;
+      const r = G.sellYoungster(g, id);
+      if (!r.ok) { toast(r.why, { bad: true }); return; }
+      toast(`${v.name} を ${formatMoney(r.price)} で売った`);
+      app.go('stable', { cat: 'young' });
+    }, { cls: 'ghost' })];
   }
   if (v.isMine && v.broodmare && !v.dead) {
     return [button('配合する', () => app.go('farm', { damId: id }), { cls: 'primary' })];

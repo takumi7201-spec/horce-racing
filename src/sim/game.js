@@ -3,7 +3,7 @@
 // 画面はここだけを見る。world.js の中身を直接いじらせないことで、
 // 「セーブ可能な状態」と「表示のための導出値」を分けている。
 
-import { createWorld, advanceWeek, weekRaces, weekGround, horsesOf, stallionList, computeLeaders, retireHorse, retireOutcome as worldRetireOutcome } from './world.js';
+import { createWorld, advanceWeek, weekRaces, weekGround, horsesOf, stallionList, computeLeaders, retireHorse, retireOutcome as worldRetireOutcome, playerFame } from './world.js';
 import { eligible, weekLabel, gradedCalendar, GRADED_BY_ID, meetingsOf, ABROAD_COST } from './schedule.js';
 import { horseAge, effectiveAbility, styleLabel, distanceAptitude, canRun, STYLE_TARGET } from './horse.js';
 import { readyToRun, MENUS, fitLabel, condLabel } from './training.js';
@@ -20,7 +20,7 @@ import { evaluateTheories, THEORY_GUIDE, theoryName, burstComment, riskComment }
 import * as S from './sales.js';
 import {
   ABILITIES, SEX, WEEKS_PER_YEAR, classOrder, className, standardWeight,
-  weekToMonth, STYLES,
+  weekToMonth, STYLES, ABROAD_FAME,
 } from './params.js';
 import { SURFACE, courseName, courseShort as courseShortOf, getCourse, DIR } from './course.js';
 import { clamp01, sum, byDesc, formatMoney, formatTime, rankOf } from '../core/util.js';
@@ -306,13 +306,21 @@ export function retireOutcome(g, horseId) {
   return h ? worldRetireOutcome(g.world, h) : 'none';
 }
 
-/** 引退させる。 */
-export function retire(g, horseId) {
+/**
+ * 引退させる。breed: false で種牡馬・繁殖に上げない（実在馬は既定で必ず上がるので、その逃げ道）。
+ */
+export function retire(g, horseId, { breed = true } = {}) {
   const w = g.world;
   const h = w.horses.get(horseId);
   if (!h || h.retired) return false;
-  retireHorse(w, h, w.rng, w.news);
+  retireHorse(w, h, w.rng, w.news, { breed });
   return true;
+}
+
+/** 名声と、海外の種牡馬に種付けできるか。 */
+export function fame(g) {
+  const f = playerFame(g.world);
+  return { fame: f, need: ABROAD_FAME, abroadOk: f >= ABROAD_FAME };
 }
 
 // ---------------------------------------------------------------- 配合
@@ -340,6 +348,8 @@ export function stallions(g, { maxFee = Infinity, search = '' } = {}) {
       quality: breedQuality(s),
       real: !!s.real,
       abroad: !!s.abroadFee,
+      // 名声が足りないうちは海外の種牡馬は並べるだけで付けられない。
+      locked: !!s.abroadFee && playerFame(w) < ABROAD_FAME,
       factors: (s.factors ?? []).map((f) => FACTORS[f]),
       lineHead: !!s.lineHead,
       bestWin: S.bestWin(s),
@@ -431,6 +441,9 @@ export function bookMating(g, damId, sireId) {
   if (!canBeBroodmare(dam, w.year + 1)) return { ok: false, why: 'この牝馬は繁殖に上がれない' };
   if (dam.ownerId !== 'player') return { ok: false, why: '自分の繁殖牝馬ではない' };
   if (!matingOpen(g)) return { ok: false, why: '種付けは 5〜6 月（種付けシーズン）だけ' };
+  if (sire.abroadFee && playerFame(w) < ABROAD_FAME) {
+    return { ok: false, why: `海外の種牡馬は名声 ${ABROAD_FAME} から（いま ${playerFame(w)}）` };
+  }
   const blocked = evaluateTheories(w, sire, dam).blocked;
   if (blocked) return { ok: false, why: blocked };
   const fee = feeOf(w, sire);
@@ -464,6 +477,32 @@ export function cancelMating(g, damId) {
 
 
 
+
+/** 幼駒（自分の 0〜1 歳）か。2 歳の年明けに厩舎へ入るまでは player.horses に居ない（落とし穴 28）。 */
+const isMyYoungster = (w, h) => h && h.ownerId === 'player' && !h.dead && !h.retired && horseAge(h, w.year) < 2;
+
+/** 幼駒の売値。いつでも売れる（セールの時期を待たない）。 */
+export function youngsterQuote(g, horseId) {
+  const w = g.world;
+  const h = w.horses.get(horseId);
+  return isMyYoungster(w, h) ? S.youngsterPrice(w, h) : null;
+}
+
+/** 幼駒を売る。ほかの牧場の馬になり、年明けにその牧場の厩舎へ入る。 */
+export function sellYoungster(g, horseId) {
+  const w = g.world;
+  const h = w.horses.get(horseId);
+  if (!isMyYoungster(w, h)) return { ok: false, why: '自分の幼駒ではない' };
+  const price = S.youngsterPrice(w, h);
+  // 買い手は馬の id から決める（主乱数を使わない。売っただけで世界の乱数の流れを変えない）。
+  const others = [...w.owners.values()].filter((x) => !x.isPlayer);
+  const nw = others[(h.id * 2654435761 >>> 0) % others.length];
+  w.player.money += price;
+  h.ownerId = nw.id;
+  delete h.plannedName;
+  delete h.plannedTrainerId;
+  return { ok: true, price };
+}
 
 /** 所有馬の売却。言い値の 7 割くらいで売れる。 */
 export function sellHorse(g, horseId) {

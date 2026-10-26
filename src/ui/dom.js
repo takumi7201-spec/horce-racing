@@ -158,6 +158,23 @@ export function ask(message, { ok = 'はい', cancel = 'やめる' } = {}) {
   });
 }
 
+/**
+ * 選択肢のある確認。options は [{ label, value, cls }]。やめると null。
+ * ask() と同じく自前のモーダル（window.confirm は iframe で塞がれる。落とし穴 39）。
+ */
+export function choose(message, options, { cancel = 'やめる' } = {}) {
+  return new Promise((resolve) => {
+    const done = (v) => { resolve(v); m.close(); };
+    const m = modal('確認', [
+      el('p.ask-msg', { text: message }),
+      el('div.ask-btns', [
+        button(cancel, () => done(null), { cls: 'ghost' }),
+        ...options.map((o) => button(o.label, () => done(o.value), { cls: o.cls ?? 'primary' })),
+      ]),
+    ], { onClose: () => resolve(null) });
+  });
+}
+
 /** 画面下に出す短い通知。 */
 let toastTimer = 0;
 export function toast(msg, { bad = false } = {}) {

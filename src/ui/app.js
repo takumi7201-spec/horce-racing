@@ -377,6 +377,14 @@ function header(app) {
       chip('star', '勝利', f.wins),
       chip('horse', '所有馬', f.horses),
       chip('mare', '繁殖', f.broodmares),
+      // 名声。海外の種牡馬に付けられるかが分かるよう、届いたら印を付ける。
+      (() => {
+        const fm = G.fame(g);
+        const c = chip('medal', '名声', fm.fame);
+        c.title = fm.abroadOk ? '海外の種牡馬に種付けできる' : `名声 ${fm.need} で海外の種牡馬に種付けできる（あと ${fm.need - fm.fame}）`;
+        if (fm.abroadOk) c.classList.add('ok');
+        return c;
+      })(),
     ]),
     el('div.hb-farm', [
       el('b', { text: g.world.player.farmName }),

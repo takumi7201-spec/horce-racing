@@ -21,7 +21,7 @@ import {
 import {
   SEX, ABILITIES, GROWTH, GROWTH_CURVE, GROUNDS, CLASSES, CLASS_BY_ID,
   classForWins, classOrder, standardWeight, WEEKS_PER_YEAR, weekToMonth, COST,
-  JOCKEY_CUT, TRAINER_CUT, STYLES, START_MONEY,
+  JOCKEY_CUT, TRAINER_CUT, STYLES, START_MONEY, FAME_POINTS, ABROAD_FAME,
 } from './params.js';
 import { SURFACE, allCourses, distancesOf } from './course.js';
 import {
@@ -1132,6 +1132,11 @@ function applyResult(world, race, res, rng, news) {
         if (r.order === 1) {
           world.player.wins++;
           if (race.grade === 'GI') world.player.g1++;
+          const before = playerFame(world);
+          world.player.fame = before + famePoints(race);
+          if (before < ABROAD_FAME && world.player.fame >= ABROAD_FAME) {
+            news.push(`★名声が ${world.player.fame} に上がり、海外の種牡馬に種付けできるようになった。`);
+          }
         }
       }
     }
@@ -1340,6 +1345,22 @@ function yearEnd(world, rng) {
   };
 }
 
+/** 勝ったときに上がる名声（FAME_POINTS）。 */
+export function famePoints(race) {
+  if (race.grade === 'GI') return race.abroad ? FAME_POINTS.abroadGI : FAME_POINTS.GI;
+  if (race.grade === 'GII') return FAME_POINTS.GII;
+  if (race.grade === 'GIII') return FAME_POINTS.GIII;
+  if (race.classId === 'op') return FAME_POINTS.op;
+  return FAME_POINTS.other;
+}
+
+/** プレイヤーの名声。古いセーブには無いので、勝ち数と GI の勝ち数から起こす。 */
+export function playerFame(world) {
+  const p = world.player;
+  if (p.fame == null) p.fame = (p.wins ?? 0) * FAME_POINTS.other + (p.g1 ?? 0) * (FAME_POINTS.GI - FAME_POINTS.other);
+  return p.fame;
+}
+
 /** 重賞を勝ったことがあるか。戦績は 30 走しか残さないので数（gradedWins）で見て、古いセーブは戦績と GI の勝ち数で見る。 */
 export function gradedWinner(h) {
   return (h.gradedWins ?? 0) > 0 || (h.g1Wins ?? 0) > 0
@@ -1348,14 +1369,16 @@ export function gradedWinner(h) {
 
 /** 引退させたらどうなるか（確認の文に出す）。 */
 export function retireOutcome(world, h) {
+  if (h.dead) return 'none';
+  const own = h.ownerId === 'player';
   if (h.sex === SEX.MALE) {
-    return canBeStallion(h, world.year) || (h.ownerId === 'player' && gradedWinner(h)) ? 'stallion' : 'none';
+    return canBeStallion(h, world.year) || (own && (gradedWinner(h) || h.real)) ? 'stallion' : 'none';
   }
-  return canBeBroodmare(h, world.year) ? 'broodmare' : 'none';
+  return canBeBroodmare(h, world.year) || (own && h.real) ? 'broodmare' : 'none';
 }
 
 /** 引退させ、繁殖・種牡馬・用途変更に振り分ける。 */
-export function retireHorse(world, h, rng, news = []) {
+export function retireHorse(world, h, rng, news = [], { breed = true } = {}) {
   h.retired = true;
   h.stable = 'retired';
   h.retiredYear = world.year;
@@ -1366,15 +1389,16 @@ export function retireHorse(world, h, rng, news = []) {
   // 種牡馬の口を探して供用されることが多い。条件を獲得賞金 3 億（canBeStallion）だけにしていたので、
   // 重賞を勝った自分の馬が種牡馬になれなかった。ほかの牧場の馬は canBeStallion のまま
   // （緩めると名簿が 220 頭を超える）。
-  const ownStud = h.ownerId === 'player' && h.sex === SEX.MALE && !h.dead && gradedWinner(h);
-  if (h.sex === SEX.MALE && (canBeStallion(h, year) || ownStud)) {
+  // 自分の実在馬は、史実どおり必ず種牡馬・繁殖に上がる（引退の確認で「上げない」を選んだときだけ上げない）。
+  const outcome = breed ? retireOutcome(world, h) : 'none';
+  if (outcome === 'stallion') {
     h.stallion = true;
     h.studFee = studFeeOf(world, h, year);
     world.stallionPool.push(h.id);
     // 毎年 20 頭が種牡馬入りするので、よほどの実績馬だけを報じる。
     if (h.earnings > 60000) news.push(`${h.name} が引退し、種牡馬となった（種付料 ${h.studFee} 万円）。`);
     if (h.ownerId === 'player') world.player.stallions.push(h.id);
-  } else if (h.sex === SEX.FEMALE && canBeBroodmare(h, year)) {
+  } else if (outcome === 'broodmare') {
     h.broodmare = true;
     world.marePool.push(h.id);
     if (h.ownerId === 'player') world.player.broodmares.push(h.id);

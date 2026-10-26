@@ -11,6 +11,7 @@ import {
 } from '../src/sim/course.js';
 import { REAL_HORSES } from '../src/sim/data/real-horses.js';
 import { createWorld, advanceWeek, weekRaces } from '../src/sim/world.js';
+import * as WW from '../src/sim/world.js';
 import { collectAncestors, inbreedings, sireLineRoot, bloodDominance } from '../src/sim/pedigree.js';
 import {
   yawForZForward, yawForXForward, zForwardOfYaw, xForwardOfYaw,
@@ -428,6 +429,11 @@ section('因子・系統・海外の名馬');
     !!frankel && frankel.fee >= 3000 && !abroad.some((s) => s.name === 'ガリレオ') && !w4.stallionPool.includes(frankel.id));
   w4.week = (5 - 1) * 4 + 1;
   w4.player.money = 1e6;
+  // 海外の種牡馬は名声が要る。足りないうちは断られ、届けば付けられる。
+  g4.world.player.fame = 0;
+  const denied = GG.bookMating(g4, mare.id, frankel.id);
+  check('名声が足りないと海外の種牡馬に種付けできない', !denied.ok && /名声/.test(denied.why ?? ''), denied.why);
+  g4.world.player.fame = 60;
   const bk = GG.bookMating(g4, mare.id, frankel.id);
   check('海外種付けの予約ができる（種付料を払う）', bk.ok && bk.fee === frankel.fee && w4.player.money === 1e6 - frankel.fee, bk.why);
 
@@ -780,13 +786,45 @@ section('自分の重賞馬の種牡馬入り');
   // 重賞を勝った自分の牡馬は、獲得賞金が 3 億に届かなくても引退で種牡馬になれる（画面の案内どおり）。
   const gs = sideGame({ seed: 'verify-stud' });
   const raw = gs.world.horses.get(myHorses(gs)[0].id);
-  Object.assign(raw, { sex: '牡', earnings: 9000, g1Wins: 0, gradedWins: 0, record: [] });
+  Object.assign(raw, { sex: '牡', earnings: 9000, g1Wins: 0, gradedWins: 0, record: [], real: false });
   check('重賞未勝利の自分の牡馬は種牡馬にならない', GG.retireOutcome(gs, raw.id) === 'none');
   raw.gradedWins = 1;
   check('重賞を勝った自分の牡馬は「種牡馬になる」と出る', GG.retireOutcome(gs, raw.id) === 'stallion');
   GG.retire(gs, raw.id);
   check('引退すると種牡馬の名簿と自分の種牡馬に入る',
     raw.stallion && gs.world.stallionPool.includes(raw.id) && gs.world.player.stallions.includes(raw.id) && raw.studFee > 0);
+  // 自分の実在馬は重賞を勝っていなくても種牡馬・繁殖に上がる。「上げない」も選べる。
+  const [a2, b2] = [...gs.world.horses.values()].filter((h) => !h.dead && !h.retired && gs.world.year - h.birthYear >= 3 && h.ownerId !== 'player').slice(0, 2);
+  for (const h of [a2, b2]) if (h) h.ownerId = 'player';
+  if (a2 && b2) {
+    Object.assign(a2, { sex: '牡', earnings: 500, g1Wins: 0, gradedWins: 0, record: [], real: true });
+    Object.assign(b2, { sex: '牡', earnings: 500, g1Wins: 0, gradedWins: 0, record: [], real: true });
+    check('自分の実在馬は引退で種牡馬になると出る', GG.retireOutcome(gs, a2.id) === 'stallion');
+    GG.retire(gs, a2.id);
+    GG.retire(gs, b2.id, { breed: false });
+    check('実在馬は種牡馬になり、「上げない」を選べば上がらない', a2.stallion && !b2.stallion && !gs.world.stallionPool.includes(b2.id));
+  }
+  // 名声は勝つと上がる（GI 15・重賞 5〜8・オープン 3・条件 1）。
+  check('名声の配点（GI 15・GII 8・GIII 5・海外 GI 25）',
+    WW.famePoints({ grade: 'GI' }) === 15 && WW.famePoints({ grade: 'GII' }) === 8 && WW.famePoints({ grade: 'GIII' }) === 5
+    && WW.famePoints({ grade: 'GI', abroad: 'US' }) === 25 && WW.famePoints({ classId: '1win' }) === 1);
+}
+
+section('幼駒の売却');
+{
+  // 幼駒はセールを待たずに売れる。値段は血統だけで決まり、乱数を使わない。
+  const gy = sideGame({ seed: 'verify-young' });
+  const w = gy.world;
+  let foal = [...w.horses.values()].find((h) => h.ownerId === 'player' && w.year - h.birthYear < 2 && !h.dead);
+  for (let i = 0; i < 16 && !foal; i++) { nextWeek(gy); foal = [...w.horses.values()].find((h) => h.ownerId === 'player' && w.year - h.birthYear < 2 && !h.dead); }
+  check('自分の幼駒が居る（4 月に生まれる）', !!foal);
+  if (foal) {
+    const q1 = GG.youngsterQuote(gy, foal.id), q2 = GG.youngsterQuote(gy, foal.id);
+    const money = w.player.money;
+    const r = GG.sellYoungster(gy, foal.id);
+    check(`幼駒を売れる（${q1} 万円・見積もりは何度見ても同じ）`, r.ok && q1 === q2 && r.price === q1 && w.player.money === money + q1 && foal.ownerId !== 'player');
+    check('売った幼駒は自分の幼駒に出ない', !GG.myYoungsters(gy).some((x) => x.id === foal.id));
+  }
 }
 
 section('v1.0.2：庭先の追加・牧場取引（通年）');

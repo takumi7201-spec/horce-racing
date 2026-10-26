@@ -70,6 +70,7 @@ function matingView(app) {
   const evalBox = el('div.mating-eval');
   let sireId = null;
 
+  const fm = G.fame(g);
   const renderList = () => {
     list.textContent = '';
     const maxFee = Number(budgetInput.value) || Infinity;
@@ -86,10 +87,12 @@ function matingView(app) {
             sireName(s), `${s.age}歳`, s.line, factorChips(s.factors),
             formatMoney(s.fee), `${s.foals}頭`,
             ev ? el('span.stars', { text: '★'.repeat(ev.stars) + '☆'.repeat(5 - ev.stars) }) : '—',
-            button('選ぶ', () => { sireId = s.id; renderEval(); }, { cls: 'sm' }),
+            s.locked
+              ? el('small.locked', { text: `名声${fm.need}〜`, title: `海外の種牡馬は名声 ${fm.need} から（いま ${fm.fame}）` })
+              : button('選ぶ', () => { sireId = s.id; renderEval(); }, { cls: 'sm' }),
           ],
           cls: sireId === s.id ? 'sel' : null,
-          onclick: () => { sireId = s.id; renderEval(); renderList(); },
+          onclick: s.locked ? null : () => { sireId = s.id; renderEval(); renderList(); },
         };
       }), { align: [, 'c', , , 'r', 'c', 'c'] }));
   };
@@ -188,6 +191,9 @@ function matingView(app) {
           }, { cls: 'sm ghost' }),
         ]), { align: [, , 'r'] })) : null,
       card('種牡馬を探す', [
+        el('p.note', { text: fm.abroadOk
+          ? `名声 ${fm.fame}。海外の種牡馬にも種付けできる。`
+          : `名声 ${fm.fame}。海外の種牡馬は名声 ${fm.need} から（レースに勝つと上がる。GI は +15、重賞は +5〜8）。` }),
         el('div.form-row', [
           el('label', ['予算（万円）', budgetInput]),
           el('label', ['名前', search]),

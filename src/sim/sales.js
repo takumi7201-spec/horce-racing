@@ -46,6 +46,19 @@ function pedigreePrice(w, h, rng, scale = 1) {
   return Math.round((300 + Math.pow(v, 2.2) * 14000) * rng.range(0.7, 1.5) * scale / 10) * 10;
 }
 
+/**
+ * 自分の幼駒を売るときの値段。セールと同じく血統だけで決まる（能力は市場に見えない）。
+ * いつでも売れる代わりにセールより安い（7 掛け）。乱数を使わない（値段を見ただけで世界がずれないように）。
+ * 史実の名馬になる仔（実在の父母から生まれた仔）は血統の評判で高く売れる。
+ */
+export function youngsterPrice(w, h) {
+  const sire = h.sireId != null ? w.horses.get(h.sireId) : null;
+  const dam = h.damId != null ? w.horses.get(h.damId) : null;
+  const v = (sire ? breedQuality(sire) : 0.3) * 0.6 + (dam ? breedQuality(dam) : 0.3) * 0.4;
+  const base = (300 + Math.pow(v, 2.2) * 14000) * 0.7 * (h.real ? 1.6 : 1);
+  return Math.max(50, Math.round(base / 10) * 10);
+}
+
 const LOOKS = ['小柄', '並', 'バランス良', '幅がある', '雄大'];
 const lookOf = (kg) => LOOKS[clamp(Math.floor((kg - 400) / 40), 0, 4)];
 
