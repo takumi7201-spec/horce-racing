@@ -20,6 +20,7 @@ import { makeRng } from '../core/rng.js';
 import { breed } from './breeding.js';
 import { SEX, ABILITIES, classForWins } from './params.js';
 import { clamp01 } from '../core/util.js';
+import { nurseryReach } from './training.js';
 
 const STYLE_VALUE = { 逃: 0.1, 先: 0.32, 差: 0.62, 追: 0.86 };
 const DEFS = new Map(REAL_HORSES.map((d) => [d.n, d]));
@@ -225,7 +226,9 @@ function make(world, rng, name, { year, live = false }) {
       year: y, name: raceName, grade, order: 1, field: 16, past: 1,
     }));
     h.g1Wins = h.record.filter((r) => r.grade === 'GI').length;
-    for (const a of ABILITIES) h.cur[a] = clamp01(h.pot[a] * 0.22);
+    // 1 歳はその週までの育成を受けている（海外セールで買う「のちの○○」は 12 月に作る。落とし穴 88）。
+    const reach = year - d.b === 1 ? Math.max(0.22, nurseryReach(world.week ?? 1)) : 0.22;
+    for (const a of ABILITIES) h.cur[a] = clamp01(h.pot[a] * reach);
     h.classId = 'maiden';
   } else {
     applyCareer(h, d, year);

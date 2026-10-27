@@ -348,7 +348,8 @@ function statePanel(v) {
   const racing = !v.dead && !v.retired && !v.broodmare && !v.stallion && !young;
   const fit = Math.max(0, Math.min(1, v.fit ?? 0));
   const foals = v.foals ?? [];
-  // 幼駒は仕上がりも産駒も無いので、いま見えている素質（能力の平均）を輪にする。
+  // 幼駒は仕上がりも産駒も無いので、育成の進み具合（2 歳の物差しで見た能力の平均）を輪にする。
+  // 潜在値は見せない（生まれたては潜在の 2 割ほどなので低く出る。1 歳の 1 年で育つ）。
   const avg = ABILITIES.reduce((a, k) => a + v.values[k], 0) / ABILITIES.length;
   const ratio = racing ? fit : young ? avg : Math.min(1, foals.length / 12);
   const R = 40, C = 2 * Math.PI * R;
@@ -362,7 +363,7 @@ function statePanel(v) {
   </svg>`;
   ring.appendChild(el('div.hs-ring-t', racing
     ? [el('span', { text: '仕上がり' }), el('b', { text: `${Math.round(fit * 100)}` }), el('small', { text: '%' })]
-    : young ? [el('span', { text: '素質' }), el('b', { text: rankOf(avg) })]
+    : young ? [el('span', { text: '育成' }), el('b', { text: rankOf(avg) })]
       : [el('span', { text: '産駒' }), el('b', { text: String(foals.length) }), el('small', { text: '頭' })]));
   const fat = v.fatigue ?? 0;
   const fatMark = fat < 0.2 ? '◎' : fat < 0.4 ? '○' : fat < 0.6 ? '△' : '▲';
@@ -511,7 +512,11 @@ function tabContent(app, tid, v, career) {
           el('span.abil-r', { text: v.ranks[a] }),
           bar(v.values[a]),
         ]))),
-        el('p.note', { text: '評価は「いま出せる力」。潜在能力は見えない。調教と出走で近づく。' }),
+        el('p.note', {
+          text: v.age != null && v.age < 2
+            ? '評価は 2 歳の物差しで見た、いまの育ち具合。潜在能力は見えない。当歳は生まれたてで低く、1 歳の 1 年の育成で育つ（育成牧場で速まる）。2 歳からは調教と出走で近づく。'
+            : '評価は「いま出せる力」。潜在能力は見えない。調教と出走で近づく。',
+        }),
       ]),
       el('div', [
         el('h4', { text: '馬場' }),

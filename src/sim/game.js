@@ -67,7 +67,9 @@ export function horseView(g, id) {
   const h = w.horses.get(id);
   if (!h) return null;
   // 名鑑から開いた世界に居ない馬は、まだ生まれていないこともあるので、4 歳（盛り）の姿で見せる。
-  const vy = h.preview ? h.birthYear + 4 : w.year;
+  // 幼駒は 2 歳の物差しで見せる。成長曲線は 0〜1 歳が 0 なので、そのままだと育成で育っても
+  // 能力がすべて G のまま（「最低ステータス」に見えた）。2 歳の年明けに見える値とつながる。
+  const vy = h.preview ? h.birthYear + 4 : Math.max(w.year, h.birthYear + 2);
   const eff = effectiveAbility(h, vy);
   const raw = effectiveAbility(h, vy, { ignoreCondition: true });
   return {

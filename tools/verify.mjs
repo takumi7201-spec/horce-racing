@@ -20,6 +20,7 @@ import { toJSON, fromJSON } from '../src/sim/save.js';
 import * as GG from '../src/sim/game.js';
 import { newGame, nextWeek, racesFor, enterRace, myHorses, horseView, evaluateMating, stallions, myStable } from '../src/sim/game.js';
 import { ABILITIES, SEX, WEEKS_PER_YEAR } from '../src/sim/params.js';
+import { healNursery, nurseryReach } from '../src/sim/training.js';
 import { sum, formatTime, byDesc } from '../src/core/util.js';
 
 let fail = 0;
@@ -623,9 +624,31 @@ section('2 年の経過');
   const usRaces = [];
   const allGaps = [];
   const top3Gaps = [];
+  // 育成（落とし穴 88）：いまの 1 歳が 1 年で育ち、来年の新馬で潜在の 8 割以上でデビューする。
+  // 以前は 2 歳になるまで生まれたときの 2 割のままで、新馬のデビューが潜在の 5 割弱だった。
+  const devRatio = (h) => sum(ABILITIES, (a) => h.cur[a]) / sum(ABILITIES, (a) => h.pot[a]);
+  const yearlings = [...w.horses.values()].filter((h) => !h.dead && w.year - h.birthYear === 1);
+  const yearling0 = sum(yearlings, devRatio) / yearlings.length;
+  let yearling1 = 0, yearlingRanks = null;
+  const debutRatios = [];
   for (let y = 0; y < 2; y++) {
     for (let i = 0; i < WEEKS_PER_YEAR; i++) {
+      if (y === 0 && i === WEEKS_PER_YEAR - 1) {
+        const yv = horseView(game, yearlings.find((h) => !h.dead && w.horses.has(h.id))?.id);
+        yearlingRanks = yv ? Object.values(yv.ranks) : null;
+      }
+      if (y === 1 && i === 0) yearling1 = sum(yearlings, devRatio) / yearlings.length;
+      // 来年の 6〜7 月の新馬：走る前の現在値を覚えておく。
+      const unraced = y === 1 && i >= 20 && i < 28
+        ? new Map([...w.horses.values()].filter((h) => !h.dead && !h.starts && w.year - h.birthYear === 2).map((h) => [h.id, devRatio(h)]))
+        : null;
       const { results } = advanceWeek(w);
+      if (unraced) {
+        for (const r of results) {
+          if (r.classId !== 'maiden') continue;
+          for (const x of r.results) if (unraced.has(x.horseId)) debutRatios.push(unraced.get(x.horseId));
+        }
+      }
       races += results.length;
       starts += sum(results, (r) => r.results.length);
       for (const r of results) {
@@ -647,6 +670,11 @@ section('2 年の経過');
       usRaces.length >= 18 && usRaces.every((r) => r.field.length >= 3));
     check('米国のレースに史実に無い日本の NPC が出ない', jpNpc.length === 0, jpNpc.slice(0, 5).join(' '));
   }
+  check(`1 歳が育成で育つ（潜在に対する現在値 ${yearling0.toFixed(2)} → 2 歳の年明け ${yearling1.toFixed(2)}）`,
+    yearling1 > 0.6 && yearling1 < 0.75);
+  check(`1 歳の 12 月の能力が G のままでない（${yearlingRanks?.join(' ')}）`, !!yearlingRanks && yearlingRanks.some((r) => r !== 'G'));
+  const debut = sum(debutRatios) / Math.max(1, debutRatios.length);
+  check(`新馬のデビュー戦で潜在の 8 割以上（${debut.toFixed(2)}、${debutRatios.length} 頭）`, debutRatios.length > 100 && debut > 0.8);
   check(`年間レース数 ${Math.round(races / 2)}`, races / 2 > 500);
   check(`年間出走数 ${Math.round(starts / 2)}`, starts / 2 > 6000);
   check(`GI ${g1 / 2} 回／年`, g1 / 2 >= 22, '24 戦すべて成立すべき');
@@ -734,6 +762,22 @@ section('セーブとロード');
   const a = advanceWeek(w).results.map((r) => r.results[0]?.horseId).join(',');
   const b = advanceWeek(back.world).results.map((r) => r.results[0]?.horseId).join(',');
   check('ロード後の 1 週が同じ結果になる', a === b);
+  // 古いセーブ（育成の無かった世界）は、読み込みで 1 歳と 2 歳に育成を足す。足すのは一度だけ（落とし穴 88）。
+  // 世界をもう一度読み込むとメモリが 2GB を超えるので、印がセーブに載ることと、足し方を小さな世界で見る。
+  check('育成のある世界の印がセーブに載る', json.includes('"nursery":1') && back.world.nursery === 1);
+  const pot = Object.fromEntries(ABILITIES.map((a) => [a, 0.6]));
+  const colt = (id, birthYear, r) => ({ id, birthYear, pot: { ...pot }, cur: Object.fromEntries(ABILITIES.map((a) => [a, 0.6 * r])) });
+  const later = { year: 2028, week: 20, startYear: 2026, horses: new Map([[1, colt(1, 2027, 0.21)], [2, colt(2, 2026, 0.3)]]) };
+  // 開始年の 2 歳は紙の戦績で 8 割から始まった世代なので足さない。
+  const first = { year: 2026, week: 20, startYear: 2026, horses: new Map([[3, colt(3, 2024, 0.3)]]) };
+  healNursery(later);
+  healNursery(first);
+  const r = (world, id) => world.horses.get(id).cur.speed / 0.6;
+  const once = [r(later, 1), r(later, 2), r(first, 3)];
+  healNursery(later);
+  check(`古いセーブの 1 歳・2 歳に育成が足される（1 歳 0.21 → ${once[0].toFixed(2)}・2 歳 0.30 → ${once[1].toFixed(2)}・開始年の 2 歳は ${once[2].toFixed(2)} のまま）`,
+    Math.abs(once[0] - nurseryReach(20)) < 1e-9 && once[1] > 0.7 && once[2] === 0.3
+    && r(later, 1) === once[0] && r(later, 2) === once[1]);
 }
 
 

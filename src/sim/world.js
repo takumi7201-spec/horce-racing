@@ -31,7 +31,7 @@ import {
 import { simulateRace, computeOdds } from './race.js';
 import { createJockey, createTrainer, ageJockey, ageTrainer, resetPersonIds, acceptsRide } from './jockey.js';
 import { breed, canBeBroodmare, canBeStallion, studFeeOf, conceives, POP_MEAN, STALLION_FOAL_MEMORY } from './breeding.js';
-import { trainWeek, pastureWeek, autoMenu, readyToRun } from './training.js';
+import { trainWeek, pastureWeek, nurseryWeek, autoMenu, readyToRun } from './training.js';
 import { facilityEffects, NO_EFFECT, advanceFacilities, facilityUpkeep } from './facilities.js';
 import { sireLineRoot, nicksKey, recordNicksResult, breedQuality, lineLabel, grantFactors, grantDominantFactors, establishLines } from './pedigree.js';
 import { clamp, clamp01, lerp, sum, byDesc } from '../core/util.js';
@@ -93,6 +93,7 @@ export function createWorld(seed, { startYear = 2026, playerName = '', farmName 
     player: null,
     pendingMatings: [],     // 今年の配合予約
     log: [],
+    nursery: 1,             // 1 歳の育成がある世界（古いセーブは読み込みで足す。落とし穴 88）
   };
 
   // --- 人と組織 ---
@@ -1196,8 +1197,12 @@ function weeklyHorseUpkeep(world, rng) {
   for (const h of world.horses.values()) {
     if (h.dead || h.retired) continue;
     const age = horseAge(h, world.year);
-    if (age < 2) continue;
     const fx = h.ownerId === 'player' ? fxMine : NO_EFFECT;
+    // 1 歳は牧場で育成する（落とし穴 88）。当歳は母のそばで育つだけ。
+    if (age < 2) {
+      if (age === 1) nurseryWeek(h, { fx });
+      continue;
+    }
     if (h.injury) {
       // 診療所：治りが早い（乱数を使わず、治癒の持ち越しを足して 1 を超えるたびに 1 週縮める）。
       if (fx.healShare > 0 && h.injury.weeks > 1) {

@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node tools/serve.mjs --port 8080",
     "dev": "node tools/serve.mjs --port 8080",
-    "test": "node tools/verify.mjs",
+    "test": "node --max-old-space-size=4096 tools/verify.mjs",
     "timecheck": "node tools/timecheck.mjs",
     "season": "node tools/season.mjs --years 5",
     "icons": "node tools/make-icons.mjs",

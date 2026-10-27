@@ -16,6 +16,7 @@ import { makeRng, hashSeed } from '../core/rng.js';
 import { makeForeignName } from '../core/names.js';
 import { clamp, clamp01, sum, byDesc } from '../core/util.js';
 import { realYearlings, buyRealYearling, realMareLots, buyRealMare } from './realsires.js';
+import { nurseryReach } from './training.js';
 
 export const SALE_EVENT = { foal: 'foalSale', mare: 'mareSale', overseas: 'overseas', private: 'private' };
 
@@ -381,9 +382,10 @@ export function buyOverseas(w, key, rngForIds) {
   for (const k of ['coat', 'growth', 'dist', 'distRange', 'turf', 'dirt', 'firm', 'soft', 'style', 'temper', 'sound', 'spirit', 'weightKg']) {
     h[k] = lot[k];
   }
+  // 1 歳は向こうの牧場で育成を受けてきた（買うまで世界に居ないので、その週までの育成を写す。落とし穴 88）。
   for (const a of ABILITIES) {
     h.pot[a] = lot.pot[a];
-    h.cur[a] = clamp01(lot.pot[a] * (lot.yearling ? 0.24 : 0.92));
+    h.cur[a] = clamp01(lot.pot[a] * (lot.yearling ? nurseryReach(w.week) : 0.92));
   }
   h.foreign = true;
   h.lotKey = key;
