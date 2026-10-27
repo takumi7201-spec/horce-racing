@@ -339,8 +339,12 @@ function syncBackdrop(app, screen) {
     const v = G.horseView(prev?.game ?? app.game, portraitId);
     const racing = v && !v.dead && !v.retired && !v.broodmare && !v.stallion;
     p.setPortrait(v ? { id: v.id, coat: v.coat, age: v.age ?? 4, tack: racing } : null);
+    // 「顔を見る」を選んだまま次の馬へ送っても顔のまま（stable.js の切り替え）。
+    p.setPortraitView(app.portraitView ?? 'body');
   } else {
     p.setPortrait(null);
+    app.portraitView = 'body';
+    p.setPortraitView('body');
   }
   p.setLabels(screen === 'home');
   if (live && !document.hidden) p.start();

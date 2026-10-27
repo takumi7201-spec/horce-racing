@@ -626,6 +626,11 @@ export function createPasture(canvas, labelLayer) {
   let shiftPx = 0;
   let shiftPy = 0;
   let disposed = false;
+  // 馬の詳細の見せ方（'body' 全身・'face' 顔）と、寄せる途中のカメラ。
+  let portraitView = 'body';
+  let camEased = false;
+  const camNow = new THREE.Vector3(), lookNow = new THREE.Vector3();
+  const camWant = new THREE.Vector3(), lookWant = new THREE.Vector3();
 
   function resize() {
     width = canvas.clientWidth || window.innerWidth;
@@ -648,17 +653,41 @@ export function createPasture(canvas, labelLayer) {
     camera.updateProjectionMatrix();
   }
 
-  /** カメラはゆっくり漂わせる（止まった絵に見えないように）。 */
-  function placeCamera() {
+  /**
+   * カメラはゆっくり漂わせる（止まった絵に見えないように）。
+   * 馬の詳細では「全身」と「顔」を切り替えられる。顔は馬の組の左前から、頭の組の顔の中ほどを見る
+   * （頭は首と一緒に揺れるので、毎コマ頭の位置から求める）。切り替えは滑らかに寄せる。
+   */
+  function placeCamera(dt = 0) {
     if (portrait) {
-      camera.position.set(
-        PORTRAIT_CAM.x + Math.sin(time * 0.2) * 0.25,
-        PORTRAIT_CAM.y + Math.sin(time * 0.13) * 0.04,
-        PORTRAIT_CAM.z,
-      );
-      camera.lookAt(PORTRAIT_LOOK);
+      if (portraitView === 'face' && portrait.model.head) {
+        portrait.model.group.updateMatrixWorld(true);
+        camWant.set(-1.3 + Math.sin(time * 0.2) * 0.05, 1.9, 3.3);
+        portrait.model.group.localToWorld(camWant);
+        lookWant.set(0, -0.08, 0.22);
+        portrait.model.head.localToWorld(lookWant);
+      } else {
+        camWant.set(
+          PORTRAIT_CAM.x + Math.sin(time * 0.2) * 0.25,
+          PORTRAIT_CAM.y + Math.sin(time * 0.13) * 0.04,
+          PORTRAIT_CAM.z,
+        );
+        lookWant.copy(PORTRAIT_LOOK);
+      }
+      if (!camEased || dt <= 0) {
+        camNow.copy(camWant);
+        lookNow.copy(lookWant);
+        camEased = true;
+      } else {
+        const k = 1 - Math.exp(-dt * 4);
+        camNow.lerp(camWant, k);
+        lookNow.lerp(lookWant, k);
+      }
+      camera.position.copy(camNow);
+      camera.lookAt(lookNow);
       return;
     }
+    camEased = false;
     camera.position.set(
       CAM_POS.x + Math.sin(time * 0.045) * 1.6,
       CAM_POS.y + Math.sin(time * 0.07) * 0.12,
@@ -681,9 +710,10 @@ export function createPasture(canvas, labelLayer) {
     if (dt > 0.1) dt = 0.1;
     time += dt;
     uniforms.uTime.value = time;
-    placeCamera();
+    // 馬を動かしてからカメラを置く（顔のアップは頭の位置から求めるので、遅れると揺れて見える）。
     if (portrait) portrait.model.update(0, 0, 0, { t: time, graze: 0 });
     else for (const h of horses) stepHorse(h, dt, time);
+    placeCamera(dt);
     for (const c of clouds) {
       c.position.x -= c.userData.speed * dt;
       if (c.position.x < -380) c.position.x = 380;
@@ -700,6 +730,12 @@ export function createPasture(canvas, labelLayer) {
   return {
     setHorses,
     setPortrait,
+    /** 馬の詳細の見せ方：'body'（全身）か 'face'（顔のアップ）。 */
+    setPortraitView(mode) {
+      if (mode === portraitView) return;
+      portraitView = mode;
+      if (!running) renderStill();
+    },
     resize,
     /** 見せたい中心を (px, py) だけずらす。正の py で絵が上へ寄る。 */
     setShift(px, py = 0) {
@@ -730,9 +766,11 @@ export function createPasture(canvas, labelLayer) {
       clearHorses();
       scene.traverse((o) => {
         if (o.geometry && !o.geometry.userData?.shared) o.geometry.dispose();
-        if (o.material) {
-          if (o.material.map) o.material.map.dispose();
-          o.material.dispose();
+        // 耳は外と内で材質が 2 つ（配列）。
+        for (const m of [o.material].flat()) {
+          if (!m) continue;
+          m.map?.dispose();
+          m.dispose();
         }
       });
       renderer.dispose();

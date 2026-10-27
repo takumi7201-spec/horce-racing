@@ -869,6 +869,13 @@ canvas.race3d { width: 100%; height: 100%; display: block; }
   font-size: 11px; font-weight: 700; color: #fff; background: #0006; padding: 2px 12px; border-radius: 10px;
   pointer-events: none;
 }
+.hd-face {
+  position: absolute; left: 50%; bottom: 34px; transform: translateX(-50%);
+  font-size: 12px; font-weight: 800; color: var(--green-dd); background: #fffdf3e6;
+  border: 2px solid var(--line2); border-radius: 14px; padding: 3px 14px; cursor: pointer;
+  box-shadow: 0 1px 3px #0003;
+}
+.hd-face:hover { background: #fff; }
 /* 送った向きから板が滑り込む（馬は背景の 3D なので、板だけ動かして「次の馬」を感じさせる） */
 .hd-stage.in-r .hd-info, .hd-stage.in-r .hd-state { animation: hd-in-r .28s ease-out; }
 .hd-stage.in-l .hd-info, .hd-stage.in-l .hd-state { animation: hd-in-l .28s ease-out; }
@@ -1039,6 +1046,7 @@ canvas.race3d { width: 100%; height: 100%; display: block; }
   .hd-state { display: grid; grid-template-columns: auto 1fr; align-items: center; }
   .hs-traits { grid-column: 1 / -1; }
   .hd-swipe { top: 30vh; bottom: auto; }
+  .hd-face { top: calc(30vh - 32px); bottom: auto; }
   .hd-rail { flex-direction: column; align-items: stretch; gap: 4px; }
   .hd.has-rail .hd-stage { padding-top: 40vh; }
   .rail-cats { overflow-x: auto; }

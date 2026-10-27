@@ -18,6 +18,10 @@
 // 置く側は orient.js の yawForZForward() で Y 回転を作ること。
 
 import * as THREE from '../../vendor/three/three.module.min.js';
+import {
+  headGeometry, eyeGeometries, earGeometry, earBase, forelockGeometry, faceTexture,
+  halterGeometries, bridleGeometries, hash01,
+} from './horsehead.js';
 
 /** 1 完歩の距離（m）。 */
 const STRIDE = 7.0;
@@ -88,12 +92,6 @@ function silksColors(seed) {
 
 const clamp01 = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);
 
-/** 馬 id からの決まった乱数（白斑の有無など。乱数の流れに触らない）。 */
-function hash01(id, salt) {
-  let h = (Math.imul(id + 1, 2654435761) ^ Math.imul(salt + 7, 40503)) >>> 0;
-  h ^= h >>> 15; h = Math.imul(h, 2246822519) >>> 0; h ^= h >>> 13;
-  return (h >>> 0) / 4294967296;
-}
 
 // ---------------------------------------------------------------- 管（loft）
 
@@ -237,15 +235,6 @@ function surfacePatch(rings, z0, z1, th0, th1, off, { nz = 10, nt = 10, lift = n
   return geo;
 }
 
-/** 断面の外周に沿う紐（腹帯・頭絡）。 */
-function strapAround(r, off, radius = 0.014) {
-  const pts = [];
-  for (let k = 0; k < 24; k++) pts.push(ringPoint(r, (k / 24) * Math.PI * 2, off));
-  const geo = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts, true), 48, radius, 5, true);
-  geo.userData.shared = true;
-  return geo;
-}
-
 /** 体表から外へ垂れる毛の帯（たてがみ・前髪）。根元の点列と、毛先へのずれ。 */
 function hairRibbon(roots, tipOf) {
   const pos = [], idx = [];
@@ -356,37 +345,11 @@ function buildShapes() {
     // 横は平らに（n を大きく）。丸い管だと胴の脇との境で陰が折れ、首が別の部品に見えた。
   ].map((r) => ({ ...r, n: 2.4 })), { per: 4, seg: 18 });
 
-  // 頭（項の組の中）。項から前下がり 45° に伸ばす。上側（U）が顔の正面、下側が顎。
-  // 馬の頭は「長い箱」：額は広く平ら、頬（下顎の後ろ）は大きく丸い板、鼻筋はまっすぐで、
-  // 鼻先は細らずに四角く終わる。頬を小さくして鼻先へ細く尖らせると、犬（ボルゾイ）の顔に見えた。
-  // 長さ 0.6m、頬の深さ 0.27m、鼻先の幅 0.17m（サラブレッドの実寸）。
-  const head = loft([
-    [-0.07, 0.085, 0.07, 0.1],     // 項の後ろ（首の先を覆う）
-    [0.0, 0.105, 0.078, 0.15],
-    [0.09, 0.122, 0.082, 0.185],   // 目の高さ。額がいちばん広い
-    [0.18, 0.118, 0.08, 0.19],     // 頬（下顎の角は丸く深い）
-    // 顎の線は頬から鼻先まで、鼻筋に向かってまっすぐ狭まる。頬の後ろでえぐると垂れた喉袋と
-    // 細い鼻面になり、犬（ボルゾイ）の顔に見えた。
-    [0.27, 0.104, 0.077, 0.166],
-    [0.36, 0.094, 0.074, 0.143],   // 鼻筋
-    [0.45, 0.092, 0.073, 0.125],
-    [0.5, 0.094, 0.071, 0.12],     // 鼻先とおとがい（細らせない）
-    [0.56, 0.088, 0.068, 0.096],   // 下唇はおとがいより引っ込む
-    [0.6, 0.074, 0.062, 0.07],
-    // 鼻先は丸めずに切り立たせる（長く丸めると先が垂れて、犬の鼻に見えた）
-    [0.622, 0.05, 0.044, 0.042],
-    [0.632, 0.014, 0.012, 0.012],
-  ].map(([s, w, up, dn]) => ({ p: [0, -s * Math.SQRT1_2, s * Math.SQRT1_2], w, up, dn, n: 2.4 })), { per: 4, seg: 20 });
-  // 頭の制御断面 ci 番目（小数可）の断面。
-  const hr = (ci) => head.rings[Math.round(ci * 4)];
-
-  // 耳。付け根から上へ、先がわずかに前へ反る。長いと驢馬に見える。
-  const ear = loft([
-    { p: [0, 0, 0], w: 0.036, up: 0.028, dn: 0.022 },
-    { p: [0, 0.06, 0.006], w: 0.032, up: 0.024, dn: 0.018 },
-    { p: [0, 0.11, 0.016], w: 0.016, up: 0.012, dn: 0.009 },
-    { p: [0, 0.135, 0.024], w: 0.003, up: 0.003, dn: 0.003 },
-  ], { per: 3, seg: 8 });
+  // 頭・目・耳・前髪は horsehead.js（断面の 5 点と体表の凹凸、顔の布）。
+  const headHigh = headGeometry('high');
+  const headLow = headGeometry('low');
+  const eye = eyeGeometries();
+  const ear = earGeometry();
 
   // 前脚。前腕（筋肉で太い）→ 膝 → 管（すね。細く、後ろに腱が張る）→ 球節 → 繋 → 蹄。
   // 前腕は胸に埋めて付け根の段差を消す。上（U）は脚の前側。
@@ -461,50 +424,8 @@ function buildShapes() {
   });
   // たてがみの根元の帯。首の上の線に沿わせて、左から見ても鬣の線が見えるようにする。
   const crestHair = surfacePatch(neck.rings, 0.0, 0.66, Math.PI / 2 - 0.42, Math.PI / 2 + 0.42, 0.012, { nz: 14, nt: 6 });
-  // 前髪：両耳の間から額へ。
-  const flRoots = [0.5, 0.7, 0.9].map((t) => ringPoint(hr(0.7), Math.PI / 2 + (t - 0.7) * 0.9, -0.002));
-  const forelock = hairRibbon(flRoots, (p) => p.clone().add(new THREE.Vector3(0, -0.105, 0.125)));
-
-  // 白斑。顔の正面に沿わせた帯（星・流星・大流星）。体表から少しだけ浮かせる。
-  const faceStrip = (from, to, half) => {
-    const rs = head.rings.slice(from, to);
-    const pos = [], idx = [];
-    rs.forEach((r, i) => {
-      const t = i / (rs.length - 1);
-      const hw = half(t) / Math.max(0.03, r.w);   // 角度に直す
-      const a = ringPoint(r, Math.PI / 2 - hw, 0.003), b = ringPoint(r, Math.PI / 2 + hw, 0.003);
-      pos.push(a.x, a.y, a.z, b.x, b.y, b.z);
-    });
-    for (let i = 0; i < rs.length - 1; i++) {
-      const a = i * 2;
-      idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
-    }
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-    geo.setIndex(idx);
-    geo.computeVertexNormals();
-    geo.userData.shared = true;
-    return geo;
-  };
-  const nh = head.rings.length;
-  const star = faceStrip(8, 15, (t) => 0.032 * Math.sin(Math.PI * t));
-  const blaze = faceStrip(9, nh - 4, (t) => 0.014 + 0.012 * t);
-  const wideBlaze = faceStrip(7, nh - 2, (t) => 0.032 + 0.026 * t);
-
-  // 目は額と頬の境（顔の横）に、項から頭の長さの 3 分の 1 ほど下。顔の前に寄せると犬に見える。
-  // 目の上には眼窩の骨の張り出し（眉）を付ける。
-  const eyes = [-1, 1].map((sx) => ringPoint(hr(3.0), sx > 0 ? 0.3 : Math.PI - 0.3, -0.014));
-  const brows = [-1, 1].map((sx) => ringPoint(hr(2.85), sx > 0 ? 0.54 : Math.PI - 0.54, -0.024));
-  // 鼻の穴は鼻先の前寄りの横に、頭の向きに沿った細長い切れ込み。
-  const nostrils = [-1, 1].map((sx) => ringPoint(hr(8.3), sx > 0 ? 0.6 : Math.PI - 0.6, -0.01));
-  // 口の線：鼻先の横、上唇と下唇の合わせ目。
-  const mouth = [-1, 1].map((sx) => {
-    const pts = [7.7, 8.4, 9.1, 9.8, 10.3].map((c) => ringPoint(hr(c), sx > 0 ? -0.3 : Math.PI + 0.3, -0.001));
-    const geo = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 10, 0.0045, 5, false);
-    geo.userData.shared = true;
-    return geo;
-  });
-  const earBase = [-1, 1].map((sx) => ringPoint(hr(1.2), sx > 0 ? 1.15 : Math.PI - 1.15, -0.02));
+  const forelock = forelockGeometry();
+  const earR = earBase();
 
   // 馬具（詳細画面の 1 頭だけ）。鞍下・鞍は胴の背に沿わせる。
   const pad = surfacePatch(torso.rings, -0.16, 0.38, Math.PI / 2 - 1.22, Math.PI / 2 + 1.22, 0.012, { nz: 12, nt: 16 });
@@ -512,8 +433,6 @@ function buildShapes() {
     { nz: 12, nt: 10, lift: (u) => 0.05 * Math.max(0, (Math.abs(u - 0.45) - 0.3) / 0.25) ** 2 });
   // 腹帯は幅のある帯（細い紐にすると針金に見えた）。鞍下の縁から腹の下を回る。
   const girth = surfacePatch(torso.rings, 0.21, 0.29, Math.PI / 2 + 1.12, Math.PI / 2 - 1.12 + Math.PI * 2, 0.016, { nz: 2, nt: 28 });
-  const noseband = strapAround(hr(5.2), 0.006, 0.011);
-  const crownStrap = strapAround(hr(0.7), 0.008, 0.011);
   // ゼッケン（鞍下に付く番号布）。左右で文字が裏返らないよう u を反転する。
   const clothR = surfacePatch(torso.rings, -0.14, 0.32, -0.62, 0.12, 0.016, { nz: 10, nt: 8, flipU: true });
   const clothL = surfacePatch(torso.rings, -0.14, 0.32, Math.PI - 0.12, Math.PI + 0.62, 0.016, { nz: 10, nt: 8 });
@@ -524,21 +443,18 @@ function buildShapes() {
   // 首・前腕・太腿の付け根の陰を胴（と頭）に合わせる。立ち姿の組の位置と回転で重ねる。
   const at = (pos, rotX = 0) => new THREE.Matrix4().makeRotationX(rotX).setPosition(...pos);
   blendNormalsTo(neck.geo, torso.geo, at(NECK_PIVOT, 0.1));
-  blendNormalsTo(neck.geo, head.geo, at(POLL.map((v) => -v)), 0.02, 0.08);
+  blendNormalsTo(neck.geo, headHigh, at(POLL.map((v) => -v)), 0.02, 0.08);
   blendNormalsTo(foreArm.geo, torso.geo, at([FRONT_HIP.x, FRONT_HIP.y, FRONT_HIP.z]));
   blendNormalsTo(thigh.geo, torso.geo, at([HIND_HIP.x, HIND_HIP.y, HIND_HIP.z], 0.04));
   const foreArmL = mirrorX(foreArm.geo), thighL = mirrorX(thigh.geo);
 
-  const sphere = (r, w = 12, h = 9) => {
-    const g = new THREE.SphereGeometry(r, w, h);
-    g.userData.shared = true;
-    return g;
-  };
-
   return {
-    torso, neck, head, ear, foreArm, foreArmL, foreCannon, thigh, thighL, hindCannon, pastern, hoof, dock, tailHair,
-    mane, crestHair, forelock, star, blaze, wideBlaze, eyes, brows, nostrils, earBase, pad, saddle, girth, noseband, crownStrap,
-    clothR, clothL, eyeGeo: sphere(0.027, 12, 10), browGeo: sphere(0.034, 10, 8), nostrilGeo: sphere(0.024, 10, 8), mouth,
+    torso, neck, foreArm, foreArmL, foreCannon, thigh, thighL, hindCannon, pastern, hoof, dock, tailHair,
+    mane, crestHair, pad, saddle, girth, clothR, clothL,
+    headHigh, headLow, forelock,
+    eyeR: eye, eyeL: { ball: mirrorX(eye.ball), lidEdge: mirrorX(eye.lidEdge), lid: mirrorX(eye.lid) },
+    earR: ear, earL: mirrorX(ear), earBase: [new THREE.Vector3(-earR.x, earR.y, earR.z), earR],
+    halter: null, bridle: null,    // 頭絡は使うときに作る（形を頭の面から起こすので少し重い）
     rider: buildRiderShapes(),
   };
 }
@@ -577,6 +493,64 @@ function placeLimb(mesh, from, to) {
   return mesh;
 }
 
+// ---------------------------------------------------------------- 手綱
+
+/** 耳の傾き（前へ）。走ると伏せる。 */
+const EAR_TILT = 0.12;
+
+/**
+ * 手綱。銜の輪（頭の組）から騎手の手（騎手の組）へ渡す平たい革。両端が別の組で動くので、
+ * 毎コマ胴の組の座標に直して張り直す（首を振り、騎手が揺れても手綱が切れない）。少したるませる。
+ */
+function makeReins(mat) {
+  const N = 12;
+  const pos = new Float32Array(2 * (N + 1) * 2 * 3);
+  const nrm = new Float32Array(pos.length);
+  for (let i = 1; i < nrm.length; i += 3) nrm[i] = 1;
+  const idx = [];
+  for (let r = 0; r < 2; r++) {
+    const o = r * (N + 1) * 2;
+    for (let k = 0; k < N; k++) {
+      const a = o + k * 2;
+      idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
+  geo.setIndex(idx);
+  const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: mat.color, roughness: 0.5, metalness: 0, side: THREE.DoubleSide }));
+  mesh.frustumCulled = false;
+  const HANDS = [[-0.09, 0.2, 0.74], [0.09, 0.2, 0.74]];   // 騎手の組（左・右）
+  const rotX = (y, z, a) => [y * Math.cos(a) - z * Math.sin(a), y * Math.sin(a) + z * Math.cos(a)];
+  function update(headPivot, neckPivot, rider, bridle) {
+    const bits = [bridle.bitL, bridle.bitR];
+    for (let r = 0; r < 2; r++) {
+      const b = bits[r];
+      // 銜：頭の組 → 首の組 → 胴の組。
+      let [by, bz] = rotX(b.y, b.z, headPivot.rotation.x);
+      by += POLL[1]; bz += POLL[2];
+      [by, bz] = rotX(by, bz, neckPivot.rotation.x);
+      by += NECK_PIVOT[1]; bz += NECK_PIVOT[2];
+      // 手：騎手の組 → 胴の組。
+      const h = HANDS[r];
+      let [hy, hz] = rotX(h[1], h[2], rider.rotation.x);
+      hy += rider.position.y; hz += rider.position.z;
+      const len = Math.hypot(h[0] - b.x, hy - by, hz - bz);
+      const sag = 0.02 * len;
+      const o = r * (N + 1) * 2 * 3;
+      for (let k = 0; k <= N; k++) {
+        const t = k / N;
+        const x = b.x + (h[0] - b.x) * t, y = by + (hy - by) * t - sag * 4 * t * (1 - t), z = bz + (hz - bz) * t;
+        const w = 0.009;
+        pos.set([x - w, y, z, x + w, y, z], o + k * 6);
+      }
+    }
+    geo.attributes.position.needsUpdate = true;
+  }
+  return { mesh, update };
+}
+
 // ---------------------------------------------------------------- 1 頭
 
 /**
@@ -584,10 +558,11 @@ function placeLimb(mesh, from, to) {
  *
  * @param {{bare?:boolean, tack?:boolean}} opts
  *   bare=true で騎手とゼッケンを付けない（牧場用）。
- *   tack=true で鞍と頭絡を付ける（馬の詳細で 1 頭だけ大きく見せるとき）
+ *   tack=true で鞍と無口を付ける（馬の詳細で 1 頭だけ大きく見せるとき）
+ *   detail は頭の細かさ（'high' 牧場・詳細、'low' レース）。既定は bare なら high
  * @returns {{group:THREE.Group, update:Function, legs:Array, body:THREE.Group, rider:THREE.Group|null}}
  */
-export function makeHorse({ id = 1, gate = 1, frame = 1, coat = '鹿毛', scale = 1, bare = false, tack = false, padColor = 0xe8c33a } = {}) {
+export function makeHorse({ id = 1, gate = 1, frame = 1, coat = '鹿毛', scale = 1, bare = false, tack = false, padColor = 0xe8c33a, detail = null } = {}) {
   const S = shapes();
   const group = new THREE.Group();
   const body = new THREE.Group();   // 胴体まわり（上下に揺れる）
@@ -602,8 +577,6 @@ export function makeHorse({ id = 1, gate = 1, frame = 1, coat = '鹿毛', scale 
   const hoofMat = new THREE.MeshStandardMaterial({ color: 0x2a2420, roughness: 0.45, metalness: 0 });
   const paleHoof = new THREE.MeshStandardMaterial({ color: 0x8a7860, roughness: 0.45, metalness: 0 });
   const white = new THREE.MeshStandardMaterial({ color: 0xf4f1ea, roughness: 0.6, metalness: 0, side: THREE.DoubleSide });
-  const eyeMat = new THREE.MeshStandardMaterial({ color: 0x120a06, roughness: 0.15, metalness: 0 });
-  const nostrilMat = new THREE.MeshStandardMaterial({ color: 0x140c08, roughness: 0.7, metalness: 0 });
 
   const mesh = (parent, geo, mat, x = 0, y = 0, z = 0) => {
     const m = new THREE.Mesh(geo, mat);
@@ -626,31 +599,36 @@ export function makeHorse({ id = 1, gate = 1, frame = 1, coat = '鹿毛', scale 
   const headPivot = new THREE.Group();
   headPivot.position.set(...POLL);
   neckPivot.add(headPivot);
-  mesh(headPivot, S.head.geo, hide);
+  // 顔は布（毛色の地・鼻先の黒み・鼻の穴・口の線・白斑）を貼る。艶は胴と同じ。
+  // レースは遠景なので頭を粗く、布も小さくする（18 頭ぶん描くので）。
+  const high = (detail ?? (bare ? 'high' : 'low')) === 'high';
+  const faceMat = new THREE.MeshStandardMaterial({ map: faceTexture(coat, coatColor, id, high ? 512 : 256), roughness: 0.52, metalness: 0 });
+  mesh(headPivot, high ? S.headHigh : S.headLow, faceMat);
   mesh(headPivot, S.forelock, hairMat);
-  // 目・眉・鼻の穴は頭の向き（前下がり 45°）に沿わせた楕円。ローカル y が頭の軸になる。
-  const alongHead = (m, sx, sy, sz) => { m.rotation.x = -Math.PI / 4; m.scale.set(sx, sy, sz); return m; };
-  for (const p of S.eyes) alongHead(mesh(headPivot, S.eyeGeo, eyeMat, p.x, p.y, p.z), 0.6, 1.25, 1);
-  for (const p of S.brows) alongHead(mesh(headPivot, S.browGeo, hide, p.x, p.y, p.z), 0.5, 1.4, 0.75);
-  for (const p of S.nostrils) alongHead(mesh(headPivot, S.nostrilGeo, nostrilMat, p.x, p.y, p.z), 0.5, 1.7, 0.9);
-  for (const g of S.mouth) mesh(headPivot, g, nostrilMat);
+  // 目：角膜の艶（クリアコート）を持つ黒褐色の玉と、まぶたの縁（黒い皮膚）・まぶたの皮膚。
+  // 色の掛け算は線形の値なので、見た目で 8 割の暗さにするには 0.6 前後を掛ける。
+  const eyeBall = new THREE.MeshPhysicalMaterial({ color: 0x1b120c, roughness: 0.35, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.04 });
+  const lidEdge = new THREE.MeshStandardMaterial({ color: 0x15100d, roughness: 0.6, metalness: 0 });
+  const lidSkin = new THREE.MeshStandardMaterial({ color: new THREE.Color(coatColor).multiplyScalar(0.62), roughness: 0.55, metalness: 0 });
+  for (const E of [S.eyeR, S.eyeL]) {
+    mesh(headPivot, E.ball, eyeBall);
+    mesh(headPivot, E.lidEdge, lidEdge);
+    mesh(headPivot, E.lid, lidSkin);
+  }
+  // 耳：外は毛色、内（窪み）は暗い。
+  const earInner = new THREE.MeshStandardMaterial({ color: new THREE.Color(coatColor).multiplyScalar(0.18), roughness: 0.9, metalness: 0 });
   const ears = S.earBase.map((p, i) => {
     const pivot = new THREE.Group();
     pivot.position.copy(p);
-    pivot.rotation.z = (i === 0 ? 1 : -1) * 0.22;   // 少し外へ開く
-    pivot.rotation.x = 0.25;
+    pivot.rotation.z = (i === 0 ? 1 : -1) * 0.2;   // 少し外へ開く
+    pivot.rotation.x = EAR_TILT;
     headPivot.add(pivot);
-    mesh(pivot, S.ear.geo, hide);
+    mesh(pivot, i === 0 ? S.earL : S.earR, [hide, earInner]);
     return pivot;
   });
 
-  // 白斑。芦毛・白毛は地色が白いので付けない。決まり方は馬 id から（同じ馬はいつも同じ顔）。
+  // 白斑（顔）は布に描いてある。靴下は芦毛・白毛には付けない。
   const markable = coat !== '芦毛' && coat !== '白毛';
-  if (markable) {
-    const f = hash01(id, 1);
-    const face = f < 0.42 ? null : f < 0.66 ? S.star : f < 0.86 ? S.blaze : S.wideBlaze;
-    if (face) mesh(headPivot, face, white);
-  }
 
   // --- 尾（付け根を支点に、走ると後ろへ流れる。毛は付け根の先でもう一段しなる） ---
   const tailPivot = new THREE.Group();
@@ -697,6 +675,7 @@ export function makeHorse({ id = 1, gate = 1, frame = 1, coat = '鹿毛', scale 
 
   // --- 騎手（牧場では付けない） ---
   let rider = null;
+  let reins = null;
   if (!bare) {
     const [silkA, silkB] = silksColors(id);
     const silksMat = new THREE.MeshStandardMaterial({ color: silkA, roughness: 0.45, metalness: 0 });
@@ -732,6 +711,14 @@ export function makeHorse({ id = 1, gate = 1, frame = 1, coat = '鹿毛', scale 
     const side = new THREE.MeshStandardMaterial({ map: numberTexture(gate, frame), roughness: 0.75, metalness: 0, side: THREE.DoubleSide });
     mesh(body, S.clothR, side);
     mesh(body, S.clothL, side);
+
+    // --- 頭絡（勒）と手綱 ---
+    S.bridle ??= bridleGeometries();
+    const black = new THREE.MeshStandardMaterial({ color: 0x1c1511, roughness: 0.45, metalness: 0 });
+    mesh(headPivot, S.bridle.leather, black);
+    mesh(headPivot, S.bridle.metal, new THREE.MeshStandardMaterial({ color: 0xb9bdc2, roughness: 0.3, metalness: 0.5 }));
+    reins = makeReins(black);
+    body.add(reins.mesh);
   }
 
   // --- 馬具（詳細画面の 1 頭だけ） ---
@@ -740,9 +727,10 @@ export function makeHorse({ id = 1, gate = 1, frame = 1, coat = '鹿毛', scale 
     mesh(body, S.pad, new THREE.MeshStandardMaterial({ color: padColor, roughness: 0.8, metalness: 0, side: THREE.DoubleSide }));
     mesh(body, S.saddle, new THREE.MeshStandardMaterial({ color: 0x3a2a20, roughness: 0.35, metalness: 0, side: THREE.DoubleSide }));
     mesh(body, S.girth, strap);
-    // 頭絡は頭の組に付けるので、首を振ってもずれない。
-    mesh(headPivot, S.noseband, strap);
-    mesh(headPivot, S.crownStrap, strap);
+    // 無口（茶の革に真鍮の金具）。頭の組に付けるので、首を振ってもずれない。
+    S.halter ??= halterGeometries();
+    mesh(headPivot, S.halter.leather, new THREE.MeshStandardMaterial({ color: 0x4a2c1a, roughness: 0.46, metalness: 0 }));
+    mesh(headPivot, S.halter.brass, new THREE.MeshStandardMaterial({ color: 0xd8ad55, roughness: 0.3, metalness: 0.45 }));
   }
 
   if (scale !== 1) group.scale.setScalar(scale);
@@ -798,7 +786,7 @@ export function makeHorse({ id = 1, gate = 1, frame = 1, coat = '鹿毛', scale 
     headPivot.rotation.x = run * 0.18 + graze * 0.3;
     // 耳：走るときは前へ伏せ、牧場では時々向きを変える。
     for (let i = 0; i < ears.length; i++) {
-      ears[i].rotation.x = 0.25 - run * 0.55 + (idle ? Math.sin(t * 0.7 + id * 3 + i * 2.1) * 0.25 * (1 - moving) : 0);
+      ears[i].rotation.x = EAR_TILT - run * 0.55 + (idle ? Math.sin(t * 0.7 + id * 3 + i * 2.1) * 0.25 * (1 - moving) : 0);
     }
     // 尾は後ろへ流れ、毛先は付け根より遅れてしなる。
     // 襲歩でも尾は水平より少し下に流れる（上げ過ぎると棒に見えた）。
@@ -809,9 +797,10 @@ export function makeHorse({ id = 1, gate = 1, frame = 1, coat = '鹿毛', scale 
     tailPivot.rotation.z = sway;
     tailFlow.rotation.z = sway * 0.8;
     if (rider) rider.rotation.x = -run * 0.08 - Math.cos(phase * tau) * 0.03 * gait;
+    if (reins) reins.update(headPivot, neckPivot, rider, S.bridle);
   }
 
-  return { group, update, legs, body, rider };
+  return { group, update, legs, body, rider, head: headPivot };
 }
 
 /** 影の代わりの楕円。地面に貼って足元を締める（影より軽い）。 */
@@ -835,7 +824,8 @@ export function disposeHorse(root) {
   root.traverse((o) => {
     if (!o.isMesh) return;
     if (!o.geometry?.userData?.shared) o.geometry?.dispose();
-    o.material?.dispose?.();
+    // 耳は外と内で材質が 2 つ（配列）。顔の布は使い回すので捨てない（horsehead.js が古いものから捨てる）。
+    for (const m of [o.material].flat()) m?.dispose?.();
   });
 }
 

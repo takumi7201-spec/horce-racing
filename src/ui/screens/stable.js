@@ -195,6 +195,17 @@ function detail(app, id) {
     infoPanel(v, career),
     statePanel(v),
     lineup.length > 1 && at >= 0 ? el('div.hd-swipe', { text: '左右にスワイプで次の馬' }) : null,
+    // 背景の 3D を顔のアップに切り替える（顔の作り・白斑・無口を近くで見られるように）。
+    el('button.hd-face', {
+      text: app.portraitView === 'face' ? '全身を見る' : '顔を見る',
+      onpointerdown: (e) => e.stopPropagation(),
+      onclick: (e) => {
+        e.stopPropagation();
+        app.portraitView = app.portraitView === 'face' ? 'body' : 'face';
+        app.pasture?.setPortraitView(app.portraitView);
+        e.currentTarget.textContent = app.portraitView === 'face' ? '全身を見る' : '顔を見る';
+      },
+    }),
   ]);
   swipe(stage, go);
 
