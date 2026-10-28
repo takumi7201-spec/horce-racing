@@ -237,14 +237,17 @@ export function createRaceView(canvas, race, opts = {}) {
       // ただし内ラチより内には出ない（内馬場は走路より低く、手前が暗い段差で埋まった）。
       // 横の位置は外ラチではなく馬から測る（東京の芝は幅 40m 近くあり、ラチ沿いの馬が豆粒になった）。
       // 寄せずにその場に置く（止めた 1 コマを撮るので、前のコマから滑らせると構図が毎回ずれる）。
+      // 高さはどちらも馬の足元の標高から測る。決勝線の先は周回の境目をまたぐので、そこで標高を引くと
+      // 1.6m ずれた値が返り、カメラが地面を見下ろした（posToWorld は周回で折り返すが elevationAt は折り返さない）。
+      const ground = elevationAt(track, targetP);
       const w = posToWorld(track, targetP + (opts.photoAhead ?? 12), Math.max(0.6, target.off + (opts.photoOut ?? -3)));
-      camPos.set(w.x, elevationAt(track, targetP) + (opts.photoHeight ?? 1.5), w.z);
+      camPos.set(w.x, ground + (opts.photoHeight ?? 1.5), w.z);
       camera.position.copy(camPos);
       // 望遠で寄せる。広角で近づくと内馬場（暗い面）が画面の半分を占め、馬の背後が間延びした。
       setFov(opts.photoFov ?? 26);
-      const t = trackPoint(track, targetP + 1.5, target.off, look);
-      t.point.y += opts.photoLookY ?? 1.5;
-      camera.lookAt(t.point);
+      const at = posToWorld(track, targetP + 1.5, target.off);
+      look.set(at.x, ground + (opts.photoLookY ?? 1.5), at.z);
+      camera.lookAt(look);
     } else if (mode === 'aerial') {
       const t = trackPoint(track, packP, track.width / 2, look);
       camPos.set(t.point.x, t.point.y + 58, t.point.z);
