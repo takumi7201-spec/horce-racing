@@ -177,7 +177,14 @@ export function createRaceView(canvas, race, opts = {}) {
     }
   }
 
+  function setFov(f) {
+    if (camera.fov === f) return;
+    camera.fov = f;
+    camera.updateProjectionMatrix();
+  }
+
   function updateCamera(st) {
+    if (mode !== 'photo') setFov(48);
     const lead = st.lead;
     const packS = (st.ranked[0].s + st.ranked[Math.min(2, st.ranked.length - 1)].s) / 2;
     const packP = track.start + packS;
@@ -224,6 +231,20 @@ export function createRaceView(canvas, race, opts = {}) {
       const ahead = trackPoint(track, targetP + 45, target.off * 0.85, look);
       ahead.point.y += 1.2;
       camera.lookAt(ahead.point);
+    } else if (mode === 'photo') {
+      // ゴールの瞬間の一枚絵（カード用）。追う馬の斜め前の内側、低い位置から胸元を見上げる。
+      // 内から外を向くと、背景がスタンドと空になる（外から撮ると暗い内馬場が背景に広がった）。
+      // ただし内ラチより内には出ない（内馬場は走路より低く、手前が暗い段差で埋まった）。
+      // 横の位置は外ラチではなく馬から測る（東京の芝は幅 40m 近くあり、ラチ沿いの馬が豆粒になった）。
+      // 寄せずにその場に置く（止めた 1 コマを撮るので、前のコマから滑らせると構図が毎回ずれる）。
+      const w = posToWorld(track, targetP + (opts.photoAhead ?? 12), Math.max(0.6, target.off + (opts.photoOut ?? -3)));
+      camPos.set(w.x, elevationAt(track, targetP) + (opts.photoHeight ?? 1.5), w.z);
+      camera.position.copy(camPos);
+      // 望遠で寄せる。広角で近づくと内馬場（暗い面）が画面の半分を占め、馬の背後が間延びした。
+      setFov(opts.photoFov ?? 26);
+      const t = trackPoint(track, targetP + 1.5, target.off, look);
+      t.point.y += opts.photoLookY ?? 1.5;
+      camera.lookAt(t.point);
     } else if (mode === 'aerial') {
       const t = trackPoint(track, packP, track.width / 2, look);
       camPos.set(t.point.x, t.point.y + 58, t.point.z);
@@ -292,7 +313,8 @@ export function createRaceView(canvas, race, opts = {}) {
     const hide = mode === 'jockey' ? (focusId ?? st.lead.id) : null;
     for (const h of horses) {
       const isFocus = h.id === focusId;
-      const on = (marks.has(h.id) || isFocus) && h.id !== hide;
+      // 一枚絵（photo）には目印を写さない。
+      const on = mode !== 'photo' && (marks.has(h.id) || isFocus) && h.id !== hide;
       h.marker.group.visible = on;
       if (!on) continue;
       h.marker.mat.color.setHex(isFocus ? MARK_FOCUS : MARK_OWN);
