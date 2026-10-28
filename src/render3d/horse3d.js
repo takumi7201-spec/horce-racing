@@ -562,7 +562,7 @@ function makeReins(mat) {
  *   detail は頭の細かさ（'high' 牧場・詳細、'low' レース）。既定は bare なら high
  * @returns {{group:THREE.Group, update:Function, legs:Array, body:THREE.Group, rider:THREE.Group|null}}
  */
-export function makeHorse({ id = 1, gate = 1, frame = 1, coat = '鹿毛', scale = 1, bare = false, tack = false, padColor = 0xe8c33a, detail = null } = {}) {
+export function makeHorse({ id = 1, gate = 1, frame = 1, coat = '鹿毛', scale = 1, bare = false, tack = false, padColor = 0xe8c33a, detail = null, riderPose = 'race' } = {}) {
   const S = shapes();
   const group = new THREE.Group();
   const body = new THREE.Group();   // 胴体まわり（上下に揺れる）
@@ -687,18 +687,29 @@ export function makeHorse({ id = 1, gate = 1, frame = 1, coat = '鹿毛', scale 
     rider = new THREE.Group();
     rider.position.set(0, 1.6, -0.06);
     // モンキー乗り：腰を鞍から浮かせ、背中はほぼ水平、頭は前を見る。鐙は短く、膝が高い。
+    // celebrate（ゴール後のガッツポーズ。カードの一枚絵）：上体を起こし、左手（馬の左＝+x）で鞭を突き上げ、右手は手綱。
+    // 腕と胴は長さの決まった部品なので、端点は元の長さを保つ位置に置いてある。
+    const up = riderPose === 'celebrate';
     const hips = mesh(rider, R.hips, breeches, 0, 0.2, -0.04);
     hips.scale.set(1, 0.85, 1.05);
-    placeLimb(mesh(rider, R.torso, silksMat), [0, 0.24, -0.02], [0, 0.42, 0.5]);
-    mesh(rider, R.head, skinMat, 0, 0.53, 0.6);
-    const helmet = mesh(rider, R.helmet, capMat, 0, 0.55, 0.59);
-    helmet.rotation.x = 0.35;
-    const peak = mesh(rider, R.peak, capMat, 0, 0.56, 0.62);
-    peak.rotation.x = 0.35;
+    placeLimb(mesh(rider, R.torso, silksMat), [0, 0.24, -0.02], up ? [0, 0.72, 0.24] : [0, 0.42, 0.5]);
+    const hd = up ? [0, 0.85, 0.34] : [0, 0.53, 0.6];
+    mesh(rider, R.head, skinMat, ...hd);
+    const helmet = mesh(rider, R.helmet, capMat, hd[0], hd[1] + 0.02, hd[2] - 0.01);
+    helmet.rotation.x = up ? 0.1 : 0.35;
+    const peak = mesh(rider, R.peak, capMat, hd[0], hd[1] + 0.03, hd[2] + 0.02);
+    peak.rotation.x = up ? 0.1 : 0.35;
     for (const sx of [-1, 1]) {
-      const sh = [sx * 0.16, 0.44, 0.4], el = [sx * 0.2, 0.26, 0.5], hand = [sx * 0.09, 0.2, 0.74];
+      let sh = [sx * 0.16, 0.44, 0.4], el = [sx * 0.2, 0.26, 0.5], hand = [sx * 0.09, 0.2, 0.74];
+      if (up && sx > 0) { sh = [0.16, 0.66, 0.2]; el = [0.276, 0.787, 0.077]; hand = [0.372, 1.02, -0.033]; }
+      else if (up) { sh = [-0.16, 0.66, 0.2]; el = [-0.2, 0.5, 0.33]; hand = [-0.088, 0.378, 0.543]; }
       placeLimb(mesh(rider, R.upperArm, silksMat), sh, el);
       placeLimb(mesh(rider, R.foreArm, capMat), el, hand);
+      if (up && sx > 0) {
+        const whip = new THREE.Mesh(new THREE.CylinderGeometry(0.007, 0.012, 0.62, 6), bootMat);
+        placeLimb(whip, hand, [hand[0] + 0.16, hand[1] + 0.5, hand[2] - 0.34]);
+        rider.add(whip);
+      }
       // 鐙は馬の脇。足首を胴の幅より内に置くと、背の上に立っているように見えた。
       const hp = [sx * 0.13, 0.18, -0.02], kn = [sx * 0.25, 0.13, 0.34], an = [sx * 0.31, -0.2, 0.2];
       placeLimb(mesh(rider, R.thigh, breeches), hp, kn);

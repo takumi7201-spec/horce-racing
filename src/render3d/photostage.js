@@ -43,6 +43,56 @@ function turfTexture() {
   return t;
 }
 
+/** ダート。砂の地に、ハローを掛けた筋と蹄の跡。 */
+function dirtTexture() {
+  const c = document.createElement('canvas');
+  c.width = 256; c.height = 256;
+  const g = c.getContext('2d');
+  g.fillStyle = '#b8a890';
+  g.fillRect(0, 0, 256, 256);
+  const rnd = seeded(11);
+  for (let i = 0; i < 40; i++) {
+    g.fillStyle = rnd() < 0.5 ? '#a8987e' : '#c6b8a0';
+    g.fillRect(rnd() * 256, 0, 1 + rnd() * 3, 256);
+  }
+  for (let i = 0; i < 3000; i++) {
+    g.fillStyle = rnd() < 0.5 ? '#8f806a' : '#d8ccb6';
+    g.fillRect(rnd() * 256, rnd() * 256, 1 + rnd() * 2, 1 + rnd() * 2);
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+/** 砂煙（ダートで蹴り上げた砂）。柔らかい丸を重ねる。 */
+function dustSprite() {
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const g = c.getContext('2d');
+  const gr = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  gr.addColorStop(0, 'rgba(225,212,190,0.85)');
+  gr.addColorStop(1, 'rgba(225,212,190,0)');
+  g.fillStyle = gr;
+  g.fillRect(0, 0, 64, 64);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+function dust(rnd) {
+  const g = new THREE.Group();
+  const mat = new THREE.SpriteMaterial({ map: dustSprite(), depthWrite: false });
+  for (let i = 0; i < 9; i++) {
+    const sp = new THREE.Sprite(mat);
+    const s = 0.3 + rnd() * 0.5;
+    sp.scale.set(s * 1.6, s, 1);
+    sp.position.set((rnd() - 0.5) * 0.5, 0.1 + rnd() * 0.25, -0.9 - rnd() * 1.6);
+    g.add(sp);
+  }
+  return g;
+}
+
 /** 観客席。段ごとに人（頭と服の色）を並べる。奥ほど影で暗い。 */
 function crowdTexture() {
   const c = document.createElement('canvas');
@@ -147,11 +197,15 @@ function clods(rnd, n) {
  * pos はカメラ、look は見る点、fov は画角。
  */
 export const SHOTS = {
-  front: { name: '正面', pos: [0.7, 1.5, 6.0], look: [-0.2, 1.4, 0.2], fov: 30 },
-  face: { name: '顔のアップ', pos: [1.6, 1.85, 3.6], look: [0, 1.75, 1.2], fov: 32 },
-  low: { name: '見上げ', pos: [2.6, 0.28, 3.8], look: [0, 1.65, 0.4], fov: 54 },
-  side: { name: '真横', pos: [3.1, 1.35, 0.9], look: [0, 1.3, 0.7], fov: 58 },
-  duel: { name: '競り合い', pos: [2.2, 1.25, 7.0], look: [-1.1, 1.4, -0.3], fov: 32 },
+  // 参考：ゴール後の流し撮り。真横の望遠、馬の高さ。内ラチは写さず、すぐ後ろにラチ、背景は大きくぼけたスタンド。
+  profile: { name: '真横', pos: [12, 1.3, 0.0], look: [0, 1.38, 0.0], fov: 18.5, inner: false, rails: [-3.0], sun: [0.7, 0.2, 0.7] },
+  // 参考：ガッツポーズの斜め前。内ラチ越し（手前にラチが横切る）、少し見上げる。
+  finish: { name: '斜め前', pos: [8.5, 1.05, 8.5], look: [0, 1.45, 0.4], fov: 15, inner: true, rails: [-3.0], sun: [0.75, 0.22, 0.6] },
+  front: { name: '正面', pos: [0.7, 1.5, 6.0], look: [-0.2, 1.4, 0.2], fov: 30, inner: true, rails: [] },
+  face: { name: '顔のアップ', pos: [1.6, 1.85, 3.6], look: [0, 1.75, 1.2], fov: 32, inner: true, rails: [] },
+  low: { name: '見上げ', pos: [2.6, 0.28, 3.8], look: [0, 1.65, 0.4], fov: 54, inner: true, rails: [] },
+  side: { name: '真横（近く）', pos: [3.1, 1.35, 0.9], look: [0, 1.3, 0.7], fov: 58, inner: true, rails: [] },
+  duel: { name: '競り合い', pos: [2.2, 1.25, 7.0], look: [-1.1, 1.4, -0.3], fov: 32, inner: true, rails: [] },
 };
 
 /**
@@ -162,9 +216,10 @@ export const SHOTS = {
  * @returns {{background:string, subject:string, sun:{x:number,y:number,visible:boolean}}} 画像（dataURL）と太陽の画面位置（0..1）
  */
 export function shootFinish(renderer, o) {
-  const { width, height, hero, rivals = [], shot = 'front', phase = 0.35 } = o;
+  const { width, height, hero, rivals = [], shot = 'profile', phase = 0.25, surface = '芝', riderPose = 'celebrate' } = o;
+  const S = SHOTS[shot] ?? SHOTS.profile;
   const scene = new THREE.Scene();
-  const sunDir = new THREE.Vector3(...(o.sun ?? [-0.35, 0.16, -1])).normalize();
+  const sunDir = new THREE.Vector3(...(o.sun ?? S.sun ?? [-0.35, 0.16, -1])).normalize();
   const bg = new THREE.Group();
   const subject = new THREE.Group();
   scene.add(bg, subject);
@@ -172,16 +227,18 @@ export function shootFinish(renderer, o) {
   bg.add(skyDome(sunDir));
   // 光：馬の毛色が読めるよう主光はカメラ側から（落とし穴 24）。夕日は後ろから縁を光らせる。
   scene.add(new THREE.HemisphereLight(0xfff1dc, 0x4a6a30, 0.62 * Math.PI));
-  const key = new THREE.DirectionalLight(0xfff0dc, 0.7 * Math.PI);
-  key.position.set(6, 9, 14);
+  const key = new THREE.DirectionalLight(0xfff0dc, 0.45 * Math.PI);
+  key.position.set(...S.pos).add(new THREE.Vector3(0, 6, 0));
   scene.add(key);
-  const rim = new THREE.DirectionalLight(0xffc878, 1.6 * Math.PI);
+  // 低い日差し。前から当てれば毛艶が金色に光り、後ろからなら縁が光る。
+  const rim = new THREE.DirectionalLight(0xffcf8a, 1.9 * Math.PI);
   rim.position.copy(sunDir).multiplyScalar(50);
   scene.add(rim);
 
   // 地面：走路の芝（縞）、内馬場、外の芝。
-  const tex = turfTexture();
-  tex.repeat.set(1, 40);
+  const dirtCourse = surface === 'ダート';
+  const tex = dirtCourse ? dirtTexture() : turfTexture();
+  tex.repeat.set(dirtCourse ? 6 : 1, dirtCourse ? 60 : 40);
   const turf = new THREE.Mesh(new THREE.PlaneGeometry(INNER_X - OUTER_X, 320), new THREE.MeshStandardMaterial({ map: tex, roughness: 0.95 }));
   turf.rotation.x = -Math.PI / 2;
   turf.position.set((INNER_X + OUTER_X) / 2, 0, 0);
@@ -197,13 +254,17 @@ export function shootFinish(renderer, o) {
   // 決勝線（白い線）
   const line = new THREE.Mesh(new THREE.PlaneGeometry(INNER_X - OUTER_X, 0.12), new THREE.MeshBasicMaterial({ color: 0xffffff }));
   line.rotation.x = -Math.PI / 2;
-  line.position.set((INNER_X + OUTER_X) / 2, 0.01, 0);
+  line.position.set((INNER_X + OUTER_X) / 2, 0.01, -9);   // ゴール板と同じく、もう過ぎた線
   bg.add(line);
 
   const railMat = new THREE.MeshStandardMaterial({ color: 0xf6f6f2, roughness: 0.4 });
-  bg.add(rail(INNER_X, -160, 160, railMat, railMat), rail(OUTER_X, -160, 160, railMat, railMat));
+  // 内ラチはカメラと馬の間に来る構えがある（手前を横切るラチ）。写したくない構えでは置かない。
+  if (S.inner !== false) bg.add(rail(INNER_X, -160, 160, railMat, railMat));
+  bg.add(rail(OUTER_X, -160, 160, railMat, railMat));
+  for (const x of S.rails ?? []) bg.add(rail(x, -160, 160, railMat, railMat));
   const post = finishPost();
-  post.position.set(INNER_X + 0.9, 0, 0);
+  // ゴール板は内ラチ側でカメラと馬の間に立つので、決勝線を過ぎたあと（馬の後ろ）に置く。手前に白い柱が立って馬を割った。
+  post.position.set(INNER_X + 0.9, 0, -9);
   bg.add(post);
 
   // スタンド：段になった観客席と屋根。
@@ -235,14 +296,18 @@ export function shootFinish(renderer, o) {
   // 馬：主役と相手。脚の位相は update に「進んだ距離」で渡す（1 完歩 = STRIDE m）。
   const models = [];
   const place = (h, dx, dz, ph, detail) => {
-    const m = makeHorse({ id: h.id, gate: h.gate ?? 1, frame: h.frame ?? 1, coat: h.coat, detail });
+    const m = makeHorse({ id: h.id, gate: h.gate ?? 1, frame: h.frame ?? 1, coat: h.coat, detail, riderPose: h === hero ? riderPose : 'race' });
     m.update(((ph % 1) + 1) % 1 * STRIDE, 17, 0);
     m.group.position.set(dx, 0, dz);
+    // 脚を伸ばした位相では 4 本とも宙に浮き、影から離れて飛んでいるように見えた。いちばん低い蹄を地面に着ける。
+    m.group.updateMatrixWorld(true);
+    const low = new THREE.Box3().setFromObject(m.group).min.y;
+    if (low > 0) m.group.position.y -= low;
     subject.add(m.group);
     const sh = makeShadowPatch();
     sh.position.set(dx, 0.02, dz);
     subject.add(sh);
-    const cl = clods(rnd, 14);
+    const cl = dirtCourse ? dust(rnd) : clods(rnd, 14);
     cl.position.set(dx, 0, dz);
     subject.add(cl);
     models.push(m);
@@ -250,7 +315,6 @@ export function shootFinish(renderer, o) {
   place(hero, 0, 0, phase, 'high');
   for (const r of rivals) place(r, r.dx ?? -2.2, r.dz ?? -1.2, r.phase ?? phase + 0.37, 'high');
 
-  const S = SHOTS[shot] ?? SHOTS.front;
   const camera = new THREE.PerspectiveCamera(S.fov, width / height, 0.1, 2000);
   camera.position.set(...S.pos);
   camera.lookAt(new THREE.Vector3(...S.look));
