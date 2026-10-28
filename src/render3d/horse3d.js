@@ -18,6 +18,7 @@
 // 置く側は orient.js の yawForZForward() で Y 回転を作ること。
 
 import * as THREE from '../../vendor/three/three.module.min.js';
+import { makeJockey } from './jockey3d.js';
 import {
   headGeometry, eyeGeometries, earGeometry, earBase, forelockGeometry, faceTexture,
   halterGeometries, bridleGeometries, hash01,
@@ -78,16 +79,6 @@ function numberTexture(num, frame) {
   tex.colorSpace = THREE.SRGBColorSpace;
   numberTextures.set(key, tex);
   return tex;
-}
-
-/** 勝負服の色。馬 id から決めるので、同じ馬はいつも同じ服。 */
-function silksColors(seed) {
-  const h1 = (seed * 2654435761) % 360;
-  const h2 = (seed * 40503 + 97) % 360;
-  return [
-    new THREE.Color().setHSL(h1 / 360, 0.72, 0.52),
-    new THREE.Color().setHSL(h2 / 360, 0.68, 0.42),
-  ];
 }
 
 const clamp01 = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);
@@ -455,43 +446,10 @@ function buildShapes() {
     eyeR: eye, eyeL: { ball: mirrorX(eye.ball), lidEdge: mirrorX(eye.lidEdge), lid: mirrorX(eye.lid) },
     earR: ear, earL: mirrorX(ear), earBase: [new THREE.Vector3(-earR.x, earR.y, earR.z), earR],
     halter: null, bridle: null,    // 頭絡は使うときに作る（形を頭の面から起こすので少し重い）
-    rider: buildRiderShapes(),
-  };
-}
-
-/** 2 点を結ぶ肢（カプセル）。 */
-function limbGeo(r, len) {
-  const g = new THREE.CapsuleGeometry(r, Math.max(0.001, len - 2 * r), 4, 10);
-  g.userData.shared = true;
-  return g;
-}
-
-function buildRiderShapes() {
-  const sh = (g) => { g.userData.shared = true; return g; };
-  return {
-    torso: limbGeo(0.15, 0.62),
-    hips: sh(new THREE.SphereGeometry(0.15, 12, 9)),
-    head: sh(new THREE.SphereGeometry(0.095, 12, 10)),
-    helmet: sh(new THREE.SphereGeometry(0.118, 14, 8, 0, Math.PI * 2, 0, Math.PI * 0.58)),
-    peak: sh(new THREE.CylinderGeometry(0.11, 0.11, 0.012, 14, 1, false, -0.9, 1.8)),
-    upperArm: limbGeo(0.048, 0.3),
-    foreArm: limbGeo(0.042, 0.28),
-    thigh: limbGeo(0.075, 0.42),
-    shin: limbGeo(0.056, 0.38),
-    boot: limbGeo(0.06, 0.22),
   };
 }
 
 const shapes = () => (SHAPES ??= buildShapes());
-
-/** 肢を from → to に向けて置く（カプセルはローカル +y に伸びる）。 */
-const Y_AXIS = new THREE.Vector3(0, 1, 0);
-function placeLimb(mesh, from, to) {
-  const a = new THREE.Vector3(...from), b = new THREE.Vector3(...to);
-  mesh.position.copy(a).add(b).multiplyScalar(0.5);
-  mesh.quaternion.setFromUnitVectors(Y_AXIS, b.sub(a).normalize());
-  return mesh;
-}
 
 // ---------------------------------------------------------------- 手綱
 
@@ -532,8 +490,10 @@ function makeReins(mat) {
       by += POLL[1]; bz += POLL[2];
       [by, bz] = rotX(by, bz, neckPivot.rotation.x);
       by += NECK_PIVOT[1]; bz += NECK_PIVOT[2];
-      // 手：騎手の組 → 胴の組。
-      const h = HANDS[r];
+      // 手：騎手の組 → 胴の組。手綱は同じ側の手へ（ガッツポーズは右手で 2 本まとめて持つ）。
+      const rh = rider.userData.reinHands;
+      const hv = rh ? (rh.find((p) => Math.sign(p.x) === Math.sign(b.x)) ?? rh[r]) : null;
+      const h = hv ? [hv.x, hv.y, hv.z] : HANDS[r];
       let [hy, hz] = rotX(h[1], h[2], rider.rotation.x);
       hy += rider.position.y; hz += rider.position.z;
       const len = Math.hypot(h[0] - b.x, hy - by, hz - bz);
@@ -677,46 +637,17 @@ export function makeHorse({ id = 1, gate = 1, frame = 1, coat = '鹿毛', scale 
   let rider = null;
   let reins = null;
   if (!bare) {
-    const [silkA, silkB] = silksColors(id);
-    const silksMat = new THREE.MeshStandardMaterial({ color: silkA, roughness: 0.45, metalness: 0 });
-    const capMat = new THREE.MeshStandardMaterial({ color: silkB, roughness: 0.4, metalness: 0 });
-    const skinMat = new THREE.MeshStandardMaterial({ color: 0xe0b48c, roughness: 0.7, metalness: 0 });
-    const breeches = new THREE.MeshStandardMaterial({ color: 0xf2f0ea, roughness: 0.7, metalness: 0 });
-    const bootMat = new THREE.MeshStandardMaterial({ color: 0x15110e, roughness: 0.35, metalness: 0 });
-    const R = S.rider;
-    rider = new THREE.Group();
+    // 騎手は jockey3d.js（勝負服は馬 id、ヘルメットの覆いは枠色＝JRA の帽色）。
+    const jk = makeJockey({ id, capColor: FRAME_COLORS[(frame - 1) % 8] ?? 0xffffff, pose: riderPose, detail: high ? 'high' : 'low' });
+    rider = jk.group;
     rider.position.set(0, 1.6, -0.06);
-    // モンキー乗り：腰を鞍から浮かせ、背中はほぼ水平、頭は前を見る。鐙は短く、膝が高い。
-    // celebrate（ゴール後のガッツポーズ。カードの一枚絵）：上体を起こし、左手（馬の左＝+x）で鞭を突き上げ、右手は手綱。
-    // 腕と胴は長さの決まった部品なので、端点は元の長さを保つ位置に置いてある。
-    const up = riderPose === 'celebrate';
-    const hips = mesh(rider, R.hips, breeches, 0, 0.2, -0.04);
-    hips.scale.set(1, 0.85, 1.05);
-    placeLimb(mesh(rider, R.torso, silksMat), [0, 0.24, -0.02], up ? [0, 0.72, 0.24] : [0, 0.42, 0.5]);
-    const hd = up ? [0, 0.85, 0.34] : [0, 0.53, 0.6];
-    mesh(rider, R.head, skinMat, ...hd);
-    const helmet = mesh(rider, R.helmet, capMat, hd[0], hd[1] + 0.02, hd[2] - 0.01);
-    helmet.rotation.x = up ? 0.1 : 0.35;
-    const peak = mesh(rider, R.peak, capMat, hd[0], hd[1] + 0.03, hd[2] + 0.02);
-    peak.rotation.x = up ? 0.1 : 0.35;
-    for (const sx of [-1, 1]) {
-      let sh = [sx * 0.16, 0.44, 0.4], el = [sx * 0.2, 0.26, 0.5], hand = [sx * 0.09, 0.2, 0.74];
-      if (up && sx > 0) { sh = [0.16, 0.66, 0.2]; el = [0.276, 0.787, 0.077]; hand = [0.372, 1.02, -0.033]; }
-      else if (up) { sh = [-0.16, 0.66, 0.2]; el = [-0.2, 0.5, 0.33]; hand = [-0.088, 0.378, 0.543]; }
-      placeLimb(mesh(rider, R.upperArm, silksMat), sh, el);
-      placeLimb(mesh(rider, R.foreArm, capMat), el, hand);
-      if (up && sx > 0) {
-        const whip = new THREE.Mesh(new THREE.CylinderGeometry(0.007, 0.012, 0.62, 6), bootMat);
-        placeLimb(whip, hand, [hand[0] + 0.16, hand[1] + 0.5, hand[2] - 0.34]);
-        rider.add(whip);
-      }
-      // 鐙は馬の脇。足首を胴の幅より内に置くと、背の上に立っているように見えた。
-      const hp = [sx * 0.13, 0.18, -0.02], kn = [sx * 0.25, 0.13, 0.34], an = [sx * 0.31, -0.2, 0.2];
-      placeLimb(mesh(rider, R.thigh, breeches), hp, kn);
-      placeLimb(mesh(rider, R.shin, bootMat), kn, an);
-      placeLimb(mesh(rider, R.boot, bootMat), an, [an[0], an[1] - 0.04, an[2] + 0.12]);
-    }
+    rider.userData.reinHands = jk.reinHands;
     body.add(rider);
+    // レース用の小さな鞍（騎手の脚と鐙革の付け根になる）。鞍下はゼッケンが兼ねる。
+    if (!tack) {
+      mesh(body, S.saddle, new THREE.MeshStandardMaterial({ color: 0x2a201a, roughness: 0.4, metalness: 0, side: THREE.DoubleSide }));
+      mesh(body, S.girth, new THREE.MeshStandardMaterial({ color: 0xe9e6de, roughness: 0.6, metalness: 0 }));
+    }
 
     // --- ゼッケン（馬番）。胴の脇に沿わせる ---
     const side = new THREE.MeshStandardMaterial({ map: numberTexture(gate, frame), roughness: 0.75, metalness: 0, side: THREE.DoubleSide });
