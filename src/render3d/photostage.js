@@ -214,7 +214,7 @@ export const SHOTS = {
  * @param {THREE.WebGLRenderer} renderer alpha 付きの描画器（使い回す。WebGL を増やさない：落とし穴 23）
  * @param {{width:number,height:number,hero:{id,coat,gate,frame},rivals?:Array,shot?:string,phase?:number,sun?:number[]}} o
  *   rivals は [{ id, coat, gate, frame, dx, dz, phase }]（dx は横、dz は前後のずれ m）。phase は完歩の位相 0..1。
- * @returns {{background:string, subject:string, sun:{x:number,y:number,visible:boolean}}} 画像（dataURL）と太陽の画面位置（0..1）
+ * @returns {{background:string, subject:string, mask:string|null, sun:{x:number,y:number,visible:boolean}}} 画像（dataURL。mask は o.mask のときだけ、馬と騎手だけの形）と太陽の画面位置（0..1）
  */
 export function shootFinish(renderer, o) {
   const { width, height, hero, rivals = [], shot = 'profile', phase = 0.25, surface = '芝', riderPose = 'celebrate' } = o;
@@ -346,6 +346,16 @@ export function shootFinish(renderer, o) {
   // 馬だけでも地面の影は要るので、影の板は subject に入れてある。空は bg なので透明になる。
   renderer.render(scene, camera);
   const subjectUrl = renderer.domElement.toDataURL('image/png');
+  // 馬と騎手だけの形（カードの箔押しの輪郭に使う）。影・芝の塊・風の筋まで含めると、輪郭がそれらも縁取ってしまう。
+  let maskUrl = null;
+  if (o.mask) {
+    const keep = new Set(models.map((m) => m.group));
+    const hidden = subject.children.filter((c) => !keep.has(c) && c.visible);
+    for (const c of hidden) c.visible = false;
+    renderer.render(scene, camera);
+    maskUrl = renderer.domElement.toDataURL('image/png');
+    for (const c of hidden) c.visible = true;
+  }
 
   const sp = sunDir.clone().multiplyScalar(800).project(camera);
   const sun = { x: (sp.x + 1) / 2, y: (1 - sp.y) / 2, visible: sp.z < 1 && Math.abs(sp.x) < 1.4 && Math.abs(sp.y) < 1.4 };
@@ -361,5 +371,5 @@ export function shootFinish(renderer, o) {
     if (x.geometry && !x.geometry.userData?.shared) x.geometry.dispose();
     for (const mt of [x.material].flat()) { if (!mt) continue; mt.map?.dispose(); mt.dispose(); }
   });
-  return { background, subject: subjectUrl, sun };
+  return { background, subject: subjectUrl, mask: maskUrl, sun };
 }
