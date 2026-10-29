@@ -338,7 +338,7 @@ function syncBackdrop(app, screen) {
   if (portraitId != null) {
     const v = G.horseView(prev?.game ?? app.game, portraitId);
     const racing = v && !v.dead && !v.retired && !v.broodmare && !v.stallion;
-    p.setPortrait(v ? { id: v.id, coat: v.coat, age: v.age ?? 4, tack: racing } : null);
+    p.setPortrait(v ? { id: v.id, coat: v.coat, marks: v.marks, age: v.age ?? 4, tack: racing } : null);
     // 「顔を見る」を選んだまま次の馬へ送っても顔のまま（stable.js の切り替え）。
     p.setPortraitView(app.portraitView ?? 'body');
   } else {

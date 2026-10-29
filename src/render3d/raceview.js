@@ -110,11 +110,14 @@ export function createRaceView(canvas, race, opts = {}) {
   const horses = [];
   for (let i = 0; i < log.n; i++) {
     const meta = race.results.find((r) => r.horseId === log.ids[i]) ?? {};
+    // 毛色と白斑は画面から渡す（opts.looks）。結果の行は毛色を持たない。
+    const look = opts.looks?.get(log.ids[i]) ?? {};
     const h = makeHorse({
       id: log.ids[i],
       gate: log.gates[i],
       frame: log.frameNos ? log.frameNos[i] : Math.min(8, Math.ceil(log.gates[i] / 2)),
-      coat: meta.coat ?? '鹿毛',
+      coat: look.coat ?? meta.coat ?? '鹿毛',
+      marks: look.marks ?? null,
     });
     const shadow = makeShadowPatch();
     scene.add(h.group, shadow);

@@ -1024,5 +1024,26 @@ section('血統支配率の高い種牡馬の因子');
   check(`アファームドの 5 代血統表が埋まる（${afN}/62）`, afN >= 50);
 }
 
+section('実在馬の白斑');
+{
+  const { MARKINGS } = await import('../src/sim/data/markings.js');
+  const { marksOf } = await import('../src/sim/markings.js');
+  const ok = MARKINGS.every(([n, b, f, l, src]) => typeof n === 'string' && Number.isInteger(b)
+    && /^(none|star|starStripe|stripe|blaze|bald|snip|starSnip)(\/[sl])?$/.test(f) && /^[0-5]{4}$/.test(l) && /^(en|ja)$/.test(src));
+  check(`記事から取った白斑 ${MARKINGS.length} 頭（書式が正しい）`, MARKINGS.length >= 300 && ok);
+  // 英語版の記事のとおり：ノーザンダンサーは曲がった大流星と 3 本の白い脚、ニジンスキーは額のハート形の星と 3 本の白い脚。
+  const mk = (n) => marksOf(w.horses.get(w.real.ids[n]));
+  const white = (m) => (m?.legs ?? []).filter((x) => x > 0).length;
+  const nd = mk('ノーザンダンサー'), nj = mk('ニジンスキー');
+  check(`世界の実在馬に白斑が引ける（ノーザンダンサー ${nd?.face}・白い脚 ${white(nd)} 本、ニジンスキー ${nj?.face}・${white(nj)} 本）`,
+    nd?.face === 'blaze' && white(nd) === 3 && nj?.face === 'star' && white(nj) === 3);
+  const fict = [...w.horses.values()].find((h) => !h.real);
+  check('架空の馬は表を引かない（3D が馬 id から決める）', marksOf(fict) === null);
+  // レースの 3D に毛色が渡る（結果の行は毛色を持たないので、以前は全頭が鹿毛で描かれていた）。
+  const runners = [...w.horses.values()].filter((h) => !h.dead && h.coat !== '鹿毛').slice(0, 5);
+  const looks = GG.raceLooks(game, { results: runners.map((h) => ({ horseId: h.id })) });
+  check('レースの 3D に世界の毛色が渡る', runners.length === 5 && runners.every((h) => looks.get(h.id)?.coat === h.coat));
+}
+
 console.log(`\n合計 ${pass} ok / ${fail} NG`);
 process.exit(fail === 0 ? 0 : 1);

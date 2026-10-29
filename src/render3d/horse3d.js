@@ -451,6 +451,56 @@ function buildShapes() {
 
 const shapes = () => (SHAPES ??= buildShapes());
 
+// ---------------------------------------------------------------- 脚の白
+
+/**
+ * 脚の白の長さ（0 無し・1 蹄冠・2 繋の半ば・3 球節まで・4 管の半ば・5 膝・飛節まで）ごとの、
+ * 繋と管の切れ目の高さ（その部品の組の y、これより下を白く）。Infinity は部品ぜんぶ白、null は白なし。
+ * 実在馬は記事の白斑（`sim/data/markings.js`）、ほかは id から決める。
+ */
+const LEG_CUT = {
+  pastern: [null, -0.118, -0.072, Infinity, Infinity, Infinity],
+  foreCannon: [null, null, null, null, -0.175, Infinity],
+  hindCannon: [null, null, null, null, -0.2, Infinity],
+};
+const paintCache = new Map();
+const WHITE_LEG = new THREE.Color(0xf4f1ea);
+/**
+ * 脚の部品に、高さで毛色と白を塗り分けた頂点色を持たせた形。位置・法線・面は元の形と共有する。
+ * 面を高さで 2 組に分けると、境目が三角形の縁で鋸歯になった（管は断面の間隔が 5cm ある）。
+ * 頂点色なら断面 1 つぶんでぼけて、毛の混ざった白の縁に見える。境目は少し波打たせる。
+ */
+function paintLeg(name, geo, cut, baseHex) {
+  const key = `${name}|${cut}|${baseHex}`;
+  let g = paintCache.get(key);
+  if (g) return g;
+  const pos = geo.getAttribute('position');
+  const base = new THREE.Color(baseHex);
+  const col = new Float32Array(pos.count * 3);
+  for (let i = 0; i < pos.count; i++) {
+    const a = Math.atan2(pos.getZ(i), pos.getX(i));
+    const c = pos.getY(i) < cut + 0.009 * Math.sin(a * 3 + 0.7) ? WHITE_LEG : base;
+    col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
+  }
+  g = new THREE.BufferGeometry();
+  g.setAttribute('position', pos);
+  g.setAttribute('normal', geo.getAttribute('normal'));
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  g.setIndex(geo.getIndex());
+  g.userData.shared = true;
+  paintCache.set(key, g);
+  return g;
+}
+
+/** 架空の馬の脚の白（id から決まる）。白い脚は 2 割強、長さは球節までが多い。 */
+function fictionalLegs(id) {
+  return [0, 1, 2, 3].map((li) => {
+    if (hash01(id, 10 + li) >= 0.22) return 0;
+    const q = hash01(id, 20 + li);
+    return q < 0.1 ? 1 : q < 0.3 ? 2 : q < 0.75 ? 3 : q < 0.92 ? 4 : 5;
+  });
+}
+
 // ---------------------------------------------------------------- 手綱
 
 /** 耳の傾き（前へ）。走ると伏せる。 */
@@ -522,7 +572,7 @@ function makeReins(mat) {
  *   detail は頭の細かさ（'high' 牧場・詳細、'low' レース）。既定は bare なら high
  * @returns {{group:THREE.Group, update:Function, legs:Array, body:THREE.Group, rider:THREE.Group|null}}
  */
-export function makeHorse({ id = 1, gate = 1, frame = 1, coat = '鹿毛', scale = 1, bare = false, tack = false, padColor = 0xe8c33a, detail = null, riderPose = 'race' } = {}) {
+export function makeHorse({ id = 1, gate = 1, frame = 1, coat = '鹿毛', scale = 1, bare = false, tack = false, padColor = 0xe8c33a, detail = null, riderPose = 'race', marks = null } = {}) {
   const S = shapes();
   const group = new THREE.Group();
   const body = new THREE.Group();   // 胴体まわり（上下に揺れる）
@@ -537,6 +587,8 @@ export function makeHorse({ id = 1, gate = 1, frame = 1, coat = '鹿毛', scale 
   const hoofMat = new THREE.MeshStandardMaterial({ color: 0x2a2420, roughness: 0.45, metalness: 0 });
   const paleHoof = new THREE.MeshStandardMaterial({ color: 0x8a7860, roughness: 0.45, metalness: 0 });
   const white = new THREE.MeshStandardMaterial({ color: 0xf4f1ea, roughness: 0.6, metalness: 0, side: THREE.DoubleSide });
+  // 毛色と白を頂点色で塗り分けた脚（白が部品の途中で終わるとき）。
+  const legPaint = new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.6, metalness: 0 });
 
   const mesh = (parent, geo, mat, x = 0, y = 0, z = 0) => {
     const m = new THREE.Mesh(geo, mat);
@@ -562,7 +614,8 @@ export function makeHorse({ id = 1, gate = 1, frame = 1, coat = '鹿毛', scale 
   // 顔は布（毛色の地・鼻先の黒み・鼻の穴・口の線・白斑）を貼る。艶は胴と同じ。
   // レースは遠景なので頭を粗く、布も小さくする（18 頭ぶん描くので）。
   const high = (detail ?? (bare ? 'high' : 'low')) === 'high';
-  const faceMat = new THREE.MeshStandardMaterial({ map: faceTexture(coat, coatColor, id, high ? 512 : 256), roughness: 0.52, metalness: 0 });
+  // 実在馬は記事の白斑（marks.face）、ほかは id から決まる白斑。
+  const faceMat = new THREE.MeshStandardMaterial({ map: faceTexture(coat, coatColor, id, high ? 512 : 256, marks?.face ? marks : null), roughness: 0.52, metalness: 0 });
   mesh(headPivot, high ? S.headHigh : S.headLow, faceMat);
   mesh(headPivot, S.forelock, hairMat);
   // 目：角膜の艶（クリアコート）を持つ黒褐色の玉と、まぶたの縁（黒い皮膚）・まぶたの皮膚。
@@ -587,8 +640,9 @@ export function makeHorse({ id = 1, gate = 1, frame = 1, coat = '鹿毛', scale 
     return pivot;
   });
 
-  // 白斑（顔）は布に描いてある。靴下は芦毛・白毛には付けない。
+  // 白斑（顔）は布に描いてある。脚の白は芦毛・白毛には付けない。
   const markable = coat !== '芦毛' && coat !== '白毛';
+  const legWhite = !markable ? [0, 0, 0, 0] : marks?.legs ?? fictionalLegs(id);
 
   // --- 尾（付け根を支点に、走ると後ろへ流れる。毛は付け根の先でもう一段しなる） ---
   const tailPivot = new THREE.Group();
@@ -622,14 +676,21 @@ export function makeHorse({ id = 1, gate = 1, frame = 1, coat = '鹿毛', scale 
     if (d.front) knee.position.set(0, -0.535, 0);
     else knee.position.set(0, -0.525, -0.14);
     hip.add(knee);
-    mesh(knee, d.front ? S.foreCannon.geo : S.hindCannon.geo, legLow);
+    // 脚の白：長さに応じて繋（と管）の下を白く塗り分け、蹄も明るくする。
+    const len = legWhite[li] ?? 0;
+    const part = (name, geo) => {
+      const cut = LEG_CUT[name][len];
+      if (cut == null) return [geo, legLow];
+      if (cut === Infinity) return [geo, white];
+      return [paintLeg(name, geo, cut, pts.leg ?? coatColor), legPaint];
+    };
+    const cannonName = d.front ? 'foreCannon' : 'hindCannon';
+    mesh(knee, ...part(cannonName, S[cannonName].geo));
     const fetlock = new THREE.Group();
     fetlock.position.set(0, d.front ? -0.345 : -0.385, 0);
     knee.add(fetlock);
-    // 白い靴下：その脚の球節から下を白く、蹄も明るくする（id から決まる）。
-    const sock = markable && hash01(id, 10 + li) < 0.22;
-    mesh(fetlock, S.pastern.geo, sock ? white : legLow);
-    mesh(fetlock, S.hoof.geo, sock ? paleHoof : hoofMat);
+    mesh(fetlock, ...part('pastern', S.pastern.geo));
+    mesh(fetlock, S.hoof.geo, len ? paleHoof : hoofMat);
     legs.push({ hip, knee, fetlock, front: d.front, gallop: d.gallop, walk: d.walk });
   });
 

@@ -23,6 +23,7 @@ import {
   weekToMonth, STYLES, ABROAD_FAME,
 } from './params.js';
 import { SURFACE, courseName, courseShort as courseShortOf, getCourse, DIR } from './course.js';
+import { marksOf } from './markings.js';
 import { clamp01, sum, byDesc, formatMoney, formatTime, rankOf } from '../core/util.js';
 
 /** 新規ゲーム。 */
@@ -61,6 +62,19 @@ export const getHorse = (g, id) => g.world.horses.get(id);
 export const getJockey = (g, id) => g.world.jockeys.get(id);
 export const getTrainer = (g, id) => g.world.trainers.get(id);
 
+/**
+ * レースの 3D に渡す見た目（馬 id → { coat, marks }）。走った結果の行は毛色を持たないので、世界の馬から引く。
+ * 渡さないと 3D は全頭を鹿毛で描いていた。世界に居ない馬（米国のレースの頭数埋め）は鹿毛のまま。
+ */
+export function raceLooks(g, race) {
+  const out = new Map();
+  for (const r of race.results) {
+    const h = g.world.horses.get(r.horseId);
+    if (h) out.set(r.horseId, { coat: h.coat, marks: marksOf(h) });
+  }
+  return out;
+}
+
 /** 表示用の 1 頭ぶんの情報。画面はこれを読むだけで済む。 */
 export function horseView(g, id) {
   const w = g.world;
@@ -74,7 +88,7 @@ export function horseView(g, id) {
   const raw = effectiveAbility(h, vy, { ignoreCondition: true });
   return {
     horse: h,
-    id: h.id, name: h.name, sex: h.sex, coat: h.coat,
+    id: h.id, name: h.name, sex: h.sex, coat: h.coat, marks: marksOf(h),
     age: h.preview ? null : horseAge(h, w.year),
     owner: w.owners.get(h.ownerId)?.name ?? '—',
     isMine: h.ownerId === 'player',
@@ -880,7 +894,7 @@ export function ranchHorses(g, limit = 7) {
   const push = (h, kind) => {
     if (!h || h.dead || seen.has(h.id) || out.length >= limit) return;
     seen.add(h.id);
-    out.push({ id: h.id, name: h.name, coat: h.coat, sex: h.sex, age: horseAge(h, w.year), kind });
+    out.push({ id: h.id, name: h.name, coat: h.coat, marks: marksOf(h), sex: h.sex, age: horseAge(h, w.year), kind });
   };
   const mine = w.player.horses.map((id) => w.horses.get(id)).filter((h) => h && !h.dead && !h.retired);
   for (const h of myYoungsters(g)) push(h, '幼駒');

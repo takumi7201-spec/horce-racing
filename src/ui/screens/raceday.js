@@ -106,7 +106,7 @@ function watchView(app, race, races, idx, next) {
   requestAnimationFrame(() => {
     try {
       view = createRaceView(canvas, race, {
-        focusId: myId, marks: myIds, camera: myId != null ? 'mark' : 'tv',
+        focusId: myId, marks: myIds, camera: myId != null ? 'mark' : 'tv', looks: G.raceLooks(g, race),
       });
     } catch (e) {
       wrap.appendChild(el('p.bad', { text: `3D を初期化できなかった：${e.message}` }));

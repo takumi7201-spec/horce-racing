@@ -770,20 +770,31 @@ const FACE_TONE = {
   白毛: { muzzle: 0xd9b6ad, amt: 0.55 },
 };
 
-/** 白斑の形（馬 id から決まる。同じ馬はいつも同じ顔）。芦毛・白毛は付けない。 */
-export function markingOf(id, coat) {
+/** 星の大きさ（半径 m）。実在馬の記述の small / large に合わせる。 */
+const STAR_R = { s: [0.011, 0.005], m: [0.017, 0.008], l: [0.026, 0.007] };
+
+/**
+ * 白斑の形（馬 id から決まる。同じ馬はいつも同じ顔）。芦毛・白毛は付けない。
+ * face を渡すと型と星の大きさはそれに従い（実在馬の記事の白斑。`sim/data/markings.js`）、形の揺らぎだけ id で決める。
+ * @param {{face:string, size?:string}|null} [face]
+ */
+export function markingOf(id, coat, face = null) {
   if (coat === '芦毛' || coat === '白毛') return null;
   const r = (k) => hash01(id, 100 + k);
   const p = hash01(id, 1);
   // 無地 4 割、星・星と流星・流星・大流星・鼻白。
-  const type = p < 0.4 ? null : p < 0.58 ? 'star' : p < 0.72 ? 'starStripe' : p < 0.8 ? 'stripe'
-    : p < 0.92 ? 'blaze' : p < 0.96 ? 'snip' : 'starSnip';
+  const type = face ? (face.face === 'none' ? null : face.face)
+    : p < 0.4 ? null : p < 0.58 ? 'star' : p < 0.72 ? 'starStripe' : p < 0.8 ? 'stripe'
+      : p < 0.92 ? 'blaze' : p < 0.96 ? 'snip' : 'starSnip';
   if (!type) return null;
+  const [R0, dR] = face ? STAR_R[face.size ?? 'm'] ?? STAR_R.m : [0.015, 0.017];
   return {
     type,
-    star: { s: 0.128 + 0.04 * r(1), R: 0.015 + 0.017 * r(2), c: (r(3) - 0.5) * 0.012, ph: r(4) * 6.28, ph2: r(14) * 6.28 },
+    star: { s: 0.128 + 0.04 * r(1), R: R0 + dR * r(2), c: (r(3) - 0.5) * 0.012, ph: r(4) * 6.28, ph2: r(14) * 6.28 },
     stripe: { s1: 0.36 + 0.2 * r(5), w: 0.0055 + 0.0075 * r(6), drift: (r(7) - 0.5) * 0.05, ph: r(15) * 6.28 },
     blaze: { s0: 0.1 + 0.04 * r(10), w0: 0.02 + 0.014 * r(8), w1: 0.034 + 0.02 * r(9), c: (r(16) - 0.5) * 0.012 },
+    // 白面：額から鼻先まで顔の前を広く覆う（目の手前まで）。
+    bald: { s0: 0.07 + 0.02 * r(10), w0: 0.05 + 0.012 * r(8), w1: 0.062 + 0.012 * r(9), c: (r(16) - 0.5) * 0.01 },
     snip: { s: 0.6 + 0.012 * r(11), c: (r(12) - 0.5) * 0.024, R: 0.01 + 0.009 * r(13) },
   };
 }
@@ -811,8 +822,7 @@ function markingAlpha(m, s, as) {
     const hw = T.w * (1.15 - 0.45 * t) * smooth(T.s1 + 0.004, T.s1 - 0.03, s) * smooth(s0 - 0.01, s0 + 0.01, s);
     return smooth(hw + edge, hw - edge, Math.abs(as - c));
   };
-  const blaze = () => {
-    const B = m.blaze;
+  const blaze = (B = m.blaze) => {
     if (s < B.s0 - 0.02) return 0;
     const t = clamp01((s - B.s0) / (0.6 - B.s0));
     let hw = B.w0 + (B.w1 - B.w0) * t * t;
@@ -831,6 +841,7 @@ function markingAlpha(m, s, as) {
     case 'starStripe': al = Math.max(star(), stripe(m.star.s)); break;
     case 'stripe': al = stripe(0.17); break;
     case 'blaze': al = blaze(); break;
+    case 'bald': al = blaze(m.bald); break;
     case 'snip': al = snip(); break;
     case 'starSnip': al = Math.max(star(), snip()); break;
     default: break;
@@ -845,8 +856,8 @@ const faceCache = new Map();
  * 座標は頭のジオメトリの uv と同じ（u：顎の下 0 → 額 0.5 → 顎の下 1、v：項の後ろ → 鼻先）。
  * 乱数は使わない（馬 id から決める）。同じ馬・毛色・大きさは使い回す（牧場で詳細を開くたびに描かない）。
  */
-export function faceTexture(coat, coatHex, id, size = 512) {
-  const key = `${coat}|${id}|${size}`;
+export function faceTexture(coat, coatHex, id, size = 512, face = null) {
+  const key = `${coat}|${id}|${size}|${face ? `${face.face}/${face.size ?? 'm'}` : ''}`;
   const hit = faceCache.get(key);
   if (hit) {
     faceCache.delete(key);
@@ -864,7 +875,7 @@ export function faceTexture(coat, coatHex, id, size = 512) {
   const mz = hex(tone.muzzle);
   const skin = [16, 11, 9];
   const whiteC = [243, 240, 233];
-  const mark = markingOf(id, coat);
+  const mark = markingOf(id, coat, face);
   const F = features();
   for (let row = 0; row < H; row++) {
     const v = (row + 0.5) / H;

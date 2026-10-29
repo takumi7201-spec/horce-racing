@@ -297,7 +297,7 @@ export function shootFinish(renderer, o) {
   // 馬：主役と相手。脚の位相は update に「進んだ距離」で渡す（1 完歩 = STRIDE m）。
   const models = [];
   const place = (h, dx, dz, ph, detail) => {
-    const m = makeHorse({ id: h.id, gate: h.gate ?? 1, frame: h.frame ?? 1, coat: h.coat, detail, riderPose: h === hero ? riderPose : 'race' });
+    const m = makeHorse({ id: h.id, gate: h.gate ?? 1, frame: h.frame ?? 1, coat: h.coat, marks: h.marks ?? null, detail, riderPose: h === hero ? riderPose : 'race' });
     m.update(((ph % 1) + 1) % 1 * STRIDE, 17, 0);
     m.group.position.set(dx, 0, dz);
     // 脚を伸ばした位相では 4 本とも宙に浮き、影から離れて飛んでいるように見えた。いちばん低い蹄を地面に着ける。

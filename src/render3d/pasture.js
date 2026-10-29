@@ -459,7 +459,7 @@ export function createPasture(canvas, labelLayer) {
     setHorses.key = key;
     clearHorses();
     list.forEach((info, i) => {
-      const model = makeHorse({ id: info.id, coat: info.coat, bare: true, scale: foalScale(info.age) });
+      const model = makeHorse({ id: info.id, coat: info.coat, marks: info.marks ?? null, bare: true, scale: foalScale(info.age) });
       model.group.traverse((o) => { if (o.isMesh) o.castShadow = true; });
       model.group.visible = !portrait;
       scene.add(model.group);
@@ -504,7 +504,7 @@ export function createPasture(canvas, labelLayer) {
    * 馬の詳細の見せ場。1 頭だけを鞍付きで柵の手前に立たせ、ほかの馬は隠す。
    * 別の WebGL を作らずにこの放牧地をそのまま使う（落とし穴 23）。
    * 遠景は霧を濃くしてぼかし、馬を浮き立たせる。
-   * @param {{id:number, coat:string, age?:number, tack?:boolean}|null} info null で放牧地に戻す。
+   * @param {{id:number, coat:string, marks?:object|null, age?:number, tack?:boolean}|null} info null で放牧地に戻す。
    *   tack は現役の競走馬だけ（繁殖牝馬に鞍は置かない）
    */
   function setPortrait(info) {
@@ -522,7 +522,7 @@ export function createPasture(canvas, labelLayer) {
       return;
     }
     const young = (info.age ?? 3) < 2;
-    const model = makeHorse({ id: info.id, coat: info.coat, bare: true, tack: !!info.tack && !young, scale: foalScale(info.age) });
+    const model = makeHorse({ id: info.id, coat: info.coat, marks: info.marks ?? null, bare: true, tack: !!info.tack && !young, scale: foalScale(info.age) });
     model.group.traverse((o) => { if (o.isMesh) o.castShadow = true; });
     model.group.position.copy(PORTRAIT_POS);
     model.group.rotation.y = yawForZForward(PORTRAIT_HEADING);
