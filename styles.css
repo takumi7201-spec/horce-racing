@@ -1278,8 +1278,8 @@ canvas.race3d { width: 100%; height: 100%; display: block; }
 .tc .gbest { background: #ffd25a2a; color: #fff; } .tc .gbest i { color: #ffd25a; }
 .tc .ggood { color: #efe6c8; } .tc .ggood i { color: #8fe07a; } .tc .gmid i { color: #cdbb85; } .tc .gbad { opacity: .55; }
 .tc-low .row2 { display: flex; align-items: flex-end; gap: 12px; }
-.tc-low .ped { flex: 1; font-size: 13px; line-height: 1.6; color: #d9cfae; }
-.tc-low .ped b { color: #fff; }
+.tc-low .tc-ped { flex: 1; font-size: 13px; line-height: 1.6; color: #d9cfae; }
+.tc-low .tc-ped b { color: #fff; }
 .tc-low .tot { color: var(--ink); }
 .tc-low .cp { min-width: 150px; text-align: right; padding: 6px 14px 4px; border-radius: 10px; border: 1.5px solid var(--line); background: #ffffff0a; }
 .tc-low .cp small { display: block; font-size: 11px; color: #cdbb85; letter-spacing: .1em; }

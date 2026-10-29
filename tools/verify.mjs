@@ -1050,8 +1050,10 @@ section('カード育成モード');
   const I = await import('../src/sim/ikusei.js');
   const { peekHorseId } = await import('../src/sim/horse.js');
   const ids = new Set(I.CARDS.map((c) => c.id));
-  check(`カード ${I.CARDS.length} 枚（第 1 弾・第 2 弾 39 枚ずつ、id が重ならない）`,
-    I.CARDS.length === 78 && ids.size === 78 && ['P1', 'P2'].every((p) => I.CARDS.filter((c) => c.pack === p).length === 39));
+  check(`カード ${I.CARDS.length} 枚（第 1 弾 39・第 2 弾 40、id が重ならない）`,
+    I.CARDS.length === 79 && ids.size === 79 && I.CARDS.filter((c) => c.pack === 'P1').length === 39 && I.CARDS.filter((c) => c.pack === 'P2').length === 40);
+  const fl = I.CARDS.find((c) => c.name === 'ファンタスティックライト');
+  check('第 2 弾の LM にファンタスティックライト（二つ名「その煌めきは幻想が如く」）', fl?.pack === 'P2' && fl.rar === 'LM' && fl.epithet === 'その煌めきは幻想が如く');
   // +5 の数はレア度で決まる（LM 3・SSR 2〜3・SR 2・R と N は 1）
   const n5 = (c) => Object.values(I.plusOf(c)).filter((x) => x === 5).length;
   const want = { LM: [3, 3], SSR: [2, 3], SR: [2, 2], R: [1, 1], N: [1, 1] };

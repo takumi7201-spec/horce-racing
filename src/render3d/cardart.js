@@ -48,7 +48,7 @@ export function cardArt(card) {
     const shot = card.shot ?? 'profile';
     const v = shootFinish(renderer, {
       width: W, height: H,
-      hero: { id: card.hid ?? 1, coat: card.coat, gate: 1, frame: 1, marks: card.marks },
+      hero: { id: card.hid ?? 1, coat: card.coat, gate: 1, frame: 1, marks: card.marks, silks: card.silks ?? null },
       surface: card.surface ?? '芝', shot, phase: shot === 'charge' ? 0.3 : 0.25,
       riderPose: shot === 'charge' ? 'race' : 'celebrate', backdrop: card.desert ? 'desert' : 'sunset', mask: true,
     });

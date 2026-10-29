@@ -4,7 +4,7 @@
 
 import { el } from './dom.js';
 import { cardArt } from '../render3d/cardart.js';
-import { plusOf, cardPower, distCat, STATS, STAT_SHORT, PACKS } from '../sim/ikusei.js';
+import { plusOf, cardPower, distCat, STATS, STAT_SHORT, PACKS, CARDS } from '../sim/ikusei.js';
 
 const THEME = {
   N: { frame: 'linear-gradient(135deg,#d9f5c8 0%,#5fae4a 20%,#c8eeb0 38%,#3f8a34 56%,#a6dc8a 74%,#2f6e28 90%,#9fd682 100%)', line: '#9fdc84', glow: '#7fd06a33', ink: '#e8ffd8', sparks: 0, rays: 0, sun: 0.25, badge: 'linear-gradient(#e6ffd6,#5cae48)', badgeInk: '#103a10' },
@@ -28,9 +28,13 @@ const FOIL = {
 const EPI = { speed: '疾風', stamina: '無尽', power: '剛脚', guts: '不屈', wit: '叡智' };
 const NOUN = { LM: ['帝王', '女帝'], SSR: ['覇者', '女王'], SR: ['強豪', '女傑'], R: ['刺客', '才媛'], N: ['挑戦者', '新星'] };
 const GROUNDS = ['良', '稍重', '重', '不良'];
+/** 弾ごとの枚数（カードの下の「No.xx/枚数」）。 */
+const PACK_SIZE = CARDS.reduce((m, c) => ({ ...m, [c.pack]: (m[c.pack] ?? 0) + 1 }), {});
 const mark = (a) => (a >= 0.8 ? '◎' : a >= 0.7 ? '○' : a >= 0.6 ? '△' : '×');
 
 export const epithetOf = (c) => {
+  // カードに二つ名が書いてあればそれ（ファンタスティックライト「その煌めきは幻想が如く」）。
+  if (c.epithet) return c.epithet;
   const best = Object.keys(EPI).sort((a, b) => c.v[b] - c.v[a])[0];
   return `${EPI[best]}の${c.race.venue}${NOUN[c.rar][c.sex === '牝' ? 1 : 0]}`;
 };
@@ -83,10 +87,10 @@ export function cardView(c, { scale = 0.4, onClick = null, count = 0, dim = fals
         el('div.stats', STATS.map((k) => el('div.st', [el('small', { text: STAT_SHORT[k] }), el(`b.p${plus[k]}`, { text: `+${plus[k]}` })]))),
         el('div.apt', [el(`span.sf${surf === '芝' ? '' : '.dirt'}`, { text: surf }), el('span.dc', { text: distCat(c.dist) }), el('span.lb', { text: '適性馬場' }), ...grounds]),
         el('div.row2', [
-          el('div.ped', [el('span', ['父 ', el('b', { text: c.sire }), '　母 ', el('b', { text: c.dam })]), el('br'), `母父 ${c.damSire}　${c.line}`, el('br'), el('span.tot', { text: tot })]),
+          el('div.tc-ped', [el('span', ['父 ', el('b', { text: c.sire }), '　母 ', el('b', { text: c.dam })]), el('br'), `母父 ${c.damSire}　${c.line}`, el('br'), el('span.tot', { text: tot })]),
           el('div.cp', [el('small', { text: 'カードパワー' }), el(`b${foil ? '.foil' : ''}`, { text: String(cardPower(c)) })]),
         ]),
-        el('div.foot', [el('span', { text: `第${c.pack.slice(1)}弾【${PACKS[c.pack]}】　${c.race.year} ${c.race.name} 優勝` }), el('span', { text: `No.${String(no).padStart(2, '0')}/39` })]),
+        el('div.foot', [el('span', { text: `第${c.pack.slice(1)}弾【${PACKS[c.pack]}】　${c.race.year} ${c.race.name} 優勝` }), el('span', { text: `No.${String(no).padStart(2, '0')}/${PACK_SIZE[c.pack]}` })]),
       ]),
     ]),
   ]);

@@ -2,6 +2,7 @@
 // 実在馬の表と世界のデータから選んで書き出したもの（選び方は CLAUDE.md の落とし穴 93）。手で直してよい。
 //   v は 5 能力（表の値）、dist・range は距離適性、style は脚質の素（0 逃げ〜1 追込）。
 //   race は看板のレース（カードの上段）、shot・desert は一枚絵の構えと背景。
+//   epithet は二つ名（無ければ得意な能力と看板のレースから作る）、silks は一枚絵の勝負服（実在の馬主の服）。
 
 export const PACKS = { P1: '世界の英雄たち', P2: '異国を制する者たち' };
 
@@ -84,4 +85,5 @@ export const CARDS = [
   {"id":"P2-37","pack":"P2","rar":"N","region":"EU","name":"キジャーノ","sex":"牡","age":5,"coat":"栗毛","marks":null,"hid":17251,"sire":"アカテナンゴ","dam":"キラ","damSire":"アンフワイン","line":"ヘロルド系","v":{"speed":0.71,"stamina":0.79,"power":0.74,"guts":0.76,"wit":0.72},"turf":0.9,"dirt":0.45,"firm":0.86,"soft":0.6,"dist":2400,"range":400,"style":0.32,"gi":1,"graded":2,"race":{"name":"ドバイシティーオブゴールド","info":"GII　ナドアルシバ　2007年","year":2007,"venue":"ドバイ"},"travel":"欧州 → UAE 遠征","surface":"芝","shot":"finish","desert":true},
   {"id":"P2-38","pack":"P2","rar":"N","region":"EU","name":"シーロ","sex":"牡","age":3,"coat":"栗毛","marks":null,"hid":13559,"sire":"ウッドマン","dam":"ジョコンダ","damSire":"ニジンスキー","line":"ミスタープロスペクター系","v":{"speed":0.68,"stamina":0.68,"power":0.67,"guts":0.67,"wit":0.67},"turf":0.9,"dirt":0.45,"firm":0.86,"soft":0.6,"dist":2000,"range":520,"style":0.32,"gi":2,"graded":3,"race":{"name":"ローレンスリアライゼーションハンデキャップ","info":"GIII　2000年","year":2000,"venue":"米国"},"travel":"欧州 → 米国 遠征","surface":"芝","shot":"profile","desert":false},
   {"id":"P2-39","pack":"P2","rar":"N","region":"JP","name":"リメイク","sex":"牡","age":4,"coat":"栗毛","marks":null,"hid":15482,"sire":"ラニ","dam":"サリエル","damSire":"キングカメハメハ","line":"エーピーインディ系","v":{"speed":0.67,"stamina":0.55,"power":0.71,"guts":0.59,"wit":0.67},"turf":0.45,"dirt":0.9,"firm":0.86,"soft":0.6,"dist":1400,"range":450,"style":0.62,"gi":0,"graded":2,"race":{"name":"コリアスプリント","info":"GIII　ソウル ダ1200m　2023年","year":2023,"venue":"ソウル"},"travel":"日本 → 韓国 遠征","surface":"ダート","shot":"finish","desert":false},
+  {"id":"P2-40","pack":"P2","rar":"LM","region":"EU","name":"ファンタスティックライト","epithet":"その煌めきは幻想が如く","sex":"牡","age":5,"coat":"鹿毛","marks":{"face":"blaze","size":"m","legs":[0,2,2,2]},"hid":13041,"sire":"ラーイ","dam":"ジョッド","damSire":"ニジンスキー","line":"ナスルーラ系","v":{"speed":0.73,"stamina":0.73,"power":0.73,"guts":0.73,"wit":0.73},"turf":0.9,"dirt":0.45,"firm":0.86,"soft":0.6,"dist":2000,"range":520,"style":0.62,"gi":6,"graded":6,"race":{"name":"BCターフ","info":"GI　ベルモントパーク 芝2400m　2001年","year":2001,"venue":"ベルモント"},"travel":"欧州 → 米国 遠征","surface":"芝","shot":"charge","desert":true,"silks":{"body":"#1d4fc4","accent":"#1d4fc4","pattern":"無地","sleeve":"plain","cap":2051524}},
 ];
