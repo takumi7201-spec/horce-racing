@@ -76,7 +76,7 @@ export function cardArt(card) {
 // 1 枚撮るのに WebGL で舞台を組んで描くので、79 枚の一覧を開くたびに撮り直すと重い。ブラウザの IndexedDB に残す。
 // 鍵は絵に効くカードの値（構え・毛色・白斑・勝負服など）と ART_VER。撮影の舞台（photostage.js）を変えたら ART_VER を上げる。
 const ART_VER = 1;
-const artKey = (c) => `${ART_VER}:${c.id}:${JSON.stringify([c.hid, c.coat, c.marks, c.surface, c.shot, c.desert, c.silks ?? null])}`;
+const artKey = (c) => `${ART_VER}:${c.id}:${JSON.stringify([c.hid, c.coat, c.marks, c.surface, c.shot, c.desert, c.silks ?? null, c.facing ?? null, c.pose ?? null, c.gate ?? null, c.phase ?? null, c.legPose ?? null])}`;
 let dbp = null;
 function db() {
   if (typeof indexedDB === 'undefined') return Promise.resolve(null);
@@ -116,9 +116,9 @@ function shoot(card) {
     const shot = card.shot ?? 'profile';
     const v = shootFinish(renderer, {
       width: W, height: H,
-      hero: { id: card.hid ?? 1, coat: card.coat, gate: 1, frame: 1, marks: card.marks, silks: card.silks ?? null },
-      surface: card.surface ?? '芝', shot, phase: shot === 'charge' ? 0.3 : 0.25,
-      riderPose: shot === 'charge' ? 'race' : 'celebrate', backdrop: card.desert ? 'desert' : 'sunset', mask: true,
+      hero: { id: card.hid ?? 1, coat: card.coat, gate: card.gate ?? 1, frame: 1, marks: card.marks, silks: card.silks ?? null, legPose: card.legPose ?? null },
+      surface: card.surface ?? '芝', shot, phase: card.phase ?? (shot === 'charge' ? 0.3 : 0.25), facing: card.facing ?? 'left',
+      riderPose: card.pose ?? (shot === 'charge' ? 'race' : 'celebrate'), backdrop: card.desert ? 'desert' : 'sunset', mask: true,
     });
     const ring = v.mask ? await ringOf(v.mask) : null;
     const baked = await bakeBlur(v.background);

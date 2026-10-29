@@ -264,7 +264,11 @@ export function shootFinish(renderer, o) {
   // 決勝線（白い線）
   const line = new THREE.Mesh(new THREE.PlaneGeometry(INNER_X - OUTER_X, 0.12), new THREE.MeshBasicMaterial({ color: 0xffffff }));
   line.rotation.x = -Math.PI / 2;
-  line.position.set((INNER_X + OUTER_X) / 2, 0.01, -9);   // ゴール板と同じく、もう過ぎた線
+  // facing: 'right' は馬を画面の右へ向ける（馬の組を 180° 回して左の体側を写す。参考写真のイージーゴア）。
+  // ゴール板と決勝線は、どちらの向きでも馬の後ろ（もう過ぎた位置）に置く。
+  const flip = o.facing === 'right';
+  const passed = flip ? 9 : -9;
+  line.position.set((INNER_X + OUTER_X) / 2, 0.01, passed);   // ゴール板と同じく、もう過ぎた線
   bg.add(line);
 
   const railMat = new THREE.MeshStandardMaterial({ color: 0xf6f6f2, roughness: 0.4 });
@@ -274,7 +278,7 @@ export function shootFinish(renderer, o) {
   for (const x of S.rails ?? []) bg.add(rail(x, -160, 160, railMat, railMat));
   const post = finishPost();
   // ゴール板は内ラチ側でカメラと馬の間に立つので、決勝線を過ぎたあと（馬の後ろ）に置く。手前に白い柱が立って馬を割った。
-  post.position.set(INNER_X + 0.9, 0, -9);
+  post.position.set(INNER_X + 0.9, 0, passed);
   if (S.post !== false) bg.add(post);
 
   // スタンド：段になった観客席と屋根。
@@ -308,6 +312,15 @@ export function shootFinish(renderer, o) {
   const place = (h, dx, dz, ph, detail) => {
     const m = makeHorse({ id: h.id, gate: h.gate ?? 1, frame: h.frame ?? 1, coat: h.coat, marks: h.marks ?? null, silks: h.silks ?? null, detail, riderPose: h === hero ? riderPose : 'race' });
     m.update(((ph % 1) + 1) % 1 * STRIDE, 17, 0);
+    // 写真に合わせて脚ごとの角度を上書きする（legPose：lf 左前・rf 右前・lh 左後・rh 右後 → { hip, knee, fetlock } のラジアン）。
+    // 股は正で後ろ、前脚の膝は正で蹄を後ろへ畳む。位相だけでは「左前を伸ばし、右前は畳む」の組み合わせが作れなかった。
+    if (h.legPose) {
+      ['lf', 'rf', 'lh', 'rh'].forEach((k, i) => {
+        const q = h.legPose[k];
+        if (!q) return;
+        for (const j of ['hip', 'knee', 'fetlock']) if (q[j] != null) m.legs[i][j].rotation.x = q[j];
+      });
+    }
     m.group.position.set(dx, 0, dz);
     // 脚を伸ばした位相では 4 本とも宙に浮き、影から離れて飛んでいるように見えた。いちばん低い蹄を地面に着ける。
     m.group.updateMatrixWorld(true);
@@ -325,6 +338,10 @@ export function shootFinish(renderer, o) {
   place(hero, 0, 0, phase, 'high');
   for (const r of rivals) place(r, r.dx ?? -2.2, r.dz ?? -1.2, r.phase ?? phase + 0.37, 'high');
 
+  // 馬の組の原点で回す。体の中心で回すと馬が後ろへずれて尾が切れた（写真に合わせた構図はこちら）。
+  // 首を伸ばす位相（0.2 前後）では鼻先が画面の右端に寄るので、右向きのカードは脚の運び（phase）で合わせる。
+  if (flip) subject.rotation.y = Math.PI;
+  subject.updateMatrixWorld(true);
   const camera = new THREE.PerspectiveCamera(S.fov, width / height, 0.1, 2000);
   camera.position.set(...S.pos);
   camera.lookAt(new THREE.Vector3(...S.look));

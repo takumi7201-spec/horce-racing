@@ -1254,7 +1254,7 @@ canvas.race3d { width: 100%; height: 100%; display: block; }
    銀河は暗い地に星を置く（overlay だと地が写真を暗くする）。 */
 .tc[data-holo="glitter"] .tc-art .hb { mix-blend-mode: screen; --hk: 1.5; }
 .tc[data-holo="cracked"] .tc-art .hb { --hk: 1.5; }
-.tc[data-holo="galaxy"] .tc-art .hb { mix-blend-mode: screen; --hk: 1.7; }
+.tc[data-holo="galaxy"] .tc-art .hb { mix-blend-mode: screen; --hk: 1.1; }
 .tc[data-holo="aurora"] .tc-art .hb { mix-blend-mode: screen; --hk: 2; }
 .tc-art .hbg { position: absolute; inset: 0; background: radial-gradient(circle at 1px 1px, #fff 0 .7px, transparent 1.4px), repeating-linear-gradient(45deg, #ffffff22 0 1px, transparent 1px 4px), repeating-linear-gradient(-45deg, #ffffff18 0 1px, transparent 1px 5px);
   background-size: 6px 6px, auto, auto; mix-blend-mode: overlay; opacity: calc(var(--hop) * 1.2);
