@@ -62,6 +62,13 @@ export function titleScreen(app) {
       el('small.ver', { text: 'ver 1.0.2' }),
       el('p.sub', { text: '牧場経営・配合・3D レース観戦までを一本で回す競馬シミュレーション' }),
     ]),
+    // カード育成は牧場とは別のモード（世界を作らない）。
+    el('div.title-mode', [
+      el('button.title-ik', { onclick: () => { app.stack.length = 0; app.go('ik', { view: 'home' }, { replace: true }); } }, [
+        el('b', { text: 'カード育成モード' }),
+        el('small', { text: 'ガチャで名馬のカードを集め、5 枚の編成で 2 年育てて完成馬どうしを戦わせる' }),
+      ]),
+    ]),
     el('div.title-cols', [
       card('ニューゲーム', [
         el('div.form', [

@@ -21,6 +21,7 @@ import { farmScreen } from './screens/farm.js';
 import { recordsScreen } from './screens/records.js';
 import { raceDayScreen } from './screens/raceday.js';
 import { yearEndScreen } from './screens/yearend.js';
+import { ikuseiScreen } from './screens/ikusei.js';
 
 const SCREENS = {
   title: titleScreen,
@@ -31,6 +32,7 @@ const SCREENS = {
   records: recordsScreen,
   raceday: raceDayScreen,
   yearend: yearEndScreen,
+  ik: ikuseiScreen,
 };
 
 const NAV = [
@@ -232,6 +234,12 @@ export function start(root) {
       clear(ui);
       app.onArrow = null;
       const screen = SCREENS[app.screen] ?? homeScreen;
+      // カード育成は牧場（app.game）を使わない別のモード。上の帯・メニュー・NEXT を持たない。
+      if (app.screen === 'ik') {
+        syncBackdrop(app, 'ik');
+        ui.appendChild(el('div.app.plain.ikm', screen(app)));
+        return;
+      }
       if (app.screen === 'title' || !app.game) {
         syncBackdrop(app, 'title');
         ui.appendChild(el('div.app.plain', titleScreen(app)));
@@ -315,11 +323,11 @@ function syncBackdrop(app, screen) {
   const live = screen === 'home' || screen === 'title' || portraitId != null;
   bg.classList.toggle('dim', !live);
   bg.classList.toggle('portrait', portraitId != null);
-  bg.classList.toggle('off', screen === 'raceday');
+  bg.classList.toggle('off', screen === 'raceday' || (screen === 'ik' && app.params.view === 'watch'));
   app.bgLive = live;
   const p = app.pasture;
   if (!p) return;
-  if (screen === 'title') {
+  if (screen === 'title' || screen === 'ik') {
     p.setHorses(TITLE_HORSES, { labels: false });
     p.setShift(0);
   } else if (app.game) {

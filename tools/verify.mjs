@@ -1045,5 +1045,46 @@ section('実在馬の白斑');
   check('レースの 3D に世界の毛色が渡る', runners.length === 5 && runners.every((h) => looks.get(h.id)?.coat === h.coat));
 }
 
+section('カード育成モード');
+{
+  const I = await import('../src/sim/ikusei.js');
+  const { peekHorseId } = await import('../src/sim/horse.js');
+  const ids = new Set(I.CARDS.map((c) => c.id));
+  check(`カード ${I.CARDS.length} 枚（第 1 弾・第 2 弾 39 枚ずつ、id が重ならない）`,
+    I.CARDS.length === 78 && ids.size === 78 && ['P1', 'P2'].every((p) => I.CARDS.filter((c) => c.pack === p).length === 39));
+  // +5 の数はレア度で決まる（LM 3・SSR 2〜3・SR 2・R と N は 1）
+  const n5 = (c) => Object.values(I.plusOf(c)).filter((x) => x === 5).length;
+  const want = { LM: [3, 3], SSR: [2, 3], SR: [2, 2], R: [1, 1], N: [1, 1] };
+  check('+5 の数がレア度の決まりどおり', I.CARDS.every((c) => n5(c) >= want[c.rar][0] && n5(c) <= want[c.rar][1]));
+  // ガチャは (シード, 引いた回数) だけで決まる
+  const a = I.newProfile(7), b = I.newProfile(7);
+  const ga = I.pull(a, 30).map((x) => x.card.id).join();
+  const gb = [...I.pull(b, 10), ...I.pull(b, 20)].map((x) => x.card.id).join();
+  check('ガチャは引き方（10 回＋20 回）によらず同じ順に出る', ga === gb);
+  const big = I.newProfile(11);
+  const got = I.pull(big, 2000);
+  const lm = got.filter((x) => x.card.rar === 'LM').length / 2000, nn = got.filter((x) => x.card.rar === 'N').length / 2000;
+  check(`排出率（LM ${(lm * 100).toFixed(1)}%・N ${(nn * 100).toFixed(1)}%）`, lm > 0.01 && lm < 0.035 && nn > 0.45 && nn < 0.55);
+  // 1 回の育成を最後まで（練習は体力を見て、レースは最初の候補）
+  const idBefore = peekHorseId();
+  const own = I.owned(big);
+  const lmCard = own.find((c) => c.rar === 'LM');
+  const run = I.startRun(big, lmCard.id, own.filter((c) => c.id !== lmCard.id).slice(0, 4).map((c) => c.id));
+  let k = 0;
+  while (!I.runDone(run)) {
+    if (I.isRaceTurn(run)) I.raceTurn(run, I.raceOptions(run)[0].id);
+    else if (run.energy < 45) I.rest(run);
+    else I.train(run, I.STATS[k++ % 5]);
+  }
+  const h = I.finishRun(big);
+  check(`育成は 10 戦で終わり、完成馬になる（${h.name} ${h.starts}戦${h.wins}勝・評価 ${h.rank}）`, h.starts === 10 && big.finished.length === 1 && big.run === null);
+  check('2 歳のレースは 2000m まで', h.races.filter((r) => I.SLOTS[r.slot].age === 2).every((r) => r.distance <= 2000));
+  const bt = I.battleNpc(big, h.id, 'japan-cup', 'normal');
+  check(`NPC とのランク戦が走る（${bt.order}着/${bt.result.results.length}）`, bt.result.results.length === 12 && bt.result.log != null);
+  check('育成・対戦は牧場の世界の馬の id を進めない（落とし穴 47）', peekHorseId() === idBefore);
+  const js = JSON.stringify(big);
+  check(`プロフィールは JSON で往復できる（${(js.length / 1024).toFixed(1)}KB）`, JSON.stringify(JSON.parse(js)) === js && js.length < 64 * 1024);
+}
+
 console.log(`\n合計 ${pass} ok / ${fail} NG`);
 process.exit(fail === 0 ? 0 : 1);
