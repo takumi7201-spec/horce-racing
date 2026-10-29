@@ -128,19 +128,24 @@ function crowdTexture() {
 }
 
 /** 空。上は青、地平は夕日の金色。 */
-function skyDome(sunDir) {
+/** 背景の種類。sunset は夕日のスタンド、desert は昼の砂漠の競馬場（霞んだ空と砂の内馬場、木立なし）。 */
+const BACKDROPS = {
+  sunset: { top: [0.30, 0.52, 0.86], horizon: [1.0, 0.80, 0.52], glow: 0.9, infield: 0x3f8a3a, trees: true, stand: true },
+  desert: { top: [0.56, 0.66, 0.80], horizon: [0.90, 0.88, 0.84], glow: 0.25, infield: 0xcdb58c, trees: false, stand: false, apron: 0xd8c39c },
+};
+
+function skyDome(sunDir, B = BACKDROPS.sunset) {
   const geo = new THREE.SphereGeometry(900, 32, 16);
   const mat = new THREE.ShaderMaterial({
     side: THREE.BackSide, depthWrite: false,
-    uniforms: { sun: { value: sunDir.clone().normalize() } },
+    uniforms: { sun: { value: sunDir.clone().normalize() }, top: { value: new THREE.Vector3(...B.top) }, horizon: { value: new THREE.Vector3(...B.horizon) }, glow: { value: B.glow } },
     vertexShader: 'varying vec3 vDir; void main(){ vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
-    fragmentShader: `varying vec3 vDir; uniform vec3 sun;
+    fragmentShader: `varying vec3 vDir; uniform vec3 sun; uniform vec3 top; uniform vec3 horizon; uniform float glow;
       void main(){
         float h = clamp(vDir.y, -0.1, 1.0);
-        vec3 top = vec3(0.30, 0.52, 0.86), horizon = vec3(1.0, 0.80, 0.52);
         vec3 col = mix(horizon, top, pow(max(h, 0.0), 0.55));
         float s = max(dot(vDir, sun), 0.0);
-        col += vec3(1.0, 0.86, 0.55) * pow(s, 18.0) * 0.9 + vec3(1.0, 0.95, 0.8) * pow(s, 400.0) * 3.0;
+        col += vec3(1.0, 0.86, 0.55) * pow(s, 18.0) * glow + vec3(1.0, 0.95, 0.8) * pow(s, 400.0) * 3.0 * glow;
         gl_FragColor = vec4(col, 1.0);
       }`,
   });
@@ -206,6 +211,9 @@ export const SHOTS = {
   face: { name: '顔のアップ', pos: [1.6, 1.85, 3.6], look: [0, 1.75, 1.2], fov: 32, inner: true, rails: [] },
   low: { name: '見上げ', pos: [2.6, 0.28, 3.8], look: [0, 1.65, 0.4], fov: 54, inner: true, rails: [] },
   side: { name: '真横（近く）', pos: [3.1, 1.35, 0.9], look: [0, 1.3, 0.7], fov: 58, inner: true, rails: [] },
+  // 参考：追い比べの斜め前（馬の右前から望遠、少し低め。馬は画面の左へ向かう）。内ラチは手前に来るので置かず、
+  // すぐ後ろにラチ。ゴール板は写さない。
+  charge: { name: '追う斜め前', pos: [11.2, 1.0, 6.6], look: [0, 1.28, 0.3], fov: 13.5, inner: false, rails: [-3.0], post: false, sun: [0.5, 0.62, 0.6] },
   duel: { name: '競り合い', pos: [2.2, 1.25, 7.0], look: [-1.1, 1.4, -0.3], fov: 32, inner: true, rails: [] },
 };
 
@@ -225,7 +233,8 @@ export function shootFinish(renderer, o) {
   const subject = new THREE.Group();
   scene.add(bg, subject);
 
-  bg.add(skyDome(sunDir));
+  const B = BACKDROPS[o.backdrop] ?? BACKDROPS.sunset;
+  bg.add(skyDome(sunDir, B));
   // 光：馬の毛色が読めるよう主光はカメラ側から（落とし穴 24）。夕日は後ろから縁を光らせる。
   scene.add(new THREE.HemisphereLight(0xfff1dc, 0x4a6a30, 0.62 * Math.PI));
   const key = new THREE.DirectionalLight(0xfff0dc, 0.45 * Math.PI);
@@ -244,11 +253,11 @@ export function shootFinish(renderer, o) {
   turf.rotation.x = -Math.PI / 2;
   turf.position.set((INNER_X + OUTER_X) / 2, 0, 0);
   bg.add(turf);
-  const infield = new THREE.Mesh(new THREE.PlaneGeometry(400, 320), new THREE.MeshStandardMaterial({ color: 0x3f8a3a, roughness: 1 }));
+  const infield = new THREE.Mesh(new THREE.PlaneGeometry(400, 320), new THREE.MeshStandardMaterial({ color: B.infield, roughness: 1 }));
   infield.rotation.x = -Math.PI / 2;
   infield.position.set(INNER_X + 200, -0.01, 0);
   bg.add(infield);
-  const apron = new THREE.Mesh(new THREE.PlaneGeometry(10, 320), new THREE.MeshStandardMaterial({ color: 0x8e8a80, roughness: 1 }));
+  const apron = new THREE.Mesh(new THREE.PlaneGeometry(10, 320), new THREE.MeshStandardMaterial({ color: B.apron ?? 0x8e8a80, roughness: 1 }));
   apron.rotation.x = -Math.PI / 2;
   apron.position.set((OUTER_X + STAND_X) / 2, -0.005, 0);
   bg.add(apron);
@@ -266,7 +275,7 @@ export function shootFinish(renderer, o) {
   const post = finishPost();
   // ゴール板は内ラチ側でカメラと馬の間に立つので、決勝線を過ぎたあと（馬の後ろ）に置く。手前に白い柱が立って馬を割った。
   post.position.set(INNER_X + 0.9, 0, -9);
-  bg.add(post);
+  if (S.post !== false) bg.add(post);
 
   // スタンド：段になった観客席と屋根。
   const crowd = new THREE.Mesh(new THREE.PlaneGeometry(320, 26), new THREE.MeshStandardMaterial({ map: crowdTexture(), roughness: 0.9 }));
@@ -277,18 +286,18 @@ export function shootFinish(renderer, o) {
   crowd.rotation.x = -0.62;      // 客席は奥へ上がる
   crowd.material.map.repeat.set(4, 1);
   crowd.material.map.wrapS = THREE.RepeatWrapping;
-  bg.add(crowd);
+  if (B.stand) bg.add(crowd);
   const roof = new THREE.Mesh(new THREE.BoxGeometry(14, 0.8, 320), new THREE.MeshStandardMaterial({ color: 0x8d949c, roughness: 0.6 }));
   roof.position.set(STAND_X - 12, 22, 0);
   roof.rotation.z = -0.12;
-  bg.add(roof);
+  if (B.stand) bg.add(roof);
   const wall = new THREE.Mesh(new THREE.BoxGeometry(1, 3, 320), new THREE.MeshStandardMaterial({ color: 0x2f5a3a, roughness: 0.8 }));
   wall.position.set(STAND_X, 1.5, 0);
-  bg.add(wall);
+  if (B.stand) bg.add(wall);
   // 内馬場の向こうの木立（低い円錐）
   const rnd = seeded(hero.id ?? 1);
   const treeMat = new THREE.MeshStandardMaterial({ color: 0x2e6a32, roughness: 1 });
-  for (let i = 0; i < 60; i++) {
+  for (let i = 0; i < (B.trees ? 60 : 0); i++) {
     const t = new THREE.Mesh(new THREE.ConeGeometry(2 + rnd() * 2, 7 + rnd() * 6, 7), treeMat);
     t.position.set(INNER_X + 70 + rnd() * 60, 4, -200 + i * 7 + rnd() * 4);
     bg.add(t);
@@ -297,7 +306,7 @@ export function shootFinish(renderer, o) {
   // 馬：主役と相手。脚の位相は update に「進んだ距離」で渡す（1 完歩 = STRIDE m）。
   const models = [];
   const place = (h, dx, dz, ph, detail) => {
-    const m = makeHorse({ id: h.id, gate: h.gate ?? 1, frame: h.frame ?? 1, coat: h.coat, marks: h.marks ?? null, detail, riderPose: h === hero ? riderPose : 'race' });
+    const m = makeHorse({ id: h.id, gate: h.gate ?? 1, frame: h.frame ?? 1, coat: h.coat, marks: h.marks ?? null, silks: h.silks ?? null, detail, riderPose: h === hero ? riderPose : 'race' });
     m.update(((ph % 1) + 1) % 1 * STRIDE, 17, 0);
     m.group.position.set(dx, 0, dz);
     // 脚を伸ばした位相では 4 本とも宙に浮き、影から離れて飛んでいるように見えた。いちばん低い蹄を地面に着ける。

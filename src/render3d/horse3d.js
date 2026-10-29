@@ -572,7 +572,7 @@ function makeReins(mat) {
  *   detail は頭の細かさ（'high' 牧場・詳細、'low' レース）。既定は bare なら high
  * @returns {{group:THREE.Group, update:Function, legs:Array, body:THREE.Group, rider:THREE.Group|null}}
  */
-export function makeHorse({ id = 1, gate = 1, frame = 1, coat = '鹿毛', scale = 1, bare = false, tack = false, padColor = 0xe8c33a, detail = null, riderPose = 'race', marks = null } = {}) {
+export function makeHorse({ id = 1, gate = 1, frame = 1, coat = '鹿毛', scale = 1, bare = false, tack = false, padColor = 0xe8c33a, detail = null, riderPose = 'race', marks = null, silks = null } = {}) {
   const S = shapes();
   const group = new THREE.Group();
   const body = new THREE.Group();   // 胴体まわり（上下に揺れる）
@@ -699,7 +699,8 @@ export function makeHorse({ id = 1, gate = 1, frame = 1, coat = '鹿毛', scale 
   let reins = null;
   if (!bare) {
     // 騎手は jockey3d.js（勝負服は馬 id、ヘルメットの覆いは枠色＝JRA の帽色）。
-    const jk = makeJockey({ id, capColor: FRAME_COLORS[(frame - 1) % 8] ?? 0xffffff, pose: riderPose, detail: high ? 'high' : 'low' });
+    // silks を渡すと勝負服と帽子はその色（一枚絵で実在の馬主の服を着せる）。
+    const jk = makeJockey({ id, capColor: silks?.cap ?? FRAME_COLORS[(frame - 1) % 8] ?? 0xffffff, pose: riderPose, detail: high ? 'high' : 'low', silks });
     rider = jk.group;
     rider.position.set(0, 1.6, -0.06);
     rider.userData.reinHands = jk.reinHands;

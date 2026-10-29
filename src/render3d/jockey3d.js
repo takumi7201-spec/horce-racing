@@ -142,12 +142,16 @@ export function silksColors(id) {
 const PATTERNS = ['無地', '縦縞', '輪', 'たすき', '山形', '玉', '肩章'];
 
 const silksCache = new Map();
-/** 勝負服の布（胴・袖）。u は周（0 が横、0.25 が前、0.75 が背）、v は長さ（胴は腰 0 → 首 1）。 */
-function silksTextures(id) {
-  if (silksCache.has(id)) return silksCache.get(id);
-  const [ca, cb] = silksColors(id);
+/**
+ * 勝負服の布（胴・袖）。u は周（0 が横、0.25 が前、0.75 が背）、v は長さ（胴は腰 0 → 首 1）。
+ * custom（{ body, accent, pattern, sleeve: 'plain'|'hoops' }）を渡すと、その色と柄で作る（実在の馬主の服など）。
+ */
+function silksTextures(id, custom = null) {
+  const key = custom ? JSON.stringify(custom) : id;
+  if (silksCache.has(key)) return silksCache.get(key);
+  const [ca, cb] = custom ? [new THREE.Color(custom.body), new THREE.Color(custom.accent ?? custom.body)] : silksColors(id);
   const A = `#${ca.getHexString()}`, B = `#${cb.getHexString()}`;
-  const pat = PATTERNS[Math.floor(hash01(id, 5) * PATTERNS.length)];
+  const pat = custom ? (custom.pattern ?? '無地') : PATTERNS[Math.floor(hash01(id, 5) * PATTERNS.length)];
   const body = document.createElement('canvas');
   body.width = 256; body.height = 128;
   const g = body.getContext('2d');
@@ -175,14 +179,14 @@ function silksTextures(id) {
   const sleeve = document.createElement('canvas');
   sleeve.width = 64; sleeve.height = 64;
   const s = sleeve.getContext('2d');
-  const sleevePat = hash01(id, 6);
+  const sleevePat = custom ? (custom.sleeve === 'hoops' ? 0.9 : 0) : hash01(id, 6);
   s.fillStyle = sleevePat < 0.5 ? B : A;
   s.fillRect(0, 0, 64, 64);
   if (sleevePat >= 0.5) { s.fillStyle = B; for (let y = 6; y < 64; y += 18) s.fillRect(0, y, 64, 7); }
   s.fillStyle = '#f2f0ea'; s.fillRect(0, 60, 64, 4);   // 袖口のゴム
   const tex = (c) => { const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; };
   const out = { body: tex(body), sleeve: tex(sleeve), pattern: pat };
-  silksCache.set(id, out);
+  silksCache.set(key, out);
   if (silksCache.size > 40) {
     const [k, v] = silksCache.entries().next().value;
     v.body.dispose(); v.sleeve.dispose();
@@ -263,11 +267,11 @@ const POSES = {
  * @returns {{group:THREE.Group, reinHands:THREE.Vector3[]}} 手綱を持つ手（騎手の組の座標。左 +x・右 -x の順）。
  *   ガッツポーズでは両方の手綱を右手でまとめて持つ。
  */
-export function makeJockey({ id = 1, capColor = 0xffffff, pose = 'race', detail = 'low' }) {
+export function makeJockey({ id = 1, capColor = 0xffffff, pose = 'race', detail = 'low', silks: custom = null }) {
   const S = shapes(detail);
   const P = POSES[pose] ?? POSES.race;
   const high = detail !== 'low';
-  const tex = silksTextures(id);
+  const tex = silksTextures(id, custom);
   const silks = new THREE.MeshStandardMaterial({ map: tex.body, roughness: 0.36, metalness: 0.02 });
   const sleeve = new THREE.MeshStandardMaterial({ map: tex.sleeve, roughness: 0.36, metalness: 0.02 });
   const breeches = new THREE.MeshStandardMaterial({ color: 0xf2f0ea, roughness: 0.6 });
