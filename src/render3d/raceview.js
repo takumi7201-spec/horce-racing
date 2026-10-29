@@ -7,6 +7,7 @@
 import * as THREE from '../../vendor/three/three.module.min.js';
 import { buildTrackMesh, trackPoint } from './track.js';
 import { makeHorse, makeShadowPatch, FRAME_COLORS } from './horse3d.js';
+import { makeWind } from './wind.js';
 import { buildTrack, posToWorld, elevationAt, curvatureAt, trackBounds } from '../sim/course.js';
 import { sampleLog, logDuration } from '../sim/race.js';
 import { yawForZForward } from './orient.js';
@@ -327,11 +328,31 @@ export function createRaceView(canvas, race, opts = {}) {
     }
   }
 
+  // 風の筋：寄ったカメラ（マーク・騎手・一枚絵）で、追っている馬の周りを後ろへ流す。
+  // 中継・俯瞰・並走・ゴール前では馬が小さく、筋が画面に散らばるだけなので出さない。流れる速さはレースの時間で測る（ゴール前のスローにも合う）。
+  // マークのカメラは 15m ほど離れるので、一枚絵より太くしないと 1〜2 ドットの線になって読めない。
+  const wind = makeWind({ count: 30, seed: 11, width: 2.2, opacity: 0.6 });
+  scene.add(wind.group);
+  let windT = 0;
+  function updateWind(st) {
+    const close = mode === 'mark' || mode === 'jockey' || mode === 'photo';
+    const fid = focusId ?? st.lead.id;
+    const h = close ? horses.find((x) => x.id === fid) : null;
+    const dt = Math.max(0, Math.min(0.1, time - windT));
+    windT = time;
+    if (!h) { wind.group.visible = false; return; }
+    wind.group.position.copy(h.group.position);
+    wind.group.rotation.y = h.group.rotation.y;
+    camera.updateMatrixWorld();
+    wind.update(dt, st.snap[h.index].v, camera);
+  }
+
   function draw() {
     const st = sampleState();
     placeHorses(st);
     updateCamera(st);
     updateMarkers(st);
+    updateWind(st);
     renderer.render(scene, camera);
     if (api.onFrame) {
       api.onFrame({

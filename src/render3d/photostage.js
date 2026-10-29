@@ -11,6 +11,7 @@
 
 import * as THREE from '../../vendor/three/three.module.min.js';
 import { makeHorse, makeShadowPatch, disposeHorse, STRIDE } from './horse3d.js';
+import { makeWind } from './wind.js';
 
 const INNER_X = 3.4;      // 内ラチ（馬の左手）
 const OUTER_X = -24;      // 外ラチ
@@ -319,6 +320,16 @@ export function shootFinish(renderer, o) {
   camera.position.set(...S.pos);
   camera.lookAt(new THREE.Vector3(...S.look));
   camera.updateMatrixWorld();
+  // 風の筋（駆け抜ける速さ）。主役の馬の周りに、カメラへ向けて置く。止めた 1 コマなので流さない（dt 0）。
+  // 画角に入る前後 6m に寄せる（レースの 10m のままだと大半が画面の外）。透明の地に描くので普通の合成。
+  if (o.wind !== false) {
+    const wind = makeWind({
+      count: 40, seed: (hero.id ?? 1) * 7 + 3, zRange: [-3.8, 2.2], width: 2,
+      opacity: o.windOpacity ?? 0.85, blending: 'normal', color: 0xfff6e2,
+    });
+    subject.add(wind.group);
+    wind.update(0, 17, camera);
+  }
 
   renderer.setSize(width, height, false);
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
