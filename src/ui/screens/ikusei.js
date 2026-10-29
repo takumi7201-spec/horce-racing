@@ -109,7 +109,7 @@ function gachaView(app, go) {
 function showCard(app, c) {
   const p = app.ik;
   modal(`${epithetOf(c)} ${c.name}`, [
-    el('div.ik-big', cardView(c, { scale: Math.min(0.7, (window.innerHeight - 170) / 880, (window.innerWidth - 60) / 630), tilt: 'full', sway: true })),
+    el('div.ik-big', cardView(c, { scale: Math.min(0.7, (window.innerHeight - 170) / 880, (window.innerWidth - 60) / 630), tilt: 'full' })),
     el('p.note', { text: `所持 ${p.cards[c.id] ?? 0} 枚　サポートの得意：${I.STAT_LABEL[I.supportType(c)]}の練習${holoOf(c) ? `　ホロ：${holoName(holoOf(c))}` : ''}　（ドラッグで傾けられる）` }),
   ], { wide: true });
 }

@@ -1227,28 +1227,35 @@ canvas.race3d { width: 100%; height: 100%; display: block; }
 .tc-badge { left: 6px; right: auto; background: var(--gold-d); }
 .tc { width: 630px; height: 880px; border-radius: 26px; padding: 12px; position: relative; background: var(--frame); color: #f6efd8;
   box-shadow: 0 0 50px var(--glow), 0 18px 40px #000a, inset 0 0 0 2px #fff8, inset 0 0 0 5px #0003; font-family: sans-serif; text-align: left;
-  --rx: 0deg; --ry: 0deg; --mx: 50%; --my: 50%; --px: 0px; --py: 0px; --hue: 0deg; --tilt: .3; --ga: 0;
-  transform: perspective(1500px) rotateX(var(--rx)) rotateY(var(--ry)); transition: transform 80ms linear; will-change: transform; }
+  --rx: 0deg; --ry: 0deg; --mx: 50%; --my: 50%; --px: 0px; --py: 0px; --tilt: .3; --ga: 0; }
+/* 3D の変形は傾けている間だけ（全カードに常時掛けると一覧が合成レイヤーだらけになって重い。落とし穴 93） */
+.tc.tilt { transform: perspective(1500px) rotateX(var(--rx)) rotateY(var(--ry)); transition: transform 60ms linear; }
 /* 指やマウスが離れたら、ゆっくり正面へ戻す */
-.tc.settle { transition: transform .6s cubic-bezier(.2,.8,.3,1); }
+.tc.tilt.settle { transition: transform .6s cubic-bezier(.2,.8,.3,1); }
 /* 光沢（すべてのレア度）。ポインタの位置に当たる光。 */
 .tc-glare { position: absolute; inset: 0; z-index: 6; pointer-events: none; border-radius: 16px; mix-blend-mode: overlay; opacity: calc(var(--ga) * .85); transition: opacity .3s;
   background: radial-gradient(circle at var(--mx) var(--my), #ffffffcc 0, #ffffff55 18%, transparent 48%); }
 .tc.r-LM::after { content: ""; position: absolute; inset: 0; border-radius: 26px; pointer-events: none; background: linear-gradient(125deg, transparent 30%, #ffffffaa 45%, transparent 60%);
   background-size: 220% 220%; background-position: calc(50% + var(--px)) calc(50% + var(--py)); mix-blend-mode: overlay; }
-.tc-in { height: 100%; border-radius: 16px; overflow: hidden; position: relative; background: #0d1a10; box-shadow: inset 0 0 0 2px var(--line); }
-.tc-art { position: absolute; inset: 0 0 262px 0; overflow: hidden; background: radial-gradient(#2a3a26, #0d1a10); }
+.tc-in { height: 100%; border-radius: 16px; overflow: hidden; position: relative; background: #0d1a10; box-shadow: inset 0 0 0 2px var(--line); isolation: isolate; }
+.tc-art { position: absolute; inset: 0 0 262px 0; overflow: hidden; background: radial-gradient(#2a3a26, #0d1a10); isolation: isolate; }
 .tc-art .b, .tc-art .f { position: absolute; inset: 0; background-position: center; background-size: cover; }
 .tc-art .b { filter: blur(6px) saturate(1.1) brightness(1.06); transform: scale(1.03); }
+/* 絵が届くまではホロと光を出さない（暗い地に模様だけが出て、崩れたカードに見えた） */
+.tc:not(.ready) .tc-art .hb, .tc:not(.ready) .tc-art .hbg, .tc:not(.ready) .tc-art .hb2, .tc:not(.ready) .tc-glow, .tc.tc:not(.ready) .tc-lowholo { opacity: 0; }
+.tc:not(.ready) .tc-art { background: linear-gradient(110deg, #13261a 30%, #1d3a26 50%, #13261a 70%) 0 0 / 300% 100%; animation: tc-wait 1.6s linear infinite; }
+@keyframes tc-wait { to { background-position: -150% 0; } }
+/* cardart.js がぼかしを焼き込んだ背景（CSS で毎回ぼかさない） */
+.tc-art .b.baked { filter: none; transform: none; }
 .tc-art .f { filter: saturate(1.12) contrast(1.06); }
 .tc-art .hb { position: absolute; inset: 0; background: var(--holo); background-size: var(--holo-size); background-position: calc(50% + var(--px)) calc(50% + var(--py));
-  filter: hue-rotate(var(--hue)) saturate(1.2); mix-blend-mode: overlay; opacity: calc(var(--hop) * var(--hk, 1) * (.55 + var(--tilt) * .9)); }
+  mix-blend-mode: overlay; opacity: calc(var(--hop) * var(--hk, 1) * (.55 + var(--tilt) * .9)); }
 /* 模様ごとの合成と強さ。点や雲の模様は overlay だと明るい背景に溶けて見えないので screen で光として足す。
    銀河は暗い地に星を置く（overlay だと地が写真を暗くする）。 */
 .tc[data-holo="glitter"] .tc-art .hb { mix-blend-mode: screen; --hk: 1.5; }
 .tc[data-holo="cracked"] .tc-art .hb { --hk: 1.5; }
 .tc[data-holo="galaxy"] .tc-art .hb { mix-blend-mode: screen; --hk: 1.7; }
-.tc[data-holo="aurora"] .tc-art .hb { mix-blend-mode: screen; --hk: 2; filter: hue-rotate(var(--hue)) saturate(1.6); }
+.tc[data-holo="aurora"] .tc-art .hb { mix-blend-mode: screen; --hk: 2; }
 .tc-art .hbg { position: absolute; inset: 0; background: radial-gradient(circle at 1px 1px, #fff 0 .7px, transparent 1.4px), repeating-linear-gradient(45deg, #ffffff22 0 1px, transparent 1px 4px), repeating-linear-gradient(-45deg, #ffffff18 0 1px, transparent 1px 5px);
   background-size: 6px 6px, auto, auto; mix-blend-mode: overlay; opacity: calc(var(--hop) * 1.2);
   -webkit-mask: linear-gradient(115deg, #0004, #000 40%, #0004 60%, #000); -webkit-mask-size: 200% 200%; -webkit-mask-position: calc(50% + var(--px)) calc(50% + var(--py)); }
@@ -1278,7 +1285,7 @@ canvas.race3d { width: 100%; height: 100%; display: block; }
 .tc-band .nm { font-size: 38px; font-weight: 900; color: #fff; letter-spacing: .04em; text-shadow: 0 0 14px var(--glow); white-space: nowrap; }
 .tc-band .meta { margin-left: auto; color: var(--ink); font-size: 15px; white-space: nowrap; }
 .tc-lowholo { position: absolute; left: 0; right: 0; bottom: 0; height: 262px; background: var(--holo); background-size: var(--holo-size); background-position: calc(50% + var(--px)) calc(50% + var(--py));
-  filter: hue-rotate(var(--hue)); mix-blend-mode: color-dodge; opacity: 0; }
+  mix-blend-mode: color-dodge; opacity: 0; }
 .tc.foiled .tc-lowholo { opacity: calc(var(--hop) * .22); }
 .tc-low { position: absolute; left: 0; right: 0; bottom: 0; height: 262px; padding: 50px 18px 12px; background: linear-gradient(#10251a, #0b1710); display: flex; flex-direction: column; gap: 9px; }
 .tc-low .stats { display: flex; gap: 6px; }

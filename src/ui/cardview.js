@@ -57,8 +57,8 @@ const HOLO_KINDS = {
     make: (c) => [[
       'radial-gradient(circle,#fff 0 1px,transparent 1.8px)', 'radial-gradient(circle,#fff 0 1.6px,transparent 2.6px)', 'radial-gradient(circle,#fffbe0 0 2.4px,transparent 4.5px)',
       `radial-gradient(ellipse at 30% 30%,${c[1]},transparent 45%)`, `radial-gradient(ellipse at 70% 60%,${c[4]},transparent 45%)`,
-      `radial-gradient(ellipse at 45% 85%,${c[2]},transparent 50%)`, '#16123a',
-    ].join(','), '7px 9px,19px 23px,53px 47px,200% 200%,200% 200%,200% 200%,100% 100%'],
+      `radial-gradient(ellipse at 45% 85%,${c[2]},transparent 50%)`,
+    ].join(','), '7px 9px,19px 23px,53px 47px,200% 200%,200% 200%,200% 200%'],
   },
   aurora: {
     name: 'オーロラ',
@@ -107,7 +107,7 @@ export const epithetOf = (c) => {
  * カード 1 枚。scale は 630×880 に対する倍率。opts.onClick を渡すと押せる。
  * opts.count があれば右上に枚数、opts.dim で暗く（持っていないカード）。
  */
-export function cardView(c, { scale = 0.4, onClick = null, count = 0, dim = false, badge = null, holo = null, tilt = 'hover', sway = false } = {}) {
+export function cardView(c, { scale = 0.4, onClick = null, count = 0, dim = false, badge = null, holo = null, tilt = 'hover' } = {}) {
   const T = THEME[c.rar];
   const H = HOLO[c.rar];
   const foil = FOIL[c.rar] ?? null;
@@ -167,10 +167,11 @@ export function cardView(c, { scale = 0.4, onClick = null, count = 0, dim = fals
     badge ? el('span.tc-badge', { text: badge }) : null,
   ]);
   if (onClick) wrap.onclick = () => onClick(c);
-  if (!dim && tilt) attachTilt(wrap, card, { touch: tilt === 'full', sway });
-  if (!dim) {
-    cardArt(c).then((a) => {
-      art.querySelector('.b').style.backgroundImage = `url(${a.bg})`;
+  if (!dim && tilt) attachTilt(wrap, card, { touch: tilt === 'full' });
+  if (!dim) whenVisible(wrap, () => cardArt(c).then((a) => {
+      const bEl = art.querySelector('.b');
+      bEl.style.backgroundImage = `url(${a.bg})`;
+      if (a.bgBaked) bEl.classList.add('baked');
       art.querySelector('.f').style.backgroundImage = `url(${a.fg})`;
       if (foil && a.ring) {
         const o = art.querySelector('.olr');
@@ -183,57 +184,79 @@ export function cardView(c, { scale = 0.4, onClick = null, count = 0, dim = fals
       const at = `${(sx * 100).toFixed(1)}% ${(sy * 100).toFixed(1)}%`;
       glow.style.background = `radial-gradient(circle at ${at},#fff8d8 0%,#ffe08acc 7%,#ffc84a44 20%,transparent 42%),${T.rays ? `repeating-conic-gradient(from 0deg at ${at},#fff3b8${Math.round(T.rays * 34).toString(16).padStart(2, '0')} 0deg 3deg,transparent 3deg 9deg),` : ''}linear-gradient(180deg,#ffd36a33,transparent 40%,transparent 70%,#0d1a10 100%)`;
       card.classList.add('ready');
-    }).catch(() => {});
-  }
+    }).catch(() => {}));
   return wrap;
+}
+
+/**
+ * 画面に入ってから絵を撮る。一覧の 79 枚を開いた瞬間に全部撮ると、撮り終わるまで（1 枚ずつ WebGL で描く）
+ * 画面が固まった。見えていないカードは、スクロールして近づいたときに撮る。
+ */
+let observer = null;
+const waiting = new WeakMap();
+function whenVisible(node, fn) {
+  if (typeof IntersectionObserver !== 'function') { fn(); return; }
+  observer ??= new IntersectionObserver((entries) => {
+    for (const e of entries) {
+      if (!e.isIntersecting) continue;
+      observer.unobserve(e.target);
+      const go = waiting.get(e.target);
+      waiting.delete(e.target);
+      go?.();
+    }
+  }, { rootMargin: '300px' });
+  waiting.set(node, fn);
+  observer.observe(node);
 }
 
 /** 傾きの最大（度）。大きいと文字が読めない。 */
 const MAX_TILT = 13;
 /**
  * カードを傾ける。ポインタの位置（カードの中の 0..1）から角度・ホロの動き・光沢の位置を CSS の変数で渡す。
- * 一覧（tilt: 'hover'）はマウスだけ（指で触るとスクロールできなくなる）。大きく見る画面（'full'）は指でも傾け、
- * sway なら触っていない間はゆっくり揺らす（スマホで触らなくても角度で見え方が変わるのが分かるように）。
+ * 一覧（tilt: 'hover'）はマウスだけ（指で触るとスクロールできなくなる）。大きく見る画面（'full'）は指でも傾ける。
+ *
+ * 3D の変形（.tc.tilt）は傾けている間だけ掛ける。全カードに常時掛けると、一覧のカードがすべて合成レイヤーになって重く、
+ * Safari では 3D 変形の中の mix-blend-mode が効かずにホロが絵を覆った。更新は 1 フレームに 1 回にまとめる
+ * （pointermove はフレームより多く来る）。触っていない間に揺らすのもやめた（毎フレーム全層を描き直して重かった）。
  */
-function attachTilt(wrap, card, { touch, sway }) {
-  const set = (mx, my, on) => {
+function attachTilt(wrap, card, { touch }) {
+  let raf = 0, nx = 0.5, ny = 0.5, on = false, off = 0;
+  const apply = () => {
+    raf = 0;
     const st = card.style;
-    st.setProperty('--rx', `${((0.5 - my) * 2 * MAX_TILT).toFixed(2)}deg`);
-    st.setProperty('--ry', `${((mx - 0.5) * 2 * MAX_TILT).toFixed(2)}deg`);
-    st.setProperty('--mx', `${(mx * 100).toFixed(1)}%`);
-    st.setProperty('--my', `${(my * 100).toFixed(1)}%`);
+    st.setProperty('--rx', `${((0.5 - ny) * 2 * MAX_TILT).toFixed(2)}deg`);
+    st.setProperty('--ry', `${((nx - 0.5) * 2 * MAX_TILT).toFixed(2)}deg`);
+    st.setProperty('--mx', `${(nx * 100).toFixed(1)}%`);
+    st.setProperty('--my', `${(ny * 100).toFixed(1)}%`);
     // ホロは傾きと逆へ流す（光の当たる帯が表面を滑って見える）。
-    st.setProperty('--px', `${((0.5 - mx) * 220).toFixed(1)}px`);
-    st.setProperty('--py', `${((0.5 - my) * 220).toFixed(1)}px`);
-    st.setProperty('--hue', `${((mx - 0.5) * 70 + (my - 0.5) * 40).toFixed(1)}deg`);
-    st.setProperty('--tilt', Math.min(1, Math.hypot(mx - 0.5, my - 0.5) * 2.4).toFixed(3));
+    st.setProperty('--px', `${((0.5 - nx) * 220).toFixed(1)}px`);
+    st.setProperty('--py', `${((0.5 - ny) * 220).toFixed(1)}px`);
+    st.setProperty('--tilt', Math.min(1, Math.hypot(nx - 0.5, ny - 0.5) * 2.4).toFixed(3));
     st.setProperty('--ga', on ? '1' : '0');
   };
-  let swayT = 0, raf = 0, resume = 0;
-  const loop = () => {
-    if (!wrap.isConnected) return;
-    swayT += 1 / 60;
-    set(0.5 + 0.36 * Math.sin(swayT * 0.9), 0.5 + 0.26 * Math.sin(swayT * 0.63 + 1), true);
-    raf = requestAnimationFrame(loop);
-  };
-  const stopSway = () => { cancelAnimationFrame(raf); raf = 0; clearTimeout(resume); };
+  const queue = () => { if (!raf) raf = requestAnimationFrame(apply); };
   const move = (e) => {
     if (e.pointerType !== 'mouse' && !touch) return;
     const r = wrap.getBoundingClientRect();
-    stopSway();
+    clearTimeout(off);
+    card.classList.add('tilt');
     card.classList.remove('settle');
-    set(Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)), Math.min(1, Math.max(0, (e.clientY - r.top) / r.height)), true);
+    nx = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
+    ny = Math.min(1, Math.max(0, (e.clientY - r.top) / r.height));
+    on = true;
+    queue();
   };
   const leave = () => {
+    if (!card.classList.contains('tilt')) return;
     card.classList.add('settle');
-    set(0.5, 0.5, false);
-    if (sway) resume = setTimeout(() => { card.classList.remove('settle'); if (!raf) loop(); }, 1200);
+    nx = 0.5; ny = 0.5; on = false;
+    queue();
+    // 正面へ戻りきったら 3D の変形を外す（合成レイヤーを残さない）
+    off = setTimeout(() => card.classList.remove('tilt', 'settle'), 650);
   };
   wrap.addEventListener('pointermove', move);
   wrap.addEventListener('pointerdown', move);
   wrap.addEventListener('pointerleave', leave);
   wrap.addEventListener('pointercancel', leave);
   if (touch) { wrap.style.touchAction = 'none'; wrap.addEventListener('pointerup', leave); }
-  set(0.5, 0.5, false);
-  if (sway) requestAnimationFrame(loop);
 }
