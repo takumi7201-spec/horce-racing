@@ -5,7 +5,7 @@
 
 import { el, card, table, button, toast, modal, ask, tabs, frameChip } from '../dom.js';
 import * as I from '../../sim/ikusei.js';
-import { cardView, epithetOf } from '../cardview.js';
+import { cardView, epithetOf, holoOf, holoName } from '../cardview.js';
 import { createRaceView, CAMERAS } from '../../render3d/raceview.js';
 import { formatTime } from '../../core/util.js';
 import * as sound from '../sound.js';
@@ -109,8 +109,8 @@ function gachaView(app, go) {
 function showCard(app, c) {
   const p = app.ik;
   modal(`${epithetOf(c)} ${c.name}`, [
-    el('div.ik-big', cardView(c, { scale: Math.min(0.7, (window.innerHeight - 160) / 880) })),
-    el('p.note', { text: `所持 ${p.cards[c.id] ?? 0} 枚　サポートの得意：${I.STAT_LABEL[I.supportType(c)]}の練習` }),
+    el('div.ik-big', cardView(c, { scale: Math.min(0.7, (window.innerHeight - 170) / 880, (window.innerWidth - 60) / 630), tilt: 'full', sway: true })),
+    el('p.note', { text: `所持 ${p.cards[c.id] ?? 0} 枚　サポートの得意：${I.STAT_LABEL[I.supportType(c)]}の練習${holoOf(c) ? `　ホロ：${holoName(holoOf(c))}` : ''}　（ドラッグで傾けられる）` }),
   ], { wide: true });
 }
 

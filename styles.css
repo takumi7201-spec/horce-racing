@@ -1226,18 +1226,35 @@ canvas.race3d { width: 100%; height: 100%; display: block; }
 .tc-count, .tc-badge { position: absolute; top: 4px; right: 6px; background: #000c; color: #fff; font: 900 12px/1 sans-serif; padding: 3px 6px; border-radius: 999px; }
 .tc-badge { left: 6px; right: auto; background: var(--gold-d); }
 .tc { width: 630px; height: 880px; border-radius: 26px; padding: 12px; position: relative; background: var(--frame); color: #f6efd8;
-  box-shadow: 0 0 50px var(--glow), 0 18px 40px #000a, inset 0 0 0 2px #fff8, inset 0 0 0 5px #0003; font-family: sans-serif; text-align: left; }
-.tc.r-LM::after { content: ""; position: absolute; inset: 0; border-radius: 26px; pointer-events: none; background: linear-gradient(125deg, transparent 30%, #ffffffaa 45%, transparent 60%); mix-blend-mode: overlay; }
+  box-shadow: 0 0 50px var(--glow), 0 18px 40px #000a, inset 0 0 0 2px #fff8, inset 0 0 0 5px #0003; font-family: sans-serif; text-align: left;
+  --rx: 0deg; --ry: 0deg; --mx: 50%; --my: 50%; --px: 0px; --py: 0px; --hue: 0deg; --tilt: .3; --ga: 0;
+  transform: perspective(1500px) rotateX(var(--rx)) rotateY(var(--ry)); transition: transform 80ms linear; will-change: transform; }
+/* 指やマウスが離れたら、ゆっくり正面へ戻す */
+.tc.settle { transition: transform .6s cubic-bezier(.2,.8,.3,1); }
+/* 光沢（すべてのレア度）。ポインタの位置に当たる光。 */
+.tc-glare { position: absolute; inset: 0; z-index: 6; pointer-events: none; border-radius: 16px; mix-blend-mode: overlay; opacity: calc(var(--ga) * .85); transition: opacity .3s;
+  background: radial-gradient(circle at var(--mx) var(--my), #ffffffcc 0, #ffffff55 18%, transparent 48%); }
+.tc.r-LM::after { content: ""; position: absolute; inset: 0; border-radius: 26px; pointer-events: none; background: linear-gradient(125deg, transparent 30%, #ffffffaa 45%, transparent 60%);
+  background-size: 220% 220%; background-position: calc(50% + var(--px)) calc(50% + var(--py)); mix-blend-mode: overlay; }
 .tc-in { height: 100%; border-radius: 16px; overflow: hidden; position: relative; background: #0d1a10; box-shadow: inset 0 0 0 2px var(--line); }
 .tc-art { position: absolute; inset: 0 0 262px 0; overflow: hidden; background: radial-gradient(#2a3a26, #0d1a10); }
 .tc-art .b, .tc-art .f { position: absolute; inset: 0; background-position: center; background-size: cover; }
 .tc-art .b { filter: blur(6px) saturate(1.1) brightness(1.06); transform: scale(1.03); }
 .tc-art .f { filter: saturate(1.12) contrast(1.06); }
-.tc-art .hb { position: absolute; inset: 0; background: var(--holo); mix-blend-mode: overlay; opacity: var(--hop); }
+.tc-art .hb { position: absolute; inset: 0; background: var(--holo); background-size: var(--holo-size); background-position: calc(50% + var(--px)) calc(50% + var(--py));
+  filter: hue-rotate(var(--hue)) saturate(1.2); mix-blend-mode: overlay; opacity: calc(var(--hop) * var(--hk, 1) * (.55 + var(--tilt) * .9)); }
+/* 模様ごとの合成と強さ。点や雲の模様は overlay だと明るい背景に溶けて見えないので screen で光として足す。
+   銀河は暗い地に星を置く（overlay だと地が写真を暗くする）。 */
+.tc[data-holo="glitter"] .tc-art .hb { mix-blend-mode: screen; --hk: 1.5; }
+.tc[data-holo="cracked"] .tc-art .hb { --hk: 1.5; }
+.tc[data-holo="galaxy"] .tc-art .hb { mix-blend-mode: screen; --hk: 1.7; }
+.tc[data-holo="aurora"] .tc-art .hb { mix-blend-mode: screen; --hk: 2; filter: hue-rotate(var(--hue)) saturate(1.6); }
 .tc-art .hbg { position: absolute; inset: 0; background: radial-gradient(circle at 1px 1px, #fff 0 .7px, transparent 1.4px), repeating-linear-gradient(45deg, #ffffff22 0 1px, transparent 1px 4px), repeating-linear-gradient(-45deg, #ffffff18 0 1px, transparent 1px 5px);
-  background-size: 6px 6px, auto, auto; mix-blend-mode: overlay; opacity: calc(var(--hop) * 1.2); -webkit-mask: linear-gradient(115deg, #0004, #000 40%, #0004 60%, #000); }
-.tc-art .hb2 { position: absolute; inset: 0; mix-blend-mode: overlay; opacity: calc(var(--hop) * .8); background: linear-gradient(115deg, transparent 28%, #ffffffcc 42%, transparent 52%, transparent 64%, #ffffff88 72%, transparent 80%); }
-.tc-art .olr { position: absolute; inset: 0; background: var(--foil); background-size: 180% 100%; opacity: 0;
+  background-size: 6px 6px, auto, auto; mix-blend-mode: overlay; opacity: calc(var(--hop) * 1.2);
+  -webkit-mask: linear-gradient(115deg, #0004, #000 40%, #0004 60%, #000); -webkit-mask-size: 200% 200%; -webkit-mask-position: calc(50% + var(--px)) calc(50% + var(--py)); }
+.tc-art .hb2 { position: absolute; inset: 0; mix-blend-mode: overlay; opacity: calc(var(--hop) * .8); background: linear-gradient(115deg, transparent 28%, #ffffffcc 42%, transparent 52%, transparent 64%, #ffffff88 72%, transparent 80%);
+  background-size: 250% 250%; background-position: calc(50% + var(--px) * 1.6) calc(50% + var(--py) * 1.6); }
+.tc-art .olr { position: absolute; inset: 0; background: var(--foil); background-size: 180% 100%; background-position: calc(50% + var(--px)) 0; opacity: 0;
   -webkit-mask-size: cover; mask-size: cover; -webkit-mask-position: center; mask-position: center; -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
   filter: drop-shadow(0 1px 0 #0009) drop-shadow(0 -0.5px 0 #fff8); }
 .tc-warm { position: absolute; inset: 0 0 262px 0; background: linear-gradient(160deg, #ffb84d40, transparent 50%, #4a2a0044); mix-blend-mode: soft-light; }
@@ -1260,7 +1277,8 @@ canvas.race3d { width: 100%; height: 100%; display: block; }
 .tc-band .epi { font-size: 16px; font-weight: 900; letter-spacing: .12em; color: var(--ink); margin-bottom: 2px; }
 .tc-band .nm { font-size: 38px; font-weight: 900; color: #fff; letter-spacing: .04em; text-shadow: 0 0 14px var(--glow); white-space: nowrap; }
 .tc-band .meta { margin-left: auto; color: var(--ink); font-size: 15px; white-space: nowrap; }
-.tc-lowholo { position: absolute; left: 0; right: 0; bottom: 0; height: 262px; background: var(--holo); mix-blend-mode: color-dodge; opacity: 0; }
+.tc-lowholo { position: absolute; left: 0; right: 0; bottom: 0; height: 262px; background: var(--holo); background-size: var(--holo-size); background-position: calc(50% + var(--px)) calc(50% + var(--py));
+  filter: hue-rotate(var(--hue)); mix-blend-mode: color-dodge; opacity: 0; }
 .tc.foiled .tc-lowholo { opacity: calc(var(--hop) * .22); }
 .tc-low { position: absolute; left: 0; right: 0; bottom: 0; height: 262px; padding: 50px 18px 12px; background: linear-gradient(#10251a, #0b1710); display: flex; flex-direction: column; gap: 9px; }
 .tc-low .stats { display: flex; gap: 6px; }
@@ -1286,7 +1304,7 @@ canvas.race3d { width: 100%; height: 100%; display: block; }
 .tc-low .cp b { display: block; font: 900 46px/1 sans-serif; color: var(--ink); }
 .tc-low .foot { display: flex; justify-content: space-between; font-size: 11px; color: #bba86e; margin-top: auto; }
 /* 箔押し（SSR 以上） */
-.tc .foil { background: var(--foil); background-size: 220% 100%; background-position: 30% 0; -webkit-background-clip: text; background-clip: text; color: transparent !important;
+.tc .foil { background: var(--foil); background-size: 220% 100%; background-position: calc(30% + var(--px) * .5) 0; -webkit-background-clip: text; background-clip: text; color: transparent !important;
   filter: drop-shadow(0 1px 0 #000c) drop-shadow(0 -1px 0 #ffffff70) drop-shadow(0 0 6px var(--glow)); }
 .tc.foiled .tc-band { border: none; }
 .tc.foiled .tc-band::before, .tc.foiled .tc-band::after { content: ""; position: absolute; left: 0; right: 0; height: 3px; background: var(--foil); }

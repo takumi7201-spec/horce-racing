@@ -13,13 +13,77 @@ const THEME = {
   SSR: { frame: 'linear-gradient(135deg,#fff6c8 0%,#d6a83a 18%,#fff9d6 34%,#b8862a 52%,#ffeaa0 70%,#a87a22 86%,#f6dc84 100%)', line: '#f2d47a', glow: '#ffd76a77', ink: '#ffe9a8', sparks: 10, rays: 0.4, sun: 0.45, badge: 'linear-gradient(#fffbe0,#ffd04a 55%,#c08a1c)', badgeInk: '#3a2600' },
   LM: { frame: 'conic-gradient(from 30deg,#ff5e7e,#ffb347,#fff35c,#6dff9a,#4fd8ff,#7a7bff,#d36bff,#ff5e7e)', line: '#ffffff', glow: '#b08cff88', ink: '#ffffff', sparks: 12, rays: 0.45, sun: 0.5, badge: 'conic-gradient(from 0deg,#ff5e7e,#ffb347,#fff35c,#6dff9a,#4fd8ff,#7a7bff,#d36bff,#ff5e7e)', badgeInk: '#ffffff' },
 };
-// ホログラフィック（R 以上）。背景と馬の間に挟む（馬に掛けると縞になった）。
+// ホログラフィック（R 以上）。背景と馬の間に挟む（馬に掛けると縞になった）。色はレア度、模様（HOLO_KINDS）はカードごと。
 const HOLO = {
   R: { op: 0.30, cols: ['#ff8a3d', '#ffd23d', '#ff5f9e', '#3dc9ff', '#ff8a3d'] },
   SR: { op: 0.38, cols: ['#4fa8ff', '#b07aff', '#4fffd2', '#ffffff', '#7ab8ff'] },
   SSR: { op: 0.46, cols: ['#ffc23d', '#ff5fa8', '#ffe85c', '#3de0ff', '#ff9a3d'] },
   LM: { op: 0.62, cols: ['#ff3d7f', '#ffb23d', '#e8ff3d', '#3dff8a', '#3dc9ff', '#9a5cff'] },
 };
+/** 色を len（px・deg）で一巡させる止め位置。 */
+const band = (cols, len, unit) => [...cols, cols[0]].map((x, i, a) => `${x} ${Math.round((i / (a.length - 1)) * len)}${unit}`).join(',');
+const alpha = (hex, a) => `${hex}${a}`;
+/**
+ * ホロの模様。img と size はどちらも層の並び（CSS の background の複数指定）。
+ * 傾けると background-position が動くので、タイルにしない層は 200% にしておく（端の継ぎ目を見せない）。
+ */
+const HOLO_KINDS = {
+  rainbow: { name: '虹の縞', make: (c) => [`repeating-linear-gradient(115deg,${band(c, 120, 'px')})`, '200% 200%'] },
+  wave: { name: '波紋', make: (c) => [`repeating-radial-gradient(circle at 50% 45%,${band(c, 90, 'px')})`, '200% 200%'] },
+  sunburst: { name: '放射', make: (c) => [`repeating-conic-gradient(from 0deg at 50% 45%,${band(c, 24, 'deg')})`, '200% 200%'] },
+  glitter: {
+    name: 'ラメ',
+    make: (c) => [[
+      'radial-gradient(circle,#fff 0 1.4px,transparent 2.4px)', `radial-gradient(circle,${c[1]} 0 2px,transparent 3.2px)`,
+      `radial-gradient(circle,${c[3]} 0 1.6px,transparent 2.8px)`, 'radial-gradient(circle,#fffbe0 0 2.6px,transparent 4.5px)',
+    ].join(','), '13px 13px,19px 23px,29px 25px,61px 53px'],
+  },
+  prism: {
+    name: 'プリズム',
+    make: (c) => [[
+      'repeating-linear-gradient(60deg,#fffa 0 2px,transparent 2px 38px)', 'repeating-linear-gradient(-60deg,#fffa 0 2px,transparent 2px 38px)',
+      `repeating-linear-gradient(90deg,${band(c, 180, 'px')})`,
+    ].join(','), '200% 200%,200% 200%,200% 200%'],
+  },
+  cracked: {
+    name: 'クラックドアイス',
+    make: (c) => [[
+      `repeating-conic-gradient(from 71deg at 60% 55%,${alpha(c[3], 'cc')} 0 29deg,transparent 29deg 47deg,#fff 47deg 49deg,${alpha(c[1], 'cc')} 49deg 76deg,transparent 76deg 101deg)`,
+      `repeating-conic-gradient(from 13deg at 30% 40%,${c[0]} 0 17deg,#fff 17deg 18deg,${c[2]} 18deg 41deg,${c[4]} 41deg 58deg,#fff 58deg 59deg,${c[1]} 59deg 90deg,${c[3]} 90deg 113deg)`,
+    ].join(','), '170px 110px,120px 140px'],
+  },
+  galaxy: {
+    name: '銀河',
+    make: (c) => [[
+      'radial-gradient(circle,#fff 0 1px,transparent 1.8px)', 'radial-gradient(circle,#fff 0 1.6px,transparent 2.6px)', 'radial-gradient(circle,#fffbe0 0 2.4px,transparent 4.5px)',
+      `radial-gradient(ellipse at 30% 30%,${c[1]},transparent 45%)`, `radial-gradient(ellipse at 70% 60%,${c[4]},transparent 45%)`,
+      `radial-gradient(ellipse at 45% 85%,${c[2]},transparent 50%)`, '#16123a',
+    ].join(','), '7px 9px,19px 23px,53px 47px,200% 200%,200% 200%,200% 200%,100% 100%'],
+  },
+  aurora: {
+    name: 'オーロラ',
+    make: (c) => [[
+      'repeating-linear-gradient(100deg,#fff6 0 3px,transparent 3px 22px)',
+      `linear-gradient(170deg,transparent 4%,${c[0]} 18%,transparent 30%,${c[2]} 42%,transparent 54%,${c[4]} 66%,transparent 78%,${c[5] ?? c[1]} 90%)`, `radial-gradient(ellipse 60% 30% at 50% 35%,${alpha(c[3], '99')},transparent 70%)`,
+    ].join(','), '200% 200%,200% 200%,200% 200%'],
+  },
+};
+/** レア度ごとに出る模様。上のレア度ほど凝った模様が出る（LM だけのオーロラ）。 */
+const HOLO_POOL = {
+  R: ['rainbow', 'wave', 'sunburst'],
+  SR: ['rainbow', 'wave', 'sunburst', 'glitter', 'prism'],
+  SSR: ['glitter', 'prism', 'cracked', 'galaxy', 'sunburst'],
+  LM: ['galaxy', 'cracked', 'aurora', 'prism'],
+};
+/** カードのホロの模様（id で決める。引き直しても同じカードは同じ模様）。N は無し。 */
+export function holoOf(c) {
+  const pool = HOLO_POOL[c.rar];
+  if (!pool) return null;
+  let h = 0;
+  for (const ch of c.id) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return pool[h % pool.length];
+}
+export const holoName = (kind) => HOLO_KINDS[kind]?.name ?? null;
 // 箔押し（SSR 以上）。LM は虹の箔。
 const FOIL = {
   SSR: 'linear-gradient(100deg,#6e4a0c 0%,#c99a2e 10%,#f7e08a 20%,#fffbe6 27%,#d9ad45 36%,#8a6216 48%,#e8c56a 60%,#fff6d0 70%,#c39532 82%,#7a5410 100%)',
@@ -43,17 +107,18 @@ export const epithetOf = (c) => {
  * カード 1 枚。scale は 630×880 に対する倍率。opts.onClick を渡すと押せる。
  * opts.count があれば右上に枚数、opts.dim で暗く（持っていないカード）。
  */
-export function cardView(c, { scale = 0.4, onClick = null, count = 0, dim = false, badge = null } = {}) {
+export function cardView(c, { scale = 0.4, onClick = null, count = 0, dim = false, badge = null, holo = null, tilt = 'hover', sway = false } = {}) {
   const T = THEME[c.rar];
   const H = HOLO[c.rar];
   const foil = FOIL[c.rar] ?? null;
-  const holoBg = H ? `repeating-linear-gradient(115deg,${[...H.cols, H.cols[0]].map((x, i, a) => `${x} ${Math.round((i / (a.length - 1)) * 120)}px`).join(',')})` : 'none';
+  const kind = H ? holo ?? holoOf(c) : null;
+  const [holoBg, holoSize] = kind ? HOLO_KINDS[kind].make(H.cols) : ['none', 'auto'];
   const plus = plusOf(c);
   const surf = c.turf >= c.dirt ? '芝' : 'ダート';
   const fe = (t) => (foil ? `${t} foil` : t);
   const vars = {
     '--frame': T.frame, '--line': T.line, '--glow': T.glow, '--ink': T.ink, '--badge': T.badge, '--badge-ink': T.badgeInk,
-    '--holo': holoBg, '--hop': H?.op ?? 0, '--foil': foil ?? 'none', '--sun': T.sun,
+    '--holo': holoBg, '--holo-size': holoSize, '--hop': H?.op ?? 0, '--foil': foil ?? 'none', '--sun': T.sun,
   };
   const art = el('div.tc-art', [el('div.b'), el('div.hb'), el('div.hbg'), el('div.hb2'), el('div.f'), el('div.olr')]);
   const glow = el('div.tc-glow');
@@ -82,6 +147,7 @@ export function cardView(c, { scale = 0.4, onClick = null, count = 0, dim = fals
         el('span.meta', { text: `${c.sex}${c.age}　${c.coat}` }),
       ]),
       el('div.tc-lowholo'),
+      el('div.tc-glare'),
       foil ? el('div.tc-foilline') : null, foil ? el('div.tc-foilline2') : null,
       el('div.tc-low', [
         el('div.stats', STATS.map((k) => el('div.st', [el('small', { text: STAT_SHORT[k] }), el(`b.p${plus[k]}`, { text: `+${plus[k]}` })]))),
@@ -94,12 +160,14 @@ export function cardView(c, { scale = 0.4, onClick = null, count = 0, dim = fals
       ]),
     ]),
   ]);
+  if (kind) card.dataset.holo = kind;
   const wrap = el(`div.tcw${dim ? '.dim' : ''}${onClick ? '.click' : ''}`, { style: `width:${630 * scale}px;height:${880 * scale}px` }, [
     el('div.tcs', { style: `transform:scale(${scale})` }, card),
     count > 1 ? el('span.tc-count', { text: `×${count}` }) : null,
     badge ? el('span.tc-badge', { text: badge }) : null,
   ]);
   if (onClick) wrap.onclick = () => onClick(c);
+  if (!dim && tilt) attachTilt(wrap, card, { touch: tilt === 'full', sway });
   if (!dim) {
     cardArt(c).then((a) => {
       art.querySelector('.b').style.backgroundImage = `url(${a.bg})`;
@@ -118,4 +186,54 @@ export function cardView(c, { scale = 0.4, onClick = null, count = 0, dim = fals
     }).catch(() => {});
   }
   return wrap;
+}
+
+/** 傾きの最大（度）。大きいと文字が読めない。 */
+const MAX_TILT = 13;
+/**
+ * カードを傾ける。ポインタの位置（カードの中の 0..1）から角度・ホロの動き・光沢の位置を CSS の変数で渡す。
+ * 一覧（tilt: 'hover'）はマウスだけ（指で触るとスクロールできなくなる）。大きく見る画面（'full'）は指でも傾け、
+ * sway なら触っていない間はゆっくり揺らす（スマホで触らなくても角度で見え方が変わるのが分かるように）。
+ */
+function attachTilt(wrap, card, { touch, sway }) {
+  const set = (mx, my, on) => {
+    const st = card.style;
+    st.setProperty('--rx', `${((0.5 - my) * 2 * MAX_TILT).toFixed(2)}deg`);
+    st.setProperty('--ry', `${((mx - 0.5) * 2 * MAX_TILT).toFixed(2)}deg`);
+    st.setProperty('--mx', `${(mx * 100).toFixed(1)}%`);
+    st.setProperty('--my', `${(my * 100).toFixed(1)}%`);
+    // ホロは傾きと逆へ流す（光の当たる帯が表面を滑って見える）。
+    st.setProperty('--px', `${((0.5 - mx) * 220).toFixed(1)}px`);
+    st.setProperty('--py', `${((0.5 - my) * 220).toFixed(1)}px`);
+    st.setProperty('--hue', `${((mx - 0.5) * 70 + (my - 0.5) * 40).toFixed(1)}deg`);
+    st.setProperty('--tilt', Math.min(1, Math.hypot(mx - 0.5, my - 0.5) * 2.4).toFixed(3));
+    st.setProperty('--ga', on ? '1' : '0');
+  };
+  let swayT = 0, raf = 0, resume = 0;
+  const loop = () => {
+    if (!wrap.isConnected) return;
+    swayT += 1 / 60;
+    set(0.5 + 0.36 * Math.sin(swayT * 0.9), 0.5 + 0.26 * Math.sin(swayT * 0.63 + 1), true);
+    raf = requestAnimationFrame(loop);
+  };
+  const stopSway = () => { cancelAnimationFrame(raf); raf = 0; clearTimeout(resume); };
+  const move = (e) => {
+    if (e.pointerType !== 'mouse' && !touch) return;
+    const r = wrap.getBoundingClientRect();
+    stopSway();
+    card.classList.remove('settle');
+    set(Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)), Math.min(1, Math.max(0, (e.clientY - r.top) / r.height)), true);
+  };
+  const leave = () => {
+    card.classList.add('settle');
+    set(0.5, 0.5, false);
+    if (sway) resume = setTimeout(() => { card.classList.remove('settle'); if (!raf) loop(); }, 1200);
+  };
+  wrap.addEventListener('pointermove', move);
+  wrap.addEventListener('pointerdown', move);
+  wrap.addEventListener('pointerleave', leave);
+  wrap.addEventListener('pointercancel', leave);
+  if (touch) { wrap.style.touchAction = 'none'; wrap.addEventListener('pointerup', leave); }
+  set(0.5, 0.5, false);
+  if (sway) requestAnimationFrame(loop);
 }
