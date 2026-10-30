@@ -861,17 +861,26 @@ function stableView(app, go) {
   if (!p.finished.length) return [card('完成馬', [el('p', { text: 'まだ完成馬がいない。育成で 2 年を走り切ると、ここに並ぶ。' }), button('育成へ', () => go('run'), { cls: 'primary' })])];
   const list = [...p.finished].sort((a, b) => b.rating - a.rating);
   return [card(`完成馬（${list.length} 頭）`, [
-    el('div.ik-fins', list.map((h) => el('div.ik-finrow', [
-      el('button.ik-finbtn', { onclick: () => go('horse', { id: h.id }), title: '詳しく見る' }, finishedCard(h)),
-      el('div.row-btns', [
-        button('対戦へ', () => { app.ikBattle = { ...(app.ikBattle ?? {}), horse: h.id }; go('battle'); }, { cls: 'sm primary' }),
-        button('手放す', async () => {
-          if (!await ask(`${h.name}を手放す？`, { ok: '手放す' })) return;
-          p.finished = p.finished.filter((x) => x !== h); save(app); go('stable');
-        }, { cls: 'sm ghost' }),
-      ]),
-    ]))),
+    el('div.ik-icons', list.map((h) => finishedIcon(h, go))),
+    el('p.note', { text: '押すと詳細（対戦・ホームに立たせる・手放す）。評価点の高い順。' }),
   ])];
+}
+
+/**
+ * 完成馬の一覧の 1 マス（所持カードの cardIcon と同じ顔のアイコン）。右上は評価、下は戦績と評価点。
+ * 以前の横長の札（finishedCard）は 1 頭に 1 行を使い、頭数が増えると探しにくかった。
+ */
+function finishedIcon(h, go) {
+  const c = I.cardById(h.cardId);
+  const face = el('span.ik-ico-face');
+  const node = el(`button.ik-ico.r-${h.rar}`, { onclick: () => go('horse', { id: h.id }), title: `${h.name}　評価点 ${h.rating}` }, [
+    el('span.ik-ico-ring', [face, el('span.ik-ico-rar', { text: h.rar })]),
+    el(`span.ik-ico-rk.rk-${h.rank.replace('+', 'p')}`, { text: h.rank }),
+    el('b.ik-ico-name', { text: h.name }),
+    el('small', { text: `${h.starts}戦${h.wins}勝${h.giWins ? `・GI${h.giWins}` : ''}　${h.rating}` }),
+  ]);
+  if (c) whenVisible(node, () => stickerInto(face, c, { mode: 'face', zoom: 2.4 }));
+  return node;
 }
 
 /** 脚質の名前（カードの style は 0 逃げ〜1 追込）。 */

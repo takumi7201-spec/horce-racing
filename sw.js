@@ -1,7 +1,7 @@
 // Service Worker。
 // network-first。cache-first にすると、直した src/*.js が反映されずに
 // 何時間も悩むことになる。版を上げるときは VERSION も上げる。
-const VERSION = 'keiba-v81';
+const VERSION = 'keiba-v82';
 const PRECACHE = [
   './', 'index.html', 'styles.css', 'manifest.webmanifest',
   'vendor/three/three.module.min.js',

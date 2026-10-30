@@ -1867,3 +1867,8 @@ b.win { color: #e0207a; }
 .ik-ico-name { margin-top: 10px; max-width: 100%; font: 900 12.5px/1.2 system-ui, sans-serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ik-ico small { font-size: 10.5px; color: #5a706c; }
 .ik-ico-face.ready { background-color: #d9e4bf; }
+/* 完成馬の一覧：右上の評価（cardIcon の枚数と同じ位置） */
+.ik-ico-rk { position: absolute; top: -2px; right: calc(50% - 56px); z-index: 1; min-width: 30px; padding: 4px 6px; border-radius: 10px; text-align: center;
+  font: italic 900 15px/1 system-ui, sans-serif; background: var(--paper); border: 2.5px solid var(--ink); box-shadow: 0 2px 0 var(--ink); }
+/* 狭い画面では題の英字の札を隠す（かけらと通貨の札に押されて重なった） */
+@media (max-width: 440px) { .ikp-title small { display: none; } .ik-shard { margin-right: 4px; padding: 0 10px; } }
