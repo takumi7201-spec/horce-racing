@@ -1650,3 +1650,25 @@ b.win { color: #e0207a; }
   .ikx-arrow { top: 110px; } .ikx-arrow.r { right: 8px; }
   .ikx-cols { grid-template-columns: 1fr; }
 }
+
+/* スキル */
+.ik-sks { display: inline-flex; flex-wrap: wrap; gap: 5px; }
+.ik-sk { display: inline-block; font: 900 12px/1 system-ui, sans-serif; padding: 5px 9px; border-radius: 999px; border: 2px solid var(--ink, #232046); color: var(--ink, #232046); cursor: help; white-space: nowrap; }
+.ik-sk.sm { font-size: 11px; padding: 3px 7px; }
+.ik-sk.race { background: #dff2ff; } .ik-sk.support { background: #e8ffd6; }
+.ik-sk.uniq { background: conic-gradient(from 30deg, #ffb0c8, #ffe08a, #fff7b0, #c0ffd8, #b0ecff, #d0c4ff, #ffb0c8); }
+.ik-sklist { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 8px; }
+.ik-skrow { display: flex; align-items: center; gap: 8px; }
+.ik-skrow small { color: #4a4870; }
+.ik-skh { margin: 10px 0 4px; font: italic 900 14px/1 system-ui, sans-serif; color: #7a5cff; }
+.ik-deckskills { display: flex; flex-direction: column; gap: 6px; margin: 6px 0; }
+.ik-deckskills > div { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ik-deckskills small { font-weight: 800; color: #4a4870; min-width: 9em; }
+.ik-bonds { display: inline-flex; flex-wrap: wrap; gap: 5px; }
+.ik-bond { display: inline-flex; gap: 5px; align-items: center; border: 2px solid var(--ink, #232046); border-radius: 8px; padding: 2px 7px; background: #fff; font-size: 12px; }
+.ik-bond i { font-style: normal; font-weight: 900; color: #e0206a; }
+.ik-bond.done { background: #fff2b0; }
+.ik-train .sks { display: flex; flex-wrap: wrap; gap: 3px; }
+.ik-train .sks i { font-style: normal; font-size: 10px; font-weight: 900; color: #1d6a1d; background: #e8ffd6; border: 1.5px solid #6ab04a; border-radius: 6px; padding: 1px 4px; }
+.ik-fired { display: flex; flex-direction: column; gap: 6px; }
+.ik-fired > div { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }

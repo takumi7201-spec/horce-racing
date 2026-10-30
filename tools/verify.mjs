@@ -1086,6 +1086,16 @@ section('カード育成モード');
   const bt = I.battleNpc(big, h.id, 'japan-cup', 'normal');
   check(`NPC とのランク戦が走る（${bt.order}着/${bt.result.results.length}）`, bt.result.results.length === 12 && bt.result.log != null);
   check('育成・対戦は牧場の世界の馬の id を進めない（落とし穴 47）', peekHorseId() === idBefore);
+  // スキル：全カードが持ち、LM だけ固有。条件が合うときだけ能力が上がる。覚えたスキルは完成馬に残る
+  const S = await import('../src/sim/ikusei-skills.js');
+  const sk = I.CARDS.map((c) => [c, I.skillsOf(c)]);
+  check('全カードがレーススキルとサポートスキルを持ち、固有は LM だけ',
+    sk.every(([c, s]) => s.race.length >= 1 && s.support.length >= 1 && !!s.unique === (c.rar === 'LM') && [...s.race, ...s.support].every((id) => I.skillInfo(id))));
+  const spec = { ab: { speed: 0.6, stamina: 0.6, power: 0.6, guts: 0.6, wit: 0.6 }, style: 0.5 };
+  const on = S.applyRaceSkills(spec, ['turf'], { surface: '芝', distance: 2000 }, { rar: 'SR' });
+  const off = S.applyRaceSkills(spec, ['turf'], { surface: 'ダート', distance: 2000 }, { rar: 'SR' });
+  check('レーススキルは条件が合うときだけ発動する', on.spec.ab.speed > 0.6 && on.fired.length === 1 && off.spec.ab.speed === 0.6 && off.fired.length === 0 && spec.ab.speed === 0.6);
+  check(`覚えたスキルが完成馬に残る（${h.skills.length} 個）`, I.skillsOf(lmCard).race.every((id) => h.skills.includes(id)) && I.finishedSkills(h).length >= I.skillsOf(lmCard).race.length);
   const js = JSON.stringify(big);
   check(`プロフィールは JSON で往復できる（${(js.length / 1024).toFixed(1)}KB）`, JSON.stringify(JSON.parse(js)) === js && js.length < 64 * 1024);
 }

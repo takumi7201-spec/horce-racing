@@ -271,10 +271,32 @@ function gachaView(app, go) {
 }
 
 /** カードを大きく見る。 */
+/** スキルの札（種類で色分け。押すと説明）。ids はスキル id、uniq は固有スキル { name, desc }。 */
+function skillTags(ids, uniq = null, { small = false } = {}) {
+  const tag = (cls, name, desc) => el(`span.ik-sk.${cls}${small ? '.sm' : ''}`, { title: desc, onclick: (e) => { e.stopPropagation(); toast(`${name}：${desc}`); } }, name);
+  return el('span.ik-sks', [
+    uniq ? tag('uniq', uniq.name, uniq.desc) : null,
+    ...ids.map((id) => I.skillInfo(id)).filter(Boolean).map((x) => tag(x.type, x.name, x.desc)),
+  ]);
+}
+
+/** カードのスキルの一覧（説明つき）。 */
+function skillList(c) {
+  const sk = I.skillsOf(c);
+  const row = (cls, head, name, desc) => el('div.ik-skrow', [el(`span.ik-sk.${cls}`, name), el('small', { text: `${head}　${desc}` })]);
+  return el('div.ik-sklist', [
+    sk.unique ? row('uniq', '固有', sk.unique.name, sk.unique.desc) : null,
+    ...sk.race.map((id) => I.skillInfo(id)).map((x) => row('race', 'レース', x.name, x.desc)),
+    ...sk.support.map((id) => I.skillInfo(id)).map((x) => row('support', 'サポート', x.name, x.desc)),
+  ]);
+}
+
 function showCard(app, c) {
   const p = app.ik;
   modal(`${epithetOf(c)} ${c.name}`, [
     el('div.ik-big', cardView(c, { scale: Math.min(0.7, (window.innerHeight - 170) / 880, (window.innerWidth - 60) / 630), tilt: 'full' })),
+    el('h4.ik-skh', { text: 'スキル' }),
+    skillList(c),
     el('p.note', { text: `所持 ${p.cards[c.id] ?? 0} 枚　サポートの得意：${I.STAT_LABEL[I.supportType(c)]}の練習${holoOf(c) ? `　ホロ：${holoName(holoOf(c))}` : ''}　（ドラッグで傾けられる）` }),
   ], { wide: true });
 }
@@ -374,6 +396,11 @@ function deckView(app, go) {
     card('編成（育てる馬 1 枚＋サポート 4 枚）', [
       el('div.ik-deck', [slot(d.trainee, '育てる馬'), ...[0, 1, 2, 3].map((i) => slot(d.supports[i], `サポート ${i + 1}`))]),
       d.trainee ? traineeNote(I.cardById(d.trainee)) : el('p.note', { text: 'まず育てる馬を選び、続けてサポートを 4 枚選ぶ。選んだカードをもう一度押すと外れる。' }),
+      d.trainee ? el('div.ik-deckskills', [
+        el('div', [el('small', { text: '育てる馬のレーススキル' }), skillTags(I.skillsOf(I.cardById(d.trainee)).race, I.skillsOf(I.cardById(d.trainee)).unique)]),
+        ...d.supports.map((id) => el('div', [el('small', { text: `${I.cardById(id).name}（サポート）` }), skillTags(I.skillsOf(I.cardById(id)).support, null, { small: true })])),
+      ]) : null,
+      el('p.note', { text: 'サポートと友情練習を 2 回すると、そのサポートのレーススキルを覚える（完成馬に残る）。' }),
       el('div.ik-gbtns', [
         button('育成を始める', () => {
           I.startRun(p, d.trainee, d.supports);
@@ -450,14 +477,14 @@ function trainView(app, go) {
         onclick: () => {
           const out = I.raceTurn(run, o.id);
           save(app);
-          app.ikRace = { race: out.result, looks: looksOf([I.traineeSpec(run)]), mine: [1], order: out.order, back: 'run', title: o.name };
+          app.ikRace = { race: out.result, looks: looksOf([I.traineeSpec(run)]), mine: [1], order: out.order, back: 'run', title: o.name, fired: { 1: out.fired } };
           sound.play(out.order === 1 ? 'bell' : out.order <= 3 ? 'win' : 'ok');
           go('result');
         },
       }, [
         o.grade ? el(`span.gr.${o.grade}`, { text: o.grade }) : el('span.gr', { text: '条件' }),
         el('b', { text: o.name }),
-        el('small', { text: `${o.surface}${o.distance}m　相手の強さ ${lvlLabel(o.level)}` }),
+        el('small', { text: `${o.surface}${o.distance}m・${o.ground}　相手の強さ ${lvlLabel(o.level)}` }),
       ]))),
       el('p.note', { text: '重賞は 1 勝から、GI は 2 勝か重賞勝ちで出られる。' }),
     ]);
@@ -473,6 +500,7 @@ function trainView(app, go) {
           el('div.gains', Object.entries(pv.gains).map(([s, g]) => el('span', { text: `${I.STAT_SHORT[s]}+${g}` }))),
           el('div.sup', board[k].map((i) => el(`span.${RCLS(I.cardById(run.supports[i]).rar)}`, { text: I.cardById(run.supports[i]).name }))),
           pv.friendship ? el('em.fr', { text: '友情' }) : null,
+          pv.skills.length ? el('div.sks', pv.skills.map((n) => el('i', { text: n }))) : null,
           el('small', { text: `${k === 'wit' ? '体力+5' : `体力−${pv.cost}`}${pv.fail ? `　失敗 ${Math.round(pv.fail * 100)}%` : ''}` }),
         ]);
       })),
@@ -485,9 +513,20 @@ function trainView(app, go) {
       side,
       el('div.ik-main', [
         card('能力', [el('div.ik-stats', statRows), el('p.note', { text: '黄色の線は伸びしろの上限（カードの +値）' })]),
+        card('スキル', [
+          el('div.ik-deckskills', [
+            el('div', [el('small', { text: 'レースで使う' }), skillTags(I.runSkills(run), I.skillsOf(c).unique)]),
+            el('div', [el('small', { text: 'サポートとの絆（友情練習 2 回でスキルを覚える）' }), el('span.ik-bonds', run.supports.map((id, i) => {
+              const sc = I.cardById(id);
+              const b = (run.bonds ?? [])[i] ?? 0;
+              return el(`span.ik-bond${b >= 2 ? '.done' : ''}`, [el(`b.${RCLS(sc.rar)}`, { text: sc.name }), el('i', { text: b >= 2 ? '習得' : `${b}/2` })]);
+            }))]),
+          ]),
+        ]),
         action,
-        run.races.length ? card('レース', [table(['時期', 'レース', '', '着順'], run.races.map((r) => [
-          I.SLOTS[r.slot].label, r.name, `${r.surface}${r.distance}m`, el(`b${r.order === 1 ? '.win' : ''}`, { text: `${r.order}着/${r.field}` }),
+        run.races.length ? card('レース', [table(['時期', 'レース', '', '着順', '発動スキル'], run.races.map((r) => [
+          I.SLOTS[r.slot].label, r.name, `${r.surface}${r.distance}m${r.ground ? `・${r.ground}` : ''}`, el(`b${r.order === 1 ? '.win' : ''}`, { text: `${r.order}着/${r.field}` }),
+          el('small', { text: (r.skills ?? []).join('・') || '—' }),
         ]))]) : null,
         el('div.ik-log', run.log.slice(-5).reverse().map((l) => el('div', { text: l }))),
         el('div.ik-gbtns', [button('育成をやめる', async () => {
@@ -527,6 +566,8 @@ function resultView(app, go) {
         el('small', { text: `${res.courseName ?? ''} ${res.surface}${res.distance}m　${res.ground}` }),
       ]),
       myBest ? el(`div.ik-place.p${Math.min(4, myBest.order)}`, { text: `${myBest.name} ${myBest.order}着` }) : null,
+      R.fired ? el('div.ik-fired', res.results.filter((r) => mine.has(r.horseId) && R.fired[r.horseId]?.length).map((r) =>
+        el('div', [el('b', { text: `${r.name}　発動` }), ...R.fired[r.horseId].map((n) => el('span.ik-sk.race', n))]))) : null,
       table(['着', '', '馬名', 'タイム', '着差', '上がり', '脚質'], res.results.map((r) => [
         r.order, frameChip(r.frame, r.gate), el(mine.has(r.horseId) ? 'b.mine' : 'span', { text: r.name }),
         formatTime(r.time), r.margin, r.last3f.toFixed(1), r.styleLabel,
@@ -732,6 +773,8 @@ function horseView(app, go) {
         el('h4', { text: '主な勝鞍' }),
         big.length ? el('ul.ikx-wins', big.map((r) => el('li', [el(`span.gr.${r.grade}`, { text: r.grade }), ` ${r.name}`, el('small', { text: ` ${I.SLOTS[r.slot]?.label ?? ''}` })])))
           : el('p.note', { text: '重賞の勝ち鞍はまだ無い。' }),
+        el('h4', { text: 'スキル' }),
+        skillTags(I.finishedSkills(h), c ? I.skillsOf(c).unique : null),
         el('h4', { text: '育てたカード' }),
         el('div.ikx-sups', [c ? el(`span.${RCLS(c.rar)}`, { text: `育成 ${c.rar} ${c.name}` }) : null,
           ...(h.supports ?? []).map((id) => I.cardById(id)).filter(Boolean).map((s) => el(`span.${RCLS(s.rar)}`, { text: `${s.rar} ${s.name}` }))]),
@@ -781,7 +824,7 @@ function battleView(app, go) {
   const runNpc = () => {
     const out = I.battleNpc(p, B.horse, B.race, B.diff);
     save(app);
-    app.ikRace = { race: out.result, looks: looksOf(out.field), mine: [100], order: out.order, back: 'battle', title: `ランク戦 ${out.race.name}（${I.DIFFICULTY[B.diff].name}）` };
+    app.ikRace = { race: out.result, looks: looksOf(out.field), mine: [100], order: out.order, back: 'battle', title: `ランク戦 ${out.race.name}（${I.DIFFICULTY[B.diff].name}）`, fired: out.fired };
     sound.play(out.order === 1 ? 'bell' : out.order <= 3 ? 'win' : 'ok');
     go('result');
   };
@@ -789,7 +832,7 @@ function battleView(app, go) {
     if (B.own.length < 2) return toast('2 頭以上を選ぶ', { bad: true });
     const out = I.battleOwn(p, B.own, B.race);
     save(app);
-    app.ikRace = { race: out.result, looks: looksOf(out.field), mine: out.field.map((f) => f.id), back: 'battle', title: `完成馬対決 ${out.race.name}` };
+    app.ikRace = { race: out.result, looks: looksOf(out.field), mine: out.field.map((f) => f.id), back: 'battle', title: `完成馬対決 ${out.race.name}`, fired: out.fired };
     sound.play('bell');
     go('result');
   };

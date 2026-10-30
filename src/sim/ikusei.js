@@ -11,6 +11,10 @@ import { simulateRace } from './race.js';
 import { GRADED } from './schedule.js';
 import { createHorse, peekHorseId, resetHorseIds } from './horse.js';
 import { clamp, clamp01 } from '../core/util.js';
+import { skillsOf, skillInfo, applyRaceSkills, RAR_SCALE } from './ikusei-skills.js';
+import { distCatOf } from './ikusei-util.js';
+
+export { skillsOf, skillInfo };
 
 export { CARDS, PACKS };
 export const STATS = ['speed', 'stamina', 'power', 'guts', 'wit'];
@@ -37,7 +41,7 @@ export function plusOf(card) {
   return out;
 }
 export const cardPower = (card) => STATS.reduce((s, k) => s + Math.round(card.v[k] * 100), 0);
-export const distCat = (d) => (d <= 1400 ? '短距離' : d <= 1800 ? 'マイル' : d <= 2400 ? '中距離' : '長距離');
+export const distCat = distCatOf;
 /** サポートとしての得意（+5 の能力のうち値のいちばん高いもの）。この練習で会うと伸びが大きい。 */
 export const supportType = (card) => [...STATS].sort((a, b) => card.v[b] - card.v[a])[0];
 const RAR_BONUS = { LM: 1.3, SSR: 1.2, SR: 1.1, R: 1.05, N: 1.0 };
@@ -154,7 +158,16 @@ export function raceOptions(run) {
   const pick = cand[Math.min(cand.length - 1, rng.int(Math.min(3, cand.length)))];
   const name = cls === 'オープン' ? 'オープン特別' : `${slot.age}歳${cls}`;
   opts.push({ id: `cond-${run.slot}`, name, grade: cls === 'オープン' ? 'OP' : '', courseId: pick.courseId, surface: pick.surface, distance: pick.distance, level: RACE_LEVEL[cls] - (slot.age === 2 ? 0.03 : 0) });
+  // 馬場状態はこの時期のレースで共通（選ぶ前に見える。道悪のスキルを持つ馬は重い馬場の週を狙える）
+  const ground = groundOf(`ground:${run.seed}:${run.slot}`);
+  for (const o of opts) o.ground = ground;
   return opts;
+}
+
+/** 馬場状態（良 6 割・稍重 2 割・重 1 割強・不良 1 割弱）。主乱数ではなく鍵から決める。 */
+export function groundOf(key) {
+  const r = makeRng(hashSeed(key)).next();
+  return r < 0.6 ? '良' : r < 0.8 ? '稍重' : r < 0.93 ? '重' : '不良';
 }
 
 // ---------------------------------------------------------------- 育成の進行
@@ -170,11 +183,13 @@ export function startRun(profile, traineeId, supportIds) {
   for (const s of supportIds) if (!profile.cards[s] || s === traineeId) throw new Error('サポートに使えないカード');
   const seed = hashSeed(`run:${profile.seed}:${profile.nextId}`);
   const stats = {};
-  for (const k of STATS) stats[k] = Math.round(200 + (t.v[k] - 0.55) * 600);
+  // カードの値の差を出発点の差にする（重みが小さいと LM と SR の完成時の能力が 8% しか違わなかった）
+  for (const k of STATS) stats[k] = Math.round(200 + (t.v[k] - 0.55) * 1200);
   profile.run = {
     id: profile.nextId++, seed, trainee: traineeId, supports: [...supportIds],
     turn: 0, slot: 0, stats, energy: 100, mood: 2, fans: 0, starts: 0, wins: 0, gradedWins: 0, giWins: 0,
     levels: Object.fromEntries(STATS.map((k) => [k, 1])), races: [], log: [`${t.name}の育成を始めた`],
+    bonds: [0, 0, 0, 0], learned: [],
   };
   return profile.run;
 }
@@ -207,7 +222,8 @@ export function trainingBoard(run) {
   const at = Object.fromEntries(STATS.map((k) => [k, []]));
   run.supports.forEach((id, i) => {
     const c = cardById(id);
-    if (rng.next() < 0.18) return;                       // 来ない
+    // 来ない（「練習の虫」は来やすい。乱数は同じだけ引く：スキルの有無で他のサポートの行き先を変えない）
+    if (rng.next() < (skillsOf(c).support.includes('often') ? 0.04 : 0.18)) return;
     // 得意の練習に来やすい（半分は得意、残りはばらばら）
     const k = rng.next() < 0.5 ? supportType(c) : STATS[rng.int(STATS.length)];
     at[k].push(i);
@@ -222,13 +238,28 @@ export function trainingPreview(run, kind) {
   const tr = TRAIN[kind];
   const here = trainingBoard(run)[kind].map((i) => cardById(run.supports[i]));
   let mul = MOOD_MUL[run.mood] * (1 + 0.12 * here.length) * (1 + 0.08 * (run.levels[kind] - 1));
-  for (const c of here) if (supportType(c) === kind) mul *= 1.15 + 0.25 * (RAR_BONUS[c.rar] - 1) * 2;   // 友情
+  let cost = tr.cost, failMul = 1;
+  const fired = [];
+  for (const c of here) {
+    const sk = skillsOf(c).support;
+    const friend = supportType(c) === kind;
+    if (friend) mul *= 1.15 + 0.25 * (RAR_BONUS[c.rar] - 1) * 2 + (sk.includes('friend') ? 0.15 : 0);   // 友情（友情の絆で強まる）
+    if (sk.includes(`tr_${kind}`)) { mul *= 1 + 0.2 * RAR_SCALE[c.rar]; fired.push(skillInfo(`tr_${kind}`).name); }
+    if (friend && sk.includes('friend')) fired.push(skillInfo('friend').name);
+    if (sk.includes('saver') && kind !== 'wit') { cost = Math.max(5, cost - 5); fired.push(skillInfo('saver').name); }
+    if (sk.includes('safe')) { failMul *= 0.5; fired.push(skillInfo('safe').name); }
+    if (sk.includes('mood')) fired.push(skillInfo('mood').name);
+  }
   const gains = {};
   const base = 30;
-  gains[tr.main] = Math.round(base * mul * (1 + plus[tr.main] * 0.05));
-  for (const [k, f] of Object.entries(tr.sub)) gains[k] = Math.round(base * f * mul * (1 + plus[k] * 0.05));
-  const fail = run.energy >= 50 || kind === 'wit' ? 0 : Math.min(0.6, ((50 - run.energy) / 50) * 0.6);
-  return { gains, fail, cost: tr.cost, supports: here.map((c) => c.id), friendship: here.filter((c) => supportType(c) === kind).length };
+  gains[tr.main] = Math.round(base * mul * (0.85 + plus[tr.main] * 0.1));
+  for (const [k, f] of Object.entries(tr.sub)) gains[k] = Math.round(base * f * mul * (0.85 + plus[k] * 0.1));
+  const fail = run.energy >= 50 || kind === 'wit' ? 0 : Math.min(0.6, ((50 - run.energy) / 50) * 0.6) * failMul;
+  return {
+    gains, fail, cost, supports: here.map((c) => c.id), friendship: here.filter((c) => supportType(c) === kind).length,
+    friends: here.filter((c) => supportType(c) === kind).map((c) => c.id), skills: [...new Set(fired)],
+    mood: here.some((c) => skillsOf(c).support.includes('mood')),
+  };
 }
 
 const addStats = (run, gains) => {
@@ -253,8 +284,18 @@ export function train(run, kind) {
     run.levels[kind] = Math.min(5, run.levels[kind] + 0.25);
     run.energy = kind === 'wit' ? Math.min(100, run.energy + 5) : Math.max(0, run.energy - p.cost);
     msg = `${STAT_LABEL[kind]}の練習 ${Object.entries(p.gains).map(([k, g]) => `${STAT_SHORT[k]}+${g}`).join(' ')}${p.friendship ? '（友情）' : ''}`;
-    // サポートと練習すると、ときどき気分が上がる
-    if (p.supports.length && rng.next() < 0.12) { run.mood = Math.min(4, run.mood + 1); msg += '・気分が上がった'; }
+    // サポートと練習すると、ときどき気分が上がる（盛り上げ役が居ると上がりやすい）
+    if (p.supports.length && rng.next() < (p.mood ? 0.35 : 0.12)) { run.mood = Math.min(4, run.mood + 1); msg += '・気分が上がった'; }
+    // 友情練習を 2 回するとそのサポートのレーススキルを覚える（完成馬に残る）
+    run.bonds ??= [0, 0, 0, 0];
+    run.learned ??= [];
+    for (const id of p.friends) {
+      const i = run.supports.indexOf(id);
+      if (i < 0) continue;
+      run.bonds[i]++;
+      const sk = skillsOf(cardById(id)).race.find((x) => !run.learned.includes(x) && !skillsOf(cardById(run.trainee)).race.includes(x));
+      if (run.bonds[i] === 2 && sk) { run.learned.push(sk); msg += `・${cardById(id).name}から「${skillInfo(sk).name}」を覚えた`; }
+    }
   }
   run.log.push(msg);
   run.turn++;
@@ -315,6 +356,17 @@ export function traineeSpec(run) {
   };
 }
 
+/** 育成中の馬のレーススキル（カードの分と、サポートから覚えた分）。 */
+export function runSkills(run) {
+  return [...skillsOf(cardById(run.trainee)).race, ...(run.learned ?? [])];
+}
+
+/** レーススキルを効かせた馬の形と、発動したスキル。 */
+function withSkills(spec, skills, cardId, race, battle) {
+  const c = cardById(cardId);
+  return applyRaceSkills(spec, skills, race, { battle, rar: c?.rar ?? 'N', uniqueOf: c?.rar === 'LM' ? c : null });
+}
+
 /**
  * レースを 1 つ走らせる。field は出走馬の形（runnerHorse に渡すもの）。
  * 走行ログ付きの結果を返す（3D で観られる）。乱数は seedKey から。
@@ -348,7 +400,8 @@ export function raceTurn(run, choice) {
   const race = opts.find((o) => o.id === choice) ?? opts[opts.length - 1];
   const rng = makeRng(hashSeed(`field:${run.seed}:${run.slot}`));
   const n = race.grade === 'GI' ? 16 : 12;
-  const field = [traineeSpec(run)];
+  const me0 = withSkills(traineeSpec(run), runSkills(run), run.trainee, race, false);
+  const field = [me0.spec];
   for (let i = 1; i < n; i++) field.push(npcHorse(rng, i, race.level, race));
   // 体力と気分を能力に効かせる（体力が少ないと仕上がりが落ちる）
   const res = runRace(race, field, `race:${run.seed}:${run.slot}`);
@@ -367,11 +420,11 @@ export function raceTurn(run, choice) {
     run.mood = Math.min(4, run.mood + 1);
   } else if (order > 5) run.mood = Math.max(0, run.mood - 1);
   run.energy = Math.max(0, run.energy - 15);
-  run.races.push({ slot: run.slot, name: race.name, grade: race.grade, courseId: race.courseId, surface: race.surface, distance: race.distance, order, field: res.results.length, time: me.time });
-  run.log.push(`${race.name} ${order}着（${res.results.length}頭）`);
+  run.races.push({ slot: run.slot, name: race.name, grade: race.grade, courseId: race.courseId, surface: race.surface, distance: race.distance, ground: race.ground, order, field: res.results.length, time: me.time, skills: me0.fired });
+  run.log.push(`${race.name} ${order}着（${res.results.length}頭）${me0.fired.length ? `　発動：${me0.fired.join('・')}` : ''}`);
   run.turn++;
   run.slot++;
-  return { race, result: res, order };
+  return { race, result: res, order, fired: me0.fired };
 }
 
 export const runDone = (run) => run.turn >= TOTAL_TURNS;
@@ -395,6 +448,7 @@ export function finishRun(profile) {
     dist: c.dist, range: c.range, turf: c.turf, dirt: c.dirt, firm: c.firm, soft: c.soft, style: c.style,
     starts: run.starts, wins: run.wins, gradedWins: run.gradedWins, giWins: run.giWins, fans: run.fans,
     races: run.races, supports: run.supports, battles: 0, battleWins: 0,
+    skills: runSkills(run),
   };
   horse.rating = ratingOf(horse);
   horse.rank = rankOf(horse.rating);
@@ -402,6 +456,9 @@ export function finishRun(profile) {
   profile.run = null;
   return horse;
 }
+
+/** 完成馬のレーススキル（古い完成馬は持たないので、カードから起こす）。 */
+export const finishedSkills = (h) => h.skills ?? skillsOf(cardById(h.cardId) ?? { v: {}, rar: 'N', id: '' }).race;
 
 /** 完成馬をレースの馬の形に。 */
 export function finishedSpec(h, i = 0) {
@@ -418,20 +475,24 @@ export const BATTLE_RACES = ['japan-cup', 'arima-kinen', 'tenno-sho-spring', 'ya
   .map((id) => GRADED.find((r) => r.id === id)).filter(Boolean)
   .map((r) => ({ id: r.id, name: r.name, grade: 'GI', courseId: r.courseId, surface: r.surface, distance: r.distance }));
 
-export const DIFFICULTY = { normal: { name: '普通', d: -0.07 }, hard: { name: '強い', d: -0.02 }, legend: { name: '伝説', d: 0.03 } };
+export const DIFFICULTY = { normal: { name: '普通', d: -0.10 }, hard: { name: '強い', d: -0.02 }, legend: { name: '伝説', d: 0.03 } };
 
 /**
  * NPC のランク戦。相手は全カードの名馬を「育て上げた姿」にした完成馬で、強さは自分の馬の能力の平均に難しさを足した帯。
  */
 export function battleNpc(profile, horseId, raceId, diff = 'normal') {
   const me = profile.finished.find((h) => h.id === horseId);
-  const race = BATTLE_RACES.find((r) => r.id === raceId) ?? BATTLE_RACES[0];
+  const race0x = BATTLE_RACES.find((r) => r.id === raceId) ?? BATTLE_RACES[0];
   const n = 12;
+  const race0 = race0x;
+  const race = { ...race0, ground: groundOf(`bground:${profile.seed}:${profile.battles}`) };
   const rng = makeRng(hashSeed(`battle:${profile.seed}:${profile.battles}`));
   const myAvg = STATS.reduce((s, k) => s + abilityOf(me.stats[k]), 0) / 5;
   const level = clamp(myAvg + DIFFICULTY[diff].d, 0.55, 0.92);
   const pool = CARDS.filter((c) => c.name !== me.name && ((race.surface === 'ダート') === (c.dirt > c.turf)));
-  const field = [finishedSpec(me, 0)];
+  const mine0 = withSkills(finishedSpec(me, 0), finishedSkills(me), me.cardId, race, true);
+  const field = [mine0.spec];
+  const fired = { 100: mine0.fired };
   const used = new Set();
   for (let i = 1; i < n; i++) {
     let c = pool[rng.int(pool.length)];
@@ -440,22 +501,31 @@ export function battleNpc(profile, horseId, raceId, diff = 'normal') {
     // カードの得手不得手を残したまま、平均を帯に合わせる
     const avg = STATS.reduce((s, k) => s + c.v[k], 0) / 5;
     const ab = Object.fromEntries(STATS.map((k) => [k, clamp(level + (c.v[k] - avg) + rng.normal(0, 0.015), 0.4, 0.95)]));
-    field.push({ id: 200 + i, name: c.name, sex: c.sex, coat: c.coat, marks: c.marks, ab, dist: c.dist, range: c.range, turf: c.turf, dirt: c.dirt, firm: c.firm, soft: c.soft, style: c.style, cardId: c.id });
+    // 相手もカードのレーススキルを使う（自分だけ使えると難しさの帯が崩れる）
+    const npc = withSkills({ id: 200 + i, name: c.name, sex: c.sex, coat: c.coat, marks: c.marks, ab, dist: c.dist, range: c.range, turf: c.turf, dirt: c.dirt, firm: c.firm, soft: c.soft, style: c.style, cardId: c.id },
+      skillsOf(c).race, c.id, race, true);
+    field.push(npc.spec);
+    fired[200 + i] = npc.fired;
   }
   const res = runRace(race, field, `battle:${profile.seed}:${profile.battles}`);
   profile.battles++;
   const mine = res.results.find((r) => r.horseId === 100);
   me.battles++;
   if (mine.order === 1) me.battleWins++;
-  return { race, result: res, field, order: mine.order };
+  return { race, result: res, field, order: mine.order, fired };
 }
 
 /** 自分の完成馬どうしの対戦（2〜16 頭）。 */
 export function battleOwn(profile, horseIds, raceId) {
-  const race = BATTLE_RACES.find((r) => r.id === raceId) ?? BATTLE_RACES[0];
+  const race = { ...(BATTLE_RACES.find((r) => r.id === raceId) ?? BATTLE_RACES[0]), ground: groundOf(`bground:${profile.seed}:${profile.battles}`) };
   const list = horseIds.map((id) => profile.finished.find((h) => h.id === id)).filter(Boolean).slice(0, 16);
   if (list.length < 2) throw new Error('2 頭以上を選ぶ');
-  const field = list.map((h, i) => finishedSpec(h, i));
+  const fired = {};
+  const field = list.map((h, i) => {
+    const x = withSkills(finishedSpec(h, i), finishedSkills(h), h.cardId, race, true);
+    fired[100 + i] = x.fired;
+    return x.spec;
+  });
   const res = runRace(race, field, `own:${profile.seed}:${profile.battles}`);
   profile.battles++;
   for (const r of res.results) {
@@ -464,7 +534,7 @@ export function battleOwn(profile, horseIds, raceId) {
     h.battles++;
     if (r.order === 1) h.battleWins++;
   }
-  return { race, result: res, field };
+  return { race, result: res, field, fired };
 }
 
 // ---------------------------------------------------------------- 保存
