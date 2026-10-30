@@ -385,6 +385,11 @@ export function shootFinish(renderer, o) {
 
   const sp = sunDir.clone().multiplyScalar(800).project(camera);
   const sun = { x: (sp.x + 1) / 2, y: (1 - sp.y) / 2, visible: sp.z < 1 && Math.abs(sp.x) < 1.4 && Math.abs(sp.y) < 1.4 };
+  // 主役の頭の画面の位置（0..1）。アイコンで顔のあたりを丸く切り取るのに使う（構えと向きで頭の位置が違う）。
+  const hp = new THREE.Vector3();
+  models[0].head.getWorldPosition(hp);
+  hp.project(camera);
+  const head = { x: (hp.x + 1) / 2, y: (1 - hp.y) / 2 };
 
   // 馬は disposeHorse で（顔の布は使い回すので捨てない）。舞台は全部捨てる。
   for (const m of models) disposeHorse(m.group);
@@ -397,5 +402,5 @@ export function shootFinish(renderer, o) {
     if (x.geometry && !x.geometry.userData?.shared) x.geometry.dispose();
     for (const mt of [x.material].flat()) { if (!mt) continue; mt.map?.dispose(); mt.dispose(); }
   });
-  return { background, subject: subjectUrl, mask: maskUrl, sun };
+  return { background, subject: subjectUrl, mask: maskUrl, sun, head };
 }

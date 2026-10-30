@@ -323,7 +323,8 @@ function syncBackdrop(app, screen) {
   const live = screen === 'home' || screen === 'title' || portraitId != null;
   bg.classList.toggle('dim', !live);
   bg.classList.toggle('portrait', portraitId != null);
-  bg.classList.toggle('off', screen === 'raceday' || (screen === 'ik' && app.params.view === 'watch'));
+  // カード育成は自前の背景（空と街）を描くので、放牧地は止めて隠す。
+  bg.classList.toggle('off', screen === 'raceday' || screen === 'ik');
   app.bgLive = live;
   const p = app.pasture;
   if (!p) return;

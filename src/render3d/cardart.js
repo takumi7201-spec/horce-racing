@@ -37,6 +37,61 @@ function ringOf(maskUrl) {
 }
 
 /**
+ * 馬と騎手だけを切り抜いて、白い縁取り（その外に紺の細い縁）を付けた絵。育成モードのホームの主役やアイコンに使う。
+ * 縁取りは形を少しずつずらして重ねて塗りつぶす（ringOf と同じ）。毎回 CSS の drop-shadow を何重にも掛けると重いので焼き込む。
+ * 形の外接矩形で切り詰める（撮った絵は馬の周りが空いていて、そのまま貼ると馬が小さい）。
+ */
+function stickerOf(maskUrl, head = null) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const c0 = document.createElement('canvas');
+      c0.width = W; c0.height = H;
+      const g0 = c0.getContext('2d');
+      g0.drawImage(img, 0, 0);
+      const d = g0.getImageData(0, 0, W, H).data;
+      let x0 = W, y0 = H, x1 = -1, y1 = -1;
+      for (let y = 0; y < H; y++) {
+        for (let x = 0; x < W; x++) {
+          if (d[(y * W + x) * 4 + 3] < 24) continue;
+          if (x < x0) x0 = x; if (x > x1) x1 = x;
+          if (y < y0) y0 = y; if (y > y1) y1 = y;
+        }
+      }
+      if (x1 < 0) { resolve(null); return; }
+      const P = 16;
+      const w = x1 - x0 + 1 + P * 2, h = y1 - y0 + 1 + P * 2;
+      const sil = (r, color) => {
+        const c = document.createElement('canvas');
+        c.width = w; c.height = h;
+        const g = c.getContext('2d');
+        for (const rr of [r, r * 0.55]) {
+          for (let a = 0; a < 24; a++) {
+            const t = (a / 24) * Math.PI * 2;
+            g.drawImage(img, -x0 + P + Math.cos(t) * rr, -y0 + P + Math.sin(t) * rr);
+          }
+        }
+        g.globalCompositeOperation = 'source-in';
+        g.fillStyle = color;
+        g.fillRect(0, 0, w, h);
+        return c;
+      };
+      const out = document.createElement('canvas');
+      out.width = w; out.height = h;
+      const g = out.getContext('2d');
+      g.drawImage(sil(11, '#232046'), 0, 0);
+      g.drawImage(sil(8, '#ffffff'), 0, 0);
+      g.drawImage(img, -x0 + P, -y0 + P);
+      // 頭の位置をステッカーの中の割合で（アイコンの切り取りの中心）
+      const focus = head ? { x: (head.x * W - x0 + P) / w, y: (head.y * H - y0 + P) / h } : { x: 0.2, y: 0.4 };
+      resolve({ url: out.toDataURL('image/png'), w, h, focus });
+    };
+    img.onerror = () => resolve(null);
+    img.src = maskUrl;
+  });
+}
+
+/**
  * 背景のぼかし（被写界深度）を絵に焼き込む。CSS の filter: blur を一覧のカードすべてに掛けると、
  * 傾けたりホロが動いたりするたびにぼかし直しになって重かった。canvas の filter が無い環境（古い Safari）では null を返し、
  * 画面側が今までどおり CSS でぼかす。
@@ -62,7 +117,7 @@ function bakeBlur(url) {
 
 /**
  * カードの絵を撮る。card は sim/data/cards.js の 1 枚。
- * @returns {Promise<{bg:string, fg:string, ring:string|null, sun:{x:number,y:number,visible:boolean}}>}
+ * @returns {Promise<{bg:string, fg:string, ring:string|null, sun:{x:number,y:number,visible:boolean}, sticker:{url:string,w:number,h:number,focus:{x:number,y:number}}|null}>}
  */
 export function cardArt(card) {
   if (cache.has(card.id)) return cache.get(card.id);
@@ -75,7 +130,7 @@ export function cardArt(card) {
 // ---------------------------------------------------------------- 撮った絵を残す
 // 1 枚撮るのに WebGL で舞台を組んで描くので、79 枚の一覧を開くたびに撮り直すと重い。ブラウザの IndexedDB に残す。
 // 鍵は絵に効くカードの値（構え・毛色・白斑・勝負服など）と ART_VER。撮影の舞台（photostage.js）を変えたら ART_VER を上げる。
-const ART_VER = 1;
+const ART_VER = 2;   // 2: ステッカー（sticker）を足した
 const artKey = (c) => `${ART_VER}:${c.id}:${JSON.stringify([c.hid, c.coat, c.marks, c.surface, c.shot, c.desert, c.silks ?? null, c.facing ?? null, c.pose ?? null, c.gate ?? null, c.phase ?? null, c.legPose ?? null])}`;
 let dbp = null;
 function db() {
@@ -122,7 +177,8 @@ function shoot(card) {
     });
     const ring = v.mask ? await ringOf(v.mask) : null;
     const baked = await bakeBlur(v.background);
-    return { bg: baked ?? v.background, bgBaked: !!baked, fg: v.subject, ring, sun: v.sun };
+    const sticker = v.mask ? await stickerOf(v.mask, v.head) : null;
+    return { bg: baked ?? v.background, bgBaked: !!baked, fg: v.subject, ring, sun: v.sun, sticker };
   });
   chain = p.catch(() => {});
   return p;
