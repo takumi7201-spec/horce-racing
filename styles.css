@@ -1443,12 +1443,15 @@ b.win { color: #e0207a; }
 
 /* ---------------- カード育成：ポップな殻（参考：縦長のスマホゲームのホーム画面） ----------------
    白い縁＋紺の輪郭＋下にずらした影の「ステッカー」で部品をそろえる。後ろの放牧地の 3D は止めて、空・網点・街を CSS で敷く。 */
-.ikm { --ink: #232046; --lime: #c6f24a; --pink: #ff5c8a; --orange: #ff9a3d; --violet: #7a5cff;
+.ikm { --ink: #113035; --lime: #a7cb0e; --pink: #f3a332; --orange: #f3a332; --violet: #2c5a55;
+  /* 配色：深い青緑 #113035・若草 #a7cb0e・橙 #f3a332 のグラデーション。彩度の強い色を並べず、明るい面は生成りに寄せて落ち着かせる */
+  --teal: #113035; --teal2: #2c5a55; --leaf: #a7cb0e; --leaf2: #d3e27f; --sun: #f3a332; --sun2: #f8d5a0; --paper: #fbf8ef;
+  --grad: linear-gradient(90deg, #113035 0%, #2f5a45 48%, #8fae2a 80%, #dc9f4c 100%);
   height: 100%; overflow: auto; font-family: system-ui, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Yu Gothic", sans-serif; }
 .ikh-wrap, .ikp-wrap { position: relative; min-height: 100%; }
 .ik-sky { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden;
   background: radial-gradient(circle, #ffffff40 1.1px, transparent 1.7px) 0 0 / 10px 10px, linear-gradient(180deg, #c4f7ec 0%, #8ee6dc 30%, #5cc4e4 62%, #5b86dc 100%); }
-.ikp-wrap .ik-sky::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 45%; opacity: .45; background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 220' preserveAspectRatio='xMidYMax slice'%3E%3Cdefs%3E%3Cpattern id='w' width='10' height='12' patternUnits='userSpaceOnUse'%3E%3Crect x='2' y='3' width='4' height='5' fill='%239cc8ff'/%3E%3C/pattern%3E%3C/defs%3E%3Cg id='b' fill='%232c3f9e'%3E%3Crect x='0' y='100' width='38' height='120'/%3E%3Crect x='34' y='44' width='44' height='176'/%3E%3Crect x='82' y='122' width='30' height='98'/%3E%3Crect x='110' y='76' width='36' height='144'/%3E%3Crect x='150' y='132' width='46' height='88'/%3E%3Crect x='196' y='34' width='34' height='186'/%3E%3Cpolygon points='196,34 213,10 230,34'/%3E%3Crect x='234' y='104' width='40' height='116'/%3E%3Crect x='276' y='64' width='48' height='156'/%3E%3Crect x='326' y='118' width='30' height='102'/%3E%3Crect x='356' y='54' width='44' height='166'/%3E%3C/g%3E%3Cg fill='url(%23w)' opacity='.55'%3E%3Crect x='34' y='50' width='44' height='170'/%3E%3Crect x='110' y='82' width='36' height='138'/%3E%3Crect x='196' y='40' width='34' height='180'/%3E%3Crect x='276' y='70' width='48' height='150'/%3E%3Crect x='356' y='60' width='44' height='160'/%3E%3C/g%3E%3C/svg%3E") bottom center / cover no-repeat; }
+.ikp-wrap .ik-sky::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 45%; opacity: .45; background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 220' preserveAspectRatio='xMidYMax slice'%3E%3Cdefs%3E%3Cpattern id='w' width='10' height='12' patternUnits='userSpaceOnUse'%3E%3Crect x='2' y='3' width='4' height='5' fill='%23f3c46a'/%3E%3C/pattern%3E%3C/defs%3E%3Cg id='b' fill='%230d2a2e'%3E%3Crect x='0' y='100' width='38' height='120'/%3E%3Crect x='34' y='44' width='44' height='176'/%3E%3Crect x='82' y='122' width='30' height='98'/%3E%3Crect x='110' y='76' width='36' height='144'/%3E%3Crect x='150' y='132' width='46' height='88'/%3E%3Crect x='196' y='34' width='34' height='186'/%3E%3Cpolygon points='196,34 213,10 230,34'/%3E%3Crect x='234' y='104' width='40' height='116'/%3E%3Crect x='276' y='64' width='48' height='156'/%3E%3Crect x='326' y='118' width='30' height='102'/%3E%3Crect x='356' y='54' width='44' height='166'/%3E%3C/g%3E%3Cg fill='url(%23w)' opacity='.55'%3E%3Crect x='34' y='50' width='44' height='170'/%3E%3Crect x='110' y='82' width='36' height='138'/%3E%3Crect x='196' y='40' width='34' height='180'/%3E%3Crect x='276' y='70' width='48' height='150'/%3E%3Crect x='356' y='60' width='44' height='160'/%3E%3C/g%3E%3C/svg%3E") bottom center / cover no-repeat; }
 .ik-water { position: absolute; top: -12px; left: 50%; transform: translateX(-50%) skewX(-8deg); font: italic 900 96px/1 system-ui, sans-serif; color: #ffffff55; letter-spacing: .02em; white-space: nowrap; }
 .ik-badge { position: absolute; top: -6px; right: -2px; z-index: 2; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 999px; background: #ff3d6e; color: #fff;
   border: 2px solid #fff; box-shadow: 0 0 0 1.5px var(--ink); font: normal 900 11px/16px system-ui, sans-serif; text-align: center; }
@@ -1468,7 +1471,7 @@ b.win { color: #e0207a; }
 .ikh-sp { flex: 1; }
 .ikh-stage { position: relative; flex: 1; min-height: 0; margin: 4px 0 0; border-radius: 30px; border: 5px solid #fff; box-shadow: 0 0 0 3px var(--ink); overflow: hidden;
   background: radial-gradient(circle, #ffffff45 1.1px, transparent 1.7px) 0 0 / 9px 9px, linear-gradient(180deg, #86eadf 0%, #4cc6e0 36%, #3f8ade 68%, #3a52c2 100%); }
-.ikh-city { position: absolute; left: 0; right: 0; bottom: 0; height: 64%; opacity: .85; background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 220' preserveAspectRatio='xMidYMax slice'%3E%3Cdefs%3E%3Cpattern id='w' width='10' height='12' patternUnits='userSpaceOnUse'%3E%3Crect x='2' y='3' width='4' height='5' fill='%239cc8ff'/%3E%3C/pattern%3E%3C/defs%3E%3Cg id='b' fill='%232c3f9e'%3E%3Crect x='0' y='100' width='38' height='120'/%3E%3Crect x='34' y='44' width='44' height='176'/%3E%3Crect x='82' y='122' width='30' height='98'/%3E%3Crect x='110' y='76' width='36' height='144'/%3E%3Crect x='150' y='132' width='46' height='88'/%3E%3Crect x='196' y='34' width='34' height='186'/%3E%3Cpolygon points='196,34 213,10 230,34'/%3E%3Crect x='234' y='104' width='40' height='116'/%3E%3Crect x='276' y='64' width='48' height='156'/%3E%3Crect x='326' y='118' width='30' height='102'/%3E%3Crect x='356' y='54' width='44' height='166'/%3E%3C/g%3E%3Cg fill='url(%23w)' opacity='.55'%3E%3Crect x='34' y='50' width='44' height='170'/%3E%3Crect x='110' y='82' width='36' height='138'/%3E%3Crect x='196' y='40' width='34' height='180'/%3E%3Crect x='276' y='70' width='48' height='150'/%3E%3Crect x='356' y='60' width='44' height='160'/%3E%3C/g%3E%3C/svg%3E") bottom center / cover no-repeat; }
+.ikh-city { position: absolute; left: 0; right: 0; bottom: 0; height: 64%; opacity: .85; background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 220' preserveAspectRatio='xMidYMax slice'%3E%3Cdefs%3E%3Cpattern id='w' width='10' height='12' patternUnits='userSpaceOnUse'%3E%3Crect x='2' y='3' width='4' height='5' fill='%23f3c46a'/%3E%3C/pattern%3E%3C/defs%3E%3Cg id='b' fill='%230d2a2e'%3E%3Crect x='0' y='100' width='38' height='120'/%3E%3Crect x='34' y='44' width='44' height='176'/%3E%3Crect x='82' y='122' width='30' height='98'/%3E%3Crect x='110' y='76' width='36' height='144'/%3E%3Crect x='150' y='132' width='46' height='88'/%3E%3Crect x='196' y='34' width='34' height='186'/%3E%3Cpolygon points='196,34 213,10 230,34'/%3E%3Crect x='234' y='104' width='40' height='116'/%3E%3Crect x='276' y='64' width='48' height='156'/%3E%3Crect x='326' y='118' width='30' height='102'/%3E%3Crect x='356' y='54' width='44' height='166'/%3E%3C/g%3E%3Cg fill='url(%23w)' opacity='.55'%3E%3Crect x='34' y='50' width='44' height='170'/%3E%3Crect x='110' y='82' width='36' height='138'/%3E%3Crect x='196' y='40' width='34' height='180'/%3E%3Crect x='276' y='70' width='48' height='150'/%3E%3Crect x='356' y='60' width='44' height='160'/%3E%3C/g%3E%3C/svg%3E") bottom center / cover no-repeat; }
 .ikh-hero { position: absolute; left: 50%; top: 40%; transform: translate(-50%, -50%); width: 96%; border: 0; background: none; padding: 0; cursor: pointer; z-index: 1; }
 .ikh-sticker { display: block; width: 100%; height: auto; opacity: 0; transition: opacity .4s; animation: ikh-float 3.4s ease-in-out infinite; }
 .ikh-sticker.ready { opacity: 1; }
@@ -1482,7 +1485,7 @@ b.win { color: #e0207a; }
 .ikh-plate .nm { display: flex; flex-direction: column; text-align: left; line-height: 1.1; }
 .ikh-plate .nm small { font: 800 10px/1.2 system-ui, sans-serif; color: var(--violet); }
 .ikh-plate .nm b { font: 900 17px/1.1 system-ui, sans-serif; }
-.ikh-plate em { font: normal 900 10px/1 system-ui, sans-serif; color: #fff; background: #8a88a8; border-radius: 6px; padding: 3px 5px; }
+.ikh-plate em { font: normal 900 10px/1 system-ui, sans-serif; color: #fff; background: #7a8c88; border-radius: 6px; padding: 3px 5px; }
 /* 左の列（開催中のイベント） */
 .ikh-left { position: absolute; left: 6px; top: 12px; z-index: 3; display: flex; flex-direction: column; gap: 12px; }
 .ikh-ev { position: relative; display: flex; flex-direction: column; align-items: center; width: 78px; border: 0; background: none; padding: 0; cursor: pointer; }
@@ -1514,7 +1517,7 @@ b.win { color: #e0207a; }
 .ikh-ticket { display: flex; width: 200px; height: 72px; padding: 0; overflow: hidden; cursor: pointer; text-align: left; color: var(--ink);
   background: #fff; border: 2.5px solid var(--ink); border-radius: 10px; box-shadow: 0 4px 0 var(--ink); transform: rotate(-4deg); }
 .ikh-ticket.t2 { transform: rotate(-2deg); margin-left: 6px; }
-.tk-l { width: 44%; padding: 7px 8px 6px 10px; display: flex; flex-direction: column; align-items: flex-start; border-right: 2px dashed #23204666; }
+.tk-l { width: 44%; padding: 7px 8px 6px 10px; display: flex; flex-direction: column; align-items: flex-start; border-right: 2px dashed #11303566; }
 .tk-l b { font: 900 18px/1.05 system-ui, sans-serif; }
 .tk-l b + b { font-size: 15px; }
 .tk-bar { margin-top: auto; width: 62px; height: 9px; opacity: .55;
@@ -1565,14 +1568,14 @@ b.win { color: #e0207a; }
 .ikp .btn.primary { background: linear-gradient(#e2ff8a, var(--lime)); color: var(--ink); }
 .ikp .btn:hover:not(:disabled), .ikp .btn.primary:hover:not(:disabled) { color: var(--ink); border-color: var(--ink); filter: brightness(1.04); }
 .ikp .btn:active:not(:disabled) { transform: translateY(3px); box-shadow: 0 1px 0 var(--ink); }
-.ikp .note { color: #4a4870; }
+.ikp .note { color: #3c5552; }
 .ikp .ik-prog, .ikp .ik-meta, .ikp .ik-result { border: 3px solid var(--ink); border-radius: 18px; box-shadow: 0 5px 0 var(--ink); }
 .ikp .ik-train, .ikp .ik-race { border: 2.5px solid var(--ink); border-radius: 14px; box-shadow: 0 4px 0 var(--ink); }
 .ikp .ik-train:active, .ikp .ik-race:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--ink); }
 .ikp .ik-train.friend { background: linear-gradient(#fff, #ffe0ef); border-color: #e0206a; }
 .ikp .ik-log { background: var(--ink); }
 .ikp .ik-fin { border: 2.5px solid var(--ink); border-left-width: 9px; border-radius: 14px; }
-.ikp .ik-missing { border: 2.5px dashed #ffffff66; background: #2a2a52; }
+.ikp .ik-missing { border: 2.5px dashed #ffffff66; background: #1d4440; }
 @media (max-width: 420px) {
   .ikh-ticket { width: 186px; height: 72px; }
   .tk-l b { font-size: 16px; } .tk-l b + b { font-size: 13px; }
@@ -1604,7 +1607,7 @@ b.win { color: #e0207a; }
 .ikx-name { display: flex; flex-direction: column; line-height: 1.1; }
 .ikx-name small { font-size: 11px; font-weight: 800; color: var(--violet); }
 .ikx-name b { font: italic 900 24px/1.15 system-ui, sans-serif; }
-.ikx-sa { font-weight: 800; color: #4a4870; }
+.ikx-sa { font-weight: 800; color: #3c5552; }
 .ikx-count { margin-left: auto; font-weight: 900; background: var(--ink); color: #fff; border-radius: 999px; padding: 3px 10px; font-size: 12px; }
 .ikx-stage { position: relative; height: 340px; border-radius: 26px; border: 5px solid #fff; box-shadow: 0 0 0 3px var(--ink); overflow: hidden; margin-bottom: 14px;
   background: radial-gradient(circle, #ffffff45 1.1px, transparent 1.7px) 0 0 / 9px 9px, linear-gradient(180deg, #86eadf 0%, #4cc6e0 36%, #3f8ade 68%, #3a52c2 100%); }
@@ -1616,9 +1619,9 @@ b.win { color: #e0207a; }
 .ikx-ribbon { align-self: center; background: linear-gradient(90deg, var(--violet), var(--pink)); color: #fff; font: italic 900 14px/1 system-ui, sans-serif; padding: 6px 14px; border-radius: 999px; border: 2px solid var(--ink); text-shadow: 0 1px 0 var(--ink); }
 .ikx-rank { display: flex; align-items: baseline; justify-content: center; gap: 8px; }
 .ikx-rank b { font: italic 900 34px/1 system-ui, sans-serif; }
-.ikx-rank small { font-weight: 800; color: #4a4870; }
+.ikx-rank small { font-weight: 800; color: #3c5552; }
 .ikx-rows { display: grid; grid-template-columns: 3.4em 1fr; gap: 5px 8px; margin: 0; font-size: 13px; align-items: center; }
-.ikx-rows dt { font-weight: 800; color: #6a6890; font-size: 11px; }
+.ikx-rows dt { font-weight: 800; color: #5a706c; font-size: 11px; }
 .ikx-rows dd { margin: 0; font-weight: 900; }
 .ikx-rows em { font-style: normal; color: var(--violet); }
 .ikx-chips, .ikx-style { display: flex; gap: 4px; flex-wrap: wrap; }
@@ -1631,14 +1634,14 @@ b.win { color: #e0207a; }
 .ikx-body h4 { margin: 4px 0 8px; font: italic 900 14px/1 system-ui, sans-serif; color: var(--violet); }
 .ikx-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
 .ikx-crs { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; }
-.ikx-crs div { display: flex; justify-content: space-between; border-bottom: 2px dotted #23204633; padding: 3px 0; font-size: 13px; }
+.ikx-crs div { display: flex; justify-content: space-between; border-bottom: 2px dotted #11303533; padding: 3px 0; font-size: 13px; }
 .ikx-crs b { font-variant-numeric: tabular-nums; }
 .ikx-wins { margin: 0 0 10px; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; font-weight: 800; }
 .ikx-sups { display: flex; flex-wrap: wrap; gap: 5px; }
 .ikx-sups span { font-size: 12px; font-weight: 900; padding: 3px 8px; border: 2px solid var(--ink); border-radius: 8px; background: #fff; }
 .ikx-ped { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: auto auto; gap: 8px; }
 .ikx-ped .pp { border: 2.5px solid var(--ink); border-radius: 12px; padding: 8px 12px; display: flex; flex-direction: column; gap: 2px; }
-.ikx-ped .pp small { font-size: 11px; font-weight: 800; color: #6a6890; }
+.ikx-ped .pp small { font-size: 11px; font-weight: 800; color: #5a706c; }
 .ikx-ped .pp b { font-size: 16px; }
 .ikx-ped .s { background: #eaf2ff; grid-row: span 2; justify-content: center; } .ikx-ped .d { background: #ffeef6; } .ikx-ped .ds { background: #f4f0ff; }
 .ikx-ped .ln { grid-column: 1 / -1; background: #f6ffe0; }
@@ -1653,19 +1656,19 @@ b.win { color: #e0207a; }
 
 /* スキル */
 .ik-sks { display: inline-flex; flex-wrap: wrap; gap: 5px; }
-.ik-sk { display: inline-block; font: 900 12px/1 system-ui, sans-serif; padding: 5px 9px; border-radius: 999px; border: 2px solid var(--ink, #232046); color: var(--ink, #232046); cursor: help; white-space: nowrap; }
+.ik-sk { display: inline-block; font: 900 12px/1 system-ui, sans-serif; padding: 5px 9px; border-radius: 999px; border: 2px solid var(--ink, var(--ink)); color: var(--ink, var(--ink)); cursor: help; white-space: nowrap; }
 .ik-sk.sm { font-size: 11px; padding: 3px 7px; }
 .ik-sk.race { background: #dff2ff; } .ik-sk.support { background: #e8ffd6; }
 .ik-sk.uniq { background: conic-gradient(from 30deg, #ffb0c8, #ffe08a, #fff7b0, #c0ffd8, #b0ecff, #d0c4ff, #ffb0c8); }
 .ik-sklist { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 8px; }
 .ik-skrow { display: flex; align-items: center; gap: 8px; }
-.ik-skrow small { color: #4a4870; }
+.ik-skrow small { color: #3c5552; }
 .ik-skh { margin: 10px 0 4px; font: italic 900 14px/1 system-ui, sans-serif; color: #7a5cff; }
 .ik-deckskills { display: flex; flex-direction: column; gap: 6px; margin: 6px 0; }
 .ik-deckskills > div { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.ik-deckskills small { font-weight: 800; color: #4a4870; min-width: 9em; }
+.ik-deckskills small { font-weight: 800; color: #3c5552; min-width: 9em; }
 .ik-bonds { display: inline-flex; flex-wrap: wrap; gap: 5px; }
-.ik-bond { display: inline-flex; gap: 5px; align-items: center; border: 2px solid var(--ink, #232046); border-radius: 8px; padding: 2px 7px; background: #fff; font-size: 12px; }
+.ik-bond { display: inline-flex; gap: 5px; align-items: center; border: 2px solid var(--ink, var(--ink)); border-radius: 8px; padding: 2px 7px; background: #fff; font-size: 12px; }
 .ik-bond i { font-style: normal; font-weight: 900; color: #e0206a; }
 .ik-bond.done { background: #fff2b0; }
 .ik-train .sks { display: flex; flex-wrap: wrap; gap: 3px; }
@@ -1757,7 +1760,7 @@ b.win { color: #e0207a; }
 .tc-count.max { background: linear-gradient(135deg, #ffb300, #ffe27a); color: #3b1d00; box-shadow: 0 0 0 2px #fff, 0 2px 6px #0006; }
 .tc-count.max i { color: #8a4b00; }
 .ik-awk { display: inline-block; font-style: normal; font-weight: 900; font-size: 11px; color: #b06a00; background: #fff1c2; border: 1px solid #f0b000; border-radius: 4px; padding: 0 5px; margin-right: 6px; }
-.ik-awaken { margin: 10px 0 4px; padding: 10px 12px; border: 2px solid #232046; border-radius: 12px; background: linear-gradient(180deg, #fffaf0, #fff3d6); }
+.ik-awaken { margin: 10px 0 4px; padding: 10px 12px; border: 2px solid var(--ink); border-radius: 12px; background: linear-gradient(180deg, #fffaf0, #fff3d6); }
 .ik-awhead { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
 .ik-awhead b { font-size: 18px; font-weight: 900; font-style: italic; color: #b06a00; }
 .ik-awhead i { font-style: normal; color: #f0a000; letter-spacing: 2px; font-size: 15px; }
@@ -1770,9 +1773,9 @@ b.win { color: #e0207a; }
 
 /* ---- かけら（余ったカードの交換。ikusei.js の shardPanel・shardActions） ---- */
 .gem { display: inline-block; width: 14px; height: 14px; transform: rotate(45deg); border-radius: 3px;
-  background: linear-gradient(135deg, #e9fbff 0%, #7fd8ff 40%, #6b6bff 100%); box-shadow: 0 0 0 1.5px #232046, inset 0 0 0 1.5px #ffffffaa; }
+  background: linear-gradient(135deg, #e9fbff 0%, #7fd8ff 40%, #6b6bff 100%); box-shadow: 0 0 0 1.5px var(--ink), inset 0 0 0 1.5px #ffffffaa; }
 .ik-shard { position: relative; display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 14px 0 12px; margin-right: 8px;
-  border-radius: 999px; border: 2.5px solid #fff; background: #232046; color: #fff; font: 900 15px/1 system-ui, sans-serif; box-shadow: 0 3px 0 #0003; cursor: pointer; }
+  border-radius: 999px; border: 2.5px solid #fff; background: var(--ink); color: #fff; font: 900 15px/1 system-ui, sans-serif; box-shadow: 0 3px 0 #0003; cursor: pointer; }
 .ik-shard .dot { position: absolute; top: -3px; right: -3px; width: 10px; height: 10px; border-radius: 50%; background: #ff4a6a; border: 2px solid #fff; }
 .ik-shardbox { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
 .ik-shardn { display: inline-flex; align-items: center; gap: 8px; }
@@ -1782,11 +1785,62 @@ b.win { color: #e0207a; }
 .ik-shardtx { flex: 1 1 260px; }
 .ik-shardtx p { margin: 0 0 4px; }
 .ik-shardtx small { color: #6b6450; }
-.ik-shardact { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 10px 0 4px; padding: 8px 10px; border-radius: 10px; background: #eef3ff; border: 2px solid #232046; }
+.ik-shardact { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 10px 0 4px; padding: 8px 10px; border-radius: 10px; background: #eef3ff; border: 2px solid var(--ink); }
 .ik-shardact small { color: #8a4b4b; }
 .ik-missing.click { cursor: pointer; }
 .ik-missbig { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; width: 200px; height: 280px; margin: 0 auto;
-  border-radius: 14px; border: 3px dashed #8a86b8; background: #2a2a52; color: #fff; }
+  border-radius: 14px; border: 3px dashed #8a86b8; background: #1d4440; color: #fff; }
 .ik-missbig b { font-size: 30px; font-weight: 900; }
 .ik-missbig span { font-size: 22px; letter-spacing: 4px; }
 .ik-missbig small { color: #bbb; }
+
+/* ---- 育成モードの配色（#113035・#a7cb0e・#f3a332 のグラデーション、穏やかに） ----
+   上の各部品の色を、ここでまとめて上書きする（部品ごとに書き換えると散らばるので、配色はこの節に集める）。 */
+.ik-sky { background: radial-gradient(circle, #ffffff14 1.1px, transparent 1.7px) 0 0 / 10px 10px,
+  linear-gradient(172deg, #113035 0%, #1d4440 28%, #4f7a3c 58%, #a7b84a 80%, #e9b468 100%); }
+.ik-water { color: #ffffff18; }
+.ikp-wrap .ik-sky::after, .ikh-city { opacity: .35; }
+.ikh-stage { box-shadow: 0 0 0 3px var(--ink);
+  background: radial-gradient(circle, #ffffff12 1.1px, transparent 1.7px) 0 0 / 9px 9px,
+  linear-gradient(180deg, #1d4440 0%, #3e6a3c 40%, #93ad3a 74%, #eab066 100%); }
+.ikh-ava { background: linear-gradient(135deg, var(--leaf2), var(--sun2)); }
+.ikh-power, .ikh-rb, .ik-coin, .ik-shard { background: var(--teal); }
+.ik-coin { color: #f6cf86; } .ik-coin .cn { color: var(--sun); } .ik-coin .plus { background: var(--sun); }
+.ik-badge { background: #d9792a; }
+.ik-shard .dot { background: var(--sun); }
+.ikh-plate .nm small { color: #5d7a10; }
+.ikh-plate em { background: var(--teal2); }
+.ikh-ev-face { background-color: var(--leaf2); }
+.ikh-ev.p2 .ikh-ev-face { background-color: var(--sun2); } .ikh-ev.howto .ikh-ev-face { background-color: #eee6c8; }
+.ikh-ev-l { background: var(--teal2); }
+.ikh-ev.p2 .ikh-ev-l { background: #c97f22; } .ikh-ev.howto .ikh-ev-l { background: var(--leaf); color: var(--ink); }
+.ikh-ring { background: conic-gradient(var(--sun) calc(var(--p) * 1%), #ffffff70 0); }
+.ikh-prog-face { background-color: #a9c49a; }
+.ikh-prog-l { background: var(--teal2); }
+.ikh-bubble, .ikh-bubble::after { background: var(--leaf2); }
+.tk-img { background-color: #a9c49a; }
+
+/* 下のボタン列 */
+.ikd.cards { background: linear-gradient(var(--paper), var(--sun2)); } .ikd.cards .ikd-ic { color: #c97f22; }
+.ikd.run { background: linear-gradient(#dbe89a, var(--leaf)); }
+.ikd.stable { background: linear-gradient(#f8cf8f, var(--sun)); }
+.ikd.battle { background: linear-gradient(var(--paper), #d7e3cf); } .ikd.battle .ikd-ic { color: var(--teal2); }
+.ikd.gacha { background: linear-gradient(135deg, #4f7a3c, var(--teal2) 55%, var(--teal)); }
+
+/* 中の画面 */
+.ikp .card, .ikp .card-b { background: var(--paper); }
+.ikp .card-h { background: var(--grad); }
+.ikp .card-h h2 { text-shadow: 0 1px 0 #0d2a2e, 0 0 6px #11303599; }
+.ikp .tab { background: var(--paper); }
+.ikp .tab.on { background: var(--leaf2); }
+.ikp .btn { background: var(--paper); }
+.ikp .btn.primary { background: linear-gradient(#cfe06a, var(--leaf)); }
+.ikp .ik-train.friend { background: linear-gradient(var(--paper), #fbe2bd); border-color: #d98a2a; }
+.ikp .ik-prog, .ikp .ik-meta, .ikp .ik-result { background: var(--paper); }
+.ikp .ik-prog .bar i, .ikp .ik-stat .bar i { background: linear-gradient(90deg, var(--teal2), var(--leaf)); }
+.ikp-title small { background: var(--leaf2); }
+.ik-awaken { background: linear-gradient(180deg, var(--paper), #f6ead0); }
+.ik-shardact { background: #edf2e2; }
+.ik-shardn b { color: var(--teal2); }
+.gem { background: linear-gradient(135deg, #f4fbe0 0%, var(--leaf) 45%, var(--teal2) 100%); }
+.ikp .ik-train .fr { background: #d98a2a; }
