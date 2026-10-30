@@ -195,7 +195,7 @@ export function cardView(c, { scale = 0.4, onClick = null, count = 0, dim = fals
  */
 let observer = null;
 const waiting = new WeakMap();
-function whenVisible(node, fn) {
+export function whenVisible(node, fn) {
   if (typeof IntersectionObserver !== 'function') { fn(); return; }
   observer ??= new IntersectionObserver((entries) => {
     for (const e of entries) {

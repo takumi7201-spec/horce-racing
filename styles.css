@@ -1844,3 +1844,26 @@ b.win { color: #e0207a; }
 .ik-shardn b { color: var(--teal2); }
 .gem { background: linear-gradient(135deg, #f4fbe0 0%, var(--leaf) 45%, var(--teal2) 100%); }
 .ikp .ik-train .fr { background: #d98a2a; }
+
+/* ---- 所持カードの一覧：馬の顔のアイコン（ikusei.js の cardIcon） ---- */
+.ik-icons { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 14px 8px; margin-top: 10px; }
+.ik-ico { position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 4px 2px 6px; border: 0; background: none; cursor: pointer; color: var(--ink); min-width: 0; }
+.ik-ico-ring { position: relative; width: 84px; height: 84px; border-radius: 50%; padding: 4px; background: var(--rc, #ccc); box-shadow: 0 0 0 2px var(--ink), 0 4px 0 2px var(--ink); transition: transform .12s; }
+.ik-ico:hover .ik-ico-ring { transform: translateY(-2px); }
+.ik-ico:active .ik-ico-ring { transform: translateY(2px); box-shadow: 0 0 0 2px var(--ink), 0 1px 0 2px var(--ink); }
+.ik-ico-face { display: block; width: 100%; height: 100%; border-radius: 50%; border: 2px solid #fff; background: linear-gradient(180deg, #2f5a45, #8fae2a 75%, #e8b46a) no-repeat; }
+.ik-ico-face.ready { background-repeat: no-repeat; }
+.ik-ico-rar { position: absolute; left: 50%; bottom: -8px; transform: translateX(-50%); font: 900 11px/1 serif; padding: 3px 6px; border-radius: 6px; border: 2px solid var(--ink); background: var(--rc, #ccc); color: var(--ink); white-space: nowrap; }
+.ik-ico.r-LM { --rc: conic-gradient(from 30deg, #ff8fb0, #ffd36a, #fff59a, #9bffc0, #8fe6ff, #b0a2ff, #ff8fb0); }
+.ik-ico.r-SSR { --rc: linear-gradient(135deg, #fff6c8, #e6b030); }
+.ik-ico.r-SR { --rc: linear-gradient(135deg, #ffffff, #b4bcca); }
+.ik-ico.r-R { --rc: linear-gradient(135deg, #ffe0c0, #c98a50); }
+.ik-ico.r-N { --rc: linear-gradient(135deg, #e6f5d0, #8fbf6a); }
+.ik-ico-n { position: absolute; top: 0; right: calc(50% - 54px); display: flex; flex-direction: column; align-items: center; padding: 3px 5px; border-radius: 10px; background: var(--teal); color: #fff; border: 2px solid #fff; z-index: 1; }
+.ik-ico-n b { font: 900 11px/1 sans-serif; }
+.ik-ico-n i { font-style: normal; font-size: 7px; line-height: 1.1; letter-spacing: .5px; color: var(--leaf2); }
+.ik-ico-n.max { background: linear-gradient(135deg, #e09030, var(--sun)); }
+.ik-ico-n.max i { color: #fff3d0; }
+.ik-ico-name { margin-top: 10px; max-width: 100%; font: 900 12.5px/1.2 system-ui, sans-serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ik-ico small { font-size: 10.5px; color: #5a706c; }
+.ik-ico-face.ready { background-color: #d9e4bf; }

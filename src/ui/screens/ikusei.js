@@ -7,7 +7,7 @@ import { el, card, table, button, toast, modal, ask, tabs, frameChip } from '../
 import { icon } from '../icons.js';
 import { cardArt, cardArtIfReady } from '../../render3d/cardart.js';
 import * as I from '../../sim/ikusei.js';
-import { cardView, epithetOf, holoOf, holoName } from '../cardview.js';
+import { cardView, epithetOf, holoOf, holoName, whenVisible } from '../cardview.js';
 import { createRaceView, CAMERAS } from '../../render3d/raceview.js';
 import { formatTime } from '../../core/util.js';
 import * as sound from '../sound.js';
@@ -358,11 +358,28 @@ function cardsView(app, go) {
       tabs([{ id: 'ALL', name: '全弾' }, ...Object.keys(I.PACKS).map((id) => ({ id, name: `第${id.slice(1)}弾` }))], f.pack, (v) => set('pack', v)),
       tabs([{ id: 'ALL', name: '全レア' }, ...I.RARITIES.map((r) => ({ id: r, name: r }))], f.rar, (v) => set('rar', v)),
       tabs([{ id: 'rar', name: 'レア度順' }, { id: 'power', name: 'カードパワー順' }, { id: 'count', name: '枚数順' }, { id: 'no', name: '番号順' }], f.sort, (v) => set('sort', v)),
-      list.length ? el('div.ik-grid', list.map((c) => cardView(c, { scale: fit(0.26), count: p.cards[c.id], onClick: (x) => showCard(app, x) })))
+      list.length ? el('div.ik-icons', list.map((c) => cardIcon(app, c, p.cards[c.id])))
         : el('p.note', { text: 'この条件のカードは持っていない。' }),
       el('div.ik-gbtns', [button('カード図鑑を見る', () => go('book'))]),
     ]),
   ];
+}
+
+/**
+ * 所持カードの一覧の 1 マス：馬の顔の丸いアイコン（枠の色がレア度）と名前・枚数・覚醒。
+ * カード 1 枚まるごと並べると、50 種で縦に長く、顔も名前も小さくて見分けにくかった。押すとカードの詳細（カード全体）を開く。
+ * 顔は画面に入ってから撮る（whenVisible。開いた瞬間に 50 枚を撮らない）。
+ */
+function cardIcon(app, c, count) {
+  const face = el('span.ik-ico-face');
+  const node = el(`button.ik-ico.r-${c.rar}`, { onclick: () => showCard(app, c), title: `${epithetOf(c)} ${c.name}` }, [
+    el('span.ik-ico-ring', [face, el('span.ik-ico-rar', { text: c.rar })]),
+    count > 1 ? el(`span.ik-ico-n${count >= I.KEEP ? '.max' : ''}`, [el('b', { text: `×${count}` }), el('i', { text: '◆'.repeat(Math.min(4, count - 1)) + '◇'.repeat(Math.max(0, 4 - (count - 1))) })]) : null,
+    el('b.ik-ico-name', { text: c.name }),
+    el('small', { text: `${c.turf >= c.dirt ? '芝' : 'ダ'}・${I.distCat(c.dist)}　${I.cardPower(c)}` }),
+  ]);
+  whenVisible(node, () => stickerInto(face, c, { mode: 'face', zoom: 2.4 }));
+  return node;
 }
 
 /** かけら：余り（覚醒 MAX を超えた分）をまとめて替える欄。 */
