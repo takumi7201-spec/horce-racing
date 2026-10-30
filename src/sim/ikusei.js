@@ -53,7 +53,7 @@ const RAR_BONUS = { LM: 1.3, SSR: 1.2, SR: 1.1, R: 1.05, N: 1.0 };
 
 /** 新しいプロフィール。cards は持っているカード（id → 枚数）。 */
 export function newProfile(seed = 1) {
-  return { v: 1, seed: typeof seed === 'number' ? seed : hashSeed(String(seed)), pulls: 0, cards: {}, finished: [], run: null, nextId: 1, battles: 0 };
+  return { v: 1, seed: typeof seed === 'number' ? seed : hashSeed(String(seed)), pulls: 0, cards: {}, finished: [], run: null, nextId: 1, battles: 0, shards: 0 };
 }
 
 // ---------------------------------------------------------------- ガチャ
@@ -86,6 +86,58 @@ export function pull(profile, n = 1, pack = 'ALL') {
 /** 持っているカード（レア度の高い順）。 */
 export function owned(profile) {
   return CARDS.filter((c) => profile.cards[c.id]).sort((a, b) => RARITIES.indexOf(a.rar) - RARITIES.indexOf(b.rar) || a.id.localeCompare(b.id));
+}
+
+// ---------------------------------------------------------------- かけら（余ったカードの交換）
+//
+// 覚醒は 5 枚（覚醒 4）で頭打ちなので、6 枚目からは持っていても何も起きない。その余りをかけらに替え、
+// かけらで好きなカードを 1 枚ずつ交換できる（持っていないカード・覚醒途中のカードを狙って埋める）。
+// 余りは 5 枚を超えた分だけ（覚醒を下げない）。交換で 5 枚を超えることはさせない（余りが生まれてまたかけらに戻るだけ）。
+// 交換の値は引いて得る値の 10 倍前後：余りが出るほど引いた人への上乗せで、ガチャの代わりにはならない。
+
+/** 余り 1 枚で得るかけら。 */
+export const SHARD_VALUE = { LM: 60, SSR: 20, SR: 6, R: 2, N: 1 };
+/** 1 枚と交換するのに要るかけら。 */
+export const SHARD_COST = { LM: 600, SSR: 200, SR: 60, R: 20, N: 10 };
+/** 覚醒の上限に要る枚数（これを超えた分が余り）。 */
+export const KEEP = AWAKEN.max + 1;
+
+export const shardsOf = (profile) => profile.shards ?? 0;
+export const spareOf = (profile, id) => Math.max(0, (profile.cards[id] ?? 0) - KEEP);
+/** 余りをまとめて替えたら得るかけら。 */
+export const spareValue = (profile) => CARDS.reduce((n, c) => n + spareOf(profile, c.id) * SHARD_VALUE[c.rar], 0);
+
+/** 余りをかけらに替える。id を省くと全部。得たかけらを返す。 */
+export function shardSpare(profile, id = null) {
+  let got = 0;
+  for (const c of id ? [cardById(id)] : CARDS) {
+    const n = spareOf(profile, c.id);
+    if (!n) continue;
+    profile.cards[c.id] -= n;
+    got += n * SHARD_VALUE[c.rar];
+  }
+  profile.shards = shardsOf(profile) + got;
+  return got;
+}
+
+/** かけらで 1 枚と交換できるか（できないなら理由）。 */
+export function canBuyWithShards(profile, id) {
+  const c = cardById(id);
+  if (!c) return 'そのカードは無い';
+  if ((profile.cards[id] ?? 0) >= KEEP) return 'もう覚醒 MAX';
+  if (shardsOf(profile) < SHARD_COST[c.rar]) return `かけらが足りない（あと ${SHARD_COST[c.rar] - shardsOf(profile)}）`;
+  return null;
+}
+
+/** かけらで 1 枚と交換する。 */
+export function buyWithShards(profile, id) {
+  const why = canBuyWithShards(profile, id);
+  if (why) throw new Error(why);
+  const c = cardById(id);
+  profile.shards = shardsOf(profile) - SHARD_COST[c.rar];
+  const isNew = !profile.cards[id];
+  profile.cards[id] = (profile.cards[id] ?? 0) + 1;
+  return { card: c, isNew, awaken: profile.cards[id] >= 2 ? profile.cards[id] - 1 : 0 };
 }
 
 // ---------------------------------------------------------------- 能力の尺度

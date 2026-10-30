@@ -1119,6 +1119,17 @@ section('カード育成モード');
   const gg = I.pull(I.newProfile(3), 300);
   check(`覚醒：5 枚（覚醒 4）は 1 枚より育つ（能力の合計 ${a1.sum} → ${a5.sum}、スキル ${a1.skills} → ${a5.skills}）`,
     a1.aw === 0 && a5.aw === 4 && a5.sum > a1.sum + 150 && a5.skills > a1.skills && gg.some((g) => g.awaken === 4) && gg.every((g) => g.awaken <= 4));
+  // かけら：覚醒 MAX（5 枚）を超えた余りだけを替え、かけらで好きなカードを 1 枚もらえる
+  const sp = I.newProfile(4);
+  const nc = I.CARDS.find((c) => c.rar === 'N'), rc = I.CARDS.find((c) => c.rar === 'R');
+  sp.cards[nc.id] = 9; sp.cards[rc.id] = 3;
+  const gotS = I.shardSpare(sp);
+  const lack = I.canBuyWithShards(sp, rc.id);
+  sp.shards = 30;
+  const bought = I.buyWithShards(sp, rc.id);
+  check(`かけら：余り 4 枚 → +${gotS}、5 枚は残り、かけら ${I.SHARD_COST.R} で R を 1 枚（覚醒 ${bought.awaken}）`,
+    gotS === 4 * I.SHARD_VALUE.N && sp.cards[nc.id] === 5 && !!lack && sp.cards[rc.id] === 4 && sp.shards === 30 - I.SHARD_COST.R
+    && !!I.canBuyWithShards({ ...sp, shards: 999 }, nc.id));
   const js = JSON.stringify(big);
   check(`プロフィールは JSON で往復できる（${(js.length / 1024).toFixed(1)}KB）`, JSON.stringify(JSON.parse(js)) === js && js.length < 64 * 1024);
 }

@@ -1767,3 +1767,26 @@ b.win { color: #e0207a; }
 .ik-awrow b { flex: 0 0 auto; font-size: 12px; padding: 1px 6px; border-radius: 4px; background: #e8e3d6; color: #8c867a; }
 .ik-awrow.on { color: #2a2618; }
 .ik-awrow.on b { background: #ffb300; color: #3b1d00; }
+
+/* ---- かけら（余ったカードの交換。ikusei.js の shardPanel・shardActions） ---- */
+.gem { display: inline-block; width: 14px; height: 14px; transform: rotate(45deg); border-radius: 3px;
+  background: linear-gradient(135deg, #e9fbff 0%, #7fd8ff 40%, #6b6bff 100%); box-shadow: 0 0 0 1.5px #232046, inset 0 0 0 1.5px #ffffffaa; }
+.ik-shard { position: relative; display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 14px 0 12px; margin-right: 8px;
+  border-radius: 999px; border: 2.5px solid #fff; background: #232046; color: #fff; font: 900 15px/1 system-ui, sans-serif; box-shadow: 0 3px 0 #0003; cursor: pointer; }
+.ik-shard .dot { position: absolute; top: -3px; right: -3px; width: 10px; height: 10px; border-radius: 50%; background: #ff4a6a; border: 2px solid #fff; }
+.ik-shardbox { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.ik-shardn { display: inline-flex; align-items: center; gap: 8px; }
+.ik-shardn b { font-size: 28px; font-weight: 900; color: #3a3ab0; }
+.ik-shardn small { color: #6b6450; }
+.ik-shardn.sm b { font-size: 18px; }
+.ik-shardtx { flex: 1 1 260px; }
+.ik-shardtx p { margin: 0 0 4px; }
+.ik-shardtx small { color: #6b6450; }
+.ik-shardact { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 10px 0 4px; padding: 8px 10px; border-radius: 10px; background: #eef3ff; border: 2px solid #232046; }
+.ik-shardact small { color: #8a4b4b; }
+.ik-missing.click { cursor: pointer; }
+.ik-missbig { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; width: 200px; height: 280px; margin: 0 auto;
+  border-radius: 14px; border: 3px dashed #8a86b8; background: #2a2a52; color: #fff; }
+.ik-missbig b { font-size: 30px; font-weight: 900; }
+.ik-missbig span { font-size: 22px; letter-spacing: 4px; }
+.ik-missbig small { color: #bbb; }

@@ -60,6 +60,7 @@ export function ikuseiScreen(app) {
       el('header.ikp-top', [
         el('button.ikp-back', { onclick: () => go('home'), title: 'ホームへ' }, icon('back', { size: 26 })),
         el('div.ikp-title', [el('b', { text: jp }), el('small', { text: en })]),
+        shardPill(app, go),
         coinPill(go),
       ]),
       el('div.ik.ikp-body', body(app, go)),
@@ -104,6 +105,15 @@ function bgInto(node, c) {
 }
 
 /** 右上の通貨（試作なのでガチャは何度でも引ける）。 */
+/** かけらの数（押すと所持カードの交換の欄へ）。 */
+function shardPill(app, go) {
+  const n = I.shardsOf(app.ik);
+  const spare = I.spareValue(app.ik);
+  return el('button.ik-shard', { onclick: () => go('cards'), title: spare ? `余りを替えると +${spare}` : 'かけら' }, [
+    el('span.gem'), el('b', { text: n.toLocaleString() }), spare ? el('i.dot') : null,
+  ]);
+}
+
 function coinPill(go) {
   return el('button.ik-coin', { onclick: () => go('gacha'), title: 'ガチャへ' }, [
     el('span.cn', icon('coin', { size: 20 })), el('b', { text: '∞' }), el('i.plus', { text: '+' }),
@@ -156,6 +166,7 @@ function homeView(app, go) {
     el('button.ikh-ava', { onclick: () => pickFavorite(app, go), title: 'ホームの馬を選ぶ' }, [ava]),
     el('div.ikh-power', [svg('fist', 16), el('b', { text: power.toLocaleString() })]),
     el('div.ikh-sp'),
+    shardPill(app, go),
     coinPill(go),
   ]);
 
@@ -314,9 +325,11 @@ function awakenPanel(c, count) {
 
 function showCard(app, c) {
   const p = app.ik;
-  modal(`${epithetOf(c)} ${c.name}`, [
+  let m = null;
+  m = modal(`${epithetOf(c)} ${c.name}`, [
     el('div.ik-big', cardView(c, { scale: Math.min(0.7, (window.innerHeight - 170) / 880, (window.innerWidth - 60) / 630), tilt: 'full' })),
     p.cards[c.id] ? awakenPanel(c, p.cards[c.id]) : null,
+    p.cards[c.id] ? shardActions(app, c, () => m.close()) : null,
     el('h4.ik-skh', { text: 'スキル' }),
     skillList(c, I.awakenOfCard(p, c.id)),
     el('p.note', { text: `所持 ${p.cards[c.id] ?? 0} 枚　サポートの得意：${I.STAT_LABEL[I.supportType(c)]}の練習${holoOf(c) ? `　ホロ：${holoName(holoOf(c))}` : ''}　（ドラッグで傾けられる）` }),
@@ -340,6 +353,7 @@ function cardsView(app, go) {
   const total = all.reduce((n, c) => n + p.cards[c.id], 0);
   if (!all.length) return [card('所持カード', [el('p', { text: 'まだカードが無い。ガチャで引こう。' }), button('ガチャへ', () => go('gacha'), { cls: 'primary' })])];
   return [
+    shardPanel(app, go),
     card(`所持カード（${all.length} 種・${total} 枚）`, [
       tabs([{ id: 'ALL', name: '全弾' }, ...Object.keys(I.PACKS).map((id) => ({ id, name: `第${id.slice(1)}弾` }))], f.pack, (v) => set('pack', v)),
       tabs([{ id: 'ALL', name: '全レア' }, ...I.RARITIES.map((r) => ({ id: r, name: r }))], f.rar, (v) => set('rar', v)),
@@ -349,6 +363,64 @@ function cardsView(app, go) {
       el('div.ik-gbtns', [button('カード図鑑を見る', () => go('book'))]),
     ]),
   ];
+}
+
+/** かけら：余り（覚醒 MAX を超えた分）をまとめて替える欄。 */
+function shardPanel(app, go) {
+  const p = app.ik;
+  const spare = I.spareValue(p);
+  const n = I.CARDS.reduce((a, c) => a + I.spareOf(p, c.id), 0);
+  return card('かけら', [
+    el('div.ik-shardbox', [
+      el('div.ik-shardn', [el('span.gem'), el('b', { text: I.shardsOf(p).toLocaleString() }), el('small', { text: 'かけら' })]),
+      el('div.ik-shardtx', [
+        el('p', { text: n ? `覚醒 MAX を超えた余りが ${n} 枚ある（替えると +${spare}）。` : '余りのカードは無い（6 枚目から余りになる）。' }),
+        el('small', { text: `余り 1 枚 → ${I.RARITIES.map((r) => `${r} ${I.SHARD_VALUE[r]}`).join('・')}　／　交換 1 枚 → ${I.RARITIES.map((r) => `${r} ${I.SHARD_COST[r]}`).join('・')}。カードを押すと交換できる（図鑑の持っていないカードも）。` }),
+      ]),
+      button(n ? `余りをまとめて替える（+${spare}）` : '余りなし', async () => {
+        if (!await ask(`余りのカード ${n} 枚をかけら ${spare} に替える？（覚醒 MAX の 5 枚は残る）`, { ok: '替える', cancel: 'やめる' })) return;
+        const got = I.shardSpare(p);
+        save(app);
+        sound.play('win');
+        toast(`かけら +${got}`);
+        go('cards');
+      }, { cls: 'primary', disabled: !n }),
+    ]),
+  ]);
+}
+
+/** カードのかけらの操作（余りを替える・かけらで 1 枚もらう）。 */
+function shardActions(app, c, close) {
+  const p = app.ik;
+  const spare = I.spareOf(p, c.id);
+  const cost = I.SHARD_COST[c.rar];
+  const why = I.canBuyWithShards(p, c.id);
+  const redo = () => { close(); app.go('ik', { view: app.params.view }); };
+  return el('div.ik-shardact', [
+    el('span.ik-shardn.sm', [el('span.gem'), el('b', { text: I.shardsOf(p).toLocaleString() })]),
+    spare ? button(`余り ${spare} 枚をかけらに（+${spare * I.SHARD_VALUE[c.rar]}）`, () => {
+      const got = I.shardSpare(p, c.id);
+      save(app); sound.play('win'); toast(`かけら +${got}`); redo();
+    }) : null,
+    (p.cards[c.id] ?? 0) >= I.KEEP ? el('small', { text: '覚醒 MAX（これ以上は交換できない）' }) : button(`かけら ${cost} で 1 枚交換`, () => {
+      const g = I.buyWithShards(p, c.id);
+      save(app); sound.play('bell');
+      toast(g.isNew ? `${c.name}を手に入れた！` : `${c.name}が覚醒${g.awaken >= I.AWAKEN.max ? 'MAX' : g.awaken}になった`);
+      if (g.isNew) app.ikNew = true;
+      redo();
+    }, { cls: 'primary', disabled: !!why, title: why ?? '' }),
+    why && (p.cards[c.id] ?? 0) < I.KEEP ? el('small', { text: why }) : null,
+  ]);
+}
+
+/** 図鑑の持っていないカード：中身は見せず、レア度と番号だけでかけらと交換できる。 */
+function showMissing(app, c) {
+  let m = null;
+  m = modal(`No.${c.id.split('-')[1]}（${c.rar}）`, [
+    el('div.ik-missbig', [el(`b.${RCLS(c.rar)}`, { text: c.rar }), el('span', { text: '？？？' }), el('small', { text: `第${c.pack.slice(1)}弾 No.${c.id.split('-')[1]}` })]),
+    el('p.note', { text: 'まだ持っていないカード。かけらで交換すると中身が分かる。' }),
+    shardActions(app, c, () => m.close()),
+  ]);
 }
 
 /** カード図鑑：全カード。持っていないカードは「？？？」で、集めた割合を弾とレア度ごとに出す。 */
@@ -374,7 +446,7 @@ function bookView(app, go) {
       tabs([{ id: 'ALL', name: '全レア' }, ...I.RARITIES.map((r) => ({ id: r, name: r }))], f.rar, (v) => set('rar', v)),
       el('div.ik-grid', list.map((c) => (p.cards[c.id]
         ? cardView(c, { scale: fit(0.26), count: p.cards[c.id], onClick: (x) => showCard(app, x) })
-        : el('div.ik-missing', { style: `width:${630 * fit(0.26)}px;height:${880 * fit(0.26)}px` }, [
+        : el('div.ik-missing.click', { style: `width:${630 * fit(0.26)}px;height:${880 * fit(0.26)}px`, onclick: () => showMissing(app, c) }, [
           el(`b.${RCLS(c.rar)}`, { text: c.rar }), el('span', { text: '？？？' }), el('small', { text: `No.${c.id.split('-')[1]}` }),
         ])))),
     ]),
