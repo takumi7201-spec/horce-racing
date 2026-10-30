@@ -1050,8 +1050,9 @@ section('カード育成モード');
   const I = await import('../src/sim/ikusei.js');
   const { peekHorseId } = await import('../src/sim/horse.js');
   const ids = new Set(I.CARDS.map((c) => c.id));
-  check(`カード ${I.CARDS.length} 枚（第 1 弾 40・第 2 弾 40、id が重ならない）`,
-    I.CARDS.length === 80 && ids.size === 80 && I.CARDS.filter((c) => c.pack === 'P1').length === 40 && I.CARDS.filter((c) => c.pack === 'P2').length === 40);
+  check(`カード ${I.CARDS.length} 枚（第 1 弾 40・第 2 弾 40・イベント 1、id が重ならない）`,
+    I.CARDS.length === 81 && ids.size === 81 && I.CARDS.filter((c) => c.pack === 'P1').length === 40 && I.CARDS.filter((c) => c.pack === 'P2').length === 40
+    && I.CARDS.filter((c) => c.pack === 'EV').length === 1);
   const eg = I.CARDS.find((c) => c.name === 'イージーゴア');
   check('第 1 弾の LM にイージーゴア（二つ名「最強の再来」、右向き）', eg?.pack === 'P1' && eg.rar === 'LM' && eg.epithet === '最強の再来' && eg.facing === 'right');
   const fl = I.CARDS.find((c) => c.name === 'ファンタスティックライト');
@@ -1130,6 +1131,22 @@ section('カード育成モード');
   check(`かけら：余り 4 枚 → +${gotS}、5 枚は残り、かけら ${I.SHARD_COST.R} で R を 1 枚（覚醒 ${bought.awaken}）`,
     gotS === 4 * I.SHARD_VALUE.N && sp.cards[nc.id] === 5 && !!lack && sp.cards[rc.id] === 4 && sp.shards === 30 - I.SHARD_COST.R
     && !!I.canBuyWithShards({ ...sp, shards: 999 }, nc.id));
+  // イベント：1999 年の凱旋門賞。報酬のモンジューはガチャにもかけらにも出ず、☆1〜☆5 の初勝利で 5 枚（完凸）
+  const mj = I.CARDS.find((c) => c.name === 'モンジュー');
+  const ev = I.EVENTS.find((e) => e.id === 'arc1999');
+  const gp = I.newProfile(5);
+  const noEv = I.pull(gp, 3000).every((g) => !I.isEventCard(g.card));
+  check(`イベント：モンジュー（LM・二つ名「聳え立つ巨城、地に落ちず」）は報酬だけ（ガチャ 3000 回に出ない・かけらで交換できない）`,
+    mj?.rar === 'LM' && mj.epithet === '聳え立つ巨城、地に落ちず' && ev.reward === mj.id && noEv && !!I.canBuyWithShards({ ...gp, shards: 9999 }, mj.id));
+  const ep = I.newProfile(6);
+  ep.finished.push({ ...h, id: 999, battles: 0, battleWins: 0, turf: 0.9, dirt: 0.4, soft: 0.9, dist: 2400, stats: Object.fromEntries(I.STATS.map((k) => [k, 1200])) });
+  const tried = [];
+  for (let star = 1; star <= 5; star++) for (let t = 0; t < 12 && !I.eventState(ep, 'arc1999').cleared.includes(star); t++) tried.push(I.eventRace(ep, 999, 'arc1999', star));
+  const last = tried.at(-1);
+  check(`イベント：史実の 14 頭とロンシャン芝 2400m・不良を走り、☆1〜☆5 の初勝利でモンジュー 5 枚（${ep.cards[mj.id] ?? 0} 枚・挑戦 ${tried.length} 回）`,
+    ev.field.length === 14 && last.result.results.length === 15 && last.race.courseId === 'longchamp' && last.race.ground === '不良'
+    && ep.cards[mj.id] === 5 && I.eventState(ep, 'arc1999').cleared.join() === '1,2,3,4,5'
+    && tried.filter((x) => x.reward).length === 5 && peekHorseId() === idBefore);
   const js = JSON.stringify(big);
   check(`プロフィールは JSON で往復できる（${(js.length / 1024).toFixed(1)}KB）`, JSON.stringify(JSON.parse(js)) === js && js.length < 64 * 1024);
 }

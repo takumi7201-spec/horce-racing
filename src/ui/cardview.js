@@ -6,6 +6,9 @@ import { el } from './dom.js';
 import { cardArt } from '../render3d/cardart.js';
 import { plusOf, cardPower, distCat, STATS, STAT_SHORT, PACKS, CARDS } from '../sim/ikusei.js';
 
+/** 弾の見出し（イベントの報酬は弾ではないので「イベント報酬」）。 */
+const packLine = (c) => (c.pack in PACKS ? `第${c.pack.slice(1)}弾【${PACKS[c.pack]}】` : 'イベント報酬');
+
 const THEME = {
   N: { frame: 'linear-gradient(135deg,#d9f5c8 0%,#5fae4a 20%,#c8eeb0 38%,#3f8a34 56%,#a6dc8a 74%,#2f6e28 90%,#9fd682 100%)', line: '#9fdc84', glow: '#7fd06a33', ink: '#e8ffd8', sparks: 0, rays: 0, sun: 0.25, badge: 'linear-gradient(#e6ffd6,#5cae48)', badgeInk: '#103a10' },
   R: { frame: 'linear-gradient(135deg,#ffe2c4 0%,#b06a32 18%,#f2c08e 34%,#8a4a1e 52%,#e0a066 70%,#6e3814 86%,#d89a62 100%)', line: '#e6a874', glow: '#e0905a44', ink: '#ffe6cc', sparks: 4, rays: 0.2, sun: 0.35, badge: 'linear-gradient(#ffe0c0,#b06a32)', badgeInk: '#3a1a04' },
@@ -156,7 +159,7 @@ export function cardView(c, { scale = 0.4, onClick = null, count = 0, dim = fals
           el('div.tc-ped', [el('span', ['父 ', el('b', { text: c.sire }), '　母 ', el('b', { text: c.dam })]), el('br'), `母父 ${c.damSire}　${c.line}`, el('br'), el('span.tot', { text: tot })]),
           el('div.cp', [el('small', { text: 'カードパワー' }), el(`b${foil ? '.foil' : ''}`, { text: String(cardPower(c)) })]),
         ]),
-        el('div.foot', [el('span', { text: `第${c.pack.slice(1)}弾【${PACKS[c.pack]}】　${c.race.year} ${c.race.name} 優勝` }), el('span', { text: `No.${String(no).padStart(2, '0')}/${PACK_SIZE[c.pack]}` })]),
+        el('div.foot', [el('span', { text: `${packLine(c)}　${c.race.year} ${c.race.name} 優勝` }), el('span', { text: `No.${String(no).padStart(2, '0')}/${PACK_SIZE[c.pack]}` })]),
       ]),
     ]),
   ]);

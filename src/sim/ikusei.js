@@ -5,7 +5,8 @@
 // 乱数は Math.random を使わない（プロフィールのシード＋引いた回数・ターンから導く）。
 // 状態はすべてプロフィール（JSON にそのまま書ける素の値）に持ち、画面は ikusei.js の関数だけを通す。
 
-import { CARDS, PACKS } from './data/cards.js';
+import { CARDS, PACKS, EVENT_PACKS } from './data/cards.js';
+import { EVENTS, STAR_D } from './data/events.js';
 import { makeRng, hashSeed } from '../core/rng.js';
 import { simulateRace } from './race.js';
 import { GRADED } from './schedule.js';
@@ -19,7 +20,11 @@ export { skillsOf, skillInfo, AWAKEN };
 export const awakenOfCard = (profile, id) => awakenOf(profile.cards[id]);
 export { skillCue } from './ikusei-skills.js';
 
-export { CARDS, PACKS };
+export { CARDS, PACKS, EVENTS, STAR_D };
+/** 弾の名前（ガチャの弾とイベント）。 */
+export const PACK_NAMES = { ...PACKS, ...EVENT_PACKS };
+/** イベントの報酬だけで手に入るカード。 */
+export const isEventCard = (c) => !!c && c.pack in EVENT_PACKS;
 export const STATS = ['speed', 'stamina', 'power', 'guts', 'wit'];
 export const STAT_LABEL = { speed: 'スピード', stamina: 'スタミナ', power: 'パワー', guts: '根性', wit: '賢さ' };
 export const STAT_SHORT = { speed: 'スピ', stamina: 'スタ', power: 'パワ', guts: '根性', wit: '賢さ' };
@@ -72,7 +77,8 @@ export function pull(profile, n = 1, pack = 'ALL') {
     profile.pulls++;
     let r = rng.next(), rar = 'N';
     for (const k of RARITIES) { if (r < RATES[k]) { rar = k; break; } r -= RATES[k]; }
-    const pool = CARDS.filter((c) => c.rar === rar && (pack === 'ALL' || c.pack === pack));
+    // イベントのカードはガチャに出さない（足したときに母集団が変わって、引く順番がずれないように弾の中だけで引く）
+    const pool = CARDS.filter((c) => c.rar === rar && c.pack in PACKS && (pack === 'ALL' || c.pack === pack));
     const c = pool[rng.int(pool.length)];
     const isNew = !profile.cards[c.id];
     profile.cards[c.id] = (profile.cards[c.id] ?? 0) + 1;
@@ -124,6 +130,7 @@ export function shardSpare(profile, id = null) {
 export function canBuyWithShards(profile, id) {
   const c = cardById(id);
   if (!c) return 'そのカードは無い';
+  if (isEventCard(c)) return 'イベントの報酬でだけ手に入る';
   if ((profile.cards[id] ?? 0) >= KEEP) return 'もう覚醒 MAX';
   if (shardsOf(profile) < SHARD_COST[c.rar]) return `かけらが足りない（あと ${SHARD_COST[c.rar] - shardsOf(profile)}）`;
   return null;
@@ -580,6 +587,59 @@ export function battleNpc(profile, horseId, raceId, diff = 'normal') {
   me.battles++;
   if (mine.order === 1) me.battleWins++;
   return { race, result: res, field, order: mine.order, fired };
+}
+
+// ---------------------------------------------------------------- イベント
+
+/** イベントの進み（勝った難易度）。 */
+export function eventState(profile, id) {
+  return profile.events?.[id] ?? { cleared: [], tries: 0 };
+}
+
+/**
+ * イベントレースを走る。相手は史実の出走馬（data/events.js）に難易度の差（STAR_D）を足した強さで、馬場もその日のまま。
+ * 各難易度で初めて勝つと報酬のカードを 1 枚（☆1〜☆5 の 5 つで 5 枚＝完凸）。乱数は (シード, イベント, 挑んだ回数) から。
+ */
+export function eventRace(profile, horseId, eventId, star) {
+  const ev = EVENTS.find((e) => e.id === eventId);
+  const me = profile.finished.find((h) => h.id === horseId);
+  if (!ev || !me) throw new Error('イベントか完成馬が無い');
+  star = Math.max(1, Math.min(5, star | 0));
+  profile.events ??= {};
+  const st = profile.events[eventId] ??= { cleared: [], tries: 0 };
+  const race = { ...ev.race };
+  const key = `event:${profile.seed}:${eventId}:${st.tries}`;
+  const rng = makeRng(hashSeed(key));
+  const mine0 = withSkills(finishedSpec(me, 0), finishedSkills(me), me.cardId, race, true, me.awaken ?? 0);
+  const field = [mine0.spec];
+  const fired = { 100: mine0.fired };
+  ev.field.forEach((m, i) => {
+    const ab = Object.fromEntries(STATS.map((k) => [k, clamp(m.ab[k] + STAR_D[star] + rng.normal(0, 0.008), 0.4, 0.95)]));
+    const c = m.cardId ? cardById(m.cardId) : null;
+    const spec = { id: 200 + i, name: m.name, sex: m.sex, coat: m.coat, marks: c?.marks ?? null, ab, dist: m.dist, range: m.range,
+      turf: 0.9, dirt: 0.4, firm: 0.8, soft: m.soft, style: m.style, cardId: c?.id ?? null };
+    // カードのある馬（モンジュー・ファンタスティックライト）はカードのスキルを使う。モンジューの固有「聳え立つ巨城」はこの舞台で発動する
+    const x = c ? withSkills(spec, skillsOf(c).race, c.id, race, true) : { spec, fired: [] };
+    field.push(x.spec);
+    fired[200 + i] = x.fired;
+  });
+  const res = runRace(race, field, key, ev.year);
+  st.tries++;
+  const mine = res.results.find((r) => r.horseId === 100);
+  me.battles++;
+  let reward = null;
+  if (mine.order === 1) {
+    me.battleWins++;
+    if (!st.cleared.includes(star)) {
+      st.cleared.push(star);
+      st.cleared.sort();
+      const c = cardById(ev.reward);
+      const isNew = !profile.cards[c.id];
+      profile.cards[c.id] = (profile.cards[c.id] ?? 0) + 1;
+      reward = { card: c, isNew, awaken: profile.cards[c.id] - 1, star };
+    }
+  }
+  return { race, result: res, field, order: mine.order, fired, reward, star };
 }
 
 /** 自分の完成馬どうしの対戦（2〜16 頭）。 */

@@ -15,8 +15,10 @@ import * as sound from '../sound.js';
 /** 画面の題（日本語と英語の小見出し）。 */
 const TITLES = {
   gacha: ['ガチャ', 'GACHA'], cards: ['所持カード', 'MY CARDS'], book: ['カード図鑑', 'CARD BOOK'], run: ['育成', 'TRAINING'], horse: ['完成馬', 'HORSE'],
-  stable: ['完成馬', 'STABLE'], battle: ['対戦', 'BATTLE'], result: ['レース結果', 'RESULT'],
+  stable: ['完成馬', 'STABLE'], battle: ['対戦', 'BATTLE'], result: ['レース結果', 'RESULT'], event: ['イベント', 'EVENT'],
 };
+/** 弾の短い名前（タブ用）。イベントの報酬は「イベント」。 */
+const packTab = (id) => (id in I.PACKS ? `第${id.slice(1)}弾` : I.PACK_NAMES[id]);
 
 const store = () => { try { return window.localStorage; } catch { return null; } };
 const save = (app) => I.saveProfile(app.ik, store());
@@ -51,8 +53,8 @@ export function ikuseiScreen(app) {
   // 背景（空・網点・街）は画面の外に固定して敷く。中身だけが流れる（background-attachment: fixed はスマホで効かない）。
   const sky = el('div.ik-sky', [el('b.ik-water', { text: 'WINNING ROAD' })]);
   if (view === 'home') return el('div.ikh-wrap', [sky, homeView(app, go)]);
-  const body = { gacha: gachaView, cards: cardsView, book: bookView, run: runView, stable: stableView, horse: horseView, battle: battleView, result: resultView }[view] ?? gachaView;
-  const navId = view === 'result' ? (app.ikRace?.back ?? 'run') : view === 'horse' ? 'stable' : view === 'book' ? 'cards' : view;
+  const body = { gacha: gachaView, cards: cardsView, book: bookView, run: runView, stable: stableView, horse: horseView, battle: battleView, result: resultView, event: eventView }[view] ?? gachaView;
+  const navId = view === 'result' ? (app.ikRace?.back ?? 'run') : view === 'horse' ? 'stable' : view === 'book' ? 'cards' : view === 'event' ? 'battle' : view;
   const [jp, en] = TITLES[view] ?? ['', ''];
   return el('div.ikp-wrap', [
     sky,
@@ -178,7 +180,11 @@ function homeView(app, go) {
   };
   const p1 = I.CARDS.find((c) => c.pack === 'P1' && c.rar === 'LM' && c.name === 'イージーゴア') ?? I.CARDS[0];
   const p2 = I.CARDS.find((c) => c.pack === 'P2' && c.name === 'ファンタスティックライト') ?? I.CARDS[40];
+  const evNow = I.EVENTS[0];
+  const evCard = I.cardById(evNow.reward);
+  const evLeft = 5 - I.eventState(p, evNow.id).cleared.length;
   const left = el('nav.ikh-left', [
+    ev('evt', 'イベント 開催中', evCard, () => go('event', { ev: evNow.id }), evLeft ? String(evLeft) : null),
     ev('p1', '第1弾 開催中', p1, () => { app.ikPack = 'P1'; go('gacha'); }, '!'),
     ev('p2', '第2弾 開催中', p2, () => { app.ikPack = 'P2'; go('gacha'); }, '!'),
     (() => { const x = ev('howto', '遊びかた', null, showHowto); x.querySelector('.ikh-ev-face').append(svg('book', 30)); return x; })(),
@@ -355,7 +361,7 @@ function cardsView(app, go) {
   return [
     shardPanel(app, go),
     card(`所持カード（${all.length} 種・${total} 枚）`, [
-      tabs([{ id: 'ALL', name: '全弾' }, ...Object.keys(I.PACKS).map((id) => ({ id, name: `第${id.slice(1)}弾` }))], f.pack, (v) => set('pack', v)),
+      tabs([{ id: 'ALL', name: '全弾' }, ...Object.keys(I.PACK_NAMES).map((id) => ({ id, name: packTab(id) }))], f.pack, (v) => set('pack', v)),
       tabs([{ id: 'ALL', name: '全レア' }, ...I.RARITIES.map((r) => ({ id: r, name: r }))], f.rar, (v) => set('rar', v)),
       tabs([{ id: 'rar', name: 'レア度順' }, { id: 'power', name: 'カードパワー順' }, { id: 'count', name: '枚数順' }, { id: 'no', name: '番号順' }], f.sort, (v) => set('sort', v)),
       list.length ? el('div.ik-icons', list.map((c) => cardIcon(app, c, p.cards[c.id])))
@@ -454,12 +460,12 @@ function bookView(app, go) {
   return [
     card(`カード図鑑（${got(I.CARDS)} / ${I.CARDS.length} 種）`, [
       el('div.ik-meters', [
-        ...Object.entries(I.PACKS).map(([id, name]) => meter(`第${id.slice(1)}弾【${name}】`, I.CARDS.filter((c) => c.pack === id))),
+        ...Object.entries(I.PACK_NAMES).map(([id, name]) => meter(id in I.PACKS ? `第${id.slice(1)}弾【${name}】` : name, I.CARDS.filter((c) => c.pack === id))),
         ...I.RARITIES.map((r) => meter(r, I.CARDS.filter((c) => c.rar === r))),
       ]),
     ]),
     card('一覧', [
-      tabs([{ id: 'ALL', name: '全弾' }, ...Object.keys(I.PACKS).map((id) => ({ id, name: `第${id.slice(1)}弾` }))], f.pack, (v) => set('pack', v)),
+      tabs([{ id: 'ALL', name: '全弾' }, ...Object.keys(I.PACK_NAMES).map((id) => ({ id, name: packTab(id) }))], f.pack, (v) => set('pack', v)),
       tabs([{ id: 'ALL', name: '全レア' }, ...I.RARITIES.map((r) => ({ id: r, name: r }))], f.rar, (v) => set('rar', v)),
       el('div.ik-grid', list.map((c) => (p.cards[c.id]
         ? cardView(c, { scale: fit(0.26), count: p.cards[c.id], onClick: (x) => showCard(app, x) })
@@ -684,6 +690,13 @@ function resultView(app, go) {
         el('small', { text: `${res.courseName ?? ''} ${res.surface}${res.distance}m　${res.ground}` }),
       ]),
       myBest ? el(`div.ik-place.p${Math.min(4, myBest.order)}`, { text: `${myBest.name} ${myBest.order}着` }) : null,
+      R.reward ? el('div.ikev-got', [
+        cardView(R.reward.card, { scale: 0.2, onClick: (x) => showCard(app, x) }),
+        el('div', [
+          el('small', { text: `イベント報酬（${'☆'.repeat(R.reward.star)} 初勝利）` }),
+          el('b', { text: `${R.reward.card.name}を${R.reward.isNew ? '手に入れた！' : `重ねた（${R.reward.awaken >= 4 ? '覚醒 MAX' : `覚醒 ${R.reward.awaken}`}）`}` }),
+        ]),
+      ]) : null,
       R.fired ? el('div.ik-fired', res.results.filter((r) => mine.has(r.horseId) && R.fired[r.horseId]?.length).map((r) =>
         el('div', [el('b', { text: `${r.name}　発動` }), ...R.fired[r.horseId].map((n) => el('span.ik-sk.race', n))]))) : null,
       table(['着', '', '馬名', 'タイム', '着差', '上がり', '脚質'], res.results.map((r) => [
@@ -692,7 +705,7 @@ function resultView(app, go) {
       ]), { cls: 'ik-tbl' }),
       el('div.ik-gbtns', [
         button('3D で観る', () => go('watch'), { cls: 'primary big' }),
-        button('次へ', () => go(R.back ?? 'run'), { cls: 'big' }),
+        button('次へ', () => go(R.back ?? 'run', R.backParams ?? {}), { cls: 'big' }),
       ]),
     ]),
   ];
@@ -1014,6 +1027,95 @@ function horseView(app, go) {
 
 // ---------------------------------------------------------------- 対戦
 
+// ---------------------------------------------------------------- イベント
+
+/**
+ * イベントのバナー。報酬のカードの一枚絵（背景）と切り抜き（モンジューとエルコンドルパサー）を重ね、題と進みを載せる。
+ * 絵は撮影の舞台で撮ったものを使い回す（cardArt。WebGL を増やさない）。
+ */
+function eventBanner(app, ev, onclick = null) {
+  const c = I.cardById(ev.reward);
+  const st = I.eventState(app.ik, ev.id);
+  const bg = el('span.ikev-bg');
+  const hero = el('img.ikev-hero', { alt: c.name, draggable: false });
+  bgInto(bg, c);
+  stickerInto(hero, c, { mode: 'img' });
+  return el(`${onclick ? 'button' : 'div'}.ikev-banner`, { onclick }, [
+    bg, el('span.ikev-shade'), hero,
+    el('div.ikev-tx', [
+      el('span.ikev-tag', { text: 'EVENT' }),
+      el('small.ikev-en', { text: `${ev.year} PRIX DE L'ARC DE TRIOMPHE` }),
+      el('b.ikev-ttl', { text: ev.race.name }),
+      el('span.ikev-sub', { text: `― ${c.epithet} ―` }),
+      el('span.ikev-rw', [el('i', { text: c.rar }), el('span', { text: `${c.name} を手に入れよう` })]),
+      el('span.ikev-stars', [1, 2, 3, 4, 5].map((n) => el(`i${st.cleared.includes(n) ? '.on' : ''}`, { text: '★' }))),
+    ]),
+  ]);
+}
+
+/** イベントの画面：バナー・難易度（☆1〜☆5）・出る馬・出走馬（史実の 14 頭）・報酬。 */
+function eventView(app, go) {
+  const p = app.ik;
+  const ev = I.EVENTS.find((e) => e.id === app.params.ev) ?? I.EVENTS[0];
+  const st = I.eventState(p, ev.id);
+  const c = I.cardById(ev.reward);
+  app.ikEvent ??= {};
+  const E = app.ikEvent;
+  E.star ??= Math.min(5, (st.cleared.length ? Math.max(...st.cleared) : 0) + 1);
+  const turfs = [...p.finished].sort((a, b) => b.rating - a.rating);
+  if (turfs.length) E.horse = p.finished.some((h) => h.id === E.horse) ? E.horse : turfs[0].id;
+  const starBtns = el('div.ikev-diff', [1, 2, 3, 4, 5].map((n) => el(`button.ikev-star${E.star === n ? '.on' : ''}${st.cleared.includes(n) ? '.done' : ''}`, {
+    onclick: () => { E.star = n; go('event', { ev: ev.id }); },
+  }, [el('b', { text: '☆'.repeat(n) }), el('small', { text: st.cleared.includes(n) ? '勝利済み' : '報酬あり' })])));
+  const horseSel = el('select.inp', { onchange: (e) => { E.horse = Number(e.target.value); go('event', { ev: ev.id }); } },
+    turfs.map((h) => el('option', { value: String(h.id), text: `${h.rank} ${h.name}（${h.rating}）`, selected: h.id === E.horse })));
+  const me = p.finished.find((h) => h.id === E.horse);
+  const fitTxt = me ? [
+    `芝 ${MARK(me.turf)}`, `重い馬場 ${MARK(me.soft)}`, `2400m ${Math.abs(me.dist - 2400) <= (me.range ?? 400) ? '○' : Math.abs(me.dist - 2400) <= 800 ? '△' : '×'}`,
+  ].join('　') : '';
+  const run = () => {
+    const out = I.eventRace(p, E.horse, ev.id, E.star);
+    save(app);
+    if (out.reward?.isNew) app.ikNew = true;
+    app.ikRace = { race: out.result, looks: looksOf(out.field), mine: [100], order: out.order, back: 'event', backParams: { ev: ev.id },
+      title: `${ev.name}（${'☆'.repeat(E.star)}）`, fired: out.fired, reward: out.reward };
+    sound.play(out.order === 1 ? 'bell' : out.order <= 3 ? 'win' : 'ok');
+    go('result');
+  };
+  const lvl = (m) => {
+    const a = I.STATS.reduce((t, k) => t + m.ab[k], 0) / 5 + I.STAR_D[E.star];
+    return '★'.repeat(Math.max(1, Math.min(5, Math.round((a - 0.5) / 0.05))));
+  };
+  return [
+    eventBanner(app, ev),
+    el('p.ikev-blurb', { text: ev.blurb }),
+    card('難易度', [
+      starBtns,
+      el('p.note', { text: `各難易度で初めて勝つと ${c.name}（${c.rar}）を 1 枚。☆1〜☆5 の 5 つで 5 枚＝覚醒 MAX。いま ${st.cleared.length}/5（挑戦 ${st.tries} 回）。☆4 でほぼ史実の強さ。` }),
+    ]),
+    card('出る馬', turfs.length ? [
+      el('div.form', [el('label', ['完成馬', horseSel])]),
+      el('p.note', { text: `ロンシャン 芝2400m・不良（右回り、直線 533m、高低差 10m）。${me ? `${me.name}：${fitTxt}` : ''}` }),
+      el('div.ik-gbtns', [button(`${'☆'.repeat(E.star)} で出走する`, run, { cls: 'primary big' })]),
+    ] : [el('p', { text: 'イベントには完成馬が要る。' }), button('育成へ', () => go('run'), { cls: 'primary' })]),
+    card(`出走馬（${ev.year} 年 10 月 3 日・${ev.field.length} 頭）`, [
+      table(['史実', '馬名', '', '脚質', `強さ（${'☆'.repeat(E.star)}）`], ev.field.map((m) => [
+        `${m.pos}着`, el(m.cardId === c.id ? 'b.mine' : 'span', { text: m.name }), `${m.sex}${m.age}`,
+        { 0.05: '逃げ', 0.3: '先行', 0.62: '差し', 0.88: '追込' }[m.style] ?? '', el('span.ikev-lv', { text: lvl(m) }),
+      ]), { cls: 'ik-tbl' }),
+    ]),
+    card('報酬', [
+      el('div.ikev-reward', [
+        cardView(c, { scale: fit(0.3), count: p.cards[c.id] ?? 0, dim: !p.cards[c.id], onClick: p.cards[c.id] ? (x) => showCard(app, x) : null }),
+        el('div', [
+          el('b', { text: `${c.rar} ${c.epithet} ${c.name}` }),
+          el('p.note', { text: `イベントの報酬でだけ手に入る（ガチャに出ない・かけらで交換できない）。モンジューも出走馬として走り、最後の直線で固有スキル「${c.epithet}」を使う。` }),
+          el('p', { text: `所持 ${p.cards[c.id] ?? 0} 枚　${(p.cards[c.id] ?? 0) >= 5 ? '覚醒 MAX' : `覚醒 ${Math.max(0, (p.cards[c.id] ?? 0) - 1)}`}` }),
+        ]),
+      ]),
+    ]),
+  ];
+}
 function battleView(app, go) {
   const p = app.ik;
   if (!p.finished.length) return [card('対戦', [el('p', { text: '対戦には完成馬が要る。' }), button('育成へ', () => go('run'), { cls: 'primary' })])];
@@ -1045,6 +1147,7 @@ function battleView(app, go) {
     go('result');
   };
   return [
+    ...I.EVENTS.map((ev) => eventBanner(app, ev, () => go('event', { ev: ev.id }))),
     card('舞台', [el('div.form', [el('label', ['レース', raceSel])])]),
     el('div.ik-cols', [
       card('NPC とのランク戦', [

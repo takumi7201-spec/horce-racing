@@ -136,8 +136,8 @@ export function cardArtIfReady(card) {
 // ---------------------------------------------------------------- 撮った絵を残す
 // 1 枚撮るのに WebGL で舞台を組んで描くので、79 枚の一覧を開くたびに撮り直すと重い。ブラウザの IndexedDB に残す。
 // 鍵は絵に効くカードの値（構え・毛色・白斑・勝負服など）と ART_VER。撮影の舞台（photostage.js）を変えたら ART_VER を上げる。
-const ART_VER = 2;   // 2: ステッカー（sticker）を足した
-const artKey = (c) => `${ART_VER}:${c.id}:${JSON.stringify([c.hid, c.coat, c.marks, c.surface, c.shot, c.desert, c.silks ?? null, c.facing ?? null, c.pose ?? null, c.gate ?? null, c.phase ?? null, c.legPose ?? null])}`;
+const ART_VER = 2;   // 2: ステッカー（sticker）を足した（相手の馬・背景は鍵の値に入るので、足しても上げなくてよい）
+const artKey = (c) => `${ART_VER}:${c.id}:${JSON.stringify([c.hid, c.artCoat ?? c.coat, c.marks, c.surface, c.shot, c.desert, c.silks ?? null, c.facing ?? null, c.pose ?? null, c.gate ?? null, c.phase ?? null, c.legPose ?? null, c.rivals ?? null, c.backdrop ?? null, c.wind ?? null])}`;
 let dbp = null;
 function db() {
   if (typeof indexedDB === 'undefined') return Promise.resolve(null);
@@ -177,9 +177,11 @@ function shoot(card) {
     const shot = card.shot ?? 'profile';
     const v = shootFinish(renderer, {
       width: W, height: H,
-      hero: { id: card.hid ?? 1, coat: card.coat, gate: card.gate ?? 1, frame: 1, marks: card.marks, silks: card.silks ?? null, legPose: card.legPose ?? null },
+      hero: { id: card.hid ?? 1, coat: card.artCoat ?? card.coat, gate: card.gate ?? 1, frame: 1, marks: card.marks, silks: card.silks ?? null, legPose: card.legPose ?? null },
       surface: card.surface ?? '芝', shot, phase: card.phase ?? (shot === 'charge' ? 0.3 : 0.25), facing: card.facing ?? 'left',
-      riderPose: card.pose ?? (shot === 'charge' ? 'race' : 'celebrate'), backdrop: card.desert ? 'desert' : 'sunset', mask: true,
+      riderPose: card.pose ?? (shot === 'charge' || shot === 'arc' ? 'race' : 'celebrate'), wind: card.wind ?? true, backdrop: card.backdrop ?? (card.desert ? 'desert' : 'sunset'), mask: true,
+      // 写真に写っている相手（モンジューのカードのエルコンドルパサー）。dx は横（負で奥）、dz は前後（負で後ろ）
+      rivals: (card.rivals ?? []).map((r, i) => ({ id: r.hid ?? (card.hid ?? 1) + 101 + i, coat: r.coat, gate: r.gate ?? 2, frame: 1, marks: r.marks ?? null, silks: r.silks ?? null, dx: r.dx, dz: r.dz, phase: r.phase })),
     });
     const ring = v.mask ? await ringOf(v.mask) : null;
     const baked = await bakeBlur(v.background);

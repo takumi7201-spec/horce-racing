@@ -132,6 +132,8 @@ function crowdTexture() {
 const BACKDROPS = {
   sunset: { top: [0.30, 0.52, 0.86], horizon: [1.0, 0.80, 0.52], glow: 0.9, infield: 0x3f8a3a, trees: true, stand: true },
   desert: { top: [0.56, 0.66, 0.80], horizon: [0.90, 0.88, 0.84], glow: 0.25, infield: 0xcdb58c, trees: false, stand: false, apron: 0xd8c39c },
+  // 10 月のパリ（1999 年の凱旋門賞は重馬場の曇天）。夕日の金色を落とし、白っぽい空と濃い芝。
+  paris: { top: [0.50, 0.58, 0.68], horizon: [0.86, 0.87, 0.86], glow: 0.12, infield: 0x356f34, trees: true, stand: true },
 };
 
 function skyDome(sunDir, B = BACKDROPS.sunset) {
@@ -214,6 +216,8 @@ export const SHOTS = {
   // 参考：追い比べの斜め前（馬の右前から望遠、少し低め。馬は画面の左へ向かう）。内ラチは手前に来るので置かず、
   // すぐ後ろにラチ。ゴール板は写さない。
   charge: { name: '追う斜め前', pos: [11.2, 1.0, 6.6], look: [0, 1.28, 0.3], fov: 13.5, inner: false, rails: [-3.0], post: false, sun: [0.5, 0.62, 0.6] },
+  // 参考：1999 年の凱旋門賞の写真（モンジューとエルコンドルパサーの追い比べ）。追う斜め前より引いて、2 頭とも脚元まで入れる。
+  arc: { name: '追い比べ（引き）', pos: [13.5, 1.2, 7.2], look: [-1.1, 1.3, -0.8], fov: 15.5, inner: false, rails: [-3.4], post: false, sun: [0.35, 0.75, 0.5] },
   duel: { name: '競り合い', pos: [2.2, 1.25, 7.0], look: [-1.1, 1.4, -0.3], fov: 32, inner: true, rails: [] },
 };
 

@@ -201,6 +201,18 @@ const COURSES = [
     turf: { lap: 1609, straight: 260, toFirst: 130, back: 400, rise: 0.2, width: 24, slopes: [{ from: 260, to: 0, grade: 0 }], distances: [1800] },
     dirt: { vAdj: -0.4, lap: 1810, straight: 274, toFirst: 150, back: 420, rise: 0.2, width: 24, slopes: [{ from: 274, to: 0, grade: 0 }], distances: [1800] },
   },
+  // --- フランス（育成モードのイベント：1999 年の凱旋門賞） ---
+  // ロンシャンの大コース。右回り、1 周 2750m、高低差約 10m（向正面の上りから 3 コーナーの下り、偽りの直線を経て直線 533m）。
+  // 芝だけ（dirt を持たない。distancesOf は空を返す）。日本の開催（MEETINGS）には入れない。末尾に足す：weekGround は
+  // 全コースを順に回して乱数を引くので、途中に挟むと既存のコースの馬場が変わる。
+  {
+    id: 'longchamp', name: 'ロンシャン', short: 'ロンシャン（仏）', dir: DIR.RIGHT, region: 'フランス', abroad: 'FR',
+    turf: {
+      lap: 2750, straight: 533, toFirst: 300, back: 900, rise: 10, width: 30,
+      slopes: [{ from: 1700, to: 1250, grade: 14 }, { from: 1250, to: 650, grade: -11 }, { from: 650, to: 0, grade: 0 }],
+      distances: [2400],
+    },
+  },
 ];
 
 const BY_ID = new Map(COURSES.map((c) => [c.id, c]));
@@ -388,6 +400,7 @@ export function isSprintStraight(track) {
 export function distancesOf(courseId, surface) {
   const c = getCourse(courseId);
   const spec = surface === SURFACE.DIRT ? c.dirt : c.turf;
+  if (!spec) return [];   // 芝だけの場（ロンシャン）
   const list = spec.distances.slice();
   if (spec.straightOnly) list.unshift(spec.straightOnly);
   return list;

@@ -1872,3 +1872,52 @@ b.win { color: #e0207a; }
   font: italic 900 15px/1 system-ui, sans-serif; background: var(--paper); border: 2.5px solid var(--ink); box-shadow: 0 2px 0 var(--ink); }
 /* 狭い画面では題の英字の札を隠す（かけらと通貨の札に押されて重なった） */
 @media (max-width: 440px) { .ikp-title small { display: none; } .ik-shard { margin-right: 4px; padding: 0 10px; } }
+
+/* ---- イベント（ikusei.js の eventBanner・eventView） ---- */
+.ikev-banner { position: relative; display: block; width: 100%; aspect-ratio: 16 / 6.2; min-height: 170px; margin: 0 0 14px; padding: 0; overflow: hidden; text-align: left;
+  border-radius: 20px; border: 3px solid var(--ink); box-shadow: 0 6px 0 var(--ink); background: #1d4440; color: #fff; font: inherit; }
+button.ikev-banner { cursor: pointer; }
+button.ikev-banner:active { transform: translateY(3px); box-shadow: 0 3px 0 var(--ink); }
+.ikev-bg { position: absolute; inset: -6%; background: #1d4440 center 40% / cover no-repeat; filter: saturate(.85); }
+.ikev-shade { position: absolute; inset: 0; background: linear-gradient(90deg, #113035f2 0%, #113035d0 34%, #11303540 62%, transparent 80%),
+  linear-gradient(0deg, #113035a0, transparent 40%); }
+.ikev-hero { position: absolute; right: -2%; bottom: -8%; height: 112%; max-width: 62%; object-fit: contain; object-position: right bottom; opacity: 0; transition: opacity .4s;
+  filter: drop-shadow(0 6px 10px #0006); }
+.ikev-hero.ready { opacity: 1; }
+.ikev-tx { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; height: 100%; padding: 14px 18px; max-width: 58%; }
+.ikev-tag { font: italic 900 12px/1 system-ui, sans-serif; letter-spacing: .16em; color: var(--ink); background: var(--sun); padding: 4px 9px; border-radius: 6px; transform: rotate(-3deg); }
+.ikev-en { font: 800 10px/1.2 system-ui, sans-serif; letter-spacing: .14em; color: #d3e27fcc; }
+.ikev-ttl { font: italic 900 clamp(26px, 5vw, 44px)/1.05 system-ui, sans-serif; letter-spacing: .04em;
+  background: linear-gradient(180deg, #fff 35%, #f8d5a0 70%, var(--sun)); -webkit-background-clip: text; background-clip: text; color: transparent; filter: drop-shadow(0 2px 0 #0b2224); }
+.ikev-sub { font: 800 clamp(11px, 1.9vw, 15px)/1.3 system-ui, sans-serif; color: #f3f0e0; text-shadow: 0 1px 2px #000a; }
+.ikev-rw { display: inline-flex; align-items: center; gap: 6px; margin-top: auto; font: 900 12px/1 system-ui, sans-serif; background: #ffffff1f; border: 1.5px solid #ffffff55; border-radius: 999px; padding: 4px 10px 4px 4px; }
+.ikev-rw i { font-style: normal; font: 900 11px/1 serif; color: var(--ink); padding: 3px 6px; border-radius: 999px; background: conic-gradient(from 30deg, #ff8fb0, #ffd36a, #fff59a, #9bffc0, #8fe6ff, #b0a2ff, #ff8fb0); }
+.ikev-stars { display: flex; gap: 2px; font-size: 18px; letter-spacing: 1px; }
+.ikev-stars i { font-style: normal; color: #ffffff40; }
+.ikev-stars i.on { color: var(--sun); text-shadow: 0 0 6px #f3a33299; }
+.ikev-blurb { margin: -4px 4px 12px; color: #f3f0e0; font-size: 13px; text-shadow: 0 1px 2px #0008; }
+.ikev-diff { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-bottom: 8px; }
+.ikev-star { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 8px 2px; border-radius: 12px; cursor: pointer;
+  border: 2.5px solid var(--ink); background: var(--paper); color: var(--ink); box-shadow: 0 3px 0 var(--ink); }
+.ikev-star b { font-size: 13px; color: #c97f22; letter-spacing: -1px; }
+.ikev-star small { font-size: 10px; color: #5a706c; }
+.ikev-star.on { background: var(--leaf2); transform: translateY(-2px); }
+.ikev-star.done small { color: #3e6a3c; font-weight: 900; }
+.ikev-star.done b::after { content: ' ✓'; color: #3e6a3c; }
+.ikev-lv { color: #c97f22; letter-spacing: -1px; }
+.ikev-reward { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+.ikev-reward > div:last-child { flex: 1 1 220px; }
+.ikev-got { display: flex; align-items: center; gap: 14px; margin: 8px 0 12px; padding: 10px 14px; border-radius: 14px; border: 2.5px solid var(--ink);
+  background: linear-gradient(90deg, #fff6dc, #f8d5a0); }
+.ikev-got small { display: block; color: #8a5a10; font-weight: 800; }
+.ikev-got b { font-size: 18px; color: var(--ink); }
+.ikh-ev.evt .ikh-ev-face { background-color: #f8d5a0; box-shadow: 0 0 0 2.5px var(--ink), 0 0 0 5px var(--sun); }
+.ikh-ev.evt .ikh-ev-l { background: var(--sun); color: var(--ink); }
+@media (max-width: 600px) {
+  .ikev-banner { aspect-ratio: auto; height: 190px; }
+  .ikev-tx { max-width: 64%; padding: 12px 12px; }
+  .ikev-hero { max-width: 70%; height: 92%; bottom: -2%; opacity: .0; }
+  .ikev-hero.ready { opacity: .9; }
+  .ikev-diff { gap: 5px; }
+  .ikev-star b { font-size: 10px; }
+}
