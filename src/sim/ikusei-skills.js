@@ -92,6 +92,22 @@ export function skillInfo(id) {
   return null;
 }
 export const raceSkillDefs = RACE;
+
+// 観戦の演出で、発動したスキルを見せる地点（その馬が走った距離 m）。効き目はレース全体に掛かっているが、
+// 全部をゲートで一度に出すと読めないので、スキルの意味に合う場面へ散らす（逃げはスタート直後、末脚は直線、固有は最後の直線）。
+const CUE = {
+  front: (d) => 60,
+  turf: (d) => d * 0.15, dirt: (d) => d * 0.15, heavy: (d) => d * 0.2, big: (d) => d * 0.25, duel: (d) => d * 0.25, calm: (d) => d * 0.3,
+  sprint: (d) => d * 0.45, mile: (d) => d * 0.45, middle: (d) => d * 0.5, stayer: (d) => d * 0.55,
+  closer: (d) => d - 550, grit: (d) => d - 250,
+};
+const BY_NAME = new Map(Object.entries(RACE).map(([id, v]) => [v.name, id]));
+/** 発動したスキルの名前から、観戦で見せる地点と種類。名前が定義に無いもの（二つ名）は LM の固有。 */
+export function skillCue(name, distance) {
+  const id = BY_NAME.get(name);
+  if (!id) return { id: 'unique', unique: true, at: Math.max(distance * 0.5, distance - 380) };
+  return { id, unique: false, at: Math.max(40, CUE[id]?.(distance) ?? distance * 0.3) };
+}
 export const supportSkillDefs = SUPPORT;
 
 /**

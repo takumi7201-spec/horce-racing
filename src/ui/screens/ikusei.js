@@ -5,7 +5,7 @@
 
 import { el, card, table, button, toast, modal, ask, tabs, frameChip } from '../dom.js';
 import { icon } from '../icons.js';
-import { cardArt } from '../../render3d/cardart.js';
+import { cardArt, cardArtIfReady } from '../../render3d/cardart.js';
 import * as I from '../../sim/ikusei.js';
 import { cardView, epithetOf, holoOf, holoName } from '../cardview.js';
 import { createRaceView, CAMERAS } from '../../render3d/raceview.js';
@@ -545,7 +545,7 @@ function looksOf(field) {
   const m = new Map();
   for (const f of field) {
     const c = f.cardId ? I.cardById(f.cardId) : null;
-    m.set(f.id, { coat: f.coat ?? c?.coat ?? '鹿毛', marks: f.marks ?? c?.marks ?? null });
+    m.set(f.id, { coat: f.coat ?? c?.coat ?? '鹿毛', marks: f.marks ?? c?.marks ?? null, cardId: c?.id ?? null });
   }
   return m;
 }
@@ -591,8 +591,9 @@ function watchView(app) {
   const hud = el('div.hud', [el('div.hud-dist'), el('div.hud-time')]);
   const camBar = el('div.cambar');
   const ctrl = el('div.ctrl-right');
+  const fx = el('div.ik-fx');
   const wrap = el('div.watch.ik-watch', [
-    el('div.view', [canvas, hud, el('div.rankbox', [el('h3', { text: R.title ?? race.name }), rankList])]),
+    el('div.view', [canvas, hud, fx, el('div.rankbox', [el('h3', { text: R.title ?? race.name }), rankList])]),
     el('div.controls', [camBar, ctrl]),
   ]);
   let view = null;
@@ -612,7 +613,9 @@ function watchView(app) {
       rankList.appendChild(row);
     }
     const shown = window.innerWidth < 700 ? 5 : 10;
+    const skillFx = skillEffects(R, race, fx, view);
     view.onFrame = (st) => {
+      skillFx.frame(st);
       hud.firstChild.textContent = st.remaining > 0.5 ? `残り ${Math.round(st.remaining)}m` : 'ゴール';
       hud.lastChild.textContent = `${st.time.toFixed(1)} 秒`;
       for (const r of st.ranked) {
@@ -636,7 +639,7 @@ function watchView(app) {
     }
     const sp = el('div.speedbar', [0.5, 1, 2, 4].map((s) => el('button.tab', {
       text: `×${s}`, class: s === 1 ? 'on' : null,
-      onclick: (e) => { view.setSpeed(s); [...sp.children].forEach((b) => b.classList.remove('on')); e.currentTarget.classList.add('on'); },
+      onclick: (e) => { skillFx.setSpeed(s); [...sp.children].forEach((b) => b.classList.remove('on')); e.currentTarget.classList.add('on'); },
     })));
     ctrl.append(sp, button('最初から', () => { view.seek(0); view.play(); }, { cls: 'sm ghost' }), button('結果へ', () => go('result'), { cls: 'sm primary' }));
     sound.play('gate');
@@ -644,6 +647,84 @@ function watchView(app) {
   });
   app.cleanup = () => { if (view) view.dispose(); view = null; app.onResize = null; };
   return el('div.ik-w', wrap);
+}
+
+/**
+ * スキル発動の演出。スキルの効き目はレース全体に掛かっている（結果は走る前に決まっている）ので、
+ * 観戦では「その馬がスキルの場面に来たとき」に見せる（I.skillCue）。自分の馬は帯のカットイン、
+ * 相手の馬は小さな札。LM の固有スキルは画面を横切る大きなカットインと 3D の金の光、再生を少しだけ遅くする。
+ * 「最初から」で時間が戻ったら出し直す。
+ */
+function skillEffects(R, race, fx, view) {
+  const mine = new Set(R.mine);
+  const names = new Map(race.results.map((r) => [r.horseId, r.name]));
+  const cues = [];
+  for (const [hid, list] of Object.entries(R.fired ?? {})) {
+    const id = Number(hid);
+    if (!names.has(id)) continue;
+    for (const n of list ?? []) { const q = I.skillCue(n, race.distance); cues.push({ id, name: n, mine: mine.has(id), unique: q.unique, at: q.at, done: false }); }
+  }
+  cues.sort((a, b) => a.at - b.at);
+  // 固有スキルのカットインに馬の切り抜きを出す（撮ってある絵だけ）
+  for (const c of cues.filter((x) => x.unique)) {
+    const cid = R.looks?.get(c.id)?.cardId;
+    const card = cid ? I.cardById(cid) : null;
+    if (card) cardArtIfReady(card).then((a) => { c.img = a?.sticker?.url ?? null; });
+  }
+  let speed = 1, slowUntil = 0, slowTimer = 0, lastT = 0, lane = 0;
+  const timers = new Set();
+  const later = (fn, ms) => { const t = setTimeout(() => { timers.delete(t); fn(); }, ms); timers.add(t); };
+  const clear = () => {
+    for (const t of timers) clearTimeout(t);
+    timers.clear();
+    fx.textContent = '';
+    clearTimeout(slowTimer);
+    slowUntil = 0;
+    view.setSpeed(speed);
+  };
+  const show = (c) => {
+    if (c.unique && c.mine) {
+      const node = el('div.ik-ult', [
+        el('div.lines'),
+        c.img ? el('img', { src: c.img, alt: '' }) : null,
+        el('div.t', [el('small', { text: '固有スキル発動' }), el('b', { text: c.name }), el('span', { text: names.get(c.id) })]),
+      ]);
+      fx.appendChild(node);
+      later(() => node.remove(), 2600);
+      sound.play('bell');
+      view.flare(c.id, { color: 0xffc83a, big: true });
+      // 一瞬だけ遅くして見せ場にする（利用者の再生速度は覚えて戻す）
+      view.setSpeed(speed * 0.35);
+      slowUntil = performance.now() + 1500;
+      clearTimeout(slowTimer);
+      slowTimer = setTimeout(() => { slowUntil = 0; view.setSpeed(speed); }, 1500);
+      return;
+    }
+    const cls = c.mine ? (c.unique ? 'uniq' : 'race') : 'npc';
+    const node = el(`div.ik-cut.${cls}`, { style: `--lane:${lane}` }, [
+      el('i', { text: c.mine ? 'SKILL' : '相手' }),
+      el('b', { text: c.name }),
+      el('small', { text: names.get(c.id) }),
+    ]);
+    lane = (lane + 1) % 3;
+    fx.appendChild(node);
+    later(() => node.remove(), c.mine ? 1900 : 1500);
+    if (c.mine) sound.play('win');
+    view.flare(c.id, { color: c.unique ? 0xffc83a : c.mine ? 0x5ec8ff : 0xff6a6a, big: c.unique });
+  };
+  return {
+    frame(st) {
+      if (st.time < lastT - 0.05) { clear(); for (const c of cues) c.done = false; }
+      lastT = st.time;
+      const s = new Map(st.ranked.map((r) => [r.id, r.s]));
+      for (const c of cues) {
+        if (c.done || (s.get(c.id) ?? 0) < c.at) continue;
+        c.done = true;
+        show(c);
+      }
+    },
+    setSpeed(x) { speed = x; if (!slowUntil) view.setSpeed(x); },
+  };
 }
 
 // ---------------------------------------------------------------- 完成馬

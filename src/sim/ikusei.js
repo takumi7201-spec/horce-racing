@@ -15,6 +15,7 @@ import { skillsOf, skillInfo, applyRaceSkills, RAR_SCALE } from './ikusei-skills
 import { distCatOf } from './ikusei-util.js';
 
 export { skillsOf, skillInfo };
+export { skillCue } from './ikusei-skills.js';
 
 export { CARDS, PACKS };
 export const STATS = ['speed', 'stamina', 'power', 'guts', 'wit'];

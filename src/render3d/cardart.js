@@ -127,6 +127,12 @@ export function cardArt(card) {
   return p;
 }
 
+/** 撮ってある絵だけを返す（無ければ null）。レース観戦の途中で撮ると、観戦の WebGL の横にもう 1 つ作ることになる（落とし穴 23）。 */
+export function cardArtIfReady(card) {
+  if (cache.has(card.id)) return cache.get(card.id).catch(() => null);
+  return loadSaved(artKey(card)).catch(() => null);
+}
+
 // ---------------------------------------------------------------- 撮った絵を残す
 // 1 枚撮るのに WebGL で舞台を組んで描くので、79 枚の一覧を開くたびに撮り直すと重い。ブラウザの IndexedDB に残す。
 // 鍵は絵に効くカードの値（構え・毛色・白斑・勝負服など）と ART_VER。撮影の舞台（photostage.js）を変えたら ART_VER を上げる。

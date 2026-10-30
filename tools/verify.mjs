@@ -1095,6 +1095,9 @@ section('カード育成モード');
   const on = S.applyRaceSkills(spec, ['turf'], { surface: '芝', distance: 2000 }, { rar: 'SR' });
   const off = S.applyRaceSkills(spec, ['turf'], { surface: 'ダート', distance: 2000 }, { rar: 'SR' });
   check('レーススキルは条件が合うときだけ発動する', on.spec.ab.speed > 0.6 && on.fired.length === 1 && off.spec.ab.speed === 0.6 && off.fired.length === 0 && spec.ab.speed === 0.6);
+  const cue = (n) => I.skillCue(n, 2000).at;
+  check('観戦の演出は場面に合わせて出る（逃げ切り → 王道 → 末脚炸裂 → 固有は最後の 400m）',
+    cue('逃げ切り') < cue('王道') && cue('王道') < cue('末脚炸裂') && I.skillCue('最強の再来', 2000).unique && cue('最強の再来') >= 1600);
   check(`覚えたスキルが完成馬に残る（${h.skills.length} 個）`, I.skillsOf(lmCard).race.every((id) => h.skills.includes(id)) && I.finishedSkills(h).length >= I.skillsOf(lmCard).race.length);
   const js = JSON.stringify(big);
   check(`プロフィールは JSON で往復できる（${(js.length / 1024).toFixed(1)}KB）`, JSON.stringify(JSON.parse(js)) === js && js.length < 64 * 1024);

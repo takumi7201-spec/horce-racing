@@ -1672,3 +1672,80 @@ b.win { color: #e0207a; }
 .ik-train .sks i { font-style: normal; font-size: 10px; font-weight: 900; color: #1d6a1d; background: #e8ffd6; border: 1.5px solid #6ab04a; border-radius: 6px; padding: 1px 4px; }
 .ik-fired { display: flex; flex-direction: column; gap: 6px; }
 .ik-fired > div { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+
+/* ---- 育成モードの観戦：スキル発動の演出（ikusei.js の skillEffects） ---- */
+.ik-fx { position: absolute; inset: 0; pointer-events: none; overflow: hidden; z-index: 4; }
+.ik-cut {
+  position: absolute; left: 0; top: calc(16% + var(--lane, 0) * 58px);
+  display: flex; align-items: baseline; gap: 10px; padding: 8px 26px 8px 18px;
+  color: #fff; background: linear-gradient(90deg, #1b6bff 0%, #36b4ff 70%, rgba(54, 180, 255, 0) 100%);
+  clip-path: polygon(0 0, 100% 0, calc(100% - 18px) 100%, 0 100%);
+  text-shadow: 0 2px 0 rgba(10, 20, 60, 0.45);
+  animation: ikcut 1.9s cubic-bezier(.2, .9, .2, 1) both;
+}
+.ik-cut::after {
+  content: ''; position: absolute; inset: 0; mix-blend-mode: screen;
+  background: linear-gradient(105deg, transparent 30%, rgba(255, 255, 255, 0.85) 45%, transparent 60%);
+  background-size: 250% 100%; animation: ikshine 0.9s 0.15s ease-out both;
+}
+.ik-cut i { font-style: normal; font: 900 11px/1 system-ui, sans-serif; letter-spacing: .12em; padding: 3px 6px; border-radius: 4px; background: rgba(255, 255, 255, 0.22); }
+.ik-cut b { font-size: 22px; font-weight: 900; font-style: italic; letter-spacing: .02em; }
+.ik-cut small { font-size: 12px; opacity: .9; }
+.ik-cut.uniq { background: linear-gradient(90deg, #ff9d00, #ffd84a 70%, rgba(255, 216, 74, 0)); color: #3b1d00; text-shadow: none; }
+.ik-cut.npc {
+  left: auto; right: 0; padding: 5px 14px 5px 26px; top: calc(16% + var(--lane, 0) * 44px);
+  background: linear-gradient(270deg, #d8324a 0%, #ff6a6a 70%, rgba(255, 106, 106, 0) 100%);
+  clip-path: polygon(18px 0, 100% 0, 100% 100%, 0 100%);
+  animation-name: ikcutr; animation-duration: 1.5s;
+}
+.ik-cut.npc b { font-size: 15px; }
+@keyframes ikcut {
+  0% { transform: translateX(-110%); } 14% { transform: translateX(0); }
+  84% { transform: translateX(0); opacity: 1; } 100% { transform: translateX(-30%); opacity: 0; }
+}
+@keyframes ikcutr {
+  0% { transform: translateX(110%); } 16% { transform: translateX(0); }
+  84% { transform: translateX(0); opacity: 1; } 100% { transform: translateX(30%); opacity: 0; }
+}
+@keyframes ikshine { from { background-position: 120% 0; } to { background-position: -40% 0; } }
+
+/* 固有スキル：画面を横切る帯と集中線、馬の切り抜き */
+.ik-ult {
+  position: absolute; left: -5%; right: -5%; top: 50%; height: 150px; margin-top: -75px;
+  display: flex; align-items: center; justify-content: center; gap: 18px;
+  background: linear-gradient(90deg, rgba(20, 10, 60, 0) 0%, rgba(24, 14, 70, 0.92) 18%, rgba(24, 14, 70, 0.92) 82%, rgba(20, 10, 60, 0) 100%);
+  border-top: 3px solid #ffd84a; border-bottom: 3px solid #ffd84a;
+  transform: skewY(-4deg); animation: ikult 2.6s cubic-bezier(.2, .9, .2, 1) both;
+}
+.ik-ult::before {
+  content: ''; position: absolute; inset: -100vh 0; z-index: -1;
+  background: radial-gradient(circle at 50% 50%, rgba(255, 230, 140, 0.55), rgba(255, 255, 255, 0) 55%);
+  animation: ikflash 0.6s ease-out both;
+}
+.ik-ult .lines {
+  position: absolute; inset: 0; opacity: .5;
+  background: repeating-linear-gradient(90deg, rgba(255, 216, 74, 0.0) 0 22px, rgba(255, 216, 74, 0.55) 22px 24px, rgba(255, 216, 74, 0) 24px 60px);
+  animation: iklines 0.35s linear infinite;
+}
+.ik-ult img { position: relative; height: 175px; margin-top: -30px; transform: skewY(4deg); animation: ikultimg 2.6s cubic-bezier(.2, .9, .2, 1) both; filter: drop-shadow(0 6px 0 rgba(0, 0, 0, .35)); }
+.ik-ult .t { position: relative; display: flex; flex-direction: column; color: #fff; transform: skewY(4deg); }
+.ik-ult .t small { color: #ffd84a; font-weight: 900; letter-spacing: .2em; font-size: 12px; }
+.ik-ult .t b {
+  font-size: clamp(22px, 4.2vw, 40px); font-weight: 900; font-style: italic; line-height: 1.15;
+  background: linear-gradient(180deg, #fff 30%, #ffd84a 75%, #ff9d00); -webkit-background-clip: text; background-clip: text; color: transparent;
+  filter: drop-shadow(0 3px 0 rgba(60, 20, 0, .55));
+}
+.ik-ult .t span { font-size: 13px; opacity: .85; }
+@keyframes ikult {
+  0% { transform: skewY(-4deg) scaleY(0); opacity: 0; } 10% { transform: skewY(-4deg) scaleY(1.08); opacity: 1; }
+  16% { transform: skewY(-4deg) scaleY(1); } 86% { opacity: 1; transform: skewY(-4deg) scaleY(1); }
+  100% { opacity: 0; transform: skewY(-4deg) scaleY(0.2); }
+}
+@keyframes ikultimg { 0% { transform: skewY(4deg) translateX(-60px); opacity: 0; } 18% { transform: skewY(4deg) translateX(0); opacity: 1; } 100% { transform: skewY(4deg) translateX(14px); } }
+@keyframes ikflash { 0% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes iklines { from { background-position: 0 0; } to { background-position: -60px 0; } }
+@media (max-width: 600px) {
+  .ik-cut b { font-size: 17px; }
+  .ik-ult { height: 116px; margin-top: -58px; gap: 8px; }
+  .ik-ult img { height: 128px; }
+}

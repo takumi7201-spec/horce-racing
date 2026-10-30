@@ -292,6 +292,8 @@ export function createRaceView(canvas, race, opts = {}) {
     setCamera(m) { mode = m; },
     setFocus(id) { focusId = id; },
     get focus() { return focusId; },
+    /** スキル発動の光を馬に出す（見た目だけ）。 */
+    flare: addFlare,
     /** マークを付ける馬の id。 */
     setMarks(ids) { marks = new Set(ids); },
     seek(t) {
@@ -350,12 +352,83 @@ export function createRaceView(canvas, race, opts = {}) {
     wind.update(dt, st.snap[h.index].v, camera);
   }
 
+  // スキルの発動の光（育成モードの観戦）。馬の組に付けて一緒に動かす。見た目だけで、走行ログ（結果）には触らない。
+  // 寿命は実時間で測る（×0.5 の再生でも同じ長さで光る）。深度テストを切って、馬群に埋もれても見えるようにする（目印と同じ）。
+  const flares = [];
+  let columnTex = null;
+  function flareTexture() {
+    if (columnTex) return columnTex;
+    const c = document.createElement('canvas');
+    c.width = 4; c.height = 64;
+    const g = c.getContext('2d');
+    const gr = g.createLinearGradient(0, 64, 0, 0);
+    gr.addColorStop(0, 'rgba(255,255,255,1)');
+    gr.addColorStop(0.35, 'rgba(255,255,255,0.55)');
+    gr.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = gr;
+    g.fillRect(0, 0, 4, 64);
+    columnTex = new THREE.CanvasTexture(c);
+    return columnTex;
+  }
+  function addFlare(id, { color = 0x5ec8ff, big = false } = {}) {
+    const h = horses.find((x) => x.id === id);
+    if (!h) return;
+    const mk = (geo, opts = {}) => new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+      color, transparent: true, opacity: 0, depthTest: false, depthWrite: false,
+      blending: THREE.AdditiveBlending, side: THREE.DoubleSide, ...opts,
+    }));
+    const g = new THREE.Group();
+    const rings = [0, 0.22, ...(big ? [0.44] : [])].map((delay) => {
+      const m = mk(new THREE.RingGeometry(0.85, 1, 40));
+      m.rotation.x = -Math.PI / 2;
+      m.position.y = 0.08;
+      m.renderOrder = 19;
+      m.userData.delay = delay;
+      g.add(m);
+      return m;
+    });
+    const col = mk(new THREE.CylinderGeometry(1.25, 1.6, 1, 24, 1, true), { map: flareTexture() });
+    col.renderOrder = 18;
+    g.add(col);
+    h.group.add(g);
+    flares.push({ g, h, rings, col, t0: performance.now(), life: big ? 2.4 : 1.5, big });
+  }
+  function updateFlares() {
+    const now = performance.now();
+    for (let i = flares.length - 1; i >= 0; i--) {
+      const f = flares[i];
+      const age = (now - f.t0) / 1000;
+      const k = age / f.life;
+      if (k >= 1) {
+        f.h.group.remove(f.g);
+        f.g.traverse((o) => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
+        flares.splice(i, 1);
+        continue;
+      }
+      // 遠いカメラでも読める大きさに（目印と同じ考え）
+      const d = camera.position.distanceTo(f.h.group.position);
+      f.g.scale.setScalar(clamp(d / 30, 1, 4));
+      for (const r of f.rings) {
+        const t = clamp((age - r.userData.delay) / (f.life * 0.6), 0, 1);
+        r.scale.setScalar(1 + t * (f.big ? 7 : 5));
+        r.material.opacity = t > 0 && t < 1 ? (1 - t) * 0.95 : 0;
+      }
+      // 光の柱は立ち上がってから細って消える
+      const up = clamp(k / 0.25, 0, 1);
+      const hgt = (f.big ? 9 : 6) * up;
+      f.col.scale.set(1 - k * 0.5, Math.max(0.01, hgt), 1 - k * 0.5);
+      f.col.position.y = hgt / 2;
+      f.col.material.opacity = (k < 0.25 ? up : 1 - (k - 0.25) / 0.75) * (f.big ? 0.85 : 0.65);
+    }
+  }
+
   function draw() {
     const st = sampleState();
     placeHorses(st);
     updateCamera(st);
     updateMarkers(st);
     updateWind(st);
+    updateFlares();
     renderer.render(scene, camera);
     if (api.onFrame) {
       api.onFrame({
