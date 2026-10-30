@@ -45,13 +45,22 @@ const SUPPORT = {
   mood: { name: '盛り上げ役', desc: '一緒に練習すると気分が上がりやすい' },
 };
 
+/**
+ * 覚醒（同じカードを重ねて持つ利点）。覚醒＝min(4, 枚数−1)。カードを消費しない（持っている枚数で決まる）。
+ * 育てる馬：初期値 +12/段、伸びしろの上限 +30/段（1200 で頭打ちなので、+値の低いカード＝N・R ほど効く）、
+ *   レーススキルの効き目 +8%/段、覚醒 2 でレーススキル +1。
+ * サポート：友情練習の伸び +6%/段、練習場に来ない確率 −3%/段、覚醒 3 で友情 1 回でスキルを覚える、覚醒 4 でサポートスキル +1。
+ */
+export const AWAKEN = { max: 4, init: 12, cap: 30, skill: 0.08, friend: 0.06, show: 0.03, bondAt: 3 };
+export const awakenOf = (count) => Math.max(0, Math.min(AWAKEN.max, (count ?? 0) - 1));
+
 const hash = (s) => { let h = 2166136261; for (const ch of s) h = Math.imul(h ^ ch.charCodeAt(0), 16777619) >>> 0; return h; };
 
 /**
  * カードのスキル。{ race: [id], support: [id], unique: {name, desc} | null }。
  * 数はレア度で決まる（LM 固有＋レース 3＋サポート 3、SSR 2＋2、SR 1＋2、R・N 1＋1）。
  */
-export function skillsOf(card) {
+export function skillsOf(card, awaken = 0) {
   const race = [];
   const push = (id) => { if (id && !race.includes(id)) race.push(id); };
   // 得意から順に候補を並べ、レア度の数だけ取る
@@ -67,16 +76,18 @@ export function skillsOf(card) {
   // 残りは得意な能力から
   const best = [...STATS].sort((a, b) => card.v[b] - card.v[a])[0];
   cands.push(best === 'wit' ? 'calm' : best === 'guts' ? 'grit' : 'duel', 'grit', 'calm');
-  const nRace = { LM: 3, SSR: 2, SR: 1, R: 1, N: 1 }[card.rar] ?? 1;
+  // 覚醒 2 からレーススキルが 1 つ増える（同じカードを重ねて持つ利点）
+  const nRace = ({ LM: 3, SSR: 2, SR: 1, R: 1, N: 1 }[card.rar] ?? 1) + (awaken >= 2 ? 1 : 0);
   for (const id of cands) { if (race.length >= nRace) break; push(id); }
 
   const support = [`tr_${best}`];
   const extra = ['friend', 'saver', 'safe', 'often', 'mood'];
-  const nSup = { LM: 3, SSR: 2, SR: 2, R: 1, N: 1 }[card.rar] ?? 1;
+  // 覚醒 4（完凸）でサポートスキルが 1 つ増える
+  const nSup = ({ LM: 3, SSR: 2, SR: 2, R: 1, N: 1 }[card.rar] ?? 1) + (awaken >= 4 ? 1 : 0);
   // 2 つめはカードの id から（同じレア度でも顔ぶれが違うように）
   for (let i = 1; i < nSup; i++) support.push(extra.filter((x) => !support.includes(x))[hash(`${card.id}:${i}`) % (extra.length - i + 1)]);
   // R と N は 1 つだけなので、得意の練習でなく id から決めるカードも混ぜる（同じ能力のカードばかりにならないように）
-  if (nSup === 1 && hash(card.id) % 3 === 0) support[0] = extra[hash(`${card.id}:s`) % extra.length];
+  if ((card.rar === 'R' || card.rar === 'N') && hash(card.id) % 3 === 0) support[0] = extra[hash(`${card.id}:s`) % extra.length];
 
   const unique = card.rar === 'LM' ? {
     name: card.epithet ?? `${card.name}の真髄`,
@@ -114,10 +125,11 @@ export const supportSkillDefs = SUPPORT;
  * レーススキルを馬（runRace に渡す形）に効かせる。発動したスキルの名前を返す。
  * skills はレーススキルの id の並び。uniqueOf は固有を持つカード（LM）か null。
  */
-export function applyRaceSkills(spec, skills, race, { battle = false, rar = 'N', uniqueOf = null } = {}) {
+export function applyRaceSkills(spec, skills, race, { battle = false, rar = 'N', uniqueOf = null, awaken = 0 } = {}) {
   const s = { ...spec, ab: { ...spec.ab } };
   const fired = [];
-  const k = RAR_SCALE[rar] ?? 1;
+  // 覚醒 1 段ごとに効き目 8% 増し
+  const k = (RAR_SCALE[rar] ?? 1) * (1 + AWAKEN.skill * awaken);
   for (const id of skills) {
     const d = RACE[id];
     if (!d || !d.when(race, { battle })) continue;
@@ -129,7 +141,7 @@ export function applyRaceSkills(spec, skills, race, { battle = false, rar = 'N',
   if (uniqueOf) {
     const surf = uniqueOf.turf >= uniqueOf.dirt ? '芝' : 'ダート';
     if (race.surface === surf && Math.abs(race.distance - uniqueOf.dist) <= 400) {
-      for (const a of STATS) s.ab[a] = Math.min(0.95, s.ab[a] + 0.022);
+      for (const a of STATS) s.ab[a] = Math.min(0.95, s.ab[a] + 0.022 * (1 + AWAKEN.skill * awaken));
       fired.push(uniqueOf.epithet ?? `${uniqueOf.name}の真髄`);
     }
   }

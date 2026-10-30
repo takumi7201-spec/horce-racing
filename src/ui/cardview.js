@@ -163,7 +163,8 @@ export function cardView(c, { scale = 0.4, onClick = null, count = 0, dim = fals
   if (kind) card.dataset.holo = kind;
   const wrap = el(`div.tcw${dim ? '.dim' : ''}${onClick ? '.click' : ''}`, { style: `width:${630 * scale}px;height:${880 * scale}px` }, [
     el('div.tcs', { style: `transform:scale(${scale})` }, card),
-    count > 1 ? el('span.tc-count', { text: `×${count}` }) : null,
+    // 重ねた枚数と覚醒（2 枚目から 1 段、5 枚で完凸）
+    count > 1 ? el(`span.tc-count${count >= 5 ? '.max' : ''}`, [el('b', { text: `×${count}` }), el('i', { text: '◆'.repeat(Math.min(4, count - 1)) + '◇'.repeat(Math.max(0, 4 - (count - 1))) })]) : null,
     badge ? el('span.tc-badge', { text: badge }) : null,
   ]);
   if (onClick) wrap.onclick = () => onClick(c);

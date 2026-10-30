@@ -265,7 +265,7 @@ function gachaView(app, go) {
       el('p.note', { text: `排出率 ${Object.entries(I.RATES).map(([k, v]) => `${k} ${Math.round(v * 100)}%`).join('・')}　通算 ${p.pulls} 回` }),
     ]),
     last.length ? card(`引いたカード（${last.length} 枚）`, [
-      el('div.ik-grid', last.map((g) => cardView(g.card, { scale: fit(0.3), badge: g.isNew ? 'NEW' : null, onClick: (c) => showCard(app, c) }))),
+      el('div.ik-grid', last.map((g) => cardView(g.card, { scale: fit(0.3), badge: g.isNew ? 'NEW' : g.awaken ? `覚醒${g.awaken >= I.AWAKEN.max ? 'MAX' : g.awaken}` : null, onClick: (c) => showCard(app, c) }))),
     ]) : null,
   ];
 }
@@ -281,13 +281,34 @@ function skillTags(ids, uniq = null, { small = false } = {}) {
 }
 
 /** カードのスキルの一覧（説明つき）。 */
-function skillList(c) {
-  const sk = I.skillsOf(c);
-  const row = (cls, head, name, desc) => el('div.ik-skrow', [el(`span.ik-sk.${cls}`, name), el('small', { text: `${head}　${desc}` })]);
+function skillList(c, aw = 0) {
+  const sk = I.skillsOf(c, aw);
+  const base = I.skillsOf(c);
+  // 覚醒で増えたスキルには印を付ける
+  const row = (cls, head, name, desc, extra) => el('div.ik-skrow', [el(`span.ik-sk.${cls}`, name), extra ? el('em.ik-awk', { text: `覚醒${extra}` }) : null, el('small', { text: `${head}　${desc}` })]);
   return el('div.ik-sklist', [
     sk.unique ? row('uniq', '固有', sk.unique.name, sk.unique.desc) : null,
-    ...sk.race.map((id) => I.skillInfo(id)).map((x) => row('race', 'レース', x.name, x.desc)),
-    ...sk.support.map((id) => I.skillInfo(id)).map((x) => row('support', 'サポート', x.name, x.desc)),
+    ...sk.race.map((id) => [I.skillInfo(id), base.race.includes(id) ? 0 : 2]).map(([x, e]) => row('race', 'レース', x.name, x.desc, e)),
+    ...sk.support.map((id) => [I.skillInfo(id), base.support.includes(id) ? 0 : 4]).map(([x, e]) => row('support', 'サポート', x.name, x.desc, e)),
+  ]);
+}
+
+/** 覚醒（同じカードを重ねて持つ利点）の段と効き目。 */
+function awakenPanel(c, count) {
+  const A = I.AWAKEN;
+  const aw = Math.max(0, Math.min(A.max, count - 1));
+  const lv = (n, text) => el(`div.ik-awrow${aw >= n ? '.on' : ''}`, [el('b', { text: `覚醒${n}` }), el('span', { text })]);
+  return el('div.ik-awaken', [
+    el('div.ik-awhead', [
+      el('b', { text: aw >= A.max ? '覚醒 MAX' : `覚醒 ${aw}` }),
+      el('i', { text: '◆'.repeat(aw) + '◇'.repeat(A.max - aw) }),
+      el('small', { text: aw >= A.max ? `所持 ${count} 枚（5 枚で完凸）` : `所持 ${count} 枚・あと ${aw + 2 - count} 枚で覚醒 ${aw + 1}` }),
+    ]),
+    el('p.note', { text: `同じカードを 2 枚目から重ねると 1 段ずつ覚醒する（カードは減らない）。いまの効き目　育てる馬：初期値 +${A.init * aw}・伸びしろの上限 +${A.cap * aw}・レーススキル +${Math.round(A.skill * aw * 100)}%　サポート：友情練習 +${Math.round(A.friend * aw * 100)}%・来ない確率 −${Math.round(A.show * aw * 100)}%` }),
+    lv(1, '育てる馬の初期値・伸びしろの上限・レーススキルの効き目、サポートの友情練習・来やすさが上がる（以降も段ごとに）'),
+    lv(2, 'レーススキルが 1 つ増える'),
+    lv(3, 'サポートのとき、友情練習 1 回でスキルを教える'),
+    lv(4, 'サポートスキルが 1 つ増える（完凸）'),
   ]);
 }
 
@@ -295,8 +316,9 @@ function showCard(app, c) {
   const p = app.ik;
   modal(`${epithetOf(c)} ${c.name}`, [
     el('div.ik-big', cardView(c, { scale: Math.min(0.7, (window.innerHeight - 170) / 880, (window.innerWidth - 60) / 630), tilt: 'full' })),
+    p.cards[c.id] ? awakenPanel(c, p.cards[c.id]) : null,
     el('h4.ik-skh', { text: 'スキル' }),
-    skillList(c),
+    skillList(c, I.awakenOfCard(p, c.id)),
     el('p.note', { text: `所持 ${p.cards[c.id] ?? 0} 枚　サポートの得意：${I.STAT_LABEL[I.supportType(c)]}の練習${holoOf(c) ? `　ホロ：${holoName(holoOf(c))}` : ''}　（ドラッグで傾けられる）` }),
   ], { wide: true });
 }
@@ -397,10 +419,10 @@ function deckView(app, go) {
       el('div.ik-deck', [slot(d.trainee, '育てる馬'), ...[0, 1, 2, 3].map((i) => slot(d.supports[i], `サポート ${i + 1}`))]),
       d.trainee ? traineeNote(I.cardById(d.trainee)) : el('p.note', { text: 'まず育てる馬を選び、続けてサポートを 4 枚選ぶ。選んだカードをもう一度押すと外れる。' }),
       d.trainee ? el('div.ik-deckskills', [
-        el('div', [el('small', { text: '育てる馬のレーススキル' }), skillTags(I.skillsOf(I.cardById(d.trainee)).race, I.skillsOf(I.cardById(d.trainee)).unique)]),
-        ...d.supports.map((id) => el('div', [el('small', { text: `${I.cardById(id).name}（サポート）` }), skillTags(I.skillsOf(I.cardById(id)).support, null, { small: true })])),
+        el('div', [el('small', { text: `育てる馬のレーススキル${awkLabel(p, d.trainee)}` }), skillTags(I.skillsOf(I.cardById(d.trainee), I.awakenOfCard(p, d.trainee)).race, I.skillsOf(I.cardById(d.trainee)).unique)]),
+        ...d.supports.map((id) => el('div', [el('small', { text: `${I.cardById(id).name}（サポート${awkLabel(p, id)}）` }), skillTags(I.skillsOf(I.cardById(id), I.awakenOfCard(p, id)).support, null, { small: true })])),
       ]) : null,
-      el('p.note', { text: 'サポートと友情練習を 2 回すると、そのサポートのレーススキルを覚える（完成馬に残る）。' }),
+      el('p.note', { text: 'サポートと友情練習を 2 回すると（覚醒 3 なら 1 回）、そのサポートのレーススキルを覚える（完成馬に残る）。同じカードを重ねて持つと覚醒して強くなる。' }),
       el('div.ik-gbtns', [
         button('育成を始める', () => {
           I.startRun(p, d.trainee, d.supports);
@@ -410,7 +432,9 @@ function deckView(app, go) {
           go('run');
         }, { cls: 'primary big', disabled: !ready }),
         button('おまかせ', () => {
-          const s = [...have].sort((a, b) => I.cardPower(b) - I.cardPower(a));
+          // 覚醒したカードを優先する（1 段でカードパワー 8 ぶん）
+          const sc = (c) => I.cardPower(c) + 8 * I.awakenOfCard(p, c.id);
+          const s = [...have].sort((a, b) => sc(b) - sc(a));
           d.trainee ??= s[0].id;
           d.supports = s.filter((c) => c.id !== d.trainee).slice(0, 4).map((c) => c.id);
           go('run');
@@ -426,6 +450,9 @@ function deckView(app, go) {
   ];
 }
 
+/** 覚醒の段（見出しに添える）。 */
+const awkLabel = (p, id) => { const a = I.awakenOfCard(p, id); return a ? `・覚醒${a >= I.AWAKEN.max ? 'MAX' : a}` : ''; };
+
 function traineeNote(c) {
   const plus = I.plusOf(c);
   return el('p.note', { text: `${c.name}：${I.distCat(c.dist)}・${c.turf >= c.dirt ? '芝' : 'ダート'}　伸びしろ ${I.STATS.map((k) => `${I.STAT_SHORT[k]}+${plus[k]}`).join(' ')}` });
@@ -437,7 +464,7 @@ function trainView(app, go) {
   const run = p.run;
   const c = I.cardById(run.trainee);
   const plus = I.plusOf(c);
-  const cap = (k) => 600 + plus[k] * 120;
+  const cap = (k) => I.capOf(plus[k], run.awaken?.t ?? 0);
   const statRows = I.STATS.map((k) => el('div.ik-stat', [
     el('span.l', { text: I.STAT_LABEL[k] }),
     el(`b.g.g-${I.gradeOfPts(run.stats[k]).replace('+', 'p')}`, { text: I.gradeOfPts(run.stats[k]) }),
@@ -449,6 +476,7 @@ function trainView(app, go) {
     el('div.ik-meta', [
       el('div', [el('small', { text: '体力' }), el('span.bar.en', [el('i', { style: `width:${run.energy}%` })]), el('b', { text: String(run.energy) })]),
       el('div', [el('small', { text: '気分' }), el(`b.mood.m${run.mood}`, { text: I.MOODS[run.mood] })]),
+      run.awaken?.t ? el('div', [el('small', { text: '覚醒' }), el('b.ik-awk', { text: `${'◆'.repeat(run.awaken.t)} ${run.awaken.t >= I.AWAKEN.max ? 'MAX' : run.awaken.t}` })]) : null,
       el('div', [el('small', { text: '戦績' }), el('b', { text: `${run.starts}戦${run.wins}勝（重賞 ${run.gradedWins}・GI ${run.giWins}）` })]),
       el('div', [el('small', { text: 'ファン' }), el('b', { text: `${run.fans.toLocaleString()}人` })]),
     ]),
@@ -516,10 +544,11 @@ function trainView(app, go) {
         card('スキル', [
           el('div.ik-deckskills', [
             el('div', [el('small', { text: 'レースで使う' }), skillTags(I.runSkills(run), I.skillsOf(c).unique)]),
-            el('div', [el('small', { text: 'サポートとの絆（友情練習 2 回でスキルを覚える）' }), el('span.ik-bonds', run.supports.map((id, i) => {
+            el('div', [el('small', { text: 'サポートとの絆（友情練習でスキルを覚える）' }), el('span.ik-bonds', run.supports.map((id, i) => {
               const sc = I.cardById(id);
               const b = (run.bonds ?? [])[i] ?? 0;
-              return el(`span.ik-bond${b >= 2 ? '.done' : ''}`, [el(`b.${RCLS(sc.rar)}`, { text: sc.name }), el('i', { text: b >= 2 ? '習得' : `${b}/2` })]);
+              const need = I.bondNeed(run, i);
+              return el(`span.ik-bond${b >= need ? '.done' : ''}`, [el(`b.${RCLS(sc.rar)}`, { text: sc.name }), el('i', { text: b >= need ? '習得' : `${b}/${need}` })]);
             }))]),
           ]),
         ]),
@@ -832,7 +861,7 @@ function horseView(app, go) {
           el('span.l', { text: I.STAT_LABEL[k] }),
           el(`b.g.g-${I.gradeOfPts(h.stats[k]).replace('+', 'p')}`, { text: I.gradeOfPts(h.stats[k]) }),
           el('span.n', { text: String(h.stats[k]) }),
-          el('span.bar', [el('i', { style: `width:${(h.stats[k] / 1200) * 100}%` }), plus ? el('em', { style: `left:${((600 + plus[k] * 120) / 1200) * 100}%` }) : null]),
+          el('span.bar', [el('i', { style: `width:${(h.stats[k] / 1200) * 100}%` }), plus ? el('em', { style: `left:${(I.capOf(plus[k], h.awaken ?? 0) / 1200) * 100}%` }) : null]),
         ]))),
         el('p.note', { text: '数字は育成で鍛えた点（1200 点が上限）。黄色の線はカードの +値で決まる伸びしろの上限。' }),
       ]);

@@ -1099,6 +1099,26 @@ section('カード育成モード');
   check('観戦の演出は場面に合わせて出る（逃げ切り → 王道 → 末脚炸裂 → 固有は最後の 400m）',
     cue('逃げ切り') < cue('王道') && cue('王道') < cue('末脚炸裂') && I.skillCue('最強の再来', 2000).unique && cue('最強の再来') >= 1600);
   check(`覚えたスキルが完成馬に残る（${h.skills.length} 個）`, I.skillsOf(lmCard).race.every((id) => h.skills.includes(id)) && I.finishedSkills(h).length >= I.skillsOf(lmCard).race.length);
+  // 覚醒：同じカードを重ねて持つと、育てる馬もサポートも強くなる。1 枚なら何も変わらない
+  const awRun = (n) => {
+    const q = I.newProfile(21);
+    const t = I.CARDS.find((c) => c.rar === 'N');
+    const sup = I.CARDS.filter((c) => c.rar === 'SR').slice(0, 4);
+    q.cards[t.id] = n;
+    for (const c of sup) q.cards[c.id] = n;
+    const r = I.startRun(q, t.id, sup.map((c) => c.id));
+    let j = 0;
+    while (!I.runDone(r)) {
+      if (I.isRaceTurn(r)) I.raceTurn(r, I.raceOptions(r)[0].id);
+      else if (r.energy < 45) I.rest(r);
+      else I.train(r, I.STATS.find((s) => I.trainingPreview(r, s).friendship) ?? I.STATS[j++ % 5]);
+    }
+    return { sum: I.STATS.reduce((a, k) => a + r.stats[k], 0), skills: I.runSkills(r).length, aw: r.awaken.t };
+  };
+  const a1 = awRun(1), a5 = awRun(5);
+  const gg = I.pull(I.newProfile(3), 300);
+  check(`覚醒：5 枚（覚醒 4）は 1 枚より育つ（能力の合計 ${a1.sum} → ${a5.sum}、スキル ${a1.skills} → ${a5.skills}）`,
+    a1.aw === 0 && a5.aw === 4 && a5.sum > a1.sum + 150 && a5.skills > a1.skills && gg.some((g) => g.awaken === 4) && gg.every((g) => g.awaken <= 4));
   const js = JSON.stringify(big);
   check(`プロフィールは JSON で往復できる（${(js.length / 1024).toFixed(1)}KB）`, JSON.stringify(JSON.parse(js)) === js && js.length < 64 * 1024);
 }
