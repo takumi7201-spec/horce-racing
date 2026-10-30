@@ -1582,3 +1582,71 @@ b.win { color: #e0207a; }
 @media (max-height: 700px) {
   .ikh-tickets { display: none; }
 }
+
+/* 所持カード・図鑑 */
+.ik-meters { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 6px 18px; }
+.ik-meter { display: grid; grid-template-columns: minmax(0, 1fr) 120px 3.6em; gap: 8px; align-items: center; font-size: 12px; font-weight: 800; color: var(--ink); }
+.ik-meter span:first-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ik-meter .bar { height: 10px; border: 2px solid var(--ink); border-radius: 6px; background: #eee; }
+.ik-meter .bar i { background: linear-gradient(90deg, var(--violet), var(--pink)); }
+.ik-meter b { text-align: right; }
+.ikp .ik-missing small { font-size: 11px; color: #aaa; }
+
+/* 完成馬の詳細（牧場の馬の詳細と同じ組み立て） */
+.ik-finbtn { flex: 1; border: 0; padding: 0; background: none; text-align: left; cursor: pointer; }
+.ik-finbtn .ik-fin { height: 100%; }
+.ik-finbtn:hover .ik-fin { background: #fffbe6; }
+.ikx-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; background: #fff; border: 3px solid var(--ink); border-radius: 18px; box-shadow: 0 5px 0 var(--ink); padding: 8px 14px; color: var(--ink); }
+.ikx-top .rb { font: 900 15px/1 serif; padding: 6px 8px; border-radius: 8px; border: 2px solid var(--ink); background: #e8e8f0; }
+.ikx-top .rb.r-LM { background: conic-gradient(from 30deg, #ff8fb0, #ffd36a, #fff59a, #9bffc0, #8fe6ff, #b0a2ff, #ff8fb0); }
+.ikx-top .rb.r-SSR { background: linear-gradient(#fff6c8, #f2c84a); } .ikx-top .rb.r-SR { background: linear-gradient(#fff, #c4cad6); }
+.ikx-top .rb.r-R { background: linear-gradient(#ffe0c0, #d8955a); } .ikx-top .rb.r-N { background: linear-gradient(#e6ffd6, #8fd27a); }
+.ikx-name { display: flex; flex-direction: column; line-height: 1.1; }
+.ikx-name small { font-size: 11px; font-weight: 800; color: var(--violet); }
+.ikx-name b { font: italic 900 24px/1.15 system-ui, sans-serif; }
+.ikx-sa { font-weight: 800; color: #4a4870; }
+.ikx-count { margin-left: auto; font-weight: 900; background: var(--ink); color: #fff; border-radius: 999px; padding: 3px 10px; font-size: 12px; }
+.ikx-stage { position: relative; height: 340px; border-radius: 26px; border: 5px solid #fff; box-shadow: 0 0 0 3px var(--ink); overflow: hidden; margin-bottom: 14px;
+  background: radial-gradient(circle, #ffffff45 1.1px, transparent 1.7px) 0 0 / 9px 9px, linear-gradient(180deg, #86eadf 0%, #4cc6e0 36%, #3f8ade 68%, #3a52c2 100%); }
+.ikx-hero { position: absolute; left: 56px; top: 14px; bottom: 10px; max-width: calc(62% - 70px); border: 0; padding: 0; background: none; cursor: pointer; }
+.ikx-sticker { display: block; height: 100%; width: auto; max-width: 100%; object-fit: contain; opacity: 0; transition: opacity .4s; animation: ikh-float 3.4s ease-in-out infinite; }
+.ikx-sticker.ready { opacity: 1; }
+.ikx-info { position: absolute; right: 14px; top: 14px; bottom: 14px; width: min(310px, 38%); background: #ffffffee; border: 3px solid var(--ink); border-radius: 18px; box-shadow: 0 5px 0 var(--ink);
+  padding: 10px 12px; color: var(--ink); display: flex; flex-direction: column; gap: 6px; overflow: auto; }
+.ikx-ribbon { align-self: center; background: linear-gradient(90deg, var(--violet), var(--pink)); color: #fff; font: italic 900 14px/1 system-ui, sans-serif; padding: 6px 14px; border-radius: 999px; border: 2px solid var(--ink); text-shadow: 0 1px 0 var(--ink); }
+.ikx-rank { display: flex; align-items: baseline; justify-content: center; gap: 8px; }
+.ikx-rank b { font: italic 900 34px/1 system-ui, sans-serif; }
+.ikx-rank small { font-weight: 800; color: #4a4870; }
+.ikx-rows { display: grid; grid-template-columns: 3.4em 1fr; gap: 5px 8px; margin: 0; font-size: 13px; align-items: center; }
+.ikx-rows dt { font-weight: 800; color: #6a6890; font-size: 11px; }
+.ikx-rows dd { margin: 0; font-weight: 900; }
+.ikx-rows em { font-style: normal; color: var(--violet); }
+.ikx-chips, .ikx-style { display: flex; gap: 4px; flex-wrap: wrap; }
+.ikx-chips i, .ikx-style i { font-style: normal; font-size: 11px; font-weight: 900; padding: 2px 6px; border-radius: 6px; border: 1.5px solid var(--ink); background: #fff; }
+.ikx-style i { opacity: .35; } .ikx-style i.on { opacity: 1; background: var(--lime); }
+.ikx-arrow { position: absolute; top: 50%; width: 42px; height: 42px; margin-top: -21px; border-radius: 50%; background: #fff; color: var(--ink); border: 3px solid var(--ink); box-shadow: 0 3px 0 var(--ink); display: grid; place-items: center; cursor: pointer; z-index: 2; }
+.ikx-arrow.l { left: 8px; } .ikx-arrow.r { right: calc(min(310px, 38%) + 22px); transform: scaleX(-1); }
+.ikx-panel { margin-bottom: 14px; }
+.ikx-body { min-height: 140px; color: var(--ink); }
+.ikx-body h4 { margin: 4px 0 8px; font: italic 900 14px/1 system-ui, sans-serif; color: var(--violet); }
+.ikx-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.ikx-crs { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; }
+.ikx-crs div { display: flex; justify-content: space-between; border-bottom: 2px dotted #23204633; padding: 3px 0; font-size: 13px; }
+.ikx-crs b { font-variant-numeric: tabular-nums; }
+.ikx-wins { margin: 0 0 10px; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; font-weight: 800; }
+.ikx-sups { display: flex; flex-wrap: wrap; gap: 5px; }
+.ikx-sups span { font-size: 12px; font-weight: 900; padding: 3px 8px; border: 2px solid var(--ink); border-radius: 8px; background: #fff; }
+.ikx-ped { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: auto auto; gap: 8px; }
+.ikx-ped .pp { border: 2.5px solid var(--ink); border-radius: 12px; padding: 8px 12px; display: flex; flex-direction: column; gap: 2px; }
+.ikx-ped .pp small { font-size: 11px; font-weight: 800; color: #6a6890; }
+.ikx-ped .pp b { font-size: 16px; }
+.ikx-ped .s { background: #eaf2ff; grid-row: span 2; justify-content: center; } .ikx-ped .d { background: #ffeef6; } .ikx-ped .ds { background: #f4f0ff; }
+.ikx-ped .ln { grid-column: 1 / -1; background: #f6ffe0; }
+@media (max-width: 700px) {
+  .ikx-stage { height: auto; padding-bottom: 12px; display: flex; flex-direction: column; }
+  .ikx-hero { position: relative; left: auto; top: auto; bottom: auto; max-width: none; width: 92%; margin: 10px auto 0; }
+  .ikx-sticker { width: 100%; height: auto; }
+  .ikx-info { position: relative; right: auto; top: auto; bottom: auto; width: auto; margin: 6px 12px 0; }
+  .ikx-arrow { top: 110px; } .ikx-arrow.r { right: 8px; }
+  .ikx-cols { grid-template-columns: 1fr; }
+}

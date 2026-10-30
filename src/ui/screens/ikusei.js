@@ -14,7 +14,7 @@ import * as sound from '../sound.js';
 
 /** 画面の題（日本語と英語の小見出し）。 */
 const TITLES = {
-  gacha: ['ガチャ', 'GACHA'], cards: ['カード図鑑', 'CARDS'], run: ['育成', 'TRAINING'],
+  gacha: ['ガチャ', 'GACHA'], cards: ['所持カード', 'MY CARDS'], book: ['カード図鑑', 'CARD BOOK'], run: ['育成', 'TRAINING'], horse: ['完成馬', 'HORSE'],
   stable: ['完成馬', 'STABLE'], battle: ['対戦', 'BATTLE'], result: ['レース結果', 'RESULT'],
 };
 
@@ -51,8 +51,8 @@ export function ikuseiScreen(app) {
   // 背景（空・網点・街）は画面の外に固定して敷く。中身だけが流れる（background-attachment: fixed はスマホで効かない）。
   const sky = el('div.ik-sky', [el('b.ik-water', { text: 'WINNING ROAD' })]);
   if (view === 'home') return el('div.ikh-wrap', [sky, homeView(app, go)]);
-  const body = { gacha: gachaView, cards: cardsView, run: runView, stable: stableView, battle: battleView, result: resultView }[view] ?? gachaView;
-  const navId = view === 'result' ? (app.ikRace?.back ?? 'run') : view;
+  const body = { gacha: gachaView, cards: cardsView, book: bookView, run: runView, stable: stableView, horse: horseView, battle: battleView, result: resultView }[view] ?? gachaView;
+  const navId = view === 'result' ? (app.ikRace?.back ?? 'run') : view === 'horse' ? 'stable' : view === 'book' ? 'cards' : view;
   const [jp, en] = TITLES[view] ?? ['', ''];
   return el('div.ikp-wrap', [
     sky,
@@ -176,7 +176,7 @@ function homeView(app, go) {
   // 右の列：丸いボタン
   const muteIc = el('span', ic(sound.isMuted() ? 'mute' : 'sound', 24));
   const right = el('nav.ikh-right', [
-    el('button.ikh-rb', { onclick: () => go('cards'), title: 'カード図鑑' }, [ic('cards', 24), el('small', { text: '図鑑' })]),
+    el('button.ikh-rb', { onclick: () => go('book'), title: 'カード図鑑' }, [ic('book', 24), el('small', { text: '図鑑' })]),
     el('button.ikh-rb', {
       onclick: () => { sound.setMuted(!sound.isMuted()); muteIc.replaceChildren(ic(sound.isMuted() ? 'mute' : 'sound', 24)); sound.play('ok'); },
       title: '効果音の入切',
@@ -208,7 +208,7 @@ function homeView(app, go) {
   const second = have.find((c) => c.id !== hc.id) ?? I.CARDS.find((c) => c.id !== hc.id);
   const tickets = el('div.ikh-tickets', [
     ticket('t1', 'ランク', '対戦', hc, `完成馬 ${p.finished.length}頭`, () => go('battle')),
-    ticket('t2', 'カード', '図鑑', second, `${have.length}/${I.CARDS.length}`, () => go('cards')),
+    ticket('t2', 'カード', '図鑑', second, `${have.length}/${I.CARDS.length}`, () => go('book')),
   ]);
 
   return el('div.ikh', [
@@ -281,23 +281,58 @@ function showCard(app, c) {
 
 // ---------------------------------------------------------------- カード一覧
 
+/** 所持カード：持っているカードだけ。並べ替えと絞り込み、重ねた枚数。 */
 function cardsView(app, go) {
   const p = app.ik;
   app.ikNew = false;
-  app.ikFilter ??= { pack: 'ALL', rar: 'ALL' };
-  const f = app.ikFilter;
-  const list = I.CARDS.filter((c) => (f.pack === 'ALL' || c.pack === f.pack) && (f.rar === 'ALL' || c.rar === f.rar));
+  app.ikOwnOpt ??= { pack: 'ALL', rar: 'ALL', sort: 'rar' };
+  const f = app.ikOwnOpt;
   const set = (k, v) => { f[k] = v; go('cards'); };
+  const all = I.owned(p);
+  const SORTS = { rar: (a, b) => I.RARITIES.indexOf(a.rar) - I.RARITIES.indexOf(b.rar) || I.cardPower(b) - I.cardPower(a),
+    power: (a, b) => I.cardPower(b) - I.cardPower(a), count: (a, b) => (p.cards[b.id] - p.cards[a.id]) || I.cardPower(b) - I.cardPower(a),
+    no: (a, b) => a.id.localeCompare(b.id) };
+  const list = all.filter((c) => (f.pack === 'ALL' || c.pack === f.pack) && (f.rar === 'ALL' || c.rar === f.rar)).sort(SORTS[f.sort]);
+  const total = all.reduce((n, c) => n + p.cards[c.id], 0);
+  if (!all.length) return [card('所持カード', [el('p', { text: 'まだカードが無い。ガチャで引こう。' }), button('ガチャへ', () => go('gacha'), { cls: 'primary' })])];
   return [
-    card(`カード（${I.owned(p).length} / ${I.CARDS.length} 種）`, [
+    card(`所持カード（${all.length} 種・${total} 枚）`, [
       tabs([{ id: 'ALL', name: '全弾' }, ...Object.keys(I.PACKS).map((id) => ({ id, name: `第${id.slice(1)}弾` }))], f.pack, (v) => set('pack', v)),
       tabs([{ id: 'ALL', name: '全レア' }, ...I.RARITIES.map((r) => ({ id: r, name: r }))], f.rar, (v) => set('rar', v)),
-      el('div.ik-grid', list.map((c) => {
-        const n = p.cards[c.id] ?? 0;
-        return n
-          ? cardView(c, { scale: fit(0.26), count: n, onClick: (x) => showCard(app, x) })
-          : el('div.ik-missing', { style: `width:${630 * fit(0.26)}px;height:${880 * fit(0.26)}px` }, [el(`b.${RCLS(c.rar)}`, { text: c.rar }), el('span', { text: '？？？' })]);
-      })),
+      tabs([{ id: 'rar', name: 'レア度順' }, { id: 'power', name: 'カードパワー順' }, { id: 'count', name: '枚数順' }, { id: 'no', name: '番号順' }], f.sort, (v) => set('sort', v)),
+      list.length ? el('div.ik-grid', list.map((c) => cardView(c, { scale: fit(0.26), count: p.cards[c.id], onClick: (x) => showCard(app, x) })))
+        : el('p.note', { text: 'この条件のカードは持っていない。' }),
+      el('div.ik-gbtns', [button('カード図鑑を見る', () => go('book'))]),
+    ]),
+  ];
+}
+
+/** カード図鑑：全カード。持っていないカードは「？？？」で、集めた割合を弾とレア度ごとに出す。 */
+function bookView(app, go) {
+  const p = app.ik;
+  app.ikBookOpt ??= { pack: 'ALL', rar: 'ALL' };
+  const f = app.ikBookOpt;
+  const set = (k, v) => { f[k] = v; go('book'); };
+  const list = I.CARDS.filter((c) => (f.pack === 'ALL' || c.pack === f.pack) && (f.rar === 'ALL' || c.rar === f.rar));
+  const got = (cs) => cs.filter((c) => p.cards[c.id]).length;
+  const meter = (label, cs) => el('div.ik-meter', [
+    el('span', { text: label }), el('span.bar', [el('i', { style: `width:${(got(cs) / cs.length) * 100}%` })]), el('b', { text: `${got(cs)}/${cs.length}` }),
+  ]);
+  return [
+    card(`カード図鑑（${got(I.CARDS)} / ${I.CARDS.length} 種）`, [
+      el('div.ik-meters', [
+        ...Object.entries(I.PACKS).map(([id, name]) => meter(`第${id.slice(1)}弾【${name}】`, I.CARDS.filter((c) => c.pack === id))),
+        ...I.RARITIES.map((r) => meter(r, I.CARDS.filter((c) => c.rar === r))),
+      ]),
+    ]),
+    card('一覧', [
+      tabs([{ id: 'ALL', name: '全弾' }, ...Object.keys(I.PACKS).map((id) => ({ id, name: `第${id.slice(1)}弾` }))], f.pack, (v) => set('pack', v)),
+      tabs([{ id: 'ALL', name: '全レア' }, ...I.RARITIES.map((r) => ({ id: r, name: r }))], f.rar, (v) => set('rar', v)),
+      el('div.ik-grid', list.map((c) => (p.cards[c.id]
+        ? cardView(c, { scale: fit(0.26), count: p.cards[c.id], onClick: (x) => showCard(app, x) })
+        : el('div.ik-missing', { style: `width:${630 * fit(0.26)}px;height:${880 * fit(0.26)}px` }, [
+          el(`b.${RCLS(c.rar)}`, { text: c.rar }), el('span', { text: '？？？' }), el('small', { text: `No.${c.id.split('-')[1]}` }),
+        ])))),
     ]),
   ];
 }
@@ -587,7 +622,7 @@ function stableView(app, go) {
   const list = [...p.finished].sort((a, b) => b.rating - a.rating);
   return [card(`完成馬（${list.length} 頭）`, [
     el('div.ik-fins', list.map((h) => el('div.ik-finrow', [
-      finishedCard(h),
+      el('button.ik-finbtn', { onclick: () => go('horse', { id: h.id }), title: '詳しく見る' }, finishedCard(h)),
       el('div.row-btns', [
         button('対戦へ', () => { app.ikBattle = { ...(app.ikBattle ?? {}), horse: h.id }; go('battle'); }, { cls: 'sm primary' }),
         button('手放す', async () => {
@@ -597,6 +632,133 @@ function stableView(app, go) {
       ]),
     ]))),
   ])];
+}
+
+/** 脚質の名前（カードの style は 0 逃げ〜1 追込）。 */
+const styleName = (x) => (x < 0.25 ? '逃げ' : x < 0.5 ? '先行' : x < 0.75 ? '差し' : '追込');
+const MARK = (a) => (a >= 0.8 ? '◎' : a >= 0.7 ? '○' : a >= 0.6 ? '△' : '×');
+const r100 = (x) => Math.round(x / 100) * 100;
+
+/**
+ * 完成馬の詳細（牧場の馬の詳細 stable.js の detail と同じ組み立てを、育成モードの見た目で）。
+ * 見出し → 舞台（主役の切り抜き・情報の板・前後の馬へ送る） → タブ（詳細・成績・能力・血統） → 操作。
+ */
+function horseView(app, go) {
+  const p = app.ik;
+  const lineup = [...p.finished].sort((a, b) => b.rating - a.rating);
+  const h = lineup.find((x) => x.id === app.params.id) ?? lineup[0];
+  if (!h) return stableView(app, go);
+  const c = I.cardById(h.cardId);
+  const at = lineup.indexOf(h);
+  const step = (d) => app.go('ik', { view: 'horse', id: lineup[(at + d + lineup.length) % lineup.length].id }, { replace: true });
+
+  // 成績の内訳（育成のレースの記録から）
+  const races = h.races ?? [];
+  const tally = (rs) => [1, 2, 3].map((n) => rs.filter((r) => r.order === n).length).concat(rs.filter((r) => r.order > 3).length);
+  const lines = [
+    ['全成績', races], ['芝', races.filter((r) => r.surface === '芝')], ['ダート', races.filter((r) => r.surface === 'ダート')],
+    ['GⅠ', races.filter((r) => r.grade === 'GI')], ['GⅡ', races.filter((r) => r.grade === 'GII')], ['GⅢ', races.filter((r) => r.grade === 'GIII')],
+  ];
+  const big = races.filter((r) => r.order === 1 && /^G/.test(r.grade ?? ''));
+  const lo = Math.max(1000, r100(h.dist - (h.range ?? 400))), hi = Math.min(3600, r100(h.dist + (h.range ?? 400)));
+  const ribbon = h.giWins ? `GI ${h.giWins}勝の${h.sex === '牝' ? '名牝' : '名馬'}` : h.gradedWins ? '重賞馬' : h.wins ? `${h.wins}勝の${styleName(h.style)}馬` : '未勝利';
+
+  const img = el('img.ikx-sticker', { alt: h.name, draggable: false });
+  if (c) stickerInto(img, c);
+  const info = el('section.ikx-info', [
+    el('div.ikx-ribbon', { text: ribbon }),
+    el('div.ikx-rank', [el(`b.rk-${h.rank.replace('+', 'p')}`, { text: h.rank }), el('small', { text: `評価点 ${h.rating}` })]),
+    el('dl.ikx-rows', [
+      el('dt', { text: '戦績' }), el('dd', { text: `${h.starts}戦${h.wins}勝` }),
+      el('dt', { text: 'ファン' }), el('dd', { text: `${(h.fans ?? 0).toLocaleString()}人` }),
+      el('dt', { text: '対戦' }), el('dd', { text: `${h.battles}戦${h.battleWins}勝` }),
+      el('dt', { text: '距離' }), el('dd', [el('em', { text: `${lo}m` }), ' 〜 ', el('em', { text: `${hi}m` })]),
+      el('dt', { text: '馬場' }), el('dd.ikx-chips', [
+        el('i', { text: `芝${MARK(h.turf)}` }), el('i', { text: `ダ${MARK(h.dirt)}` }), el('i', { text: `良${MARK(h.firm)}` }), el('i', { text: `重${MARK(h.soft)}` }),
+      ]),
+      el('dt', { text: '脚質' }), el('dd.ikx-style', ['逃げ', '先行', '差し', '追込'].map((s) => el('i', { text: s[0], class: s === styleName(h.style) ? 'on' : null }))),
+    ]),
+  ]);
+  const stage = el('div.ikx-stage', [
+    el('div.ikh-city'),
+    el('button.ikx-hero', { onclick: () => c && showCard(app, c), title: 'カードを見る' }, img),
+    info,
+    lineup.length > 1 ? el('button.ikx-arrow.l', { onclick: () => step(-1), title: '前の馬' }, icon('back', { size: 24 })) : null,
+    lineup.length > 1 ? el('button.ikx-arrow.r', { onclick: () => step(1), title: '次の馬' }, icon('back', { size: 24 })) : null,
+  ]);
+
+  const TABS = [{ id: 'info', name: '詳細' }, { id: 'record', name: '成績' }, { id: 'abil', name: '能力' }, { id: 'ped', name: '血統' }];
+  app.ikHorseTab = TABS.some((t) => t.id === app.ikHorseTab) ? app.ikHorseTab : 'info';
+  const body = el('div.ikx-body');
+  const bar = el('nav.tabs');
+  const show = (tid) => {
+    app.ikHorseTab = tid;
+    bar.replaceChildren(...TABS.map((t) => el('button.tab', { text: t.name, class: t.id === tid ? 'on' : null, onclick: () => show(t.id) })));
+    body.replaceChildren(tabBody(tid));
+  };
+  const tabBody = (tid) => {
+    if (tid === 'record') {
+      return races.length ? table(['時期', 'レース', '距離', '着', '時計'], races.map((r) => [
+        I.SLOTS[r.slot]?.label ?? '', el('span', [r.grade ? el(`span.gr.${r.grade}`, { text: r.grade }) : null, ` ${r.name}`]),
+        `${r.surface}${r.distance}m`, el(`b${r.order === 1 ? '.win' : ''}`, { text: `${r.order}/${r.field}` }), r.time ? formatTime(r.time) : '—',
+      ]), { cls: 'ik-tbl' }) : el('p.note', { text: '記録が無い。' });
+    }
+    if (tid === 'abil') {
+      const plus = c ? I.plusOf(c) : null;
+      return el('div', [
+        el('div.ik-stats', I.STATS.map((k) => el('div.ik-stat', [
+          el('span.l', { text: I.STAT_LABEL[k] }),
+          el(`b.g.g-${I.gradeOfPts(h.stats[k]).replace('+', 'p')}`, { text: I.gradeOfPts(h.stats[k]) }),
+          el('span.n', { text: String(h.stats[k]) }),
+          el('span.bar', [el('i', { style: `width:${(h.stats[k] / 1200) * 100}%` }), plus ? el('em', { style: `left:${((600 + plus[k] * 120) / 1200) * 100}%` }) : null]),
+        ]))),
+        el('p.note', { text: '数字は育成で鍛えた点（1200 点が上限）。黄色の線はカードの +値で決まる伸びしろの上限。' }),
+      ]);
+    }
+    if (tid === 'ped') {
+      return el('div.ikx-ped', c ? [
+        el('div.pp.s', [el('small', { text: '父' }), el('b', { text: c.sire })]),
+        el('div.pp.d', [el('small', { text: '母' }), el('b', { text: c.dam })]),
+        el('div.pp.ds', [el('small', { text: '母の父' }), el('b', { text: c.damSire })]),
+        el('div.pp.ln', [el('small', { text: '系統' }), el('b', { text: c.line })]),
+      ] : [el('p.note', { text: 'カードが見つからない。' })]);
+    }
+    return el('div.ikx-cols', [
+      el('div', [
+        el('h4', { text: '成績の内訳（1着-2着-3着-着外）' }),
+        el('div.ikx-crs', lines.map(([l, rs]) => el('div', [el('span', { text: l }), el('b', { text: tally(rs).join('-') })]))),
+      ]),
+      el('div', [
+        el('h4', { text: '主な勝鞍' }),
+        big.length ? el('ul.ikx-wins', big.map((r) => el('li', [el(`span.gr.${r.grade}`, { text: r.grade }), ` ${r.name}`, el('small', { text: ` ${I.SLOTS[r.slot]?.label ?? ''}` })])))
+          : el('p.note', { text: '重賞の勝ち鞍はまだ無い。' }),
+        el('h4', { text: '育てたカード' }),
+        el('div.ikx-sups', [c ? el(`span.${RCLS(c.rar)}`, { text: `育成 ${c.rar} ${c.name}` }) : null,
+          ...(h.supports ?? []).map((id) => I.cardById(id)).filter(Boolean).map((s) => el(`span.${RCLS(s.rar)}`, { text: `${s.rar} ${s.name}` }))]),
+      ]),
+    ]);
+  };
+  show(app.ikHorseTab);
+
+  return [
+    el('header.ikx-top', [
+      el(`span.rb.r-${h.rar}`, { text: h.rar }),
+      el('div.ikx-name', [el('small', { text: c ? epithetOf(c) : '' }), el('b', { text: h.name })]),
+      el('span.ikx-sa', { text: `${h.sex}　${h.coat}` }),
+      lineup.length > 1 ? el('span.ikx-count', { text: `${at + 1} / ${lineup.length}` }) : null,
+    ]),
+    stage,
+    el('div.card.ikx-panel', [el('div.card-b', [bar, body])]),
+    el('div.ik-gbtns', [
+      button('この馬で対戦', () => { app.ikBattle = { ...(app.ikBattle ?? {}), horse: h.id }; go('battle'); }, { cls: 'primary' }),
+      c ? button('ホームに立たせる', () => { p.fav = c.id; save(app); toast(`${h.name}をホームに立たせた`); }) : null,
+      button('一覧へ', () => go('stable')),
+      button('手放す', async () => {
+        if (!await ask(`${h.name}を手放す？`, { ok: '手放す' })) return;
+        p.finished = p.finished.filter((x) => x !== h); save(app); go('stable');
+      }, { cls: 'ghost' }),
+    ]),
+  ];
 }
 
 // ---------------------------------------------------------------- 対戦
