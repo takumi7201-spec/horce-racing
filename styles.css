@@ -1921,3 +1921,42 @@ button.ikev-banner:active { transform: translateY(3px); box-shadow: 0 3px 0 var(
   .ikev-diff { gap: 5px; }
   .ikev-star b { font-size: 10px; }
 }
+
+/* ---- ガチャのバナー（ikusei.js の gachaBanner。イベントのバナー .ikev- を土台にする） ---- */
+.ikev-tag.gacha { background: var(--leaf); }
+.ikgb .ikev-rw i { font-size: 10px; }
+.ikgb.mix .ikgb-h0 { right: 22%; height: 100%; max-width: 46%; z-index: 0; }
+.ikgb.mix .ikgb-h1 { right: -3%; max-width: 46%; }
+.ikgb-faces { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.ikgb-faces small { font: 900 10px/1 system-ui, sans-serif; color: #d3e27f; margin-right: 2px; }
+.ikgb-face { width: 30px; height: 30px; border-radius: 50%; border: 2px solid #fff; background: #3e6a3c no-repeat; box-shadow: 0 0 0 1.5px #113035; }
+.ikgb-foot { font: 700 10.5px/1.2 system-ui, sans-serif; color: #f3f0e0cc; }
+.ikgb .ikev-tx { gap: 5px; }
+.ikgb .ikev-rw { margin-top: 2px; }
+.ikgb-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: -4px 0 14px; }
+.ikgb-mini { position: relative; height: 70px; overflow: hidden; padding: 0; cursor: pointer; text-align: left; border-radius: 14px; border: 2.5px solid var(--ink);
+  box-shadow: 0 4px 0 var(--ink); background: #1d4440; color: #fff; font: inherit; }
+.ikgb-mini .ikev-hero { height: 130%; max-width: 70%; bottom: -30%; }
+.ikgb-mini b { position: absolute; left: 10px; top: 9px; font: italic 900 15px/1 system-ui, sans-serif; text-shadow: 0 2px 0 #0b2224; }
+.ikgb-mini small { position: absolute; left: 10px; bottom: 8px; font: 800 10px/1 system-ui, sans-serif; color: #d3e27f; }
+.ikgb-mini.on { border-color: var(--sun); box-shadow: 0 0 0 3px var(--sun), 0 4px 0 var(--ink); transform: translateY(-2px); }
+.ikgb-mini:not(.on) { filter: saturate(.7) brightness(.85); }
+@media (max-width: 600px) {
+  .ikgb.mix .ikgb-h0 { right: 18%; max-width: 55%; }
+  .ikgb.mix .ikgb-h1 { max-width: 55%; }
+  .ikgb-face { width: 24px; height: 24px; }
+  .ikgb-mini { height: 58px; }
+  .ikgb-mini b { font-size: 12px; }
+}
+.ikev-rw i { white-space: nowrap; }
+@media (max-width: 600px) {
+  /* 狭い画面では看板の馬を右下に小さく、文字の後ろに回す（文字の上に馬が重なって読めなかった） */
+  .ikgb { height: 236px; }
+  .ikgb .ikev-tx { max-width: 100%; }
+  .ikgb .ikev-hero { height: 62%; max-width: 58%; bottom: -3%; right: -3%; }
+  .ikgb.mix .ikgb-h0 { display: none; }
+  .ikgb .ikev-sub { max-width: 62%; }
+  .ikgb .ikev-rw { max-width: 66%; }
+  .ikgb-face:nth-child(n+8) { display: none; }
+  .ikgb-foot { max-width: 60%; }
+}

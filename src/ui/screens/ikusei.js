@@ -271,10 +271,12 @@ function gachaView(app, go) {
     sound.play(top <= 1 ? 'bell' : top <= 2 ? 'win' : 'ok');
     go('gacha');
   };
-  const packs = [{ id: 'ALL', name: '全弾ミックス' }, ...Object.entries(I.PACKS).map(([id, name]) => ({ id, name: `第${id.slice(1)}弾【${name}】` }))];
+  const packs = ['ALL', ...Object.keys(I.PACKS)];
   return [
+    // 選んでいる弾のバナーを大きく、ほかの弾は下に小さく並べて押すと切り替わる（以前は文字のタブだけだった）
+    gachaBanner(app, app.ikPack),
+    el('div.ikgb-row', packs.map((id) => gachaBanner(app, id, { small: true, on: id === app.ikPack, onclick: () => { app.ikPack = id; go('gacha'); } }))),
     card('ガチャ', [
-      tabs(packs, app.ikPack, (id) => { app.ikPack = id; go('gacha'); }),
       el('div.ik-gbtns', [
         button('1 回引く', () => pull(1), { cls: 'primary' }),
         button('10 回引く', () => pull(10), { cls: 'primary big' }),
@@ -285,6 +287,49 @@ function gachaView(app, go) {
       el('div.ik-grid', last.map((g) => cardView(g.card, { scale: fit(0.3), badge: g.isNew ? 'NEW' : g.awaken ? `覚醒${g.awaken >= I.AWAKEN.max ? 'MAX' : g.awaken}` : null, onClick: (c) => showCard(app, c) }))),
     ]) : null,
   ];
+}
+
+/**
+ * ガチャのバナー。弾の看板の LM（PICK UP）の一枚絵を背景に、切り抜きを重ね、収録の LM の顔を並べる。
+ * 全弾ミックスは両方の弾の看板を並べる。small は弾を選ぶ小さな札（押すと切り替え）。
+ * 絵はカードの一枚絵を使い回す（cardArt。WebGL を増やさない：落とし穴 23）。
+ */
+const GACHA_PICK = { P1: 'イージーゴア', P2: 'ファンタスティックライト' };
+function gachaBanner(app, packId, { small = false, on = false, onclick = null } = {}) {
+  const inPack = (c) => c.pack in I.PACKS && (packId === 'ALL' || c.pack === packId);
+  const picks = (packId === 'ALL' ? Object.values(GACHA_PICK) : [GACHA_PICK[packId]]).map((n) => I.CARDS.find((c) => c.name === n)).filter(Boolean);
+  const lms = I.CARDS.filter((c) => inPack(c) && c.rar === 'LM');
+  const total = I.CARDS.filter(inPack).length;
+  const have = I.CARDS.filter((c) => inPack(c) && app.ik.cards[c.id]).length;
+  const bg = el('span.ikev-bg');
+  bgInto(bg, picks[0]);
+  const heroes = picks.map((c, i) => {
+    const im = el(`img.ikev-hero.ikgb-h${i}`, { alt: c.name, draggable: false });
+    stickerInto(im, c, { mode: 'img' });
+    return im;
+  });
+  const title = packId === 'ALL' ? '全弾ミックス' : `第${packId.slice(1)}弾`;
+  const sub = packId === 'ALL' ? Object.values(I.PACKS).map((n) => `【${n}】`).join('') : `【${I.PACKS[packId]}】`;
+  if (small) {
+    return el(`button.ikgb-mini${on ? '.on' : ''}`, { onclick }, [bg, el('span.ikev-shade'), heroes[0], el('b', { text: title }), el('small', { text: `${have}/${total}` })]);
+  }
+  const faces = lms.map((c) => {
+    const f = el('span.ikgb-face', { title: c.name });
+    whenVisible(f, () => stickerInto(f, c, { mode: 'face', zoom: 2.4 }));
+    return f;
+  });
+  return el(`div.ikev-banner.ikgb.${packId === 'ALL' ? 'mix' : 'one'}`, [
+    bg, el('span.ikev-shade'), ...heroes,
+    el('div.ikev-tx', [
+      el('span.ikev-tag.gacha', { text: 'GACHA' }),
+      el('small.ikev-en', { text: packId === 'ALL' ? 'ALL PACKS MIX' : `PACK ${packId.slice(1)}` }),
+      el('b.ikev-ttl', { text: title }),
+      el('span.ikev-sub', { text: sub }),
+      el('span.ikev-rw', [el('i', { text: 'PICK UP' }), el('span', { text: picks.map((c) => c.name).join('・') })]),
+      el('span.ikgb-faces', [el('small', { text: `LM ${lms.length} 種` }), ...faces]),
+      el('span.ikgb-foot', { text: `全 ${total} 種・所持 ${have} 種　LM ${Math.round(I.RATES.LM * 100)}%・SSR ${Math.round(I.RATES.SSR * 100)}%` }),
+    ]),
+  ]);
 }
 
 /** カードを大きく見る。 */
