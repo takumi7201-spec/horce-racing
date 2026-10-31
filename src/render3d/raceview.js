@@ -7,6 +7,7 @@
 import * as THREE from '../../vendor/three/three.module.min.js';
 import { buildTrackMesh, trackPoint } from './track.js';
 import { makeHorse, makeShadowPatch, FRAME_COLORS } from './horse3d.js';
+import { makeWind } from './wind.js';
 import { buildTrack, posToWorld, elevationAt, curvatureAt, trackBounds } from '../sim/course.js';
 import { sampleLog, logDuration } from '../sim/race.js';
 import { yawForZForward } from './orient.js';
@@ -109,11 +110,14 @@ export function createRaceView(canvas, race, opts = {}) {
   const horses = [];
   for (let i = 0; i < log.n; i++) {
     const meta = race.results.find((r) => r.horseId === log.ids[i]) ?? {};
+    // 毛色と白斑は画面から渡す（opts.looks）。結果の行は毛色を持たない。
+    const look = opts.looks?.get(log.ids[i]) ?? {};
     const h = makeHorse({
       id: log.ids[i],
       gate: log.gates[i],
       frame: log.frameNos ? log.frameNos[i] : Math.min(8, Math.ceil(log.gates[i] / 2)),
-      coat: meta.coat ?? '鹿毛',
+      coat: look.coat ?? meta.coat ?? '鹿毛',
+      marks: look.marks ?? null,
     });
     const shadow = makeShadowPatch();
     scene.add(h.group, shadow);
@@ -177,7 +181,14 @@ export function createRaceView(canvas, race, opts = {}) {
     }
   }
 
+  function setFov(f) {
+    if (camera.fov === f) return;
+    camera.fov = f;
+    camera.updateProjectionMatrix();
+  }
+
   function updateCamera(st) {
+    if (mode !== 'photo') setFov(48);
     const lead = st.lead;
     const packS = (st.ranked[0].s + st.ranked[Math.min(2, st.ranked.length - 1)].s) / 2;
     const packP = track.start + packS;
@@ -224,6 +235,23 @@ export function createRaceView(canvas, race, opts = {}) {
       const ahead = trackPoint(track, targetP + 45, target.off * 0.85, look);
       ahead.point.y += 1.2;
       camera.lookAt(ahead.point);
+    } else if (mode === 'photo') {
+      // ゴールの瞬間の一枚絵（カード用）。追う馬の斜め前の内側、低い位置から胸元を見上げる。
+      // 内から外を向くと、背景がスタンドと空になる（外から撮ると暗い内馬場が背景に広がった）。
+      // ただし内ラチより内には出ない（内馬場は走路より低く、手前が暗い段差で埋まった）。
+      // 横の位置は外ラチではなく馬から測る（東京の芝は幅 40m 近くあり、ラチ沿いの馬が豆粒になった）。
+      // 寄せずにその場に置く（止めた 1 コマを撮るので、前のコマから滑らせると構図が毎回ずれる）。
+      // 高さはどちらも馬の足元の標高から測る。決勝線の先は周回の境目をまたぐので、そこで標高を引くと
+      // 1.6m ずれた値が返り、カメラが地面を見下ろした（posToWorld は周回で折り返すが elevationAt は折り返さない）。
+      const ground = elevationAt(track, targetP);
+      const w = posToWorld(track, targetP + (opts.photoAhead ?? 12), Math.max(0.6, target.off + (opts.photoOut ?? -3)));
+      camPos.set(w.x, ground + (opts.photoHeight ?? 1.5), w.z);
+      camera.position.copy(camPos);
+      // 望遠で寄せる。広角で近づくと内馬場（暗い面）が画面の半分を占め、馬の背後が間延びした。
+      setFov(opts.photoFov ?? 26);
+      const at = posToWorld(track, targetP + 1.5, target.off);
+      look.set(at.x, ground + (opts.photoLookY ?? 1.5), at.z);
+      camera.lookAt(look);
     } else if (mode === 'aerial') {
       const t = trackPoint(track, packP, track.width / 2, look);
       camPos.set(t.point.x, t.point.y + 58, t.point.z);
@@ -264,6 +292,8 @@ export function createRaceView(canvas, race, opts = {}) {
     setCamera(m) { mode = m; },
     setFocus(id) { focusId = id; },
     get focus() { return focusId; },
+    /** スキル発動の光を馬に出す（見た目だけ）。 */
+    flare: addFlare,
     /** マークを付ける馬の id。 */
     setMarks(ids) { marks = new Set(ids); },
     seek(t) {
@@ -277,7 +307,8 @@ export function createRaceView(canvas, race, opts = {}) {
       disposed = true;
       api.pause();
       scene.traverse((o) => {
-        if (o.geometry) o.geometry.dispose();
+        // 馬の形は全頭・放牧地と使い回している（horse3d.js）。捨てると放牧地の馬まで作り直しになる。
+        if (o.geometry && !o.geometry.userData?.shared) o.geometry.dispose();
         const m = o.material;
         if (Array.isArray(m)) m.forEach((x) => x.dispose());
         else if (m) m.dispose();
@@ -291,7 +322,8 @@ export function createRaceView(canvas, race, opts = {}) {
     const hide = mode === 'jockey' ? (focusId ?? st.lead.id) : null;
     for (const h of horses) {
       const isFocus = h.id === focusId;
-      const on = (marks.has(h.id) || isFocus) && h.id !== hide;
+      // 一枚絵（photo）には目印を写さない。
+      const on = mode !== 'photo' && (marks.has(h.id) || isFocus) && h.id !== hide;
       h.marker.group.visible = on;
       if (!on) continue;
       h.marker.mat.color.setHex(isFocus ? MARK_FOCUS : MARK_OWN);
@@ -301,11 +333,102 @@ export function createRaceView(canvas, race, opts = {}) {
     }
   }
 
+  // 風の筋：寄ったカメラ（マーク・騎手・一枚絵）で、追っている馬の周りを後ろへ流す。
+  // 中継・俯瞰・並走・ゴール前では馬が小さく、筋が画面に散らばるだけなので出さない。流れる速さはレースの時間で測る（ゴール前のスローにも合う）。
+  // マークのカメラは 15m ほど離れるので、一枚絵より太くしないと 1〜2 ドットの線になって読めない。
+  const wind = makeWind({ count: 30, seed: 11, width: 2.2, opacity: 0.6 });
+  scene.add(wind.group);
+  let windT = 0;
+  function updateWind(st) {
+    const close = mode === 'mark' || mode === 'jockey' || mode === 'photo';
+    const fid = focusId ?? st.lead.id;
+    const h = close ? horses.find((x) => x.id === fid) : null;
+    const dt = Math.max(0, Math.min(0.1, time - windT));
+    windT = time;
+    if (!h) { wind.group.visible = false; return; }
+    wind.group.position.copy(h.group.position);
+    wind.group.rotation.y = h.group.rotation.y;
+    camera.updateMatrixWorld();
+    wind.update(dt, st.snap[h.index].v, camera);
+  }
+
+  // スキルの発動の光（育成モードの観戦）。馬の組に付けて一緒に動かす。見た目だけで、走行ログ（結果）には触らない。
+  // 寿命は実時間で測る（×0.5 の再生でも同じ長さで光る）。深度テストを切って、馬群に埋もれても見えるようにする（目印と同じ）。
+  const flares = [];
+  let columnTex = null;
+  function flareTexture() {
+    if (columnTex) return columnTex;
+    const c = document.createElement('canvas');
+    c.width = 4; c.height = 64;
+    const g = c.getContext('2d');
+    const gr = g.createLinearGradient(0, 64, 0, 0);
+    gr.addColorStop(0, 'rgba(255,255,255,1)');
+    gr.addColorStop(0.35, 'rgba(255,255,255,0.55)');
+    gr.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = gr;
+    g.fillRect(0, 0, 4, 64);
+    columnTex = new THREE.CanvasTexture(c);
+    return columnTex;
+  }
+  function addFlare(id, { color = 0x5ec8ff, big = false } = {}) {
+    const h = horses.find((x) => x.id === id);
+    if (!h) return;
+    const mk = (geo, opts = {}) => new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+      color, transparent: true, opacity: 0, depthTest: false, depthWrite: false,
+      blending: THREE.AdditiveBlending, side: THREE.DoubleSide, ...opts,
+    }));
+    const g = new THREE.Group();
+    const rings = [0, 0.22, ...(big ? [0.44] : [])].map((delay) => {
+      const m = mk(new THREE.RingGeometry(0.85, 1, 40));
+      m.rotation.x = -Math.PI / 2;
+      m.position.y = 0.08;
+      m.renderOrder = 19;
+      m.userData.delay = delay;
+      g.add(m);
+      return m;
+    });
+    const col = mk(new THREE.CylinderGeometry(1.25, 1.6, 1, 24, 1, true), { map: flareTexture() });
+    col.renderOrder = 18;
+    g.add(col);
+    h.group.add(g);
+    flares.push({ g, h, rings, col, t0: performance.now(), life: big ? 2.4 : 1.5, big });
+  }
+  function updateFlares() {
+    const now = performance.now();
+    for (let i = flares.length - 1; i >= 0; i--) {
+      const f = flares[i];
+      const age = (now - f.t0) / 1000;
+      const k = age / f.life;
+      if (k >= 1) {
+        f.h.group.remove(f.g);
+        f.g.traverse((o) => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
+        flares.splice(i, 1);
+        continue;
+      }
+      // 遠いカメラでも読める大きさに（目印と同じ考え）
+      const d = camera.position.distanceTo(f.h.group.position);
+      f.g.scale.setScalar(clamp(d / 30, 1, 4));
+      for (const r of f.rings) {
+        const t = clamp((age - r.userData.delay) / (f.life * 0.6), 0, 1);
+        r.scale.setScalar(1 + t * (f.big ? 7 : 5));
+        r.material.opacity = t > 0 && t < 1 ? (1 - t) * 0.95 : 0;
+      }
+      // 光の柱は立ち上がってから細って消える
+      const up = clamp(k / 0.25, 0, 1);
+      const hgt = (f.big ? 9 : 6) * up;
+      f.col.scale.set(1 - k * 0.5, Math.max(0.01, hgt), 1 - k * 0.5);
+      f.col.position.y = hgt / 2;
+      f.col.material.opacity = (k < 0.25 ? up : 1 - (k - 0.25) / 0.75) * (f.big ? 0.85 : 0.65);
+    }
+  }
+
   function draw() {
     const st = sampleState();
     placeHorses(st);
     updateCamera(st);
     updateMarkers(st);
+    updateWind(st);
+    updateFlares();
     renderer.render(scene, camera);
     if (api.onFrame) {
       api.onFrame({

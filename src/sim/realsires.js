@@ -15,10 +15,12 @@
 // 自分で持った実在の馬をいつ引退させ、何に付けるかはプレイヤーが決める。
 
 import { REAL_HORSES } from './data/real-horses.js';
-import { createHorse } from './horse.js';
+import { createHorse, resetHorseIds, peekHorseId } from './horse.js';
+import { makeRng } from '../core/rng.js';
 import { breed } from './breeding.js';
 import { SEX, ABILITIES, classForWins } from './params.js';
 import { clamp01 } from '../core/util.js';
+import { nurseryReach } from './training.js';
 
 const STYLE_VALUE = { 逃: 0.1, 先: 0.32, 差: 0.62, 追: 0.86 };
 const DEFS = new Map(REAL_HORSES.map((d) => [d.n, d]));
@@ -81,12 +83,15 @@ function potentials(lvl, dist, surf) {
 }
 
 /** 表の素質・適性を馬に写す。戦績には触らない。 */
-function applyTraits(h, d) {
+export function applyTraits(h, d) {
   const female = d.s === '牝';
   const lvl = d.lvl ?? (female ? 0.62 : 0.8);
   const dist = d.dist ?? 2000;
   const surf = d.surf ?? 'T';
   const pot = potentials(lvl, dist, surf);
+  // 史実馬の一覧の能力（d.ab）があれば、スピード・パワー・根性・賢さはその値のまま使う。
+  // スタミナは一覧に対応する値が無い（距離適性の隠し値）ので、距離から導いた値のまま。
+  if (d.ab) Object.assign(pot, { speed: lvl, power: d.ab.power, guts: d.ab.guts, wit: d.ab.wit });
   for (const a of ABILITIES) {
     h.pot[a] = clamp01(pot[a]);
     h.cur[a] = h.pot[a];
@@ -102,8 +107,8 @@ function applyTraits(h, d) {
   h.style = STYLE_VALUE[d.style] ?? 0.45;
   h.styleFlex = 0.55;
   h.temper = d.temper ?? 0.6;
-  h.sound = 0.7;
-  h.spirit = clamp01(0.6 + (lvl - 0.7) * 1.2);
+  h.sound = d.sound ?? 0.7;
+  h.spirit = d.spirit ?? clamp01(0.6 + (lvl - 0.7) * 1.2);
   h.weightKg = female ? 470 : 500;
   h.real = true;
   if (d.head) h.lineHead = true;
@@ -112,6 +117,7 @@ function applyTraits(h, d) {
   if (d.os || d.abroad) h.foreign = true;
   // 表の供用年を導いた馬（取り込んだ勝ち馬）。名簿の整理では架空の馬と同じ扱いにする。
   if (d.sd) h.studDerived = true;
+  if (d.fert != null) h.fert = d.fert;
 }
 
 /** 表の戦績を写す。big は upto 年より前の勝鞍だけ（まだ行われていないレースを並べない）。 */
@@ -144,6 +150,49 @@ const madeHorse = (world, name) => {
 };
 
 /**
+ * 古いセーブで、実在馬の父母がつながっていない馬を、今の表の血統でつなぎ直す。
+ * セーブは世界の馬そのものを保存するので、表の血統を足したあとも、昔のセーブのミスタープロスペクターなどは
+ * 父母の無いまま読み込まれ、血統表が真っ白に見える。世界を作り直さずに済ませるため、ロードのたびに
+ * 「表には父母がいるのに、世界の馬には無い」実在馬だけを結ぶ（結び終えた世界では何もしない）。
+ * 世界に居ない親は作る（表の馬を作るのと同じ make。亡くなっているかは年で決める）。
+ * 乱数は世界の主乱数に触らない（ロード後の 1 週が保存前と同じ結果になるように、別の乱数を使う）。
+ */
+export function healRealPedigrees(world) {
+  if (!world.real) return 0;
+  const year = world.year;
+  const rng = makeRng(((year * 53 + world.week) ^ 0x5bd1e995) >>> 0);
+  let linked = 0;
+  for (const d of REAL_HORSES) {
+    const h = madeHorse(world, d.n);
+    if (!h) continue;
+    for (const role of ['sire', 'dam']) {
+      const key = role === 'sire' ? 'sireId' : 'damId';
+      if (h[key] != null || !d[role]) continue;
+      const pd = DEFS.get(d[role]);
+      if (!pd || pd.b > h.birthYear - 2) continue;
+      let p = madeHorse(world, d[role]);
+      if (!p) {
+        const before = new Set(Object.keys(world.real.ids));
+        p = make(world, rng, d[role], { year });
+        for (const [name, id] of Object.entries(world.real.ids)) {
+          if (before.has(name)) continue;
+          const nh = world.horses.get(id), nd = DEFS.get(name);
+          if (!nh || !nd) continue;
+          nh.dead = nd.died != null ? nd.died < year : year - nh.birthYear > (nh.sex === SEX.FEMALE ? 22 : 25);
+          nh.stallion = false;
+          nh.broodmare = false;
+        }
+      }
+      h[key] = p.id;
+      p.foals ??= [];
+      if (!p.foals.includes(h.id)) p.foals.push(h.id);
+      linked++;
+    }
+  }
+  return linked;
+}
+
+/**
  * 表の馬を 1 頭作る。親が居なければ親から作る。
  * 日本で生まれるはずの親（born）がこの世界でまだ生まれていなければ、その親は空欄にする。
  * live なら現役の競走馬として、そうでなければ引退した馬として作る。
@@ -157,7 +206,8 @@ function make(world, rng, name, { year, live = false }) {
   const parent = (pn) => {
     if (!pn) return null;
     const pd = DEFS.get(pn);
-    if (!madeHorse(world, pn) && originOf(pd) === 'born' && pd.b >= world.startYear) return null;
+    // 仮の世界（名鑑から見るだけ）では、まだ生まれていない親も表のとおりに作る。
+    if (!world._preview && !madeHorse(world, pn) && originOf(pd) === 'born' && pd.b >= world.startYear) return null;
     return make(world, rng, pn, { year });
   };
   const sire = parent(d.sire);
@@ -167,6 +217,8 @@ function make(world, rng, name, { year, live = false }) {
     sireId: sire?.id ?? null, damId: dam?.id ?? null,
   });
   applyTraits(h, d);
+  // 血統をつなぐだけの祖先（競走馬としての能力を持たない）は、血統表から遠くなったら世界から捨てる（pruneAncestry）。
+  if (originOf(d) === 'bg' && d.lvl == null && !d.mare) h.pedOnly = true;
   if (live) {
     // 現役の馬は表の戦績を持ち込まない（この世界のレースで勝ち負けを決める）。
     // 開始年より前の勝鞍だけは事実として残す。
@@ -174,7 +226,9 @@ function make(world, rng, name, { year, live = false }) {
       year: y, name: raceName, grade, order: 1, field: 16, past: 1,
     }));
     h.g1Wins = h.record.filter((r) => r.grade === 'GI').length;
-    for (const a of ABILITIES) h.cur[a] = clamp01(h.pot[a] * 0.22);
+    // 1 歳はその週までの育成を受けている（海外セールで買う「のちの○○」は 12 月に作る。落とし穴 88）。
+    const reach = year - d.b === 1 ? Math.max(0.22, nurseryReach(world.week ?? 1)) : 0.22;
+    for (const a of ABILITIES) h.cur[a] = clamp01(h.pot[a] * reach);
     h.classId = 'maiden';
   } else {
     applyCareer(h, d, year);
@@ -216,7 +270,12 @@ export function seedRealHorses(world, rng) {
       && !(d.died != null && d.died < S);
     // 海外の名馬は、まだ海外で種牡馬になっていない若駒なら作らない（1 歳ならセールに出る）。
     // 親として要るときだけ make が作る。
-    if (d.os && (d.abroad ? d.abroad[0] > S : age <= RACING_AGE)) continue;
+    // 1 歳以下は海外セールに出る（買うまで世界に作らない。落とし穴 33・42）。2 歳以上の海外馬は世界に居る
+    // （海外で走っている馬。日本のレースには出ず、「海外で現役」と名鑑に出る）。名牝（amare）の若い馬は海外セールの繁殖牝馬。
+    if (d.os) {
+      if (d.abroad) { if (d.abroad[0] > S) continue; }
+      else if (age <= 1 || (d.amare && age <= RACING_AGE)) continue;
+    }
     if (racing) {
       live.push(make(world, rng, d.n, { year: S, live: true }));
       continue;
@@ -530,6 +589,37 @@ export const decadeOf = (b) => (b < 1970 ? 1960 : Math.floor(b / 10) * 10);
  * 血統をつなぐためだけの母や祖先は載せない。
  * status.key は future（これから生まれる・来る）/ here（この世界に居る）/ dead / lost（生まれなかった）/ none。
  */
+/** 名鑑の「いま」。 */
+function statusOf(world, d, h, o = originOf(d)) {
+  const y = world.year;
+  let status;
+  if (!h) {
+    const e = entryOf(d);
+    if (d.b >= y) status = { key: 'future', text: `${d.b}年に誕生` };
+    else if (d.abroad && d.abroad[0] > y) status = { key: 'future', text: `${d.abroad[0]}年から海外で供用` };
+    else if ((o === 'imp' || o === 'appear') && e != null && e > y) {
+      status = { key: 'future', text: `${e}年に${d.stud ? '種牡馬入り' : '繁殖入り'}` };
+    } else if (o === 'born' && d.b >= world.startYear) status = { key: 'lost', text: 'この世界では生まれなかった' };
+    else if (d.amare && d.amare[0] <= y + 1 && (d.amare[1] == null || y + 1 <= d.amare[1])
+      && (d.died == null || d.died > y)) status = { key: 'abroad', text: '海外で繁殖牝馬' };
+    else if (d.os && y - d.b <= 5) status = { key: 'abroad', text: y - d.b < 2 ? '海外の幼駒' : '海外で現役' };
+    else status = { key: 'none', text: '—' };
+  } else if (h.dead) status = { key: 'dead', text: '故馬' };
+  else if (h.abroadFee && h.retired && h.ownerId !== 'player') status = { key: 'here', text: '海外で供用中' };
+  else if (h.stallion) status = { key: 'here', text: `種牡馬 ${h.studFee ?? 0}万` };
+  else if (h.broodmare) status = { key: 'here', text: '繁殖牝馬' };
+  else if (d.os && h.retired && !d.abroad && !d.imp && y - h.birthYear <= RACING_AGE) {
+    status = { key: 'here', text: y - h.birthYear < 2 ? '海外の幼駒' : '海外で現役' };
+  }
+  else if (!h.retired) {
+    const age = y - h.birthYear;
+    status = { key: 'here', text: age < 2 ? `幼駒（${age}歳）` : `現役 ${age}歳` };
+  } else status = { key: 'here', text: '引退' };
+  return status;
+}
+
+const realBook1 = (world, d) => statusOf(world, d, madeHorse(world, d.n));
+
 export function realBook(world) {
   if (!world.real) return [];
   const y = world.year;
@@ -541,34 +631,21 @@ export function realBook(world) {
     const female = d.s === '牝';
     const role = d.stud || d.abroad ? '種牡馬' : d.mare || d.amare ? '繁殖牝馬' : '競走馬';
     const where = d.imp ? '輸入' : d.os || d.abroad || d.amare ? '海外' : '日本';
-    let status;
-    if (!h) {
-      const e = entryOf(d);
-      if (d.b >= y) status = { key: 'future', text: `${d.b}年に誕生` };
-      else if (d.abroad && d.abroad[0] > y) status = { key: 'future', text: `${d.abroad[0]}年から海外で供用` };
-      else if ((o === 'imp' || o === 'appear') && e != null && e > y) {
-        status = { key: 'future', text: `${e}年に${d.stud ? '種牡馬入り' : '繁殖入り'}` };
-      } else if (o === 'born' && d.b >= world.startYear) status = { key: 'lost', text: 'この世界では生まれなかった' };
-      else if (d.amare && d.amare[0] <= y + 1 && (d.amare[1] == null || y + 1 <= d.amare[1])
-        && (d.died == null || d.died > y)) status = { key: 'abroad', text: '海外で繁殖牝馬' };
-      else if (d.os && y - d.b <= 5) status = { key: 'abroad', text: y - d.b < 2 ? '海外の幼駒' : '海外で現役' };
-      else status = { key: 'none', text: '—' };
-    } else if (h.dead) status = { key: 'dead', text: '故馬' };
-    else if (h.abroadFee && h.retired && h.ownerId !== 'player') status = { key: 'here', text: '海外で供用中' };
-    else if (h.stallion) status = { key: 'here', text: `種牡馬 ${h.studFee ?? 0}万` };
-    else if (h.broodmare) status = { key: 'here', text: '繁殖牝馬' };
-    else if (!h.retired) {
-      const age = y - h.birthYear;
-      status = { key: 'here', text: age < 2 ? `幼駒（${age}歳）` : `現役 ${age}歳` };
-    } else status = { key: 'here', text: '引退' };
+    const status = statusOf(world, d, h, o);
     const big = d.big ?? [];
     out.push({
       name: d.n, birthYear: d.b, sex: female ? '牝' : '牡', coat: d.c ?? '鹿毛',
       sire: d.sire ?? '—', dam: d.dam ?? '—', role, where,
       decade: decadeOf(d.b),
+      style: d.style ?? null,
       bigWins: big.map(([yr, race]) => `${yr} ${race}`),
       g1: big.filter((x) => x[2] === 'GI').length,
       id: h?.id ?? null,
+      // 世界に居ない馬（海外の若駒・これから生まれる馬など）の詳細は、表の値をそのまま見せる。
+      traits: d.lvl == null ? null : {
+        lvl: d.lvl, ab: d.ab ?? null, sound: d.sound ?? null, spirit: d.spirit ?? null,
+        surf: d.surf ?? null, dist: d.dist ?? null, range: d.range ?? null, style: d.style ?? null, growth: d.growth ?? null,
+      },
       mine: h?.ownerId === 'player',
       // この世界で走った成績（史実の数字ではなく、ゲームの中で積み上げたもの）。
       world: h && h.birthYear >= world.startYear - 1 && h.starts > 0
@@ -577,6 +654,104 @@ export function realBook(world) {
     });
   }
   return out;
+}
+
+/**
+ * 血統表の欠けを表の血統で補う（表示だけ。世界には足さない）。
+ * 世界は名前だけの祖先を、血統表から遠くなると捨てる（pruneAncestry。総馬数の上限のため）。昔の名馬
+ * （セクレタリアト・アファームド）の母の側はそれで欠け、表には 58 枠あるのに血統表は 20 枠しか出なかった。
+ * 実在馬の枠が空いていて、表にその親が居れば、表から名前・性・因子を出す。
+ */
+export function fillPedigreeFromTable(world, rootId, tree, gens) {
+  const root = world.horses.get(rootId);
+  if (!tree || !root) return tree;
+  const tableNode = (name, g) => {
+    if (!name || g > gens) return null;
+    const d = DEFS.get(name);
+    if (!d) return null;
+    return {
+      id: null, name, sex: d.s === '牝' ? SEX.FEMALE : SEX.MALE, line: null,
+      factors: d.f ?? [], head: !!d.head, real: true, fromTable: true,
+      sire: tableNode(d.sire, g + 1), dam: tableNode(d.dam, g + 1),
+    };
+  };
+  const patch = (name, sub, g) => {
+    const d = DEFS.get(name);
+    for (const role of ['sire', 'dam']) {
+      const child = sub[role];
+      if (child) { if (child.real && g < gens) patch(child.name, child, g + 1); }
+      else if (d?.[role]) sub[role] = tableNode(d[role], g);
+    }
+  };
+  // 架空の馬でも、血統表の中の実在馬（付け替えた祖先）の先は表で補える。根が架空なら根の父母は補わない。
+  if (root.real) patch(root.name, tree, 1);
+  else for (const role of ['sire', 'dam']) if (tree[role]?.real) patch(tree[role].name, tree[role], 2);
+  return tree;
+}
+
+/**
+ * 表で因子を決めた馬（d.f）の因子を、世界の馬に写す。能力と同じく因子も馬を作るときにしか写さないので、
+ * 古いセーブの馬は表に足した因子を持たない（落とし穴 60）。読み込みのたびに呼ぶ。足りない因子だけ足す。乱数は使わない。
+ */
+export function syncRealFactors(world) {
+  if (!world.real) return 0;
+  let n = 0;
+  for (const d of REAL_HORSES) {
+    if (!d.f?.length) continue;
+    const h = madeHorse(world, d.n);
+    if (!h) continue;
+    const have = new Set(h.factors ?? []);
+    if (d.f.every((f) => have.has(f))) continue;
+    // 表の因子を先に置く（因子は 2 つまで。血統支配率で付いた因子より表を優先する）。
+    h.factors = [...new Set([...d.f, ...have])].slice(0, Math.max(2, d.f.length));
+    n++;
+  }
+  return n;
+}
+
+/** 名鑑から開く「世界に居ない馬」の仮の id。世界の馬の id と重ならない帯に置く。 */
+export const PREVIEW_ID_BASE = 1e9;
+
+/**
+ * 世界に居ない実在馬（これから生まれる・この世界では生まれなかった・海外の若駒）を、馬の詳細で見せるための仮の世界。
+ * 名鑑の行を押しても表の値のモーダルしか出なかったので、世界の馬と同じ詳細画面（血統表・能力・成績）で見せたい。
+ * 世界そのものには何も足さない：馬の索引は世界の上に重ねた別の Map、実在馬の状態も写し、
+ * 馬の id は別の帯（PREVIEW_ID_BASE〜）で採ってから採番を元に戻す（セーブとロード後の 1 週を変えない。落とし穴 14・47）。
+ * 乱数も世界の主乱数に触らない。
+ */
+export function realPreview(world, name) {
+  const d = DEFS.get(name);
+  if (!d || !world.real) return null;
+  const have = madeHorse(world, name);
+  if (have) return { world, id: have.id };
+  const base = world.horses;
+  const own = new Map();
+  const horses = new Map();
+  horses.get = (id) => own.get(id) ?? base.get(id);
+  horses.has = (id) => own.has(id) || base.has(id);
+  horses.set = (id, h) => own.set(id, h);
+  const shadow = Object.create(world);
+  Object.assign(shadow, {
+    horses, nameSet: new Set(),
+    real: { ids: { ...world.real.ids }, entered: [] },
+    _lineMemo: null, _strongMemo: null, _lineShare: null, _raceCache: null, _preview: true,
+  });
+  let seed = 7;
+  for (const c of name) seed = (seed * 31 + c.charCodeAt(0)) >>> 0;
+  const saved = peekHorseId();
+  resetHorseIds(PREVIEW_ID_BASE);
+  let h;
+  try {
+    // 戦績は史実のすべてを見せる（世界の年で切ると、これから生まれる馬は勝鞍が空になる）。
+    h = make(shadow, makeRng(seed), name, { year: 9999 });
+  } finally {
+    resetHorseIds(saved);
+  }
+  const st = realBook1(world, d);
+  h.preview = st.text;
+  if (d.died != null) h.dead = d.died < world.year;
+  if (d.b >= world.year) h.dead = false;
+  return { world: shadow, id: h.id };
 }
 
 /** 史実の名で登録される予定の馬か（セールで「史実」と分かるように）。 */

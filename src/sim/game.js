@@ -3,24 +3,27 @@
 // 画面はここだけを見る。world.js の中身を直接いじらせないことで、
 // 「セーブ可能な状態」と「表示のための導出値」を分けている。
 
-import { createWorld, advanceWeek, weekRaces, weekGround, horsesOf, stallionList, computeLeaders, retireHorse } from './world.js';
-import { eligible, weekLabel, gradedCalendar, GRADED_BY_ID, meetingsOf } from './schedule.js';
+import { createWorld, advanceWeek, weekRaces, weekGround, horsesOf, stallionList, computeLeaders, retireHorse, retireOutcome as worldRetireOutcome, playerFame } from './world.js';
+import { eligible, weekLabel, gradedCalendar, GRADED_BY_ID, meetingsOf, ABROAD_COST } from './schedule.js';
 import { horseAge, effectiveAbility, styleLabel, distanceAptitude, canRun, STYLE_TARGET } from './horse.js';
 import { readyToRun, MENUS, fitLabel, condLabel } from './training.js';
 import {
   matingEval, pedigreeTree, nicksValue, lineLabel, breedQuality, FACTORS, factorsOf, factorBonus, vigorOf,
 } from './pedigree.js';
-import { abroadSires, realBook as realBookOf } from './realsires.js';
+import { abroadSires, realBook as realBookOf, realPreview as realPreviewOf, fillPedigreeFromTable } from './realsires.js';
 import { studFeeOf, canBeBroodmare } from './breeding.js';
 import { previewOdds } from './race.js';
 import { makeRng, hashSeed } from '../core/rng.js';
 import { EVENTS, eventsAt, eventOpen } from './calendar.js';
+import * as F from './facilities.js';
+import { evaluateTheories, THEORY_GUIDE, theoryName, burstComment, riskComment } from './theories.js';
 import * as S from './sales.js';
 import {
   ABILITIES, SEX, WEEKS_PER_YEAR, classOrder, className, standardWeight,
-  weekToMonth, STYLES,
+  weekToMonth, STYLES, ABROAD_FAME,
 } from './params.js';
-import { SURFACE, courseName, getCourse, DIR } from './course.js';
+import { SURFACE, courseName, courseShort as courseShortOf, getCourse, DIR } from './course.js';
+import { marksOf } from './markings.js';
 import { clamp01, sum, byDesc, formatMoney, formatTime, rankOf } from '../core/util.js';
 
 /** 新規ゲーム。 */
@@ -59,17 +62,34 @@ export const getHorse = (g, id) => g.world.horses.get(id);
 export const getJockey = (g, id) => g.world.jockeys.get(id);
 export const getTrainer = (g, id) => g.world.trainers.get(id);
 
+/**
+ * レースの 3D に渡す見た目（馬 id → { coat, marks }）。走った結果の行は毛色を持たないので、世界の馬から引く。
+ * 渡さないと 3D は全頭を鹿毛で描いていた。世界に居ない馬（米国のレースの頭数埋め）は鹿毛のまま。
+ */
+export function raceLooks(g, race) {
+  const out = new Map();
+  for (const r of race.results) {
+    const h = g.world.horses.get(r.horseId);
+    if (h) out.set(r.horseId, { coat: h.coat, marks: marksOf(h) });
+  }
+  return out;
+}
+
 /** 表示用の 1 頭ぶんの情報。画面はこれを読むだけで済む。 */
 export function horseView(g, id) {
   const w = g.world;
   const h = w.horses.get(id);
   if (!h) return null;
-  const eff = effectiveAbility(h, w.year);
-  const raw = effectiveAbility(h, w.year, { ignoreCondition: true });
+  // 名鑑から開いた世界に居ない馬は、まだ生まれていないこともあるので、4 歳（盛り）の姿で見せる。
+  // 幼駒は 2 歳の物差しで見せる。成長曲線は 0〜1 歳が 0 なので、そのままだと育成で育っても
+  // 能力がすべて G のまま（「最低ステータス」に見えた）。2 歳の年明けに見える値とつながる。
+  const vy = h.preview ? h.birthYear + 4 : Math.max(w.year, h.birthYear + 2);
+  const eff = effectiveAbility(h, vy);
+  const raw = effectiveAbility(h, vy, { ignoreCondition: true });
   return {
     horse: h,
-    id: h.id, name: h.name, sex: h.sex, coat: h.coat,
-    age: horseAge(h, w.year),
+    id: h.id, name: h.name, sex: h.sex, coat: h.coat, marks: marksOf(h),
+    age: h.preview ? null : horseAge(h, w.year),
     owner: w.owners.get(h.ownerId)?.name ?? '—',
     isMine: h.ownerId === 'player',
     trainer: w.trainers.get(h.trainerId)?.name ?? '—',
@@ -105,6 +125,8 @@ export function horseView(g, id) {
     real: !!h.real,
     foreign: !!h.foreign,
     factors: (h.factors ?? []).map((f) => FACTORS[f]),
+    // 生まれたときに成立していた配合理論。
+    theories: (h.theories ?? []).map(theoryName).filter(Boolean),
     // 系統を確立した馬（系祖）。実在の系祖は「○○系の祖」、ゲーム中に確立したらその年。
     lineHead: !!h.lineHead,
     lineEstablished: h.lineEstablished ?? null,
@@ -115,6 +137,8 @@ export function horseView(g, id) {
     provisional: h.regName != null,
     foals: (h.foals ?? []).map((fid) => w.horses.get(fid)).filter(Boolean),
     retired: h.retired,
+    // 名鑑から開いた、世界に居ない実在馬（「1980年に誕生」など）。
+    preview: h.preview ?? null,
   };
 }
 
@@ -125,7 +149,10 @@ function damSireName(w, h) {
 }
 
 /** 血統表（世代数指定）。 */
-export const pedigree = (g, id, gens = 4) => pedigreeTree(g.world, id, gens);
+/** 実在馬の欠けた枠は表の血統で補う（表示だけ。fillPedigreeFromTable）。 */
+export const pedigree = (g, id, gens = 4) => fillPedigreeFromTable(g.world, id, pedigreeTree(g.world, id, gens), gens);
+/** 因子の id → 表示名。血統図の因子の印に使う。 */
+export const factorLabels = () => FACTORS;
 
 // ---------------------------------------------------------------- 番組と登録
 
@@ -148,6 +175,9 @@ function decorate(w, r) {
   return {
     ...r,
     courseName: courseName(r.courseId),
+    courseShort: courseShortOf(r.courseId),
+    // 海外のレースは走るときに遠征費を払う（world.js）。
+    abroadCost: r.abroad ? ABROAD_COST : 0,
     className: r.grade ?? className(r.classId),
     ageLabel: r.age[1] >= 99 ? `${r.age[0]}歳以上` : `${r.age[0]}歳`,
     sexLabel: r.sex === '牝' ? '牝' : '',
@@ -175,42 +205,77 @@ export function racesFor(g, horseId, weekOffset = 0) {
     .sort(byDesc((r) => r.apt * (r.classGap === 0 ? 1 : r.classGap === 1 ? 0.75 : 0.4)));
 }
 
-/** 出走登録。1 頭 1 週 1 レース。 */
+/** 先 n 週ぶんの (年, 週)。登録は今週から 1 年先（48 週）まで。 */
+function weekAt(w, offset) {
+  let wk = w.week + offset, yr = w.year;
+  while (wk > WEEKS_PER_YEAR) { wk -= WEEKS_PER_YEAR; yr++; }
+  return { year: yr, week: wk };
+}
+
+/** 登録できる最大の先の週数。 */
+export const ENTRY_HORIZON = WEEKS_PER_YEAR;
+
+/**
+ * 出走登録。今週から 1 年先までの番組に登録できる（1 頭は同じ週に 1 レースだけ）。
+ * 先の週の登録は、その週が来たときに出走資格・体調を見直す。
+ * 条件戦は賞金や勝ち星で資格が変わるので、登録した時点では通っても、当日に外れることがある。
+ */
 export function enterRace(g, horseId, raceId, { jockeyId = null, styleOrder = null } = {}) {
   const w = g.world;
   const h = w.horses.get(horseId);
   if (!h) return { ok: false, why: '馬が見つからない' };
-  const ready = readyToRun(h);
-  if (!ready.ok) return { ok: false, why: ready.why };
-  const race = weekRaces(w).find((r) => r.raceId === raceId);
-  if (!race) return { ok: false, why: 'そのレースは今週ではない' };
-  if (!eligible(race, h, w.year)) return { ok: false, why: '出走条件を満たさない' };
-  // 同じ馬の二重登録と、同じレースへの複数登録を外す。
+  let found = null;
+  for (let i = 0; i < ENTRY_HORIZON && !found; i++) {
+    const at = weekAt(w, i);
+    const race = weekRaces(w, at.week, at.year).find((r) => r.raceId === raceId);
+    if (race) found = { race, ...at, offset: i };
+  }
+  if (!found) return { ok: false, why: 'そのレースは登録できる期間に無い' };
+  // 今週のレースは今の体調で見る。先の週は、その週に見直す（けがは治っているかもしれない）。
+  if (found.offset === 0) {
+    const ready = readyToRun(h);
+    if (!ready.ok) return { ok: false, why: ready.why };
+  } else if (h.stable !== 'stable' && h.stable !== 'pasture') {
+    return { ok: false, why: '現役の馬ではない' };
+  }
+  if (!eligible(found.race, h, found.year)) return { ok: false, why: '出走条件を満たさない' };
+  // 同じ馬が同じ週に二つのレースへは登録できない（登録し直すと入れ替わる）。
   for (const [rid, e] of [...w.player.entries]) {
-    if (e.horseId === horseId) w.player.entries.delete(rid);
+    if (e.horseId === horseId && e.year === found.year && e.week === found.week) w.player.entries.delete(rid);
   }
   w.player.entries.set(raceId, {
-    raceId, horseId,
+    raceId, horseId, year: found.year, week: found.week,
     jockeyId: jockeyId ?? h.jockeyId,
     styleOrder: styleOrder ?? null,
   });
-  return { ok: true, race: decorate(w, race) };
+  return { ok: true, race: decorate(w, found.race), year: found.year, week: found.week };
 }
 
 export function cancelEntry(g, raceId) {
   g.world.player.entries.delete(raceId);
 }
 
+/**
+ * 自分の登録の一覧（日付順）。thisWeek が今週の分。
+ * 古いセーブの登録は年と週を持たないので、今週のものとして扱う。
+ */
 export function myEntries(g) {
   const w = g.world;
-  const races = weekRaces(w);
-  return [...w.player.entries.values()].map((e) => ({
-    ...e,
-    race: decorate(w, races.find((r) => r.raceId === e.raceId) ?? {}),
-    horse: w.horses.get(e.horseId),
-    jockeyName: w.jockeys.get(e.jockeyId)?.name ?? '—',
-  }));
+  return [...w.player.entries.values()].map((e) => {
+    const year = e.year ?? w.year, week = e.week ?? w.week;
+    const race = weekRaces(w, week, year).find((r) => r.raceId === e.raceId);
+    return {
+      ...e, year, week, label: weekLabel(week),
+      thisWeek: year === w.year && week === w.week,
+      race: decorate(w, race ?? {}),
+      horse: w.horses.get(e.horseId),
+      jockeyName: w.jockeys.get(e.jockeyId)?.name ?? '—',
+    };
+  }).sort((a, b) => a.year - b.year || a.week - b.week);
 }
+
+/** 今週走る予定の登録。 */
+export const myEntriesNow = (g) => myEntries(g).filter((e) => e.thisWeek);
 
 /** 騎乗を頼める騎手の一覧（腕順）。 */
 export function availableJockeys(g, limit = 40) {
@@ -251,13 +316,27 @@ export function setMainJockey(g, horseId, jockeyId) {
   return true;
 }
 
-/** 引退させる。 */
-export function retire(g, horseId) {
+/** 引退させたらどうなるか：'stallion'（種牡馬）・'broodmare'（繁殖牝馬）・'none'。 */
+export function retireOutcome(g, horseId) {
+  const h = g.world.horses.get(horseId);
+  return h ? worldRetireOutcome(g.world, h) : 'none';
+}
+
+/**
+ * 引退させる。breed: false で種牡馬・繁殖に上げない（実在馬は既定で必ず上がるので、その逃げ道）。
+ */
+export function retire(g, horseId, { breed = true } = {}) {
   const w = g.world;
   const h = w.horses.get(horseId);
   if (!h || h.retired) return false;
-  retireHorse(w, h, w.rng, w.news);
+  retireHorse(w, h, w.rng, w.news, { breed });
   return true;
+}
+
+/** 名声と、海外の種牡馬に種付けできるか。 */
+export function fame(g) {
+  const f = playerFame(g.world);
+  return { fame: f, need: ABROAD_FAME, abroadOk: f >= ABROAD_FAME };
 }
 
 // ---------------------------------------------------------------- 配合
@@ -268,31 +347,70 @@ export function retire(g, horseId) {
  * 海外の馬は studFee を持たない（0 のまま）ので、?? で拾うと無料になってしまう。
  */
 const feeOf = (w, s) => (s.abroadFee ? studFeeOf(w, s, w.year) : s.studFee ?? studFeeOf(w, s, w.year));
+/** プレイヤーが払う種付料。自分の種牡馬は無料（自分の牧場で付けるので）。 */
+const myFee = (w, s) => (s.ownerId === 'player' ? 0 : feeOf(w, s));
 
-export function stallions(g, { maxFee = Infinity, search = '' } = {}) {
+/**
+ * 配合のランク。score（親の格・爆発力・距離の噛み合い）の分布に合わせて切る。
+ * 2026 年開始の繁殖牝馬 × 全種牡馬で、中央 0.55・上位 1 割 0.64・上位 3% 0.70。
+ */
+const RANKS = [[0.70, 'S'], [0.63, 'A'], [0.57, 'B'], [0.51, 'C'], [0.45, 'D'], [-1, 'E']];
+export const matingRank = (score) => RANKS.find(([t]) => score >= t)[1];
+
+export function stallions(g, { maxFee = Infinity, search = '', mine = false } = {}) {
   const w = g.world;
   // 国内の名簿と、海外で供用中の名馬（海外種付け。プレイヤーだけが付けられる）。
-  const abroad = abroadSires(w, w.year).filter((s) => studFeeOf(w, s, w.year) <= maxFee);
-  return [...stallionList(w, { maxFee }), ...abroad]
+  // 自分の種牡馬は無料なので予算に関わらず並べる。
+  const own = w.stallionPool.map((id) => w.horses.get(id)).filter((h) => h && !h.dead && h.ownerId === 'player');
+  const abroad = mine ? [] : abroadSires(w, w.year).filter((s) => studFeeOf(w, s, w.year) <= maxFee);
+  const domestic = mine ? own : [...new Set([...own, ...stallionList(w, { maxFee })])];
+  return [...domestic, ...abroad]
     .filter((s) => !search || s.name.includes(search))
     .map((s) => ({
       horse: s, id: s.id, name: s.name,
       age: horseAge(s, w.year),
-      fee: feeOf(w, s),
+      fee: myFee(w, s),
+      mine: s.ownerId === 'player',
       line: lineLabel(w, s.id),
       earnings: s.earnings,
       foals: (s.foals ?? []).length,
       quality: breedQuality(s),
       real: !!s.real,
       abroad: !!s.abroadFee,
+      // 名声が足りないうちは海外の種牡馬は並べるだけで付けられない。
+      locked: !!s.abroadFee && playerFame(w) < ABROAD_FAME,
       factors: (s.factors ?? []).map((f) => FACTORS[f]),
       lineHead: !!s.lineHead,
       bestWin: S.bestWin(s),
     }))
-    // 国内の名簿を種付料の順に、海外種付けはその後ろにまとめる（別の市場なので混ぜない）。
-    .sort((a, b) => (a.abroad - b.abroad) || (b.fee - a.fee));
+    // 自分の種牡馬を先頭に、国内の名簿を種付料の順に、海外種付けはその後ろにまとめる（別の市場なので混ぜない）。
+    .sort((a, b) => (b.mine - a.mine) || (a.abroad - b.abroad) || (b.fee - a.fee));
 }
 
+
+/**
+ * 配合の候補。種牡馬ごとに評価（ランク・爆発力・危険度）を付けて並べる。
+ * sort: 'fee'（種付料）・'rank'（ランク）・'burst'（爆発力）・'risk'（危険度の低い順）。
+ * 評価は 1 頭 0.15ms ほどなので、絞り込んだ全頭を評価してから並べる（上位だけ評価すると、並べ替えの意味が無い）。
+ */
+export function matingCandidates(g, damId, { maxFee = Infinity, search = '', mine = false, sort = 'fee' } = {}) {
+  const rows = stallions(g, { maxFee, search, mine }).map((s) => {
+    const ev = damId != null ? evaluateMating(g, damId, s.id) : null;
+    return { ...s, ev };
+  });
+  const key = {
+    fee: null,
+    rank: (r) => -(r.ev?.score ?? 0),
+    burst: (r) => -(r.ev?.burst ?? 0) * 10 - (r.ev?.score ?? 0),
+    risk: (r) => (r.ev?.riskPoints ?? 9) * 10 - (r.ev?.score ?? 0),
+  }[sort];
+  // 付けられない配合（種付不可）は後ろへ。
+  if (key) rows.sort((a, b) => (!!a.ev?.blocked - !!b.ev?.blocked) || (key(a) - key(b)));
+  return rows;
+}
+
+/** 配合理論の一覧（説明用）。 */
+export const theoryGuide = () => THEORY_GUIDE;
 
 /** 配合の評価。プレイヤーに見せる期待度と注意点。 */
 export function evaluateMating(g, damId, sireId) {
@@ -300,17 +418,28 @@ export function evaluateMating(g, damId, sireId) {
   const ev = matingEval(w, sireId, damId);
   if (!ev) return null;
   const nk = ev.nicks;
+  // 配合理論（theories.js）が爆発力と危険度を決める。星は親の格・爆発力・距離の噛み合いで付ける。
+  const T = evaluateTheories(w, ev.sire, ev.dam);
+  const score = Math.min(1, ev.parentPower * 0.5 + Math.min(1, T.burst / 30) * 0.32 + ev.coherence * 0.18);
+  const stars = Math.max(1, Math.min(5, 1 + Math.round(score * 4.4)));
   return {
-    stars: ev.stars,
-    score: ev.score,
-    risk: ev.risk,
-    fee: feeOf(w, ev.sire),
+    stars,
+    score,
+    rank: matingRank(score),
+    burst: T.burst,
+    burstComment: burstComment(T.burst),
+    risk: Math.min(1, T.risk / 7),
+    riskPoints: T.risk,
+    riskComment: riskComment(T.risk, T.blocked),
+    blocked: T.blocked,
+    theories: T.list.map((t) => ({ id: t.id, name: t.name, text: t.text, burst: t.burst, risk: t.risk })),
+    fee: myFee(w, ev.sire),
     inbreed: ev.inbreed.map((x) => ({ name: x.name, label: x.label })),
     inbreedNote: ev.inbreedEffect.notes,
     nicks: nk.known ? { grade: nicksGradeOf(nk.value), samples: nk.samples } : { grade: '？', samples: nk.samples },
     sireLine: lineLabel(w, sireId),
     damSireLine: ev.dam.sireId != null ? lineLabel(w, ev.dam.sireId) : '—',
-    comment: matingComment(ev),
+    comment: matingComment(ev, T),
     factors: factorSummary(w, sireId, damId),
     vigor: vigorOf(w, sireId, damId),
   };
@@ -342,12 +471,13 @@ function nicksGradeOf(v) {
   return '×';
 }
 
-function matingComment(ev) {
+function matingComment(ev, T) {
   const c = [];
   const best3x4 = ev.inbreed.find((x) => x.label === '3×4');
-  if (best3x4) c.push(`${best3x4.name} の 3×4 が入る`);
-  if (ev.risk > 0.4) c.push('近交が強く、丈夫さに不安が出る');
+  if (best3x4) c.push(`${best3x4.name} の 3×4 が入る（奇跡の血量）`);
+  if (T.risk >= 4) c.push('近交が強く、丈夫さに不安が出る');
   if (ev.coherence < 0.6) c.push('父と母で距離の指向が離れている');
+  if (T.burst >= 21) c.push('大きな爆発力が期待できる');
   if (ev.parentPower > 0.7) c.push('両親ともに血統的な裏付けがある');
   if (c.length === 0) c.push('無難な配合');
   return c.join('。');
@@ -362,7 +492,12 @@ export function bookMating(g, damId, sireId) {
   if (!canBeBroodmare(dam, w.year + 1)) return { ok: false, why: 'この牝馬は繁殖に上がれない' };
   if (dam.ownerId !== 'player') return { ok: false, why: '自分の繁殖牝馬ではない' };
   if (!matingOpen(g)) return { ok: false, why: '種付けは 5〜6 月（種付けシーズン）だけ' };
-  const fee = feeOf(w, sire);
+  if (sire.abroadFee && playerFame(w) < ABROAD_FAME) {
+    return { ok: false, why: `海外の種牡馬は名声 ${ABROAD_FAME} から（いま ${playerFame(w)}）` };
+  }
+  const blocked = evaluateTheories(w, sire, dam).blocked;
+  if (blocked) return { ok: false, why: blocked };
+  const fee = myFee(w, sire);
   if (w.player.money < fee) return { ok: false, why: `資金が足りない（${formatMoney(fee)}必要）` };
   // 同じ牝馬の予約は上書き。
   w.pendingMatings = w.pendingMatings.filter((m) => m.damId !== damId);
@@ -393,6 +528,32 @@ export function cancelMating(g, damId) {
 
 
 
+
+/** 幼駒（自分の 0〜1 歳）か。2 歳の年明けに厩舎へ入るまでは player.horses に居ない（落とし穴 28）。 */
+const isMyYoungster = (w, h) => h && h.ownerId === 'player' && !h.dead && !h.retired && horseAge(h, w.year) < 2;
+
+/** 幼駒の売値。いつでも売れる（セールの時期を待たない）。 */
+export function youngsterQuote(g, horseId) {
+  const w = g.world;
+  const h = w.horses.get(horseId);
+  return isMyYoungster(w, h) ? S.youngsterPrice(w, h) : null;
+}
+
+/** 幼駒を売る。ほかの牧場の馬になり、年明けにその牧場の厩舎へ入る。 */
+export function sellYoungster(g, horseId) {
+  const w = g.world;
+  const h = w.horses.get(horseId);
+  if (!isMyYoungster(w, h)) return { ok: false, why: '自分の幼駒ではない' };
+  const price = S.youngsterPrice(w, h);
+  // 買い手は馬の id から決める（主乱数を使わない。売っただけで世界の乱数の流れを変えない）。
+  const others = [...w.owners.values()].filter((x) => !x.isPlayer);
+  const nw = others[(h.id * 2654435761 >>> 0) % others.length];
+  w.player.money += price;
+  h.ownerId = nw.id;
+  delete h.plannedName;
+  delete h.plannedTrainerId;
+  return { ok: true, price };
+}
 
 /** 所有馬の売却。言い値の 7 割くらいで売れる。 */
 export function sellHorse(g, horseId) {
@@ -463,6 +624,26 @@ export function skipTargets(g) {
 
 /** 史実馬名鑑（年代ごとに見る実在の馬と、この世界での今の姿）。 */
 export const realBook = (g) => realBookOf(g.world);
+/** 番組表の「場」の短い名前（海外は国を添える）。 */
+export const courseShort = (id) => courseShortOf(id);
+
+/**
+ * 世界に居ない実在馬を、馬の詳細と同じ形で見るための仮のゲーム。{ game, id }。
+ * 世界には何も足さない（realsires.js の realPreview）。同じ週のあいだは作り直さない（画面を描き直すたびに作ると重い）。
+ */
+const previewCache = new WeakMap();
+export function realPreview(g, name) {
+  const w = g.world;
+  const key = `${name}|${w.year}|${w.week}`;
+  let m = previewCache.get(w);
+  if (!m) previewCache.set(w, (m = new Map()));
+  if (!m.has(key)) {
+    if (m.size > 40) m.clear();
+    const r = realPreviewOf(w, name);
+    m.set(key, r && { game: { ...g, world: r.world }, id: r.id, phantom: r.world !== w });
+  }
+  return m.get(key);
+}
 
 /** 直近の結果一覧（重賞優先）。 */
 export function recentResults(g) {
@@ -552,12 +733,12 @@ export function horseCareer(g, id) {
     .slice(0, 4).map((r) => ({ name: r.name, grade: r.grade ?? null, year: r.year }));
   const surface = (h.dirt ?? 0) > (h.turf ?? 0) + 0.05 ? 'ダート' : '芝';
   const band = h.dist <= 1400 ? '短距離' : h.dist <= 1800 ? 'マイル' : h.dist <= 2400 ? '中距離' : '長距離';
-  const entry = [...w.player.entries.values()].find((e) => e.horseId === id);
-  const next = entry ? decorate(w, weekRaces(w).find((r) => r.raceId === entry.raceId) ?? {}) : null;
+  const entry = myEntries(g).find((e) => e.horseId === id);
+  const next = entry ? entry.race : null;
   return {
     counts: c, bigWins,
     route: `${surface}${band}`,
-    next: next && next.name ? { name: next.name, grade: next.grade ?? null, label: weekLabel(w.week) } : null,
+    next: next && next.name ? { name: next.name, grade: next.grade ?? null, label: entry.thisWeek ? weekLabel(w.week) : `${entry.year}年 ${entry.label}` } : null,
   };
 }
 
@@ -640,6 +821,10 @@ export const eventsNow = (g) => eventsAt(g.world.week);
 export const saleOpen = (g, kind) => S.saleOpen(g.world, kind);
 export const foalSale = (g) => S.foalSaleLots(g.world);
 export const privateSale = (g) => S.privateLots(g.world);
+export const privateWindow = (g) => S.privateWindow(g.world);
+/** 牧場取引（通年）：dFoal 当歳 / dYearling 1 歳 / dMare 繁殖牝馬。割高だが時期を問わない。 */
+export const directSale = (g, kind) => S.directLots(g.world, kind);
+export const DIRECT_PREMIUM = S.DIRECT_PREMIUM;
 export const mareSale = (g) => S.mareSaleLots(g.world);
 export const overseasSale = (g) => S.overseasLots(g.world);
 export const buyLot = (g, kind, id) => S.buyLot(g.world, kind, id);
@@ -709,7 +894,7 @@ export function ranchHorses(g, limit = 7) {
   const push = (h, kind) => {
     if (!h || h.dead || seen.has(h.id) || out.length >= limit) return;
     seen.add(h.id);
-    out.push({ id: h.id, name: h.name, coat: h.coat, sex: h.sex, age: horseAge(h, w.year), kind });
+    out.push({ id: h.id, name: h.name, coat: h.coat, marks: marksOf(h), sex: h.sex, age: horseAge(h, w.year), kind });
   };
   const mine = w.player.horses.map((id) => w.horses.get(id)).filter((h) => h && !h.dead && !h.retired);
   for (const h of myYoungsters(g)) push(h, '幼駒');
@@ -741,3 +926,13 @@ export function ownerRank(g) {
 }
 
 export { formatMoney, formatTime, weekLabel, SURFACE, SEX, ABILITIES, STYLES };
+
+// ---------------------------------------------------------------- 牧場施設
+
+/** 施設の一覧（レベル・建設の進み・次の値段）。 */
+export const facilities = (g) => F.facilityList(g.world);
+export const facilityLimit = F.MAX_BUILDS;
+/** 建設を始める。完成まで数週間かかり、完成すると自分の馬だけに効く。 */
+export const buildFacility = (g, id) => F.startBuild(g.world, id);
+/** 施設の効果と維持費（画面の要約用）。 */
+export const facilitySummary = (g) => ({ upkeep: F.facilityUpkeep(g.world), effects: F.facilityEffects(g.world) });

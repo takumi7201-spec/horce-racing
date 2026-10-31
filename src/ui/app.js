@@ -9,6 +9,7 @@ import * as G from '../sim/game.js';
 import { saveLocal, loadLocal, slotInfo, clearSlot } from '../sim/save.js';
 import { loadHorseSprite } from './horse-sprite.js';
 import { icon } from './icons.js';
+import * as sound from './sound.js';
 import { createPasture } from '../render3d/pasture.js';
 import { formatMoney } from '../core/util.js';
 import { weekLabel } from '../sim/schedule.js';
@@ -20,6 +21,7 @@ import { farmScreen } from './screens/farm.js';
 import { recordsScreen } from './screens/records.js';
 import { raceDayScreen } from './screens/raceday.js';
 import { yearEndScreen } from './screens/yearend.js';
+import { ikuseiScreen } from './screens/ikusei.js';
 
 const SCREENS = {
   title: titleScreen,
@@ -30,6 +32,7 @@ const SCREENS = {
   records: recordsScreen,
   raceday: raceDayScreen,
   yearend: yearEndScreen,
+  ik: ikuseiScreen,
 };
 
 const NAV = [
@@ -99,7 +102,8 @@ export function start(root) {
     /** 週送り。自分の馬が走るレースがあれば観戦画面へ寄る。 */
     next() {
       if (!app.game || app.skipping) return;
-      const hadEntries = G.myEntries(app.game).length > 0;
+      sound.play('next');
+      const hadEntries = G.myEntriesNow(app.game).length > 0;
       const out = G.nextWeek(app.game);
       app.afterWeek(out);
       if (!out.myRaces.length && !out.yearSummary && hadEntries) toast('登録した馬は出走できなかった');
@@ -141,7 +145,7 @@ export function start(root) {
       document.body.appendChild(veil);
       app.skipping = true;
       const mine = [];
-      const hadEntries = G.myEntries(g).length > 0;
+      const hadEntries = G.myEntriesNow(g).length > 0;
       let out = null;
       let first = null;
       try {
@@ -230,6 +234,12 @@ export function start(root) {
       clear(ui);
       app.onArrow = null;
       const screen = SCREENS[app.screen] ?? homeScreen;
+      // カード育成は牧場（app.game）を使わない別のモード。上の帯・メニュー・NEXT を持たない。
+      if (app.screen === 'ik') {
+        syncBackdrop(app, 'ik');
+        ui.appendChild(el('div.app.plain.ikm', screen(app)));
+        return;
+      }
       if (app.screen === 'title' || !app.game) {
         syncBackdrop(app, 'title');
         ui.appendChild(el('div.app.plain', titleScreen(app)));
@@ -260,6 +270,7 @@ export function start(root) {
   loadHorseSprite();
 
   app.render();
+  sound.installGlobalClicks();
   window.addEventListener('resize', () => {
     app.pasture?.resize();
     if (app.pasture && app.game) syncBackdrop(app, app.screen);
@@ -306,15 +317,18 @@ function syncBackdrop(app, screen) {
     }
   }
   // 馬の詳細では放牧地を「見せ場」にして、その馬を 1 頭だけ大きく立たせる。
-  const portraitId = screen === 'stable' && app.params.id != null && app.game ? app.params.id : null;
+  // 名鑑から開いた世界に居ない馬は、仮の世界の馬を立たせる。
+  const prev = screen === 'stable' && app.params.real && app.game ? G.realPreview(app.game, app.params.real) : null;
+  const portraitId = screen === 'stable' && app.params.id != null && app.game ? app.params.id : prev?.id ?? null;
   const live = screen === 'home' || screen === 'title' || portraitId != null;
   bg.classList.toggle('dim', !live);
   bg.classList.toggle('portrait', portraitId != null);
-  bg.classList.toggle('off', screen === 'raceday');
+  // カード育成は自前の背景（空と街）を描くので、放牧地は止めて隠す。
+  bg.classList.toggle('off', screen === 'raceday' || screen === 'ik');
   app.bgLive = live;
   const p = app.pasture;
   if (!p) return;
-  if (screen === 'title') {
+  if (screen === 'title' || screen === 'ik') {
     p.setHorses(TITLE_HORSES, { labels: false });
     p.setShift(0);
   } else if (app.game) {
@@ -331,11 +345,15 @@ function syncBackdrop(app, screen) {
     else p.setShift(0, Math.round(window.innerHeight * 0.16));
   }
   if (portraitId != null) {
-    const v = G.horseView(app.game, portraitId);
+    const v = G.horseView(prev?.game ?? app.game, portraitId);
     const racing = v && !v.dead && !v.retired && !v.broodmare && !v.stallion;
-    p.setPortrait(v ? { id: v.id, coat: v.coat, age: v.age, tack: racing } : null);
+    p.setPortrait(v ? { id: v.id, coat: v.coat, marks: v.marks, age: v.age ?? 4, tack: racing } : null);
+    // 「顔を見る」を選んだまま次の馬へ送っても顔のまま（stable.js の切り替え）。
+    p.setPortraitView(app.portraitView ?? 'body');
   } else {
     p.setPortrait(null);
+    app.portraitView = 'body';
+    p.setPortraitView('body');
   }
   p.setLabels(screen === 'home');
   if (live && !document.hidden) p.start();
@@ -372,6 +390,14 @@ function header(app) {
       chip('star', '勝利', f.wins),
       chip('horse', '所有馬', f.horses),
       chip('mare', '繁殖', f.broodmares),
+      // 名声。海外の種牡馬に付けられるかが分かるよう、届いたら印を付ける。
+      (() => {
+        const fm = G.fame(g);
+        const c = chip('medal', '名声', fm.fame);
+        c.title = fm.abroadOk ? '海外の種牡馬に種付けできる' : `名声 ${fm.need} で海外の種牡馬に種付けできる（あと ${fm.need - fm.fame}）`;
+        if (fm.abroadOk) c.classList.add('ok');
+        return c;
+      })(),
     ]),
     el('div.hb-farm', [
       el('b', { text: g.world.player.farmName }),
@@ -395,9 +421,22 @@ function sideNav(app) {
 /** 長押しとみなす時間（ms）。短いとスクロールのつもりのタッチで開いてしまう。 */
 const LONG_PRESS = 450;
 
+/** 効果音の入切。押した直後に鳴らして、入った音量を確かめられるようにする。 */
+function muteButton() {
+  const b = el('button.saveb.muteb', { title: '効果音の入切' });
+  const sync = () => { b.textContent = sound.isMuted() ? '音 切' : '音 入'; };
+  b.addEventListener('click', () => {
+    sound.setMuted(!sound.isMuted());
+    sync();
+    sound.play('ok');
+  });
+  sync();
+  return b;
+}
+
 /** 左下の NEXT と小さなセーブ。タップで 1 週、長押しでまとめて送るメニュー。 */
 function dock(app) {
-  const entries = G.myEntries(app.game).length;
+  const entries = G.myEntriesNow(app.game).length;
   const next = el('button.nextb', { title: '次の週へ（N）／長押しで月送り（Shift+N）' }, [
     el('span.nb-ring', [
       icon('next', { size: 34 }),
@@ -432,6 +471,7 @@ function dock(app) {
     el('button.saveb', { onclick: () => app.openSaveMenu(), title: 'セーブ / ロード（S）' }, [
       icon('save', { size: 16 }), el('span', { text: 'セーブ' }),
     ]),
+    muteButton(),
   ]);
 }
 
@@ -453,6 +493,7 @@ function openSkipMenu(app, anchor) {
     el('div.sm-h', [el('b', { text: '週送り' }), el('small', { text: `いま ${G.now(g).label}` })]),
     item('次の週', null, 1, () => go(null)),
     ...G.skipTargets(g).map((t) => item(t.label, t.events.join('・'), t.weeks, () => go(t))),
+    customSkip(g, (t) => go(t)),
     el('p.sm-note', { text: '自分の馬が走る週と年末処理では途中で止まる' }),
   ]);
   const wrap = el('div.skipmenu-wrap', {
@@ -465,4 +506,42 @@ function openSkipMenu(app, anchor) {
   else menu.style.left = `${Math.round(r.right + 12)}px`;
   menu.style.bottom = `${Math.max(8, Math.round(window.innerHeight - r.bottom))}px`;
   document.body.appendChild(wrap);
+}
+
+/**
+ * 週数を自分で決める週送り（1 週〜1 年）。スライダーと、よく使う週数のボタン。
+ * 行き先の「○年○月○週」は動かしながら見える。年末（12 月 4 週）は表彰と馬名登録で必ず止まるので、
+ * 年をまたぐ指定は年末処理で一度止まる（残りは年明けにもう一度送る）。
+ */
+function customSkip(g, go) {
+  const now = G.now(g);
+  const dest = (n) => {
+    let wk = now.week + n, yr = now.year;
+    while (wk > 48) { wk -= 48; yr++; }
+    return `${yr}年 ${weekLabel(wk)}`;
+  };
+  const label = el('b', { text: dest(8) });
+  const num = el('span.sm-num', { text: '8週' });
+  const slider = el('input', { type: 'range', min: 1, max: 48, value: 8, class: 'sm-range' });
+  const set = (n) => {
+    slider.value = n;
+    num.textContent = `${n}週`;
+    label.textContent = dest(n);
+  };
+  slider.addEventListener('input', () => set(Number(slider.value)));
+  const presets = [1, 4, 13, 26, 48].map((n) => el('button.sm-chip', {
+    onclick: () => set(n),
+  }, n === 48 ? '1年' : n === 26 ? '半年' : n === 13 ? '3か月' : n === 4 ? '1か月' : '1週'));
+  return el('div.sm-custom', [
+    el('div.sm-ch', [el('b', { text: '週数を指定' }), num]),
+    slider,
+    el('div.sm-chips', presets),
+    el('div.sm-dest', [el('small', { text: '行き先' }), label]),
+    el('button.sm-go', {
+      onclick: () => {
+        const n = Number(slider.value);
+        go({ weeks: n, label: `${n}週`, events: [] });
+      },
+    }, 'この週数で進める'),
+  ]);
 }

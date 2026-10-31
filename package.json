@@ -1,17 +1,18 @@
 {
   "name": "keiba-sim",
-  "version": "0.1.0",
+  "version": "1.0.2",
   "description": "three.js による本格競馬シミュレーション（牧場経営・配合・3D レース）",
   "type": "module",
   "private": true,
   "scripts": {
     "start": "node tools/serve.mjs --port 8080",
     "dev": "node tools/serve.mjs --port 8080",
-    "test": "node tools/verify.mjs",
+    "test": "node --max-old-space-size=4096 tools/verify.mjs",
     "timecheck": "node tools/timecheck.mjs",
     "season": "node tools/season.mjs --years 5",
     "icons": "node tools/make-icons.mjs",
     "import-gi": "node tools/import-real-horses.mjs",
+    "import-markings": "node tools/import-markings.mjs",
     "sprite": "node tools/make-horse-sprite.mjs assets/horse-src.png --keep 47,19 --keep 23,31 --keep 39,31 --keep 36,27 --keep 6,5 --keep 45,15 --keep 46,17"
   },
   "engines": { "node": ">=18" }

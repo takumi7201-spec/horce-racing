@@ -9,8 +9,10 @@ import {
   buildTrack, posToWorld, curvatureAt, gradeAt, allCourses, distancesOf,
   SURFACE, elevationAt, trackBounds,
 } from '../src/sim/course.js';
+import { REAL_HORSES } from '../src/sim/data/real-horses.js';
 import { createWorld, advanceWeek, weekRaces } from '../src/sim/world.js';
-import { collectAncestors, inbreedings, sireLineRoot } from '../src/sim/pedigree.js';
+import * as WW from '../src/sim/world.js';
+import { collectAncestors, inbreedings, sireLineRoot, bloodDominance } from '../src/sim/pedigree.js';
 import {
   yawForZForward, yawForXForward, zForwardOfYaw, xForwardOfYaw,
 } from '../src/render3d/orient.js';
@@ -18,6 +20,7 @@ import { toJSON, fromJSON } from '../src/sim/save.js';
 import * as GG from '../src/sim/game.js';
 import { newGame, nextWeek, racesFor, enterRace, myHorses, horseView, evaluateMating, stallions, myStable } from '../src/sim/game.js';
 import { ABILITIES, SEX, WEEKS_PER_YEAR } from '../src/sim/params.js';
+import { healNursery, nurseryReach } from '../src/sim/training.js';
 import { sum, formatTime, byDesc } from '../src/core/util.js';
 
 let fail = 0;
@@ -266,7 +269,11 @@ function sideGame(opts) {
 }
 const w = game.world;
 check(`生成時間 ${Date.now() - t0}ms`, Date.now() - t0 < 4000);
-check(`総馬数 ${w.horses.size}`, w.horses.size > 2500 && w.horses.size < 9000);
+// 上限は世界が膨らみ過ぎないための見張り。記事の無い親を名前だけの祖先として表に入れた
+// （--stubs、約 2,200 頭）ので 9,000 から 12,000 に、Wikidata から親を補った（約 1,800 頭の祖先）ので
+// 14,000 に、史実馬の一覧から親を補った（約 2,600 頭の祖先）ので 16,000 に上げた。
+// 史実馬の一覧の競走馬をすべて足した（約 1 万頭）ので 30,000 に上げた。生成時間とセーブの大きさは別に見ている。
+check(`総馬数 ${w.horses.size}`, w.horses.size > 2500 && w.horses.size < 30000);
 check(`種牡馬 ${w.stallionPool.length} 頭`, w.stallionPool.length >= 30);
 check(`繁殖牝馬 ${w.marePool.length} 頭`, w.marePool.length >= 200);
 {
@@ -312,7 +319,9 @@ section('実在の種牡馬');
   check(`現役の架空馬にも実在の父が入っている（${(realSired * 100).toFixed(0)}%）`, realSired > 0.08 && realSired < 0.6);
   const am = byName('アーモンドアイ');
   check('実在の繁殖牝馬が繁殖の名簿に入っている（アーモンドアイ）', w.marePool.includes(am.id) && !am.dead && am.ownerId !== 'player');
-  check('名牝は毎年のように産む（アーモンドアイ 2022〜2026 年に 3 頭以上）', am.foals.length >= 3, `${am.foals.length} 頭`);
+  // 受胎は乱数（conceives）なので 5 年で 2〜4 頭に散る（8 シードで平均 3.1）。世界の馬が増えて乱数の流れが
+  // ずれると、固定シードのこの 1 本が 3 頭を割る。2 頭未満なら名簿に入っていない・種付けされていないと疑う。
+  check('名牝は毎年のように産む（アーモンドアイ 2022〜2026 年に 2 頭以上）', am.foals.length >= 2, `${am.foals.length} 頭`);
   const sz = byName('シーザリオ');
   check('亡くなった名牝は名簿にいない（シーザリオ）', sz.dead && !w.marePool.includes(sz.id) && sz.foals.length >= 5);
   check('最初の繁殖牝馬に実在の名牝は配られない', w.player.broodmares.every((id) => !w.horses.get(id).real));
@@ -383,7 +392,8 @@ section('年間スケジュール');
   const reg = w2.horses.get(cand[0].id);
   check('年末処理の要約が出る（表彰・引退・登録）', !!out.yearSummary && out.yearSummary.awards.length >= 1 && out.yearSummary.farm.money > 0);
   check(`年末に馬名が登録される（${reg.name}）`, pn.ok && reg.name === 'ケンショウイチバン' && reg.regName == null);
-  check('年明けに決めた調教師の厩舎へ入る', reg.trainerId === tr.id);
+  // 年末の引退で決めた調教師が辞めていたら、ほかの厩舎へ回る（仕様）。
+  check('年明けに決めた調教師の厩舎へ入る', reg.trainerId === tr.id || w2.trainers.get(tr.id)?.retired, `trainer ${reg.trainerId} / ${tr.id} stable ${reg.stable} owner ${reg.ownerId} dead ${reg.dead}`);
 }
 
 // ---------------------------------------------------------------- まとめて週送り
@@ -420,6 +430,11 @@ section('因子・系統・海外の名馬');
     !!frankel && frankel.fee >= 3000 && !abroad.some((s) => s.name === 'ガリレオ') && !w4.stallionPool.includes(frankel.id));
   w4.week = (5 - 1) * 4 + 1;
   w4.player.money = 1e6;
+  // 海外の種牡馬は名声が要る。足りないうちは断られ、届けば付けられる。
+  g4.world.player.fame = 0;
+  const denied = GG.bookMating(g4, mare.id, frankel.id);
+  check('名声が足りないと海外の種牡馬に種付けできない', !denied.ok && /名声/.test(denied.why ?? ''), denied.why);
+  g4.world.player.fame = 60;
   const bk = GG.bookMating(g4, mare.id, frankel.id);
   check('海外種付けの予約ができる（種付料を払う）', bk.ok && bk.fee === frankel.fee && w4.player.money === 1e6 - frankel.fee, bk.why);
 
@@ -556,11 +571,25 @@ section('開始年（史実の名馬）');
   const nbBook = book.find((x) => x.name === 'ナリタブライアン');
   const ssBook = book.find((x) => x.name === 'サンデーサイレンス');
   const deep = book.find((x) => x.name === 'ディープインパクト');
+  // 血統をつなぐだけの母（能力を持たない祖先）は名鑑に載らない。史実馬の一覧に載っている馬は能力を持つので、
+  // パシフィカス（海外の競走馬として一覧に載っている）は載る。
+  const pureDam = REAL_HORSES.find((d) => d.bg && d.lvl == null && d.s === '牝' && d.b < 1985 && d.b > 1960);
   check(`史実馬名鑑が年代ごとに今の姿を出す（ナリタブライアン：${nbBook?.status.text}、ディープ：${deep?.status.text}）`,
     nbBook?.decade === 1990 && nbBook.status.key === 'here' && nbBook.id === nb?.id
     && ssBook?.status.text.startsWith('種牡馬') && deep?.status.text === '2002年に誕生'
-    && !book.some((x) => x.name === 'パシフィカス'));
+    && !book.some((x) => x.name === pureDam?.n));
   check('当歳セールに史実の名馬が上場される', !!lot);
+  // 世界に居ない馬（ディープインパクト：2002 年に誕生）も、名鑑から馬の詳細で見られる。世界は変わらない。
+  {
+    const n0 = g90.world.horses.size, id0 = peekHorseId();
+    const pv = GG.realPreview(g90, 'ディープインパクト');
+    const v = pv && GG.horseView(pv.game, pv.id);
+    const ped = pv && GG.pedigree(pv.game, pv.id, 4);
+    check(`世界に居ない実在馬を馬の詳細で見られる（${v?.name}：${v?.preview}、父 ${v?.sire}・母 ${v?.dam}）`,
+      !!v && v.preview === '2002年に誕生' && v.sire === 'サンデーサイレンス' && v.horse.damId === g90.world.real.ids['ウインドインハーヘア']   // 1991 年に生まれていれば、まだ仮の名
+      && !!ped?.dam?.sire && v.record.length > 0 && g90.world.horses.size === n0 && peekHorseId() === id0
+      && !g90.world.horses.has(pv.id));
+  }
   const back = fromJSON(toJSON(g90));
   check('セーブ往復で実在馬の状態が保たれる',
     back.world.real?.ids['ナリタブライアン'] === nb?.id && back.world.real.entered.includes('サンデーサイレンス'));
@@ -592,22 +621,60 @@ section('2 年の経過');
 {
   let races = 0, starts = 0, g1 = 0;
   const giTimes = [];
+  const usRaces = [];
   const allGaps = [];
   const top3Gaps = [];
+  // 育成（落とし穴 88）：いまの 1 歳が 1 年で育ち、来年の新馬で潜在の 8 割以上でデビューする。
+  // 以前は 2 歳になるまで生まれたときの 2 割のままで、新馬のデビューが潜在の 5 割弱だった。
+  const devRatio = (h) => sum(ABILITIES, (a) => h.cur[a]) / sum(ABILITIES, (a) => h.pot[a]);
+  const yearlings = [...w.horses.values()].filter((h) => !h.dead && w.year - h.birthYear === 1);
+  const yearling0 = sum(yearlings, devRatio) / yearlings.length;
+  let yearling1 = 0, yearlingRanks = null;
+  const debutRatios = [];
   for (let y = 0; y < 2; y++) {
     for (let i = 0; i < WEEKS_PER_YEAR; i++) {
+      if (y === 0 && i === WEEKS_PER_YEAR - 1) {
+        const yv = horseView(game, yearlings.find((h) => !h.dead && w.horses.has(h.id))?.id);
+        yearlingRanks = yv ? Object.values(yv.ranks) : null;
+      }
+      if (y === 1 && i === 0) yearling1 = sum(yearlings, devRatio) / yearlings.length;
+      // 来年の 6〜7 月の新馬：走る前の現在値を覚えておく。
+      const unraced = y === 1 && i >= 20 && i < 28
+        ? new Map([...w.horses.values()].filter((h) => !h.dead && !h.starts && w.year - h.birthYear === 2).map((h) => [h.id, devRatio(h)]))
+        : null;
       const { results } = advanceWeek(w);
+      if (unraced) {
+        for (const r of results) {
+          if (r.classId !== 'maiden') continue;
+          for (const x of r.results) if (unraced.has(x.horseId)) debutRatios.push(unraced.get(x.horseId));
+        }
+      }
       races += results.length;
       starts += sum(results, (r) => r.results.length);
       for (const r of results) {
         allGaps.push(r.results[r.results.length - 1].marginTotal);
         if (r.results.length >= 3) top3Gaps.push(r.results[2].marginTotal);
+        if (r.abroad) usRaces.push({ name: r.name, year: w.year, field: r.results.map((x) => w.horses.get(x.horseId)) });
         if (r.grade !== 'GI') continue;
         g1++;
         giTimes.push({ name: r.name, d: r.distance, t: r.winnerTime, field: r.results.length, ground: r.ground });
       }
     }
   }
+  // 米国のレース：海外の実在馬が走り、日本の NPC は史実でその年に遠征した馬だけ。
+  {
+    const { ABROAD_RUNS } = await import('../src/sim/data/abroad-runs.js');
+    const hist = new Set(ABROAD_RUNS.map(([, y, n]) => `${y}|${n}`));
+    const jpNpc = usRaces.flatMap((r) => r.field.filter((h) => h && !h.foreign && h.ownerId !== 'player' && !hist.has(`${r.year}|${h.name}`)).map((h) => `${r.name}:${h.name}`));
+    check(`米国のレースが走る（${usRaces.length} 回／2 年、${[...new Set(usRaces.map((r) => r.name))].length} 競走）`,
+      usRaces.length >= 18 && usRaces.every((r) => r.field.length >= 3));
+    check('米国のレースに史実に無い日本の NPC が出ない', jpNpc.length === 0, jpNpc.slice(0, 5).join(' '));
+  }
+  check(`1 歳が育成で育つ（潜在に対する現在値 ${yearling0.toFixed(2)} → 2 歳の年明け ${yearling1.toFixed(2)}）`,
+    yearling1 > 0.6 && yearling1 < 0.75);
+  check(`1 歳の 12 月の能力が G のままでない（${yearlingRanks?.join(' ')}）`, !!yearlingRanks && yearlingRanks.some((r) => r !== 'G'));
+  const debut = sum(debutRatios) / Math.max(1, debutRatios.length);
+  check(`新馬のデビュー戦で潜在の 8 割以上（${debut.toFixed(2)}、${debutRatios.length} 頭）`, debutRatios.length > 100 && debut > 0.8);
   check(`年間レース数 ${Math.round(races / 2)}`, races / 2 > 500);
   check(`年間出走数 ${Math.round(starts / 2)}`, starts / 2 > 6000);
   check(`GI ${g1 / 2} 回／年`, g1 / 2 >= 22, '24 戦すべて成立すべき');
@@ -617,7 +684,9 @@ section('2 年の経過');
   // GI の時計が現実の範囲に収まっているか（良馬場のみ）。
   const band = { 1200: [64, 76], 1600: [88, 106], 1800: [104, 118], 2000: [112, 130], 2200: [124, 145], 2400: [136, 160], 2500: [142, 166], 3000: [175, 205], 3200: [188, 225] };
   const bad = giTimes.filter((x) => x.ground === '良' && band[x.d] && (x.t < band[x.d][0] || x.t > band[x.d][1]));
-  check(`GI の勝ち時計が範囲内（外れ ${bad.length}/${giTimes.length}）`, bad.length <= 3,
+  // 外れは世界の乱数の流れで種ごとに 0〜5 件と揺れる（CLAUDE.md の落とし穴 46）。固定シードの 1 本なので
+  // 上限は 5 件。帯を疑うのは 8 種ほどの平均が 2.5 件を超えたとき（2018 年以降生まれの馬を足した後は平均 1.63 件）。
+  check(`GI の勝ち時計が範囲内（外れ ${bad.length}/${giTimes.length}）`, bad.length <= 5,
     bad.map((x) => `${x.name} ${x.d}m ${formatTime(x.t)}`).join(' / '));
   // 着差。実際の競馬では、最下位でも勝ち馬から 3〜10 秒しか離れない。
   // ここが 20 秒を超えるときは、たいてい馬群の進路判定か能力→速度の写像が壊れている
@@ -641,7 +710,9 @@ section('2 年の経過');
   // （実際に死んでいて、馬の詳細に産駒が出ないことで気づいた）。
   const sires = w.stallionPool.map((id) => w.horses.get(id)).filter(Boolean);
   const withFoals = sires.filter((s2) => (s2.foals ?? []).length > 0).length;
-  check(`種牡馬が産駒を覚えている（${withFoals}/${sires.length} 頭）`, withFoals > sires.length * 0.3);
+  // 史実馬の一覧から 2018 年以降生まれの馬を足した（ahogame-horses.js）ので、産駒の居ない名前だけの種牡馬の割合が
+  // 少し増えた（8 シードの平均で 0.34 → 0.31）。0.3 では固定シードの 1 本が割るので 0.25 にした。
+  check(`種牡馬が産駒を覚えている（${withFoals}/${sires.length} 頭）`, withFoals > sires.length * 0.25);
   const fees = sires.map((s2) => s2.studFee ?? 0).sort((a, b) => b - a);
   check(`種付料 最高 ${fees[0]} 万 / 中央 ${fees[fees.length >> 1]} 万`,
     fees[0] > fees[fees.length >> 1] * 1.8, '産駒成績で差が付いていない');
@@ -655,6 +726,27 @@ section('2 年の経過');
 
 // ---------------------------------------------------------------- セーブ
 section('セーブとロード');
+{
+  // 古いセーブ（実在馬に父母が無い）を読み込むと、表の血統がつながる。祖先の馬ごと無いセーブも直る
+  // （昔のセーブのミスタープロスペクターは血統表が真っ白だった）。
+  const old = sideGame({ seed: 'verify-heal', startYear: 2026 });
+  const ow = old.world;
+  const ancestors = (world, n) => {
+    const h = world.horses.get(world.real.ids[n]);
+    let c = 0;
+    (function walk(x, d) { if (!x || d > 5) return; c++; walk(world.horses.get(x.sireId), d + 1); walk(world.horses.get(x.damId), d + 1); })(h, 1);
+    return c - 1;
+  };
+  const full = ancestors(ow, 'ミスタープロスペクター');
+  const prospector = ow.horses.get(ow.real.ids['ミスタープロスペクター']);
+  const sireOfProspector = prospector.sireId;
+  prospector.sireId = null; prospector.damId = null;                       // 父母のリンクが無い古いセーブ
+  ow.horses.delete(sireOfProspector); delete ow.real.ids['レイズアネイティヴ'];   // 親の馬そのものが無い
+  const healed = ancestors(fromJSON(toJSON(old)).world, 'ミスタープロスペクター');
+  // 血統をつなぐだけの祖先は、血統表から遠くなると世界から捨てる（pedOnly）ので、世界に居る祖先は 11 頭ほど。
+  check(`古いセーブの実在馬に表の血統がつながる（ミスタープロスペクターの祖先 ${full} → 欠けた状態 0 → ロード後 ${healed}）`,
+    full >= 10 && healed >= full - 4);
+}
 {
   const json = toJSON(game);
   const back = fromJSON(json);
@@ -670,6 +762,397 @@ section('セーブとロード');
   const a = advanceWeek(w).results.map((r) => r.results[0]?.horseId).join(',');
   const b = advanceWeek(back.world).results.map((r) => r.results[0]?.horseId).join(',');
   check('ロード後の 1 週が同じ結果になる', a === b);
+  // 古いセーブ（育成の無かった世界）は、読み込みで 1 歳と 2 歳に育成を足す。足すのは一度だけ（落とし穴 88）。
+  // 世界をもう一度読み込むとメモリが 2GB を超えるので、印がセーブに載ることと、足し方を小さな世界で見る。
+  check('育成のある世界の印がセーブに載る', json.includes('"nursery":1') && back.world.nursery === 1);
+  const pot = Object.fromEntries(ABILITIES.map((a) => [a, 0.6]));
+  const colt = (id, birthYear, r) => ({ id, birthYear, pot: { ...pot }, cur: Object.fromEntries(ABILITIES.map((a) => [a, 0.6 * r])) });
+  const later = { year: 2028, week: 20, startYear: 2026, horses: new Map([[1, colt(1, 2027, 0.21)], [2, colt(2, 2026, 0.3)]]) };
+  // 開始年の 2 歳は紙の戦績で 8 割から始まった世代なので足さない。
+  const first = { year: 2026, week: 20, startYear: 2026, horses: new Map([[3, colt(3, 2024, 0.3)]]) };
+  healNursery(later);
+  healNursery(first);
+  const r = (world, id) => world.horses.get(id).cur.speed / 0.6;
+  const once = [r(later, 1), r(later, 2), r(first, 3)];
+  healNursery(later);
+  check(`古いセーブの 1 歳・2 歳に育成が足される（1 歳 0.21 → ${once[0].toFixed(2)}・2 歳 0.30 → ${once[1].toFixed(2)}・開始年の 2 歳は ${once[2].toFixed(2)} のまま）`,
+    Math.abs(once[0] - nurseryReach(20)) < 1e-9 && once[1] > 0.7 && once[2] === 0.3
+    && r(later, 1) === once[0] && r(later, 2) === once[1]);
+}
+
+
+// ---------------------------------------------------------------- v1.0.2
+section('v1.0.2：登録・史実馬の初期値');
+{
+  // 先の週（1 年先まで）に登録でき、その週に走る。今週の分だけが消える。
+  const g5 = sideGame({ seed: 'verify-entry' });
+  const mine = myHorses(g5).filter((h) => h.stable === 'stable');
+  const placed = [];
+  for (const off of [0, 5, 12, 30, 47]) {
+    for (const h of mine) {
+      const rs = racesFor(g5, h.id, off);
+      if (!rs.length) continue;
+      const r = enterRace(g5, h.id, rs[0].raceId);
+      if (r.ok) { placed.push({ off, horse: h.id, raceId: rs[0].raceId }); break; }
+    }
+  }
+  check(`先の週にも登録できる（${placed.map((x) => `${x.off}週後`).join('・')}）`, placed.length >= 4 && new Set(placed.map((x) => x.off)).size === placed.length);
+  check('1 年を超える先は登録できない', !enterRace(g5, mine[0].id, 'no-such-race').ok);
+  const before = GG.myEntries(g5).length;
+  nextWeek(g5);
+  const afterOne = GG.myEntries(g5).length;
+  check(`1 週進めても先の週の登録は残る（${before} → ${afterOne}）`, afterOne >= before - 1 && afterOne >= 3);
+  for (let i = 0; i < 12; i++) nextWeek(g5);
+  const left = GG.myEntries(g5);
+  check(`過ぎた週の登録は消え、先のものだけ残る（${left.length} 件）`, left.every((e) => e.year > g5.world.year || e.week > g5.world.week));
+  check('登録した馬は走った（記録がある）', mine.some((h) => (g5.world.horses.get(h.id).starts ?? 0) > 0));
+  // セーブ往復で先の登録が保たれる。
+  const back = fromJSON(toJSON(g5));
+  check('先の登録がセーブで保たれる', GG.myEntries(back).length === left.length);
+}
+{
+  // 表に能力のある現役の史実馬は、名馬が全部 E 評価で始まらない。
+  const g6 = sideGame({ seed: 'verify-real-ability', startYear: 2020 });
+  const names = ['コントレイル', 'デアリングタクト', 'アーモンドアイ', 'グランアレグリア'];
+  const rows = [];
+  for (const h of g6.world.horses.values()) {
+    if (!names.includes(h.name)) continue;
+    const t = horseView(g6, h.id);
+    rows.push(`${h.name} 総合${t.summary?.total?.toFixed?.(2) ?? '—'}`);
+    check(`${h.name} は表の能力から下げずに始まる`, ABILITIES.every((a) => h.cur[a] >= h.pot[a] * 0.94), JSON.stringify(h.cur));
+  }
+  check('現役の史実馬が見つかる', rows.length >= 3, rows.join(' '));
+}
+
+
+section('自分の重賞馬の種牡馬入り');
+{
+  // 重賞を勝った自分の牡馬は、獲得賞金が 3 億に届かなくても引退で種牡馬になれる（画面の案内どおり）。
+  const gs = sideGame({ seed: 'verify-stud' });
+  const raw = gs.world.horses.get(myHorses(gs)[0].id);
+  Object.assign(raw, { sex: '牡', earnings: 9000, g1Wins: 0, gradedWins: 0, record: [], real: false });
+  check('重賞未勝利の自分の牡馬は種牡馬にならない', GG.retireOutcome(gs, raw.id) === 'none');
+  raw.gradedWins = 1;
+  check('重賞を勝った自分の牡馬は「種牡馬になる」と出る', GG.retireOutcome(gs, raw.id) === 'stallion');
+  GG.retire(gs, raw.id);
+  check('引退すると種牡馬の名簿と自分の種牡馬に入る',
+    raw.stallion && gs.world.stallionPool.includes(raw.id) && gs.world.player.stallions.includes(raw.id) && raw.studFee > 0);
+  // 自分の実在馬は重賞を勝っていなくても種牡馬・繁殖に上がる。「上げない」も選べる。
+  const [a2, b2] = [...gs.world.horses.values()].filter((h) => !h.dead && !h.retired && gs.world.year - h.birthYear >= 3 && h.ownerId !== 'player').slice(0, 2);
+  for (const h of [a2, b2]) if (h) h.ownerId = 'player';
+  if (a2 && b2) {
+    Object.assign(a2, { sex: '牡', earnings: 500, g1Wins: 0, gradedWins: 0, record: [], real: true });
+    Object.assign(b2, { sex: '牡', earnings: 500, g1Wins: 0, gradedWins: 0, record: [], real: true });
+    check('自分の実在馬は引退で種牡馬になると出る', GG.retireOutcome(gs, a2.id) === 'stallion');
+    GG.retire(gs, a2.id);
+    GG.retire(gs, b2.id, { breed: false });
+    check('実在馬は種牡馬になり、「上げない」を選べば上がらない', a2.stallion && !b2.stallion && !gs.world.stallionPool.includes(b2.id));
+  }
+  // 自分の種牡馬は種付料が無料で、配合の候補の「自分の種牡馬だけ」に出る。
+  const mare = gs.world.player.broodmares[0];
+  const ownList = GG.stallions(gs, { mine: true });
+  check('自分の種牡馬が「自分の種牡馬だけ」に出て、種付料は無料', ownList.some((s) => s.id === raw.id) && ownList.every((s) => s.fee === 0 && s.mine));
+  const evOwn = GG.evaluateMating(gs, mare, raw.id);
+  check(`自分の種牡馬との配合は無料でランクが付く（${evOwn?.rank}）`, evOwn && evOwn.fee === 0 && /^[SABCDE]$/.test(evOwn.rank));
+  const byBurst = GG.matingCandidates(gs, mare, { sort: 'burst' }).filter((r) => !r.ev?.blocked);
+  const byRisk = GG.matingCandidates(gs, mare, { sort: 'risk' }).filter((r) => !r.ev?.blocked);
+  check('配合の候補を爆発力の高い順・危険度の低い順に並べられる',
+    byBurst.every((r, i) => i === 0 || byBurst[i - 1].ev.burst >= r.ev.burst)
+    && byRisk.every((r, i) => i === 0 || byRisk[i - 1].ev.riskPoints <= r.ev.riskPoints));
+  // 名声は勝つと上がる（GI 15・重賞 5〜8・オープン 3・条件 1）。
+  check('名声の配点（GI 15・GII 8・GIII 5・海外 GI 25）',
+    WW.famePoints({ grade: 'GI' }) === 15 && WW.famePoints({ grade: 'GII' }) === 8 && WW.famePoints({ grade: 'GIII' }) === 5
+    && WW.famePoints({ grade: 'GI', abroad: 'US' }) === 25 && WW.famePoints({ classId: '1win' }) === 1);
+}
+
+section('幼駒の売却');
+{
+  // 幼駒はセールを待たずに売れる。値段は血統だけで決まり、乱数を使わない。
+  const gy = sideGame({ seed: 'verify-young' });
+  const w = gy.world;
+  let foal = [...w.horses.values()].find((h) => h.ownerId === 'player' && w.year - h.birthYear < 2 && !h.dead);
+  for (let i = 0; i < 16 && !foal; i++) { nextWeek(gy); foal = [...w.horses.values()].find((h) => h.ownerId === 'player' && w.year - h.birthYear < 2 && !h.dead); }
+  check('自分の幼駒が居る（4 月に生まれる）', !!foal);
+  if (foal) {
+    const q1 = GG.youngsterQuote(gy, foal.id), q2 = GG.youngsterQuote(gy, foal.id);
+    const money = w.player.money;
+    const r = GG.sellYoungster(gy, foal.id);
+    check(`幼駒を売れる（${q1} 万円・見積もりは何度見ても同じ）`, r.ok && q1 === q2 && r.price === q1 && w.player.money === money + q1 && foal.ownerId !== 'player');
+    check('売った幼駒は自分の幼駒に出ない', !GG.myYoungsters(gy).some((x) => x.id === foal.id));
+  }
+}
+
+section('v1.0.2：庭先の追加・牧場取引（通年）');
+{
+  const g7 = sideGame({ seed: 'verify-direct' });
+  const w7 = g7.world;
+  w7.player.money = 5e6;
+  // 4 月（当歳が生まれる）まで進めて、セールの外でも当歳・1 歳・繁殖牝馬を買える。
+  while (w7.week < 14) nextWeek(g7);
+  check('セールの時期ではない', !GG.saleOpen(g7, 'foal') && !GG.saleOpen(g7, 'mare') && !GG.saleOpen(g7, 'private'));
+  const bought = {};
+  for (const k of ['dFoal', 'dYearling', 'dMare']) {
+    const lots = GG.directSale(g7, k);
+    const r = lots.length ? GG.buyLot(g7, k, lots[0].id) : { ok: false, why: '上場なし' };
+    bought[k] = r;
+    check(`牧場取引で買える（${k}：${lots.length} 頭、${r.ok ? lots[0].name : r.why}）`, lots.length >= 5 && r.ok);
+    if (r.ok) check(`  買った馬は落札済みで出て、持ち主になる（${k}）`, GG.directSale(g7, k).some((x) => x.id === lots[0].id && x.sold) && g7.world.horses.get(lots[0].id).ownerId === 'player');
+  }
+  check('牧場取引は割高（セール価格より高い）', (() => {
+    const l = GG.directSale(g7, 'dYearling')[0];
+    return l.price > 0 && GG.DIRECT_PREMIUM > 1.2;
+  })());
+  check('買った繁殖牝馬が自分の繁殖牝馬に入る', g7.world.player.broodmares.includes(GG.directSale(g7, 'dMare').find((x) => x.sold)?.id));
+  // 庭先の開催（春 3 月・夏 7 月・冬 12 月）。
+  const wins = new Set();
+  const g8 = sideGame({ seed: 'verify-private' });
+  for (let i = 0; i < WEEKS_PER_YEAR; i++) { if (GG.saleOpen(g8, 'private')) wins.add(GG.privateWindow(g8).label); nextWeek(g8); }
+  check(`庭先取引が年に 3 回開く（${[...wins].join('・')}）`, wins.size === 3);
+}
+
+
+section('v1.0.2：牧場施設');
+{
+  const g9 = sideGame({ seed: 'verify-facility' });
+  const w9 = g9.world;
+  check('施設の一覧が取れる（6 種・最初は全部レベル 0）', GG.facilities(g9).length === 6 && GG.facilities(g9).every((f) => f.level === 0));
+  // 資金が足りなければ建てられない。
+  w9.player.money = 100;
+  check('資金が足りなければ建てられない', !GG.buildFacility(g9, 'slope').ok);
+  w9.player.money = 100000;
+  const money0 = w9.player.money;
+  const r1 = GG.buildFacility(g9, 'slope');
+  check(`建設を始められる（${r1.cost}万・${r1.weeks}週）`, r1.ok && w9.player.money === money0 - r1.cost);
+  check('同じ施設を二重に建てられない', !GG.buildFacility(g9, 'slope').ok);
+  check('同時に建てられるのは 2 つまで', GG.buildFacility(g9, 'pool').ok && !GG.buildFacility(g9, 'clinic').ok);
+  // 工期のあいだは効かず、完成すると効く。
+  check('建設中は効果が無い', GG.facilitySummary(g9).effects.growMul === 1);
+  for (let i = 0; i < r1.weeks; i++) nextWeek(g9);
+  const slope = GG.facilities(g9).find((f) => f.id === 'slope');
+  check(`工期が過ぎると完成する（Lv ${slope.level}）`, slope.level === 1 && !slope.build);
+  check('完成後は効果が出て、維持費がかかる', GG.facilitySummary(g9).effects.growMul > 1 && GG.facilitySummary(g9).upkeep > 0);
+  check('完成の知らせが流れる', w9.log.some((l) => l.news.some((n) => n.includes('坂路コース が完成'))));
+  // セーブ往復
+  const back9 = fromJSON(toJSON(g9));
+  check('施設がセーブで保たれる', GG.facilities(back9).find((f) => f.id === 'slope').level === 1);
+  // 効果の向き：自分の馬だけに効く。調教の伸びが施設ありのほうが大きい。
+  const gA = sideGame({ seed: 'verify-facility-fx' });
+  const gB = sideGame({ seed: 'verify-facility-fx' });
+  gB.world.player.money = 1e6;
+  for (const id of ['slope', 'pool', 'clinic', 'paddock']) gB.world.player.facilities = { ...(gB.world.player.facilities ?? {}), [id]: { level: 3, build: null } };
+  for (let i = 0; i < 8; i++) { nextWeek(gA); nextWeek(gB); }
+  // 馬の id は世界ごとに違う（sideGame が番号を離す）ので、自分の馬を世界ごとに数える。
+  const grow = (g) => sum(myHorses(g), (h) => sum(ABILITIES, (a) => h.cur[a]));
+  check(`施設（坂路・プール）で自分の馬の能力が伸びる（${grow(gA).toFixed(2)} → ${grow(gB).toFixed(2)}）`, grow(gB) > grow(gA));
+}
+
+
+section('v1.0.2：配合理論');
+{
+  const g10 = sideGame({ seed: 'verify-theory' });
+  const w10 = g10.world;
+  const hs = [...w10.horses.values()];
+  // 全種牡馬 × 繁殖牝馬の組み合わせで、理論の爆発力と危険度の分布を見る。
+  const sires = w10.stallionPool.map((id) => w10.horses.get(id)).filter(Boolean).slice(0, 40);
+  const mares = w10.marePool.map((id) => w10.horses.get(id)).filter(Boolean).slice(0, 40);
+  const seen = new Map();
+  const bursts = [];
+  let combos = 0, risky = 0;
+  for (const s of sires) for (const m of mares) {
+    if (s.id === m.sireId) continue;
+    const ev = GG.evaluateMating(g10, m.id, s.id);
+    combos++;
+    bursts.push(ev.burst);
+    if (ev.riskPoints >= 4) risky++;
+    for (const t of ev.theories) seen.set(t.name, (seen.get(t.name) ?? 0) + 1);
+  }
+  bursts.sort((a, b) => a - b);
+  const med = bursts[bursts.length >> 1], p90 = bursts[Math.floor(bursts.length * 0.9)], max = bursts[bursts.length - 1];
+  check(`爆発力の分布（中央 ${med}・上位 1 割 ${p90}・最大 ${max}）`, med >= 3 && med <= 15 && p90 >= 8 && p90 <= 30 && max <= 45);
+  check(`危険度が大きい配合は少数（${risky}/${combos}）`, risky / combos < 0.25);
+  check(`配合理論が多様に成立する（${seen.size} 種）`, seen.size >= 15);
+  for (const need of ['インブリード', 'アウトブリード', 'シングルニックス']) {
+    check(`  ${need} が成立する組み合わせがある`, [...seen.keys()].some((k) => k.includes(need)));
+  }
+  check('理論の一覧が説明に出る', GG.theoryGuide().length >= 20);
+  // 種付けできない配合：母の父を父にはできない。
+  {
+    const m = mares.find((x) => x.sireId != null && w10.horses.get(x.sireId));
+    const bad = GG.evaluateMating(g10, m.id, m.sireId);
+    check('母の父を父にする配合は種付不可になる', !!bad.blocked);
+  }
+  // 世界全体の水準が動かない（落とし穴 41）：生まれた仔の潜在能力の中央値。
+  const young = hs.filter((h) => !h.real && w10.year - h.birthYear <= 8 && h.sireId != null);
+  const mid = young.map((h) => sum(ABILITIES, (a) => h.pot[a]) / ABILITIES.length).sort((a, b) => a - b)[Math.floor(young.length / 2)];
+  check(`潜在能力の中央値が動かない（${mid.toFixed(3)}）`, mid > 0.42 && mid < 0.7);
+  check('成立した理論が仔に残る', young.some((h) => h.theories?.length));
+  // 爆発力の大きい配合ほど、仔のスピードが高い傾向（理論が効いている）。
+  const ev0 = GG.evaluateMating(g10, mares[0].id, sires[0].id);
+  check('評価に爆発力・危険度・星が出る', ev0.burst >= 0 && ev0.riskPoints >= 0 && ev0.stars >= 1 && typeof ev0.burstComment === 'string');
+}
+
+
+section('血統支配率の高い種牡馬の因子');
+{
+  const gd = sideGame({ seed: 'verify-dominance' });
+  const wd = gd.world;
+  const dom = bloodDominance(wd);
+  const top = [...dom.entries()].map(([id, d]) => ({ h: wd.horses.get(id), d })).filter((x) => x.h && x.h.sex === SEX.MALE)
+    .sort((a, b) => b.d - a.d);
+  const high = top.filter((x) => x.d >= 0.01);
+  check(`支配率 1% 以上の種牡馬 ${high.length} 頭はすべて因子を持つ（亡くなった馬を含む：${high.filter((x) => x.h.dead).length} 頭）`,
+    high.length >= 10 && high.every((x) => (x.h.factors ?? []).length >= 1) && high.some((x) => x.h.dead));
+  const higher = top.filter((x) => x.d >= 0.015);
+  check(`支配率 1.5% 以上（${higher.length} 頭）は因子を 2 つ持つ`, higher.length >= 3 && higher.every((x) => (x.h.factors ?? []).length >= 2));
+  check('支配率の低い種牡馬には付けない（0.5% 未満の因子持ちが全体の半分以下）',
+    (() => {
+      const low = top.filter((x) => x.d < 0.005);
+      return low.length > 50 && low.filter((x) => (x.h.factors ?? []).length > 0).length < low.length * 0.5;
+    })());
+  // セーブから読み込んでも、付け終えた世界は変わらない。
+  const back = fromJSON(toJSON(gd));
+  const same = high.every((x) => JSON.stringify(back.world.horses.get(x.h.id).factors) === JSON.stringify(x.h.factors));
+  check('セーブ往復で因子が保たれる', same);
+  // 一覧の因子のとおり 2 つ（レイズアネイティヴ・トムフール：スピ パワ、ニアークティック：スピ 根性）。
+  const fx = (n) => (gd.world.horses.get(gd.world.real.ids[n])?.factors ?? []).join(',');
+  check(`名種牡馬が一覧どおりの因子を持つ（レイズアネイティヴ ${fx('レイズアネイティヴ')}・ニアークティック ${fx('ニアークティック')}）`,
+    fx('レイズアネイティヴ') === 'speed,power' && fx('トムフール') === 'speed,power' && fx('ニアークティック') === 'speed,guts');
+  // 世界が捨てた名前だけの祖先も、実在馬の血統表には表から出る（アファームドの母の側）。
+  const cnt = (t) => (!t ? 0 : 1 + cnt(t.sire) + cnt(t.dam));
+  const af = GG.pedigree(gd, gd.world.real.ids['アファームド'], 5);
+  const afN = cnt(af?.sire) + cnt(af?.dam);
+  check(`アファームドの 5 代血統表が埋まる（${afN}/62）`, afN >= 50);
+}
+
+section('実在馬の白斑');
+{
+  const { MARKINGS } = await import('../src/sim/data/markings.js');
+  const { marksOf } = await import('../src/sim/markings.js');
+  const ok = MARKINGS.every(([n, b, f, l, src]) => typeof n === 'string' && Number.isInteger(b)
+    && /^(none|star|starStripe|stripe|blaze|bald|snip|starSnip)(\/[sl])?$/.test(f) && /^[0-5]{4}$/.test(l) && /^(en|ja)$/.test(src));
+  check(`記事から取った白斑 ${MARKINGS.length} 頭（書式が正しい）`, MARKINGS.length >= 300 && ok);
+  // 英語版の記事のとおり：ノーザンダンサーは曲がった大流星と 3 本の白い脚、ニジンスキーは額のハート形の星と 3 本の白い脚。
+  const mk = (n) => marksOf(w.horses.get(w.real.ids[n]));
+  const white = (m) => (m?.legs ?? []).filter((x) => x > 0).length;
+  const nd = mk('ノーザンダンサー'), nj = mk('ニジンスキー');
+  check(`世界の実在馬に白斑が引ける（ノーザンダンサー ${nd?.face}・白い脚 ${white(nd)} 本、ニジンスキー ${nj?.face}・${white(nj)} 本）`,
+    nd?.face === 'blaze' && white(nd) === 3 && nj?.face === 'star' && white(nj) === 3);
+  const fict = [...w.horses.values()].find((h) => !h.real);
+  check('架空の馬は表を引かない（3D が馬 id から決める）', marksOf(fict) === null);
+  // レースの 3D に毛色が渡る（結果の行は毛色を持たないので、以前は全頭が鹿毛で描かれていた）。
+  const runners = [...w.horses.values()].filter((h) => !h.dead && h.coat !== '鹿毛').slice(0, 5);
+  const looks = GG.raceLooks(game, { results: runners.map((h) => ({ horseId: h.id })) });
+  check('レースの 3D に世界の毛色が渡る', runners.length === 5 && runners.every((h) => looks.get(h.id)?.coat === h.coat));
+}
+
+section('カード育成モード');
+{
+  const I = await import('../src/sim/ikusei.js');
+  const { peekHorseId } = await import('../src/sim/horse.js');
+  const ids = new Set(I.CARDS.map((c) => c.id));
+  check(`カード ${I.CARDS.length} 枚（第 1 弾 40・第 2 弾 40・第 3 弾 3・イベント 1、id が重ならない）`,
+    I.CARDS.length === 84 && ids.size === 84 && I.CARDS.filter((c) => c.pack === 'P1').length === 40 && I.CARDS.filter((c) => c.pack === 'P2').length === 40
+    && I.CARDS.filter((c) => c.pack === 'P3').length === 3 && I.CARDS.filter((c) => c.pack === 'EV').length === 1);
+  const p3 = I.CARDS.filter((c) => c.pack === 'P3');
+  check(`第 3 弾は生涯連対の SSR 3 頭（${p3.map((c) => c.name).join('・')}）、二つ名つき、カードパワーは LM を超えない`,
+    p3.every((c) => c.rar === 'SSR' && c.epithet && /生涯連対/.test(c.record) && I.cardPower(c) <= 380)
+    && ['ダイワスカーレット', 'エルコンドルパサー', 'シンザン'].every((n) => p3.some((c) => c.name === n)));
+  const eg = I.CARDS.find((c) => c.name === 'イージーゴア');
+  check('第 1 弾の LM にイージーゴア（二つ名「最強の再来」、右向き）', eg?.pack === 'P1' && eg.rar === 'LM' && eg.epithet === '最強の再来' && eg.facing === 'right');
+  const fl = I.CARDS.find((c) => c.name === 'ファンタスティックライト');
+  check('第 2 弾の LM にファンタスティックライト（二つ名「その煌めきは幻想が如く」）', fl?.pack === 'P2' && fl.rar === 'LM' && fl.epithet === 'その煌めきは幻想が如く');
+  // +5 の数はレア度で決まる（LM 3・SSR 2〜3・SR 2・R と N は 1）
+  const n5 = (c) => Object.values(I.plusOf(c)).filter((x) => x === 5).length;
+  const want = { LM: [3, 3], SSR: [2, 3], SR: [2, 2], R: [1, 1], N: [1, 1] };
+  check('+5 の数がレア度の決まりどおり', I.CARDS.every((c) => n5(c) >= want[c.rar][0] && n5(c) <= want[c.rar][1]));
+  // ガチャは (シード, 引いた回数) だけで決まる
+  const a = I.newProfile(7), b = I.newProfile(7);
+  const ga = I.pull(a, 30).map((x) => x.card.id).join();
+  const gb = [...I.pull(b, 10), ...I.pull(b, 20)].map((x) => x.card.id).join();
+  check('ガチャは引き方（10 回＋20 回）によらず同じ順に出る', ga === gb);
+  const big = I.newProfile(11);
+  const got = I.pull(big, 2000);
+  const lm = got.filter((x) => x.card.rar === 'LM').length / 2000, nn = got.filter((x) => x.card.rar === 'N').length / 2000;
+  check(`排出率（LM ${(lm * 100).toFixed(1)}%・N ${(nn * 100).toFixed(1)}%）`, lm > 0.01 && lm < 0.035 && nn > 0.45 && nn < 0.55);
+  // 1 回の育成を最後まで（練習は体力を見て、レースは最初の候補）
+  const idBefore = peekHorseId();
+  const own = I.owned(big);
+  const lmCard = own.find((c) => c.rar === 'LM');
+  const run = I.startRun(big, lmCard.id, own.filter((c) => c.id !== lmCard.id).slice(0, 4).map((c) => c.id));
+  let k = 0;
+  while (!I.runDone(run)) {
+    if (I.isRaceTurn(run)) I.raceTurn(run, I.raceOptions(run)[0].id);
+    else if (run.energy < 45) I.rest(run);
+    else I.train(run, I.STATS[k++ % 5]);
+  }
+  const h = I.finishRun(big);
+  check(`育成は 10 戦で終わり、完成馬になる（${h.name} ${h.starts}戦${h.wins}勝・評価 ${h.rank}）`, h.starts === 10 && big.finished.length === 1 && big.run === null);
+  check('2 歳のレースは 2000m まで', h.races.filter((r) => I.SLOTS[r.slot].age === 2).every((r) => r.distance <= 2000));
+  const bt = I.battleNpc(big, h.id, 'japan-cup', 'normal');
+  check(`NPC とのランク戦が走る（${bt.order}着/${bt.result.results.length}）`, bt.result.results.length === 12 && bt.result.log != null);
+  check('育成・対戦は牧場の世界の馬の id を進めない（落とし穴 47）', peekHorseId() === idBefore);
+  // スキル：全カードが持ち、LM だけ固有。条件が合うときだけ能力が上がる。覚えたスキルは完成馬に残る
+  const S = await import('../src/sim/ikusei-skills.js');
+  const sk = I.CARDS.map((c) => [c, I.skillsOf(c)]);
+  check('全カードがレーススキルとサポートスキルを持ち、固有は LM だけ',
+    sk.every(([c, s]) => s.race.length >= 1 && s.support.length >= 1 && !!s.unique === (c.rar === 'LM') && [...s.race, ...s.support].every((id) => I.skillInfo(id))));
+  const spec = { ab: { speed: 0.6, stamina: 0.6, power: 0.6, guts: 0.6, wit: 0.6 }, style: 0.5 };
+  const on = S.applyRaceSkills(spec, ['turf'], { surface: '芝', distance: 2000 }, { rar: 'SR' });
+  const off = S.applyRaceSkills(spec, ['turf'], { surface: 'ダート', distance: 2000 }, { rar: 'SR' });
+  check('レーススキルは条件が合うときだけ発動する', on.spec.ab.speed > 0.6 && on.fired.length === 1 && off.spec.ab.speed === 0.6 && off.fired.length === 0 && spec.ab.speed === 0.6);
+  const cue = (n) => I.skillCue(n, 2000).at;
+  check('観戦の演出は場面に合わせて出る（逃げ切り → 王道 → 末脚炸裂 → 固有は最後の 400m）',
+    cue('逃げ切り') < cue('王道') && cue('王道') < cue('末脚炸裂') && I.skillCue('最強の再来', 2000).unique && cue('最強の再来') >= 1600);
+  check(`覚えたスキルが完成馬に残る（${h.skills.length} 個）`, I.skillsOf(lmCard).race.every((id) => h.skills.includes(id)) && I.finishedSkills(h).length >= I.skillsOf(lmCard).race.length);
+  // 覚醒：同じカードを重ねて持つと、育てる馬もサポートも強くなる。1 枚なら何も変わらない
+  const awRun = (n) => {
+    const q = I.newProfile(21);
+    const t = I.CARDS.find((c) => c.rar === 'N');
+    const sup = I.CARDS.filter((c) => c.rar === 'SR').slice(0, 4);
+    q.cards[t.id] = n;
+    for (const c of sup) q.cards[c.id] = n;
+    const r = I.startRun(q, t.id, sup.map((c) => c.id));
+    let j = 0;
+    while (!I.runDone(r)) {
+      if (I.isRaceTurn(r)) I.raceTurn(r, I.raceOptions(r)[0].id);
+      else if (r.energy < 45) I.rest(r);
+      else I.train(r, I.STATS.find((s) => I.trainingPreview(r, s).friendship) ?? I.STATS[j++ % 5]);
+    }
+    return { sum: I.STATS.reduce((a, k) => a + r.stats[k], 0), skills: I.runSkills(r).length, aw: r.awaken.t };
+  };
+  const a1 = awRun(1), a5 = awRun(5);
+  const gg = I.pull(I.newProfile(3), 300);
+  check(`覚醒：5 枚（覚醒 4）は 1 枚より育つ（能力の合計 ${a1.sum} → ${a5.sum}、スキル ${a1.skills} → ${a5.skills}）`,
+    a1.aw === 0 && a5.aw === 4 && a5.sum > a1.sum + 150 && a5.skills > a1.skills && gg.some((g) => g.awaken === 4) && gg.every((g) => g.awaken <= 4));
+  // かけら：覚醒 MAX（5 枚）を超えた余りだけを替え、かけらで好きなカードを 1 枚もらえる
+  const sp = I.newProfile(4);
+  const nc = I.CARDS.find((c) => c.rar === 'N'), rc = I.CARDS.find((c) => c.rar === 'R');
+  sp.cards[nc.id] = 9; sp.cards[rc.id] = 3;
+  const gotS = I.shardSpare(sp);
+  const lack = I.canBuyWithShards(sp, rc.id);
+  sp.shards = 30;
+  const bought = I.buyWithShards(sp, rc.id);
+  check(`かけら：余り 4 枚 → +${gotS}、5 枚は残り、かけら ${I.SHARD_COST.R} で R を 1 枚（覚醒 ${bought.awaken}）`,
+    gotS === 4 * I.SHARD_VALUE.N && sp.cards[nc.id] === 5 && !!lack && sp.cards[rc.id] === 4 && sp.shards === 30 - I.SHARD_COST.R
+    && !!I.canBuyWithShards({ ...sp, shards: 999 }, nc.id));
+  // イベント：1999 年の凱旋門賞。報酬のモンジューはガチャにもかけらにも出ず、☆1〜☆5 の初勝利で 5 枚（完凸）
+  const mj = I.CARDS.find((c) => c.name === 'モンジュー');
+  const ev = I.EVENTS.find((e) => e.id === 'arc1999');
+  const gp = I.newProfile(5);
+  const noEv = I.pull(gp, 3000).every((g) => !I.isEventCard(g.card));
+  check(`イベント：モンジュー（LM・二つ名「聳え立つ巨城、地に落ちず」）は報酬だけ（ガチャ 3000 回に出ない・かけらで交換できない）`,
+    mj?.rar === 'LM' && mj.epithet === '聳え立つ巨城、地に落ちず' && ev.reward === mj.id && noEv && !!I.canBuyWithShards({ ...gp, shards: 9999 }, mj.id));
+  const ep = I.newProfile(6);
+  ep.finished.push({ ...h, id: 999, battles: 0, battleWins: 0, turf: 0.9, dirt: 0.4, soft: 0.9, dist: 2400, stats: Object.fromEntries(I.STATS.map((k) => [k, 1200])) });
+  const tried = [];
+  for (let star = 1; star <= 5; star++) for (let t = 0; t < 12 && !I.eventState(ep, 'arc1999').cleared.includes(star); t++) tried.push(I.eventRace(ep, 999, 'arc1999', star));
+  const last = tried.at(-1);
+  check(`イベント：史実の 14 頭とロンシャン芝 2400m・不良を走り、☆1〜☆5 の初勝利でモンジュー 5 枚（${ep.cards[mj.id] ?? 0} 枚・挑戦 ${tried.length} 回）`,
+    ev.field.length === 14 && last.result.results.length === 15 && last.race.courseId === 'longchamp' && last.race.ground === '不良'
+    && ep.cards[mj.id] === 5 && I.eventState(ep, 'arc1999').cleared.join() === '1,2,3,4,5'
+    && tried.filter((x) => x.reward).length === 5 && peekHorseId() === idBefore);
+  const js = JSON.stringify(big);
+  check(`プロフィールは JSON で往復できる（${(js.length / 1024).toFixed(1)}KB）`, JSON.stringify(JSON.parse(js)) === js && js.length < 64 * 1024);
 }
 
 console.log(`\n合計 ${pass} ok / ${fail} NG`);

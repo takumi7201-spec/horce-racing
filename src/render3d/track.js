@@ -277,8 +277,17 @@ export function buildTrackMesh(track, { stand = true, surrounds = true, rng = Ma
     ));
   }
 
+  // 米国の競馬場は芝コースがダートの内側にある（日本と逆）。ダートのレースでは内ラチの内に芝の帯を敷く。
+  // 敷かないと内馬場が日本と同じ暗い緑一色になり、米国の競馬場に見えない。
+  if (track.abroad && track.surface === SURFACE.DIRT && !track.straightCourse) {
+    const inner = new THREE.Mesh(buildSurface(track, { surface: SURFACE.TURF, inner: -26, outer: -5 }), surfMat);
+    inner.position.y = -0.03;
+    group.add(inner);
+  }
+
   // ラチは細い板なので、光の当たり方より「白い線」として見えることが大事。
   const railMat = new THREE.MeshBasicMaterial({ color: COLORS.rail, side: THREE.DoubleSide });
+  if (track.abroad && track.surface === SURFACE.DIRT && !track.straightCourse) group.add(new THREE.Mesh(buildRail(track, -5), railMat));
   group.add(new THREE.Mesh(buildRail(track, 0.1), railMat));
   group.add(new THREE.Mesh(buildRail(track, track.width - 0.1, { height: 1.3 }), railMat));
 

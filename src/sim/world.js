@@ -21,7 +21,7 @@ import {
 import {
   SEX, ABILITIES, GROWTH, GROWTH_CURVE, GROUNDS, CLASSES, CLASS_BY_ID,
   classForWins, classOrder, standardWeight, WEEKS_PER_YEAR, weekToMonth, COST,
-  JOCKEY_CUT, TRAINER_CUT, STYLES, START_MONEY,
+  JOCKEY_CUT, TRAINER_CUT, STYLES, START_MONEY, FAME_POINTS, ABROAD_FAME,
 } from './params.js';
 import { SURFACE, allCourses, distancesOf } from './course.js';
 import {
@@ -30,14 +30,16 @@ import {
 } from './schedule.js';
 import { simulateRace, computeOdds } from './race.js';
 import { createJockey, createTrainer, ageJockey, ageTrainer, resetPersonIds, acceptsRide } from './jockey.js';
-import { breed, canBeBroodmare, canBeStallion, studFeeOf, conceives, POP_MEAN } from './breeding.js';
-import { trainWeek, pastureWeek, autoMenu } from './training.js';
-import { sireLineRoot, nicksKey, recordNicksResult, breedQuality, lineLabel, grantFactors, establishLines } from './pedigree.js';
+import { breed, canBeBroodmare, canBeStallion, studFeeOf, conceives, POP_MEAN, STALLION_FOAL_MEMORY } from './breeding.js';
+import { trainWeek, pastureWeek, nurseryWeek, autoMenu, readyToRun } from './training.js';
+import { facilityEffects, NO_EFFECT, advanceFacilities, facilityUpkeep } from './facilities.js';
+import { sireLineRoot, nicksKey, recordNicksResult, breedQuality, lineLabel, grantFactors, grantDominantFactors, establishLines } from './pedigree.js';
 import { clamp, clamp01, lerp, sum, byDesc } from '../core/util.js';
 import {
   seedRealHorses, syncRealStud, syncRealMares, settleRealHorses, realNewYear, realCoverings, bornReal,
 } from './realsires.js';
-import { W } from './schedule.js';
+import { W, ABROAD_COST } from './schedule.js';
+import { historicalRunners, foreignRunners, ghostRunners, readyAbroad, FOREIGN_JOCKEYS, isAbroadRunnerOf } from './abroad.js';
 
 /**
  * 1 世代あたりの産駒数。
@@ -91,6 +93,7 @@ export function createWorld(seed, { startYear = 2026, playerName = '', farmName 
     player: null,
     pendingMatings: [],     // 今年の配合予約
     log: [],
+    nursery: 1,             // 1 歳の育成がある世界（古いセーブは読み込みで足す。落とし穴 88）
   };
 
   // --- 人と組織 ---
@@ -176,6 +179,16 @@ export function createWorld(seed, { startYear = 2026, playerName = '', farmName 
     // 開始時点で現役の実在馬（1975 年開始ならトウショウボーイやテンポイント）。
     // 2 歳以上は紙の戦績を持たせる。開始年の 4 月に生まれる名馬は、ここで母に受胎させる。
     for (const h of liveReal) if (Y0 - h.birthYear >= 2) paperCareer(world, h, rng, Y0);
+    // 表に能力が設定されている馬は、その値から下げてスタートしない。紙の戦績は現在値を潜在値の 82% にし、
+    // 仕上がり 0.2 も掛かるので、名馬が全部 E 評価で始まっていた。成長が止まっている古馬は潜在値そのもの。
+    for (const h of liveReal) {
+      const age = Y0 - h.birthYear;
+      if (age < 2) continue;
+      const reach = age >= 3 ? 1 : 0.95;
+      for (const a of ABILITIES) h.cur[a] = clamp01(h.pot[a] * reach);
+      h.fit = Math.max(h.fit, 0.7);
+      h.cond = Math.max(h.cond, 0.7);
+    }
     realCoverings(world, rng, Y0);
   }
   // 名簿の種付料を開始年の値にそろえる。供用を始めた年の値のままだと、
@@ -187,11 +200,15 @@ export function createWorld(seed, { startYear = 2026, playerName = '', farmName 
 
   // 血統表に出てこない古い馬は捨てる。放っておくと一万頭を超えてセーブが膨らむ。
   pruneAncestry(world);
+  // 古い架空馬（血統表を作るためだけの祖先）を、同じ時代の実在馬に置き換える。
+  if (realSires) replaceFictionalAncestors(world);
 
   // --- 系統の相性（ニックス）を決める ---
   buildNicks(world, rng);
   // 開始時点で確立している系統（2026 年ならディープインパクト系など）。
   establishLines(world, rng);
+  // 血統支配率の高い種牡馬（亡くなった馬も含む）に因子を付ける。
+  grantDominantFactors(world);
 
   // 開始時点の 1 歳馬はまだ馬名登録前（登録は 1 歳の年末）。仮の名で呼ぶ。
   for (const h of world.horses.values()) {
@@ -208,6 +225,80 @@ export function createWorld(seed, { startYear = 2026, playerName = '', farmName 
 
   world.news.push(`${startYear}年、${world.player.farmName} が競馬界に参入した。`);
   return world;
+}
+
+/**
+ * 架空馬の血統表にあった「オリジナルの血統」を、実在の血統に置き換える。
+ * 世界の中に居る架空馬（現役・近年に生まれた馬・名簿の馬）はそのまま残し、その祖先になっていた古い架空馬
+ * （血統表を作るためだけに居た馬。創始世代から数十年ぶん）を、同じ時代に生まれた同じ性別の実在馬へ付け替えて消す。
+ * 創始世代だけを置き換えても、6 代さかのぼれる 5 代血統表の 2〜5 代目に架空の祖先が残っていた。
+ * 実在馬は血統表がそろっているほど選ばれやすくする（架空の馬の血統表が、実在の血統で 5 代まで埋まるように）。
+ * 乱数は世界の主乱数と別にする（主乱数を使うと、これ以降の世界がすべてずれる）。
+ */
+function replaceFictionalAncestors(world) {
+  const Y0 = world.startYear;
+  const rng = makeRng(hashSeed(`ancestors:${world.seed}:${world.startYear}`));
+  const pools = new Set([...world.stallionPool, ...world.marePool]);
+  const keep = (h) => h.real || h.dead === false && (h.birthYear >= Y0 - 11 || pools.has(h.id)) || h.ownerId != null;
+  const gone = [...world.horses.values()].filter((h) => !keep(h));
+  if (!gone.length) return 0;
+  const goneIds = new Set(gone.map((h) => h.id));
+  const reals = [...world.horses.values()].filter((h) => h.real).sort((a, b) => a.id - b.id);
+  // 血統表のそろい具合（4 代までに分かっている祖先の数）。
+  const depthMemo = new Map();
+  const known = (id, d) => {
+    if (id == null || d > 4) return 0;
+    const h = world.horses.get(id);
+    if (!h) return 0;
+    return 1 + known(h.sireId, d + 1) + known(h.damId, d + 1);
+  };
+  const weightOf = (h) => {
+    if (!depthMemo.has(h.id)) depthMemo.set(h.id, known(h.sireId, 1) + known(h.damId, 1));
+    const k = depthMemo.get(h.id);
+    return 1 + k * k;
+  };
+  const byYear = new Map();
+  for (const h of reals) {
+    const key = `${h.sex}${h.birthYear}`;
+    byYear.set(key, [...(byYear.get(key) ?? []), h]);
+  }
+  const candidates = (sex, year) => {
+    for (const w of [6, 12, 20]) {
+      const c = [];
+      for (let y = year - w; y <= year + w; y++) c.push(...(byYear.get(`${sex}${y}`) ?? []));
+      if (c.length >= 3) return c;
+    }
+    return [];
+  };
+  const repl = new Map();
+  for (const f of gone) {
+    const c = candidates(f.sex, f.birthYear);
+    if (c.length) repl.set(f.id, rng.weighted(c, c.map(weightOf)));
+  }
+  for (const k of world.horses.values()) {
+    if (goneIds.has(k.id)) continue;
+    for (const field of ['sireId', 'damId']) {
+      const r = goneIds.has(k[field]) ? repl.get(k[field]) : null;
+      if (!r) continue;
+      k[field] = r.id;
+      (r.foals ??= []).push(k.id);
+      if (field === 'sireId' && r.foals.length > STALLION_FOAL_MEMORY) r.foals.shift();
+    }
+  }
+  // 置き換え先が無く、まだ誰かの親のままの馬は残す。
+  const parents = new Set();
+  for (const k of world.horses.values()) if (!goneIds.has(k.id)) { parents.add(k.sireId); parents.add(k.damId); }
+  let removed = 0;
+  for (const f of gone) {
+    if (!repl.has(f.id) || parents.has(f.id)) continue;
+    world.horses.delete(f.id);
+    removed++;
+  }
+  world.stallionPool = world.stallionPool.filter((id) => world.horses.has(id));
+  world.marePool = world.marePool.filter((id) => world.horses.has(id));
+  world._strongMemo = null;      // 血統を付け替えたので、理論（基準交配）の使い回しを捨てる
+  world._lineMemo = null;
+  return removed;
 }
 
 /** 親の居ない馬。創始世代だけに使う。 */
@@ -361,6 +452,7 @@ function paperCareer(world, horse, rng, uptoYear) {
             grade: g.toUpperCase(), order: 1, field: rng.irange(12, 18), past: 1,
           });
           if (g === 'g1') horse.g1Wins = (horse.g1Wins ?? 0) + 1;
+          horse.gradedWins = (horse.gradedWins ?? 0) + 1;
         }
       } else if (rng.chance(0.34)) {
         horse.earnings += Math.round(cls.prize * 0.22);
@@ -467,22 +559,40 @@ function promotePools(world, rng, year) {
  */
 function pruneAncestry(world) {
   const keep = new Set();
+  // 一度通った馬でも、より浅い世代で来たらその先をもう一度たどる（深い世代で先に来ると、その先が切れる）。
+  const best = new Map();
   const walk = (id, depth) => {
-    if (id == null || depth > 6 || keep.has(id)) return;
+    if (id == null || depth > 6 || (best.get(id) ?? 99) <= depth) return;
     const h = world.horses.get(id);
     if (!h) return;
+    best.set(id, depth);
     keep.add(id);
     walk(h.sireId, depth + 1);
     walk(h.damId, depth + 1);
   };
   for (const h of world.horses.values()) {
     if (h.dead) continue;
-    if (world.year - h.birthYear <= 11) walk(h.id, 0);
+    // お腹に仔の居る母も残す（史実の仔を宿した 12 歳のレールデュタンが消え、メジロブライトが生まれなかった）。
+    if (world.year - h.birthYear <= 11 || h.pregnancy) walk(h.id, 0);
   }
   for (const id of world.stallionPool) walk(id, 0);
   for (const id of world.marePool) walk(id, 0);
-  // 実在の馬は数十頭なので全部残す。古い祖先を消すと「○○系」の系統名がたどれなくなる。
-  for (const h of world.horses.values()) if (h.real) keep.add(h.id);
+  // 実在の馬は全部残す（名鑑・種牡馬名鑑・史実の誕生に使う）。ただし血統をつなぐだけの祖先（pedOnly）は、
+  // 血統表から遠くなったら捨てる。名前だけの祖先は 5,000 頭を超え、世界が 3 万頭の上限に迫っていた。
+  // 系統名（「○○系」）は父系をたどって系祖で止まるので、残した馬の父系の鎖は系祖の先まで残す。
+  const chain = (id) => {
+    const seen = new Set();
+    while (id != null && !seen.has(id)) {
+      seen.add(id);
+      const h = world.horses.get(id);
+      if (!h) return;
+      keep.add(id);
+      id = h.sireId;
+    }
+  };
+  for (const id of [...keep]) chain(id);
+  // 実在の馬は 5 代血統表まで残す（名鑑から開く昔の名馬。セクレタリアトの母の側が消えて 58 → 20 枠になっていた）。
+  for (const h of world.horses.values()) if (h.real && !h.pedOnly) { keep.add(h.id); chain(h.id); }
   let removed = 0;
   for (const id of [...world.horses.keys()]) {
     if (!keep.has(id)) { world.horses.delete(id); removed++; }
@@ -731,6 +841,7 @@ function assignNpcEntries(world, races, rng) {
   for (const h of cands) {
     let best = null, bestScore = 0;
     for (const r of races) {
+      if (r.abroad) continue;   // 米国のレースに日本の NPC は出ない（史実の遠征馬は下で別に足す）
       const f = fields.get(r.raceId);
       if (f.length >= r.maxField) continue;
       const s = raceFit(world, h, r) - f.length * 0.02;
@@ -743,7 +854,27 @@ function assignNpcEntries(world, races, rng) {
   // 重賞は必ず成立させる。頭数が足りなければ、条件を満たす馬を強い順に足す。
   // 実際の競馬でも GI が頭数不足で中止になることは無い。
   for (const r of races) {
-    if (r.graded) fillField(world, r, races, fields, 12);
+    if (r.graded && !r.abroad) fillField(world, r, races, fields, 12);
+  }
+  // 海外のレース。史実でその年に遠征した日本馬は、国内のレースから外して遠征させる。相手は海外の実在馬。
+  // 同じ週に海外のレースが重なる（ブリーダーズカップは 6 レース）。1 頭は 1 レースだけ。
+  const abroadTaken = new Set();
+  for (const r of races) {
+    if (!r.abroad) continue;
+    const f = fields.get(r.raceId);
+    for (const h of historicalRunners(world, r)) {
+      for (const [rid, list] of fields) {
+        const i = list.indexOf(h);
+        if (i >= 0 && rid !== r.raceId) list.splice(i, 1);
+      }
+      if (!f.includes(h)) { readyAbroad(h, !!h.foreign); f.push(h); }
+    }
+    for (const h of f) abroadTaken.add(h.id);
+    for (const h of foreignRunners(world, r, r.maxField - f.length - 2, abroadTaken)) {
+      readyAbroad(h, true); f.push(h); abroadTaken.add(h.id);
+    }
+    // 表の海外馬が足りない年（取り込んだ年より先）は、架空の海外馬で 10 頭まで埋める（世界には足さない）。
+    if (f.length < 10) f.push(...ghostRunners(world, r, 10 - f.length, new Set(f.map((h) => h.name))));
   }
   return fields;
 }
@@ -828,10 +959,27 @@ export function advanceWeek(world, opts = {}) {
     if (!race) continue;
     const h = world.horses.get(ent.horseId);
     if (!h || !canRun(h, world.year)) continue;
+    // 先の週に登録した馬は、当日に見直す。クラスは勝ち星で変わり、けがや疲れも出る。
+    // 条件を外れた登録は取り消し、出られない理由を知らせる。
+    if (!eligible(race, h, world.year)) {
+      news.push(`★${h.name} は出走資格を外れ、${race.name} への登録が取り消された`);
+      continue;
+    }
+    const ready = readyToRun(h);
+    if (!ready.ok) {
+      news.push(`★${h.name} は${ready.why}のため、${race.name} を回避した`);
+      continue;
+    }
     const f = fields.get(raceId);
     if (f.length >= race.maxField) f.pop(); // 抽選で弱い馬を外す
     f.push(h);
     ent.accepted = true;
+    if (race.abroad) {
+      // 遠征費は走るときに払う（登録を取り消せば掛からない）。相手は海外の馬で、日本の NPC で埋めない。
+      world.player.money -= ABROAD_COST;
+      news.push(`★${h.name} が${race.name}へ遠征した（遠征費 ${ABROAD_COST} 万円）`);
+      continue;
+    }
     // 自分が登録したレースは必ず成立させる。番組に載っている以上、
     // 相手が集まらなかったので中止、ではプレイヤーは何もできない。
     fillField(world, race, races, fields, 10);
@@ -843,7 +991,10 @@ export function advanceWeek(world, opts = {}) {
     const minField = race.graded ? 3 : 5;
     if (horses.length < minField) continue; // 頭数不足のレースは不成立
     const gw = ground[race.courseId] ?? { ground: '良', weather: '晴' };
-    const jk = assignJockeys(world, race, horses, rng);
+    // 海外の馬には米国の騎手。日本の騎手は日本馬にだけ回す（海外の馬に日本の騎手が乗る絵にしない）。
+    const isForeign = (h) => h.foreign && h.ownerId !== 'player' && !isAbroadRunnerOf(race, h);
+    const jk = assignJockeys(world, race, race.abroad ? horses.filter((h) => !isForeign(h)) : horses, rng);
+    if (race.abroad) horses.filter(isForeign).forEach((h, i) => jk.set(h.id, FOREIGN_JOCKEYS[i % FOREIGN_JOCKEYS.length]));
     const playerEnt = [...world.player.entries.values()].find((e) => e.raceId === race.raceId);
 
     rng.shuffle(horses);
@@ -863,6 +1014,7 @@ export function advanceWeek(world, opts = {}) {
 
     const spec = {
       raceId: race.raceId, name: race.name, classId: race.classId, grade: race.grade,
+      abroad: race.abroad ?? null,
       courseId: race.courseId, surface: race.surface, distance: race.distance,
       ground: gw.ground, weather: gw.weather,
       year: world.year, week: world.week,
@@ -875,13 +1027,18 @@ export function advanceWeek(world, opts = {}) {
   }
 
   world.results = results;
-  world.player.entries = new Map();
+  // 今週の登録だけを消す。先の週の登録は残す（年単位で登録できる）。年と週を持たない古い登録は今週のもの。
+  for (const [rid, e] of [...world.player.entries]) {
+    const past = e.year == null || e.year < world.year || (e.year === world.year && e.week <= world.week);
+    if (past) world.player.entries.delete(rid);
+  }
 
   // --- 全馬の 1 週 ---
   weeklyHorseUpkeep(world, rng);
 
   // --- 経営 ---
   settleWeeklyCost(world);
+  advanceFacilities(world, news);
 
   // --- 牧場の行事（誕生・種付け） ---
   if (world.week === W(4, 1)) foaling(world, rng, news);
@@ -933,6 +1090,7 @@ function applyResult(world, race, res, rng, news) {
       h.wins++;
       // 戦績は 30 走（他人の馬は 6 走）しか残さないので、GI の勝ち数は別に数える。
       if (race.grade === 'GI') h.g1Wins = (h.g1Wins ?? 0) + 1;
+      if (race.graded) h.gradedWins = (h.gradedWins ?? 0) + 1;
     } else if (r.order === 2) h.seconds++;
     else if (r.order === 3) h.thirds++;
     h.earnings += r.prize;
@@ -975,6 +1133,11 @@ function applyResult(world, race, res, rng, news) {
         if (r.order === 1) {
           world.player.wins++;
           if (race.grade === 'GI') world.player.g1++;
+          const before = playerFame(world);
+          world.player.fame = before + famePoints(race);
+          if (before < ABROAD_FAME && world.player.fame >= ABROAD_FAME) {
+            news.push(`★名声が ${world.player.fame} に上がり、海外の種牡馬に種付けできるようになった。`);
+          }
         }
       }
     }
@@ -1029,22 +1192,37 @@ function checkTripleCrown(world, horseId, news) {
 
 /** 全馬の調教・回復。世界でいちばん重い処理なので、素直なループに留めている。 */
 function weeklyHorseUpkeep(world, rng) {
+  // 施設の効果は自分の馬だけに効く。
+  const fxMine = facilityEffects(world);
   for (const h of world.horses.values()) {
     if (h.dead || h.retired) continue;
     const age = horseAge(h, world.year);
-    if (age < 2) continue;
-    if (h.injury) { weeklyRecover(h, rng); continue; }
+    const fx = h.ownerId === 'player' ? fxMine : NO_EFFECT;
+    // 1 歳は牧場で育成する（落とし穴 88）。当歳は母のそばで育つだけ。
+    if (age < 2) {
+      if (age === 1) nurseryWeek(h, { fx });
+      continue;
+    }
+    if (h.injury) {
+      // 診療所：治りが早い（乱数を使わず、治癒の持ち越しを足して 1 を超えるたびに 1 週縮める）。
+      if (fx.healShare > 0 && h.injury.weeks > 1) {
+        h.injury.heal = (h.injury.heal ?? 0) + fx.healShare;
+        if (h.injury.heal >= 1) { h.injury.heal -= 1; h.injury.weeks--; }
+      }
+      weeklyRecover(h, rng);
+      continue;
+    }
     if (h.stable === 'stable') {
       const menu = h.ownerId === 'player'
         ? (h.trainingMenu ?? 'normal')
         : autoMenu(h, rng);
-      trainWeek(h, rng, { year: world.year, trainer: world.trainers.get(h.trainerId), menuId: menu });
+      trainWeek(h, rng, { year: world.year, trainer: world.trainers.get(h.trainerId), menuId: menu, fx });
       // NPC は疲れたら放牧に出す。
       // 放牧に出すとその間に仕上がりが抜け、戻しても 5 週は使えない。
       // 軽い疲れは在厩のまま「休養」メニューで抜く（実際の調整もそうしている）。
       if (h.ownerId !== 'player' && h.fatigue > 0.88) h.stable = 'pasture';
     } else {
-      pastureWeek(h, rng, { year: world.year });
+      pastureWeek(h, rng, { year: world.year, fx });
       // NPC は疲れが抜けたら入厩させる。
       if (h.ownerId !== 'player' && h.fatigue < 0.30 && rng.chance(0.6)) {
         h.stable = 'stable';
@@ -1064,6 +1242,8 @@ function settleWeeklyCost(world) {
   }
   cost += world.player.broodmares.length * COST.broodmareWeekly;
   cost += world.player.stallions.length * COST.stallionWeekly;
+  // 牧場事務所で経費が下がる。施設の維持費は別に払う。
+  cost = Math.round(cost * facilityEffects(world).costMul) + facilityUpkeep(world);
   world.player.weeklyCost = cost;
   world.player.money -= cost;
 }
@@ -1104,6 +1284,7 @@ function yearEnd(world, rng) {
   const newSires = world.stallionPool.filter((id) => !poolBefore.has(id));
   // 系統の確立（息子が何頭も種牡馬になった馬は「○○系」として独立する）。
   const newLines = establishLines(world, rng, news).map((h) => ({ id: h.id, name: h.name }));
+  grantDominantFactors(world);
   const newMares = world.marePool.filter((id) => !poolBefore.has(id));
 
   // 翌年の馬名登録。
@@ -1169,22 +1350,60 @@ function yearEnd(world, rng) {
   };
 }
 
+/** 勝ったときに上がる名声（FAME_POINTS）。 */
+export function famePoints(race) {
+  if (race.grade === 'GI') return race.abroad ? FAME_POINTS.abroadGI : FAME_POINTS.GI;
+  if (race.grade === 'GII') return FAME_POINTS.GII;
+  if (race.grade === 'GIII') return FAME_POINTS.GIII;
+  if (race.classId === 'op') return FAME_POINTS.op;
+  return FAME_POINTS.other;
+}
+
+/** プレイヤーの名声。古いセーブには無いので、勝ち数と GI の勝ち数から起こす。 */
+export function playerFame(world) {
+  const p = world.player;
+  if (p.fame == null) p.fame = (p.wins ?? 0) * FAME_POINTS.other + (p.g1 ?? 0) * (FAME_POINTS.GI - FAME_POINTS.other);
+  return p.fame;
+}
+
+/** 重賞を勝ったことがあるか。戦績は 30 走しか残さないので数（gradedWins）で見て、古いセーブは戦績と GI の勝ち数で見る。 */
+export function gradedWinner(h) {
+  return (h.gradedWins ?? 0) > 0 || (h.g1Wins ?? 0) > 0
+    || (h.record ?? []).some((r) => r.order === 1 && /^(G|Jpn)/.test(r.grade ?? ''));
+}
+
+/** 引退させたらどうなるか（確認の文に出す）。 */
+export function retireOutcome(world, h) {
+  if (h.dead) return 'none';
+  const own = h.ownerId === 'player';
+  if (h.sex === SEX.MALE) {
+    return canBeStallion(h, world.year) || (own && (gradedWinner(h) || h.real)) ? 'stallion' : 'none';
+  }
+  return canBeBroodmare(h, world.year) || (own && h.real) ? 'broodmare' : 'none';
+}
+
 /** 引退させ、繁殖・種牡馬・用途変更に振り分ける。 */
-export function retireHorse(world, h, rng, news = []) {
+export function retireHorse(world, h, rng, news = [], { breed = true } = {}) {
   h.retired = true;
   h.stable = 'retired';
   h.retiredYear = world.year;
   const year = world.year;
   // 名馬は因子を持って繁殖に上がる（血統に残す「得意」）。
   grantFactors(h);
-  if (h.sex === SEX.MALE && canBeStallion(h, year)) {
+  // プレイヤーの馬は重賞を勝っていれば種牡馬にできる（画面の案内どおり）。実際も重賞馬は馬主が
+  // 種牡馬の口を探して供用されることが多い。条件を獲得賞金 3 億（canBeStallion）だけにしていたので、
+  // 重賞を勝った自分の馬が種牡馬になれなかった。ほかの牧場の馬は canBeStallion のまま
+  // （緩めると名簿が 220 頭を超える）。
+  // 自分の実在馬は、史実どおり必ず種牡馬・繁殖に上がる（引退の確認で「上げない」を選んだときだけ上げない）。
+  const outcome = breed ? retireOutcome(world, h) : 'none';
+  if (outcome === 'stallion') {
     h.stallion = true;
     h.studFee = studFeeOf(world, h, year);
     world.stallionPool.push(h.id);
     // 毎年 20 頭が種牡馬入りするので、よほどの実績馬だけを報じる。
     if (h.earnings > 60000) news.push(`${h.name} が引退し、種牡馬となった（種付料 ${h.studFee} 万円）。`);
     if (h.ownerId === 'player') world.player.stallions.push(h.id);
-  } else if (h.sex === SEX.FEMALE && canBeBroodmare(h, year)) {
+  } else if (outcome === 'broodmare') {
     h.broodmare = true;
     world.marePool.push(h.id);
     if (h.ownerId === 'player') world.player.broodmares.push(h.id);
@@ -1211,7 +1430,7 @@ function covering(world, rng, news) {
     const sire = world.horses.get(m.sireId);
     if (!dam || !sire || dam.dead || sire.dead) continue;
     booked.add(dam.id);
-    if (!conceives(rng, dam, birth)) {
+    if (!conceives(rng, dam, birth, facilityEffects(world).conceiveBonus)) {
       world.player.money += m.fee;
       news.push(`★${dam.name} は不受胎だった（種付料 ${m.fee} 万円は返金）。`);
       continue;

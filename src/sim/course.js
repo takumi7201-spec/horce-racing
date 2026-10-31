@@ -165,6 +165,54 @@ const COURSES = [
       distances: [1000, 1700, 2400],
     },
   },
+  // --- 米国（海外遠征） ---
+  // 米国の競馬場はどこも左回りの平坦なダートのオーバルで、内側に芝のコースを持つ。直線は短く（約 300m）、
+  // 向正面も同じくらい。1 周距離・直線は公表値（フィート・マイル）をメートルに直した近似。坂は無い。
+  // ダートは vAdj（m/s）で遅くする。海外の相手は表の能力が高く、日本のダートの式のままでは BC クラシックが 1:57 台になった
+  // （実際は 2:00〜2:02）。
+  // 日本の開催（MEETINGS）には入れない。条件戦は組まれず、番組表の米国の重賞（abroad: 'US'）だけが走る。
+  {
+    id: 'churchill', name: 'チャーチルダウンズ', short: 'CD（米）', dir: DIR.LEFT, region: '米国', abroad: 'US',
+    turf: { lap: 1408, straight: 330, toFirst: 100, back: 330, rise: 0.4, width: 24, slopes: [{ from: 330, to: 0, grade: 0 }], distances: [1600, 1800] },
+    dirt: { vAdj: -0.4, lap: 1609, straight: 375, toFirst: 120, back: 375, rise: 0.5, width: 24, slopes: [{ from: 375, to: 0, grade: 0 }], distances: [1800, 2000] },
+  },
+  {
+    id: 'pimlico', name: 'ピムリコ', short: 'ピムリコ（米）', dir: DIR.LEFT, region: '米国', abroad: 'US',
+    turf: { lap: 1408, straight: 300, toFirst: 100, back: 300, rise: 0.3, width: 22, slopes: [{ from: 300, to: 0, grade: 0 }], distances: [1600] },
+    dirt: { vAdj: -0.4, lap: 1609, straight: 352, toFirst: 120, back: 352, rise: 0.4, width: 22, slopes: [{ from: 352, to: 0, grade: 0 }], distances: [1900] },
+  },
+  {
+    id: 'belmont', name: 'ベルモントパーク', short: 'ベルモント（米）', dir: DIR.LEFT, region: '米国', abroad: 'US',
+    turf: { lap: 2112, straight: 330, toFirst: 250, back: 500, rise: 0.4, width: 26, slopes: [{ from: 330, to: 0, grade: 0 }], distances: [2400] },
+    dirt: { vAdj: -0.4, lap: 2414, straight: 333, toFirst: 300, back: 600, rise: 0.5, width: 26, slopes: [{ from: 333, to: 0, grade: 0 }], distances: [2400] },
+  },
+  {
+    id: 'saratoga', name: 'サラトガ', short: 'サラトガ（米）', dir: DIR.LEFT, region: '米国', abroad: 'US',
+    turf: { lap: 1609, straight: 330, toFirst: 130, back: 380, rise: 0.3, width: 24, slopes: [{ from: 330, to: 0, grade: 0 }], distances: [1800, 2000] },
+    dirt: { vAdj: -0.4, lap: 1810, straight: 352, toFirst: 150, back: 400, rise: 0.4, width: 24, slopes: [{ from: 352, to: 0, grade: 0 }], distances: [2000] },
+  },
+  {
+    id: 'santaanita', name: 'サンタアニタパーク', short: 'サンタアニタ（米）', dir: DIR.LEFT, region: '米国', abroad: 'US',
+    turf: { lap: 1448, straight: 290, toFirst: 120, back: 320, rise: 0.4, width: 24, slopes: [{ from: 290, to: 0, grade: 0 }], distances: [1600, 2200, 2400] },
+    dirt: { vAdj: -0.4, lap: 1609, straight: 300, toFirst: 150, back: 350, rise: 0.4, width: 24, slopes: [{ from: 300, to: 0, grade: 0 }], distances: [1200, 1800, 2000] },
+  },
+  {
+    id: 'gulfstream', name: 'ガルフストリームパーク', short: 'ガルフストリーム（米）', dir: DIR.LEFT, region: '米国', abroad: 'US',
+    turf: { lap: 1609, straight: 260, toFirst: 130, back: 400, rise: 0.2, width: 24, slopes: [{ from: 260, to: 0, grade: 0 }], distances: [1800] },
+    dirt: { vAdj: -0.4, lap: 1810, straight: 274, toFirst: 150, back: 420, rise: 0.2, width: 24, slopes: [{ from: 274, to: 0, grade: 0 }], distances: [1800] },
+  },
+  // --- フランス（育成モードのイベント：1999 年の凱旋門賞） ---
+  // ロンシャンの大コース。右回り、1 周 2750m、高低差約 10m（向正面の上りから 3 コーナーの下り、偽りの直線を経て直線 533m）。
+  // 芝だけ（dirt を持たない。distancesOf は空を返す）。日本の開催（MEETINGS）には入れない。末尾に足す：weekGround は
+  // 全コースを順に回して乱数を引くので、途中に挟むと既存のコースの馬場が変わる。
+  {
+    id: 'longchamp', name: 'ロンシャン', short: 'ロンシャン（仏）', dir: DIR.RIGHT, region: 'フランス', abroad: 'FR',
+    turf: {
+      lap: 2750, straight: 533, toFirst: 300, back: 900, rise: 10, width: 30,
+      slopes: [{ from: 1700, to: 1250, grade: 14 }, { from: 1250, to: 650, grade: -11 }, { from: 650, to: 0, grade: 0 }],
+      distances: [2400],
+    },
+  },
 ];
 
 const BY_ID = new Map(COURSES.map((c) => [c.id, c]));
@@ -179,6 +227,11 @@ export function getCourse(id) {
 }
 export function courseName(id) {
   return BY_ID.get(id)?.name ?? id;
+}
+/** 番組表の「場」の欄の短い名前。海外の競馬場は国を添える。 */
+export function courseShort(id) {
+  const c = BY_ID.get(id);
+  return c?.short ?? c?.name ?? id;
 }
 
 /**
@@ -252,6 +305,7 @@ export function buildTrack(courseId, surface, distance) {
     homeStraight: straight, toFirst, back, arc, radius: r,
     width, dir: course.dir, segments,
     slopes: spec.slopes, cornerGrade: spec.cornerGrade, rise: spec.rise,
+    abroad: course.abroad ?? null,
   };
 }
 
@@ -346,6 +400,7 @@ export function isSprintStraight(track) {
 export function distancesOf(courseId, surface) {
   const c = getCourse(courseId);
   const spec = surface === SURFACE.DIRT ? c.dirt : c.turf;
+  if (!spec) return [];   // 芝だけの場（ロンシャン）
   const list = spec.distances.slice();
   if (spec.straightOnly) list.unshift(spec.straightOnly);
   return list;

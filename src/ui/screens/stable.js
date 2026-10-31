@@ -1,6 +1,6 @@
 // 所有馬の一覧と、1 頭の詳細（能力・適性・血統表・戦績・調教）。
 
-import { el, card, table, button, kv, bar, modal, toast, frameChip, tabs, ask } from '../dom.js';
+import { el, card, table, button, kv, bar, modal, toast, frameChip, tabs, ask, choose } from '../dom.js';
 import * as G from '../../sim/game.js';
 import { formatMoney, formatTime, formatSec, rankOf } from '../../core/util.js';
 import { fitLabel, condLabel, MENUS } from '../../sim/training.js';
@@ -17,6 +17,7 @@ const CAT_ICON = { active: 'horse', mares: 'mare', stallions: 'star', young: 'sp
  */
 export function stableScreen(app) {
   const g = app.game;
+  if (app.params.real) return previewDetail(app, app.params.real);
   if (app.params.id) return detail(app, app.params.id);
 
   const st = G.myStable(g);
@@ -29,7 +30,7 @@ export function stableScreen(app) {
   const empty = {
     active: '現役の所有馬が居ない。当歳セール（8 月）や庭先取引（12 月）で買うか、配合で産ませる。',
     mares: '繁殖牝馬が居ない。牝馬を引退させると繁殖に上がる。',
-    stallions: '種牡馬が居ない。重賞を勝った牡馬を引退させると種牡馬になれる。',
+    stallions: '種牡馬が居ない。重賞を勝った牡馬を引退させると種牡馬になれる（引退の確認に、引退後どうなるかが出る）。',
     young: '幼駒が居ない。5〜6 月に繁殖牝馬へ種付けすると翌年 4 月に生まれる。当歳セール（8 月）でも買える。',
   };
 
@@ -134,6 +135,21 @@ const TABS = [
   { id: 'foals', name: '産駒', needFoals: true },
 ];
 
+/**
+ * 世界に居ない実在馬（名鑑から開く）。仮の世界の馬を、ふつうの馬の詳細と同じ画面で見せる。
+ * 画面の中の G.* の呼び出しが仮の世界を見るよう、game だけを差し替えた app を渡す（書き込みは本物の app へ）。
+ */
+function previewDetail(app, name) {
+  const r = G.realPreview(app.game, name);
+  if (!r) return el('p.empty', { text: '馬が見つからない' });
+  if (!r.phantom) return detail(app, r.id);
+  const papp = new Proxy(app, {
+    get: (t, k) => (k === 'game' ? r.game : t[k]),
+    set: (t, k, val) => { t[k] = val; return true; },
+  });
+  return detail(papp, r.id);
+}
+
 function detail(app, id) {
   const g = app.game;
   const v = G.horseView(g, id);
@@ -179,6 +195,17 @@ function detail(app, id) {
     infoPanel(v, career),
     statePanel(v),
     lineup.length > 1 && at >= 0 ? el('div.hd-swipe', { text: '左右にスワイプで次の馬' }) : null,
+    // 背景の 3D を顔のアップに切り替える（顔の作り・白斑・無口を近くで見られるように）。
+    el('button.hd-face', {
+      text: app.portraitView === 'face' ? '全身を見る' : '顔を見る',
+      onpointerdown: (e) => e.stopPropagation(),
+      onclick: (e) => {
+        e.stopPropagation();
+        app.portraitView = app.portraitView === 'face' ? 'body' : 'face';
+        app.pasture?.setPortraitView(app.portraitView);
+        e.currentTarget.textContent = app.portraitView === 'face' ? '全身を見る' : '顔を見る';
+      },
+    }),
   ]);
   swipe(stage, go);
 
@@ -186,7 +213,7 @@ function detail(app, id) {
     el('header.hd-top', [
       el('span.hd-silk', horseImg(h.coat, { size: 'xs', age: v.age })),
       el('h1', { text: v.name }),
-      el('span.hd-sa', { text: `${h.sex}${v.age}　${h.coat}` }),
+      el('span.hd-sa', { text: v.preview ? `${h.sex}　${h.coat}　${h.birthYear}年生` : `${h.sex}${v.age}　${h.coat}` }),
       el('div.hd-pills', [
         el('span', { text: standing(v), class: mine ? 'on' : null }),
         active ? el('span', {
@@ -195,6 +222,7 @@ function detail(app, id) {
         }) : null,
         v.inbreed.length ? el('span', { text: `インブリード ${v.inbreed.length}` }) : null,
         v.real ? el('span.real', { text: '実在' }) : null,
+        v.preview ? el('span', { text: `この世界：${v.preview}` }) : null,
       ]),
     ]),
     cat ? stableRail(app, cat, id) : null,
@@ -254,7 +282,7 @@ function infoPanel(v, career) {
       laurel('l'),
       el('div.hi-crest-b', [
         el('div.hi-ribbon', { text: ribbon }),
-        row('クラス', v.age < 2 ? 'デビュー前' : v.className),
+        row('クラス', v.preview ? '史実の成績' : v.age < 2 ? 'デビュー前' : v.className),
         row('戦績', `${v.starts}戦${v.wins}勝`),
         row('獲得賞金', formatMoney(v.earnings)),
       ]),
@@ -283,6 +311,9 @@ function infoPanel(v, career) {
           v.lineHead ? el('i.fchip.line', { text: v.lineEstablished ? `${v.lineEstablished}年 系統確立` : '系祖' }) : null,
           v.abroadStud ? el('i.fchip.abroad', { text: '海外で供用中' }) : null,
         ])])
+        : null,
+      v.theories?.length
+        ? el('div.hi-r', [el('span', { text: '配合理論' }), el('div.hi-chips', v.theories.map((t) => el('i.tchip', { text: t })))])
         : null,
     ]),
   ]);
@@ -317,7 +348,8 @@ function statePanel(v) {
   const racing = !v.dead && !v.retired && !v.broodmare && !v.stallion && !young;
   const fit = Math.max(0, Math.min(1, v.fit ?? 0));
   const foals = v.foals ?? [];
-  // 幼駒は仕上がりも産駒も無いので、いま見えている素質（能力の平均）を輪にする。
+  // 幼駒は仕上がりも産駒も無いので、育成の進み具合（2 歳の物差しで見た能力の平均）を輪にする。
+  // 潜在値は見せない（生まれたては潜在の 2 割ほどなので低く出る。1 歳の 1 年で育つ）。
   const avg = ABILITIES.reduce((a, k) => a + v.values[k], 0) / ABILITIES.length;
   const ratio = racing ? fit : young ? avg : Math.min(1, foals.length / 12);
   const R = 40, C = 2 * Math.PI * R;
@@ -331,7 +363,7 @@ function statePanel(v) {
   </svg>`;
   ring.appendChild(el('div.hs-ring-t', racing
     ? [el('span', { text: '仕上がり' }), el('b', { text: `${Math.round(fit * 100)}` }), el('small', { text: '%' })]
-    : young ? [el('span', { text: '素質' }), el('b', { text: rankOf(avg) })]
+    : young ? [el('span', { text: '育成' }), el('b', { text: rankOf(avg) })]
       : [el('span', { text: '産駒' }), el('b', { text: String(foals.length) }), el('small', { text: '頭' })]));
   const fat = v.fatigue ?? 0;
   const fatMark = fat < 0.2 ? '◎' : fat < 0.4 ? '○' : fat < 0.6 ? '△' : '▲';
@@ -344,11 +376,15 @@ function statePanel(v) {
     r('調子', v.condLabel),
     r('疲労', fatMark, fat >= 0.6 ? 'bad' : null),
     r('状態', v.injury ? v.injury.name : v.stable === 'stable' ? '在厩' : '放牧', v.injury ? 'bad' : null),
+  ] : v.preview ? [
+    r('いま', v.preview),
+    r('史実', `${v.starts}戦${v.wins}勝`),
+    r('区分', v.stallion ? '種牡馬' : v.broodmare ? '繁殖牝馬' : '競走馬'),
   ] : [
     r('年齢', `${v.age}歳`),
     v.pregnancy ? r('受胎', `${v.pregnancy.sire}（${v.pregnancy.year}年4月）`)
       : r('産駒の勝利', `${foals.reduce((a, f) => a + f.wins, 0)}勝`),
-    v.stallion && !v.dead ? r('種付料', formatMoney(v.studFee ?? 0)) : r('立場', v.dead ? '故' : v.broodmare ? '繁殖牝馬' : '引退'),
+    v.stallion && !v.dead ? r('種付料', formatMoney(v.studFee ?? 0)) : r('立場', v.dead ? '故' : v.broodmare ? '繁殖牝馬' : abroadRacing(v) ? '海外で現役' : '引退'),
   ];
   return el('section.hd-state', [
     ring,
@@ -392,12 +428,37 @@ function actions(app, v, active) {
           return undefined;
         }, { disabled: !!v.injury }),
       button('引退', async () => {
-        if (!await ask(`${v.name} を引退させる？`, { ok: '引退させる' })) return;
-        G.retire(g, id);
-        toast(`${v.name} を引退させた`);
+        // 引退した後どうなるかを先に見せる（種牡馬になれない馬を、なれると思って引退させないように）。
+        // 種牡馬・繁殖に上がる馬（実在馬は必ず上がる）は、上げない選択もできる。
+        const out = G.retireOutcome(g, id);
+        if (out === 'none') {
+          if (!await ask(`${v.name} を引退させる？\n引退後は繁殖には上がらない（乗馬・用途変更）。`, { ok: '引退させる' })) return;
+          G.retire(g, id);
+          toast(`${v.name} を引退させた`);
+        } else {
+          const up = out === 'stallion' ? '種牡馬' : '繁殖牝馬';
+          const pick = await choose(`${v.name} を引退させる？\n引退後は${up}になる${v.real ? '（実在の馬は史実どおり繁殖に上がる）' : ''}。`, [
+            { label: `${up}にしない`, value: 'no', cls: 'ghost' },
+            { label: `${up}にする`, value: 'yes' },
+          ]);
+          if (!pick) return;
+          G.retire(g, id, { breed: pick === 'yes' });
+          toast(pick === 'yes' ? `${v.name} は引退して${up}になった` : `${v.name} を引退させた（${up}にはしない）`);
+        }
         app.go('stable');
       }, { cls: 'ghost' }),
     ];
+  }
+  // 幼駒はいつでも売れる（セールを待たない）。値段は血統だけで決まる。
+  const quote = v.isMine ? G.youngsterQuote(g, id) : null;
+  if (quote != null) {
+    return [button(`売却する（${formatMoney(quote)}）`, async () => {
+      if (!await ask(`${v.name} を ${formatMoney(quote)} で売る？\n売った馬はほかの牧場の馬になる。`, { ok: '売る' })) return;
+      const r = G.sellYoungster(g, id);
+      if (!r.ok) { toast(r.why, { bad: true }); return; }
+      toast(`${v.name} を ${formatMoney(r.price)} で売った`);
+      app.go('stable', { cat: 'young' });
+    }, { cls: 'ghost' })];
   }
   if (v.isMine && v.broodmare && !v.dead) {
     return [button('配合する', () => app.go('farm', { damId: id }), { cls: 'primary' })];
@@ -451,7 +512,11 @@ function tabContent(app, tid, v, career) {
           el('span.abil-r', { text: v.ranks[a] }),
           bar(v.values[a]),
         ]))),
-        el('p.note', { text: '評価は「いま出せる力」。潜在能力は見えない。調教と出走で近づく。' }),
+        el('p.note', {
+          text: v.age != null && v.age < 2
+            ? '評価は 2 歳の物差しで見た、いまの育ち具合。潜在能力は見えない。当歳は生まれたてで低く、1 歳の 1 年の育成で育つ（育成牧場で速まる）。2 歳からは調教と出走で近づく。'
+            : '評価は「いま出せる力」。潜在能力は見えない。調教と出走で近づく。',
+        }),
       ]),
       el('div', [
         el('h4', { text: '馬場' }),
@@ -525,6 +590,7 @@ function tabContent(app, tid, v, career) {
  * 引退した種牡馬・繁殖牝馬には馬主が居ないので、そこは馬主を出さない。
  */
 function standing(v) {
+  if (v.preview) return '史実馬（この世界に居ない）';
   // 種牡馬リーディングには供用を終えた馬も載る（産駒が走り続けるため）。
   // その馬を開いたときに種付料が出ていては、まだ付けられるように見える。
   if (v.dead) return v.stallion ? '故・種牡馬' : v.broodmare ? '故・繁殖牝馬' : '故';
@@ -532,15 +598,19 @@ function standing(v) {
   if (v.stallion) return `種牡馬（種付料 ${formatMoney(v.studFee ?? 0)}）`;
   if (v.broodmare) return '繁殖牝馬';
   if (v.owner && v.owner !== '—') return `馬主: ${v.owner}`;
+  if (abroadRacing(v)) return '海外で現役';
   return v.retired ? '引退' : '—';
 }
+
+/** 海外で走っている馬（世界には居るが、日本のレースには出ない）。名鑑の「海外で現役」と同じ。 */
+const abroadRacing = (v) => !!v.foreign && v.retired && !v.stallion && !v.broodmare && v.age <= 8;
 
 
 const SHORT = {
   tokyo: '東京', nakayama: '中山', hanshin: '阪神', kyoto: '京都', chukyo: '中京',
   niigata: '新潟', sapporo: '札幌', hakodate: '函館', fukushima: '福島', kokura: '小倉',
 };
-const courseShort = (g, id) => SHORT[id] ?? id ?? '—';
+const courseShort = (g, id) => SHORT[id] ?? (id ? G.courseShort(id) : '—');
 
 /** 距離適性の折れ線。棒を並べるだけで十分読める。 */
 function distChart(g, h) {
@@ -572,10 +642,51 @@ function pedigreeTable(g, id, gens = 4) {
   };
   walk(tree.sire, 1);
   walk(tree.dam, 1);
-  return el('div.ped', cols.map((cells, i) => el('div.ped-col', cells.map((n) => el('div.ped-cell', {
+  const ped = el('div.ped', cols.map((cells, i) => el('div.ped-col', cells.map((n) => el('div.ped-cell', {
     class: n ? (n.sex === '牡' ? 'male' : 'female') : 'blank',
-    title: n ? `${n.name}${n.line ? `（${n.line}）` : ''}` : '',
-  }, n ? [el('span', { text: n.name }), n.line ? el('small', { text: n.line }) : null] : el('span', { text: '—' }))))));
+    title: n ? `${n.name}${n.line ? `（${n.line}）` : ''}${pedFactorText(n)}` : '',
+  }, n ? [el('span', { text: n.name }), pedMarks(n), n.line ? el('small', { text: n.line }) : null] : el('span', { text: '—' }))))));
+  return pedWithToggle(ped);
+}
+
+/** 血統図の因子の印の 1 文字（スピード＝速…）。 */
+const FACTOR_MARK = { speed: '速', stamina: '持', power: '力', burst: '瞬', guts: '根', mind: '精', health: '健' };
+
+/** 血統図の 1 マスの因子の印（因子ごとの色付きの 1 文字と、系祖の「祖」）。 */
+export function pedMarks(n) {
+  const fs = n?.factors ?? [];
+  if (!fs.length && !n?.head) return null;
+  const labels = G.factorLabels();
+  return el('span.pmarks', [
+    ...fs.map((f) => el(`i.pm.pm-${f}`, { text: FACTOR_MARK[f] ?? '?', title: labels[f] ?? f })),
+    n.head ? el('i.pm.pm-head', { text: '祖', title: '系統の祖' }) : null,
+  ]);
+}
+
+function pedFactorText(n) {
+  const labels = G.factorLabels();
+  const fs = (n.factors ?? []).map((f) => labels[f] ?? f);
+  return fs.length ? ` 因子：${fs.join('・')}` : '';
+}
+
+/** 血統図の因子の表示・非表示（見る人の好みなので、この端末だけに覚える）。 */
+export function pedWithToggle(ped) {
+  const KEY = 'keiba-ped-factors';
+  const read = () => { try { return localStorage.getItem(KEY) !== 'off'; } catch { return true; } };
+  let on = read();
+  const btn = el('button.ped-toggle', { type: 'button' });
+  const sync = () => {
+    ped.classList.toggle('nofactors', !on);
+    btn.textContent = on ? '因子：表示中' : '因子：非表示';
+    btn.classList.toggle('off', !on);
+  };
+  btn.addEventListener('click', () => {
+    on = !on;
+    try { localStorage.setItem(KEY, on ? 'on' : 'off'); } catch { /* 保存できなくても動く */ }
+    sync();
+  });
+  sync();
+  return el('div.ped-wrap', [el('div.ped-bar', [btn, el('small', { text: '速=スピード 持=スタミナ 力=パワー 瞬=瞬発 根=根性 精=精神 健=健康 祖=系統の祖' })]), ped]);
 }
 
 // ---------------------------------------------------------------- 操作
@@ -612,48 +723,66 @@ export function entryModal(app, id) {
     el('option', { value: '', text: '指示なし（馬の持ち味）' }),
     ...STYLES.map((s) => el('option', { value: s, text: s })),
   ]);
+  const horizon = G.ENTRY_HORIZON;
+  const sch = G.schedule(g, horizon);
+  const mine = new Map(G.myEntries(g).filter((e) => e.horseId === id).map((e) => [e.raceId, e]));
 
   const render = () => {
     body.textContent = '';
     const races = G.racesFor(g, id, week);
+    const at = sch[week];
+    const sel = el('select.inp', {
+      onchange: (e) => { week = Number(e.target.value); render(); },
+    }, sch.map((w, i) => {
+      const n = G.racesFor(g, id, i).length;
+      return el('option', {
+        value: String(i), selected: i === week,
+        text: `${i === 0 ? '今週' : `${i}週後`}　${w.year}年 ${w.label}（${n}レース）`,
+      });
+    }));
+    body.appendChild(el('div.week-picker', [
+      button('◀', () => { week = Math.max(0, week - 1); render(); }, { cls: 'sm', disabled: week === 0 }),
+      sel,
+      button('▶', () => { week = Math.min(horizon - 1, week + 1); render(); }, { cls: 'sm', disabled: week >= horizon - 1 }),
+      button('今週', () => { week = 0; render(); }, { cls: 'sm ghost' }),
+    ]));
     body.appendChild(el('div.form-row', [
       el('label', ['騎手', jockeySel]),
       el('label', ['脚質指示', styleSel]),
     ]));
     if (!races.length) {
-      body.appendChild(el('p.empty', { text: 'この週に出られるレースは無い。' }));
+      body.appendChild(el('p.empty', { text: `${at.year}年 ${at.label} に出られるレースは無い。` }));
     } else {
       body.appendChild(table(
         ['レース', '場', '条件', '距離', '賞金', '適性', ''],
-        races.map((r) => [
-          el('span', { text: r.name, class: r.grade ? 'grade' : null }),
-          r.courseName, `${r.className}・${r.ageLabel}${r.sexLabel}`,
-          `${r.surface}${r.distance}m`,
-          formatMoney(r.prize),
-          bar(r.apt),
-          button('登録', () => {
-            const res = G.enterRace(g, id, r.raceId, {
-              jockeyId: Number(jockeySel.value),
-              styleOrder: styleSel.value || null,
-            });
-            if (!res.ok) return toast(res.why, { bad: true });
-            toast(`${v.name} を ${r.name} に登録した`);
-            m.close();
-            app.render();
-          }, { cls: 'sm primary', disabled: week !== 0 }),
-        ]), { align: [, 'c', 'c', 'c', 'r', 'c'] }));
-      if (week !== 0) body.appendChild(el('p.note', { text: '登録できるのは今週のレースだけ。' }));
+        races.map((r) => {
+          const ent = mine.get(r.raceId);
+          return [
+            el('span', { text: r.name, class: r.grade ? 'grade' : null,
+              title: r.abroadCost ? `海外遠征（遠征費 ${formatMoney(r.abroadCost)}）` : null }),
+            r.abroadCost ? `${r.courseShort}・遠征費${formatMoney(r.abroadCost)}` : r.courseName, `${r.className}・${r.ageLabel}${r.sexLabel}`,
+            `${r.surface}${r.distance}m`,
+            formatMoney(r.prize),
+            bar(r.apt),
+            ent
+              ? button('取消', () => { G.cancelEntry(g, r.raceId); mine.delete(r.raceId); render(); app.render(); }, { cls: 'sm ghost' })
+              : button('登録', () => {
+                const res = G.enterRace(g, id, r.raceId, {
+                  jockeyId: Number(jockeySel.value),
+                  styleOrder: styleSel.value || null,
+                });
+                if (!res.ok) return toast(res.why, { bad: true });
+                toast(`${v.name} を ${r.name} に登録した（${at.year}年 ${at.label}）`);
+                m.close();
+                app.render();
+              }, { cls: 'sm primary' }),
+          ];
+        }), { align: [, 'c', 'c', 'c', 'r', 'c'] }));
+      if (week !== 0) body.appendChild(el('p.note', { text: '先の週の登録は、その週に出走資格と体調を見直す（外れたら取り消される）。' }));
     }
   };
 
-  const m = modal(`${v.name} の出走登録`, [
-    el('nav.tabs', [0, 1, 2, 3].map((k) => el('button.tab', {
-      text: k === 0 ? '今週' : `${k}週後`,
-      class: k === week ? 'on' : null,
-      onclick: () => { week = k; render(); },
-    }))),
-    body,
-  ], { wide: true });
+  const m = modal(`${v.name} の出走登録`, [body], { wide: true });
   render();
   return m;
 }

@@ -72,6 +72,10 @@ export function pedigreeTree(world, horseId, gens = 3) {
     return {
       id, name: h.name, sex: h.sex,
       line: g === 1 ? lineLabel(world, id) : null,
+      // 血統図に出す因子（id）と、系祖（系統の祖）か。
+      factors: h.factors ?? [],
+      head: !!h.lineHead,
+      real: !!h.real,
       sire: build(h.sireId, g + 1),
       dam: build(h.damId, g + 1),
     };
@@ -342,6 +346,69 @@ export function grantFactors(h) {
   h.factors = Object.entries(score).sort((a, b) => b[1] - a[1]).slice(0, n).map(([f]) => f);
 }
 
+// ---------------------------------------------------------------- 血統支配率と因子
+
+/** 血統支配率の対象にする世代：生まれて 8 年以内の生きている馬（いまの競馬界の血統表）。 */
+const DOMINANCE_YEARS = 8;
+/** 支配率がこの値以上の種牡馬には因子を 1 つ、さらにこの値以上なら 2 つ付ける。 */
+export const DOMINANCE_FACTOR1 = 0.005;
+export const DOMINANCE_FACTOR2 = 0.015;
+
+/**
+ * 種牡馬ごとの血統支配率。いまの競馬界の馬（8 年以内に生まれた生きている馬）の 5 代血統表のうち、
+ * その種牡馬の血が占める割合（血量 2^-世代 の平均）。亡くなった馬も祖先として数える。
+ */
+export function bloodDominance(world) {
+  const pop = [];
+  for (const h of world.horses.values()) {
+    if (h.dead || h.sireId == null) continue;
+    const age = world.year - h.birthYear;
+    if (age >= 0 && age <= DOMINANCE_YEARS) pop.push(h);
+  }
+  const dom = new Map();
+  const walk = (id, g, share) => {
+    if (id == null || g > PED_GENS) return;
+    const h = world.horses.get(id);
+    if (!h) return;
+    dom.set(id, (dom.get(id) ?? 0) + share);
+    walk(h.sireId, g + 1, share / 2);
+    walk(h.damId, g + 1, share / 2);
+  };
+  for (const h of pop) { walk(h.sireId, 1, 0.5); walk(h.damId, 1, 0.5); }
+  const out = new Map();
+  for (const [id, v] of dom) out.set(id, pop.length ? v / pop.length : 0);
+  return out;
+}
+
+/**
+ * 血統支配率の高い種牡馬に因子を付ける。亡くなった馬も含む（血統表に名前が残っている馬）。
+ * 戦績で決まる因子（grantFactors）は GI 3 勝などの名馬にしか付かないので、血を広く残した馬が
+ * 因子無しのままになり、因子を見て配合する面白さが薄かった。支配率 0.5% 以上で 1 つ、1.5% 以上で 2 つ。
+ * いちばん秀でた能力の因子にする。付くだけで消えない。年末と世界を作った直後に呼ぶ。
+ * @returns {number} 因子を付けた馬の数
+ */
+export function grantDominantFactors(world) {
+  const dom = bloodDominance(world);
+  let n = 0;
+  for (const [id, d] of dom) {
+    if (d < DOMINANCE_FACTOR1) continue;
+    const h = world.horses.get(id);
+    if (!h || h.sex !== '牡') continue;
+    const want = d >= DOMINANCE_FACTOR2 ? 2 : 1;
+    const have = h.factors ?? [];
+    if (have.length >= want) continue;
+    const score = {
+      speed: h.pot.speed, stamina: h.pot.stamina, power: h.pot.power, guts: h.pot.guts, mind: h.pot.wit,
+      burst: (h.pot.speed + h.pot.wit) / 2 + (h.style >= 0.6 ? 0.03 : -0.05),
+    };
+    const add = Object.entries(score).filter(([f]) => !have.includes(f)).sort((a, b) => b[1] - a[1])
+      .slice(0, want - have.length).map(([f]) => f);
+    h.factors = [...have, ...add];
+    n++;
+  }
+  return n;
+}
+
 // ---------------------------------------------------------------- 血の活力
 
 /**
@@ -400,6 +467,7 @@ export function establishLines(world, rng, news = []) {
   }
   for (const { s, root, n } of made) {
     s.lineHead = true;
+    world._lineEpoch = (world._lineEpoch ?? 0) + 1;     // 系統の判定の使い回し（theories.js）を捨てる
     s.lineFrom = root;
     s.lineEstablished = world.year;
     // 元の系統のニックスを写す。新しい系統だけ相性が空になると、配合の評価がいきなり「―」になる。
