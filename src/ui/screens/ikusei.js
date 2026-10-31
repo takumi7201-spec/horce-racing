@@ -178,15 +178,13 @@ function homeView(app, go) {
     if (c) stickerInto(face, c, { mode: 'face' });
     return el(`button.ikh-ev.${cls}`, { onclick }, [face, el('span.ikh-ev-l', { text: label }), badge ? el('i.ik-badge', { text: badge }) : null]);
   };
-  const p1 = I.CARDS.find((c) => c.pack === 'P1' && c.rar === 'LM' && c.name === 'イージーゴア') ?? I.CARDS[0];
-  const p2 = I.CARDS.find((c) => c.pack === 'P2' && c.name === 'ファンタスティックライト') ?? I.CARDS[40];
+  const gc = I.CARDS.find((c) => c.name === 'ダイワスカーレット') ?? I.CARDS[0];
   const evNow = I.EVENTS[0];
   const evCard = I.cardById(evNow.reward);
   const evLeft = 5 - I.eventState(p, evNow.id).cleared.length;
   const left = el('nav.ikh-left', [
     ev('evt', 'イベント 開催中', evCard, () => go('event', { ev: evNow.id }), evLeft ? String(evLeft) : null),
-    ev('p1', '第1弾 開催中', p1, () => { app.ikPack = 'P1'; go('gacha'); }, '!'),
-    ev('p2', '第2弾 開催中', p2, () => { app.ikPack = 'P2'; go('gacha'); }, '!'),
+    ev('p2', 'ガチャ NEW', gc, () => go('gacha'), '!'),
     (() => { const x = ev('howto', '遊びかた', null, showHowto); x.querySelector('.ikh-ev-face').append(svg('book', 30)); return x; })(),
   ]);
 
@@ -260,10 +258,10 @@ function showHowto() {
 
 function gachaView(app, go) {
   const p = app.ik;
-  app.ikPack ??= 'ALL';
   const last = app.ikLast ?? [];
+  // ガチャは一つ（弾を選ばず全カードから引く）。弾はカードの通し番号と図鑑の区分にだけ残す
   const pull = (n) => {
-    const got = I.pull(p, n, app.ikPack);
+    const got = I.pull(p, n, 'ALL');
     save(app);
     app.ikLast = got;
     if (got.some((g) => g.isNew)) app.ikNew = true;   // 下のボタン列の「カード」に NEW を付ける（図鑑を開くまで）
@@ -271,11 +269,8 @@ function gachaView(app, go) {
     sound.play(top <= 1 ? 'bell' : top <= 2 ? 'win' : 'ok');
     go('gacha');
   };
-  const packs = ['ALL', ...Object.keys(I.PACKS)];
   return [
-    // 選んでいる弾のバナーを大きく、ほかの弾は下に小さく並べて押すと切り替わる（以前は文字のタブだけだった）
-    gachaBanner(app, app.ikPack),
-    el('div.ikgb-row', packs.map((id) => gachaBanner(app, id, { small: true, on: id === app.ikPack, onclick: () => { app.ikPack = id; go('gacha'); } }))),
+    gachaBanner(app),
     card('ガチャ', [
       el('div.ik-gbtns', [
         button('1 回引く', () => pull(1), { cls: 'primary' }),
@@ -290,17 +285,16 @@ function gachaView(app, go) {
 }
 
 /**
- * ガチャのバナー。弾の看板の LM（PICK UP）の一枚絵を背景に、切り抜きを重ね、収録の LM の顔を並べる。
- * 全弾ミックスは両方の弾の看板を並べる。small は弾を選ぶ小さな札（押すと切り替え）。
- * 絵はカードの一枚絵を使い回す（cardArt。WebGL を増やさない：落とし穴 23）。
+ * ガチャのバナー。ガチャは一つなので、新しく入ったカード（PICK UP：生涯連対の SSR 3 頭）の一枚絵を背景に、切り抜きを並べ、
+ * 収録の LM の顔・収録数と所持数・排出率を載せる。絵はカードの一枚絵を使い回す（cardArt。WebGL を増やさない：落とし穴 23）。
  */
-const GACHA_PICK = { P1: 'イージーゴア', P2: 'ファンタスティックライト' };
-function gachaBanner(app, packId, { small = false, on = false, onclick = null } = {}) {
-  const inPack = (c) => c.pack in I.PACKS && (packId === 'ALL' || c.pack === packId);
-  const picks = (packId === 'ALL' ? Object.values(GACHA_PICK) : [GACHA_PICK[packId]]).map((n) => I.CARDS.find((c) => c.name === n)).filter(Boolean);
-  const lms = I.CARDS.filter((c) => inPack(c) && c.rar === 'LM');
-  const total = I.CARDS.filter(inPack).length;
-  const have = I.CARDS.filter((c) => inPack(c) && app.ik.cards[c.id]).length;
+const GACHA_PICK = ['ダイワスカーレット', 'エルコンドルパサー', 'シンザン'];
+function gachaBanner(app) {
+  const inPool = (c) => c.pack in I.PACKS;
+  const picks = GACHA_PICK.map((n) => I.CARDS.find((c) => c.name === n)).filter(Boolean);
+  const lms = I.CARDS.filter((c) => inPool(c) && c.rar === 'LM');
+  const total = I.CARDS.filter(inPool).length;
+  const have = I.CARDS.filter((c) => inPool(c) && app.ik.cards[c.id]).length;
   const bg = el('span.ikev-bg');
   bgInto(bg, picks[0]);
   const heroes = picks.map((c, i) => {
@@ -308,23 +302,18 @@ function gachaBanner(app, packId, { small = false, on = false, onclick = null } 
     stickerInto(im, c, { mode: 'img' });
     return im;
   });
-  const title = packId === 'ALL' ? '全弾ミックス' : `第${packId.slice(1)}弾`;
-  const sub = packId === 'ALL' ? Object.values(I.PACKS).map((n) => `【${n}】`).join('') : `【${I.PACKS[packId]}】`;
-  if (small) {
-    return el(`button.ikgb-mini${on ? '.on' : ''}`, { onclick }, [bg, el('span.ikev-shade'), heroes[0], el('b', { text: title }), el('small', { text: `${have}/${total}` })]);
-  }
   const faces = lms.map((c) => {
     const f = el('span.ikgb-face', { title: c.name });
     whenVisible(f, () => stickerInto(f, c, { mode: 'face', zoom: 2.4 }));
     return f;
   });
-  return el(`div.ikev-banner.ikgb.${packId === 'ALL' ? 'mix' : 'one'}`, [
+  return el('div.ikev-banner.ikgb.trio', [
     bg, el('span.ikev-shade'), ...heroes,
     el('div.ikev-tx', [
       el('span.ikev-tag.gacha', { text: 'GACHA' }),
-      el('small.ikev-en', { text: packId === 'ALL' ? 'ALL PACKS MIX' : `PACK ${packId.slice(1)}` }),
-      el('b.ikev-ttl', { text: title }),
-      el('span.ikev-sub', { text: sub }),
+      el('small.ikev-en', { text: 'WINNING ROAD' }),
+      el('b.ikev-ttl', { text: '名馬ガチャ' }),
+      el('span.ikev-sub', { text: `NEW 第3弾【${I.PACKS.P3}】生涯、連対を外さなかった SSR 3 頭` }),
       el('span.ikev-rw', [el('i', { text: 'PICK UP' }), el('span', { text: picks.map((c) => c.name).join('・') })]),
       el('span.ikgb-faces', [el('small', { text: `LM ${lms.length} 種` }), ...faces]),
       el('span.ikgb-foot', { text: `全 ${total} 種・所持 ${have} 種　LM ${Math.round(I.RATES.LM * 100)}%・SSR ${Math.round(I.RATES.SSR * 100)}%` }),
@@ -379,6 +368,7 @@ function showCard(app, c) {
   let m = null;
   m = modal(`${epithetOf(c)} ${c.name}`, [
     el('div.ik-big', cardView(c, { scale: Math.min(0.7, (window.innerHeight - 170) / 880, (window.innerWidth - 60) / 630), tilt: 'full' })),
+    c.record ? el('p.ik-record', { text: `戦績　${c.record}` }) : null,
     p.cards[c.id] ? awakenPanel(c, p.cards[c.id]) : null,
     p.cards[c.id] ? shardActions(app, c, () => m.close()) : null,
     el('h4.ik-skh', { text: 'スキル' }),

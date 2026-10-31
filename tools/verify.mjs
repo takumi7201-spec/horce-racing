@@ -1050,9 +1050,13 @@ section('カード育成モード');
   const I = await import('../src/sim/ikusei.js');
   const { peekHorseId } = await import('../src/sim/horse.js');
   const ids = new Set(I.CARDS.map((c) => c.id));
-  check(`カード ${I.CARDS.length} 枚（第 1 弾 40・第 2 弾 40・イベント 1、id が重ならない）`,
-    I.CARDS.length === 81 && ids.size === 81 && I.CARDS.filter((c) => c.pack === 'P1').length === 40 && I.CARDS.filter((c) => c.pack === 'P2').length === 40
-    && I.CARDS.filter((c) => c.pack === 'EV').length === 1);
+  check(`カード ${I.CARDS.length} 枚（第 1 弾 40・第 2 弾 40・第 3 弾 3・イベント 1、id が重ならない）`,
+    I.CARDS.length === 84 && ids.size === 84 && I.CARDS.filter((c) => c.pack === 'P1').length === 40 && I.CARDS.filter((c) => c.pack === 'P2').length === 40
+    && I.CARDS.filter((c) => c.pack === 'P3').length === 3 && I.CARDS.filter((c) => c.pack === 'EV').length === 1);
+  const p3 = I.CARDS.filter((c) => c.pack === 'P3');
+  check(`第 3 弾は生涯連対の SSR 3 頭（${p3.map((c) => c.name).join('・')}）、二つ名つき、カードパワーは LM を超えない`,
+    p3.every((c) => c.rar === 'SSR' && c.epithet && /生涯連対/.test(c.record) && I.cardPower(c) <= 380)
+    && ['ダイワスカーレット', 'エルコンドルパサー', 'シンザン'].every((n) => p3.some((c) => c.name === n)));
   const eg = I.CARDS.find((c) => c.name === 'イージーゴア');
   check('第 1 弾の LM にイージーゴア（二つ名「最強の再来」、右向き）', eg?.pack === 'P1' && eg.rar === 'LM' && eg.epithet === '最強の再来' && eg.facing === 'right');
   const fl = I.CARDS.find((c) => c.name === 'ファンタスティックライト');

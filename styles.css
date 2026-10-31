@@ -1960,3 +1960,12 @@ button.ikev-banner:active { transform: translateY(3px); box-shadow: 0 3px 0 var(
   .ikgb-face:nth-child(n+8) { display: none; }
   .ikgb-foot { max-width: 60%; }
 }
+/* ガチャは一つ：PICK UP の 3 頭を右に並べる */
+.ikgb.trio .ikgb-h0 { right: 30%; height: 92%; max-width: 40%; z-index: 0; bottom: -4%; }
+.ikgb.trio .ikgb-h1 { right: 14%; height: 100%; max-width: 42%; z-index: 1; }
+.ikgb.trio .ikgb-h2 { right: -4%; height: 104%; max-width: 42%; z-index: 2; }
+.ik-record { margin: 6px 0 0; font-weight: 800; color: #3e6a3c; }
+@media (max-width: 600px) {
+  .ikgb.trio .ikgb-h0, .ikgb.trio .ikgb-h1 { display: none; }
+  .ikgb.trio .ikgb-h2 { right: -3%; height: 62%; max-width: 58%; bottom: -3%; }
+}
