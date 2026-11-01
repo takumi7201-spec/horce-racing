@@ -15,7 +15,7 @@ import * as sound from '../sound.js';
 /** 画面の題（日本語と英語の小見出し）。 */
 const TITLES = {
   gacha: ['ガチャ', 'GACHA'], cards: ['所持カード', 'MY CARDS'], book: ['カード図鑑', 'CARD BOOK'], run: ['育成', 'TRAINING'], horse: ['完成馬', 'HORSE'],
-  stable: ['完成馬', 'STABLE'], battle: ['対戦', 'BATTLE'], result: ['レース結果', 'RESULT'], event: ['イベント', 'EVENT'],
+  stable: ['完成馬', 'STABLE'], deck: ['編成', 'DECK'], battle: ['対戦', 'BATTLE'], result: ['レース結果', 'RESULT'], event: ['イベント', 'EVENT'],
 };
 /** 弾の短い名前（タブ用）。イベントの報酬は「イベント」。 */
 const packTab = (id) => (id in I.PACKS ? `第${id.slice(1)}弾` : I.PACK_NAMES[id]);
@@ -53,8 +53,8 @@ export function ikuseiScreen(app) {
   // 背景（空・網点・街）は画面の外に固定して敷く。中身だけが流れる（background-attachment: fixed はスマホで効かない）。
   const sky = el('div.ik-sky', [el('b.ik-water', { text: 'WINNING ROAD' })]);
   if (view === 'home') return el('div.ikh-wrap', [sky, homeView(app, go)]);
-  const body = { gacha: gachaView, cards: cardsView, book: bookView, run: runView, stable: stableView, horse: horseView, battle: battleView, result: resultView, event: eventView }[view] ?? gachaView;
-  const navId = view === 'result' ? (app.ikRace?.back ?? 'run') : view === 'horse' ? 'stable' : view === 'book' ? 'cards' : view === 'event' ? 'battle' : view;
+  const body = { gacha: gachaView, cards: cardsView, book: bookView, run: runView, stable: stableView, horse: horseView, battle: battleView, result: resultView, event: eventView, deck: deckOnlyView }[view] ?? gachaView;
+  const navId = view === 'result' ? (app.ikRace?.back ?? 'run') : view === 'horse' || view === 'deck' ? 'stable' : view === 'book' ? 'cards' : view === 'event' ? 'battle' : view;
   const [jp, en] = TITLES[view] ?? ['', ''];
   return el('div.ikp-wrap', [
     sky,
@@ -126,17 +126,32 @@ function coinPill(go) {
 function dock(app, go, current) {
   const p = app.ik;
   // 中身は span.ikd-in に包む（ガチャのボタンは菱形に回すので、中身だけ逆に回して立てる）
-  const b = (id, jp, en, iconName, cls, badge = null) => el(`button.ikd.${cls}${current === id ? '.on' : ''}`, { onclick: () => go(id) }, [
+  // el() の onX は addEventListener で付くので、後から node.onclick を代入しても go() は消えない。押し方は引数で渡す
+  const b = (id, jp, en, iconName, cls, badge = null, onclick = () => go(id)) => el(`button.ikd.${cls}${current === id ? '.on' : ''}`, { onclick }, [
     el('span.ikd-in', [
       el('span.ikd-ic', ic(iconName, cls === 'gacha' ? 28 : 24)),
       el('span.ikd-t', [el('b', { text: jp }), el('small', { text: en })]),
     ]),
     badge ? el('i.ik-badge', { text: badge }) : null,
   ]);
+  // 「カード」は所有カード・完成馬・編成の 3 つをまとめた札。押すと上に小さな一覧が開く（ボタン列の数を増やさない）
+  const cardViews = ['cards', 'book', 'stable', 'horse', 'deck'];
+  const menu = el('div.ikd-menu', [
+    ['cards', '所有カード', 'cards'], ['stable', '完成馬', 'trophy'], ['deck', '編成', 'horse'],
+  ].map(([id, jp, icn]) => el(`button.ikd-mi${current === id ? '.on' : ''}`, { onclick: (e) => { e.stopPropagation(); close(); go(id); } }, [ic(icn, 18), el('b', { text: jp })])));
+  // 外を押したら閉じる。閉じる係は開いている間だけ付ける（最初から付けると、開いた直後の別のクリックで消える）
+  const close = () => { wrap.classList.remove('open'); document.removeEventListener('click', close); };
+  const cardsBtn = b('cards', 'カード', 'CARDS', 'cards', 'cards', app.ikNew ? 'NEW' : null, (e) => {
+    e.stopPropagation();
+    if (wrap.classList.toggle('open')) document.addEventListener('click', close);
+    else document.removeEventListener('click', close);
+  });
+  if (cardViews.includes(current)) cardsBtn.classList.add('on');
+  const wrap = el('div.ikd-cardwrap', [menu, cardsBtn]);
   return el('nav.ik-dock', [
-    b('cards', 'カード', 'CARDS', 'cards', 'cards', app.ikNew ? 'NEW' : null),
+    wrap,
     b('run', '育成', 'TRAINING', 'horse', 'run', p.run ? '!' : null),
-    b('stable', '完成馬', 'STABLE', 'trophy', 'stable'),
+    b('home', 'ホーム', 'HOME', 'home', 'stable'),
     b('battle', '対戦', 'BATTLE', 'sword', 'battle'),
     b('gacha', 'ガチャ', 'GACHA', 'spark', 'gacha'),
   ]);
@@ -519,6 +534,12 @@ function runView(app, go) {
   return trainView(app, go);
 }
 
+/** カードの「編成」から開く編成。育成の途中は組み直せないので、そのことと育成への道を出す。 */
+function deckOnlyView(app, go) {
+  if (app.ik.run) return [card('編成', [el('p', { text: '育成の途中は編成を組み直せない（いまの育成を終えるか、やめると組める）。' }), button('育成へ', () => go('run'), { cls: 'primary' })])];
+  return deckView(app, go);
+}
+
 /** 編成：育てる馬 1 枚、サポート 4 枚。 */
 function deckView(app, go) {
   const p = app.ik;
@@ -532,12 +553,14 @@ function deckView(app, go) {
       button('ガチャへ', () => go('gacha'), { cls: 'primary' }),
     ])];
   }
+  // カードの「編成」から開いたときは、選び直しても編成の画面に留まる（育成の画面へ飛ばない）
+  const self = app.params.view === 'deck' ? 'deck' : 'run';
   const pick = (c) => {
     if (!d.trainee || d.trainee === c.id) d.trainee = d.trainee === c.id ? null : c.id;
     else if (d.supports.includes(c.id)) d.supports = d.supports.filter((x) => x !== c.id);
     else if (d.supports.length < 4) d.supports.push(c.id);
     else return toast('サポートは 4 枚まで（外すにはもう一度押す）', { bad: true });
-    go('run');
+    go(self);
   };
   const slot = (id, label) => el('div.ik-slot', [
     el('small', { text: label }),
@@ -567,7 +590,7 @@ function deckView(app, go) {
           const s = [...have].sort((a, b) => sc(b) - sc(a));
           d.trainee ??= s[0].id;
           d.supports = s.filter((c) => c.id !== d.trainee).slice(0, 4).map((c) => c.id);
-          go('run');
+          go(self);
         }, { cls: 'ghost' }),
       ]),
     ]),

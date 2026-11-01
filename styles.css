@@ -1969,3 +1969,12 @@ button.ikev-banner:active { transform: translateY(3px); box-shadow: 0 3px 0 var(
   .ikgb.trio .ikgb-h0, .ikgb.trio .ikgb-h1 { display: none; }
   .ikgb.trio .ikgb-h2 { right: -3%; height: 62%; max-width: 58%; bottom: -3%; }
 }
+
+/* ---- 下のボタン列：「カード」から開く一覧（所有カード・完成馬・編成） ---- */
+.ikd-cardwrap { position: relative; flex: 1 1 0; min-width: 0; display: flex; pointer-events: auto; }
+.ikd-cardwrap > .ikd { flex: 1; }
+.ikd-menu { position: absolute; left: 0; bottom: calc(100% + 10px); display: none; flex-direction: column; gap: 6px; min-width: 132px; padding: 8px;
+  border-radius: 14px; background: var(--paper); border: 2.5px solid var(--ink); box-shadow: 0 4px 0 var(--ink); z-index: 2; }
+.ikd-cardwrap.open .ikd-menu { display: flex; }
+.ikd-mi { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 10px; border: 2px solid transparent; background: none; color: var(--ink); cursor: pointer; font: 900 14px/1 system-ui, sans-serif; white-space: nowrap; text-align: left; }
+.ikd-mi:hover, .ikd-mi.on { background: var(--leaf2); border-color: var(--ink); }
