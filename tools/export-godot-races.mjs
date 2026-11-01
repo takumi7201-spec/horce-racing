@@ -39,11 +39,15 @@ const RACES = [
   },
   {
     id: 'arc1999', name: '凱旋門賞 1999（史実の 14 頭）', courseId: 'longchamp', surface: '芝', distance: 2400, ground: '不良',
-    field: EVENTS[0].field.map((m) => ({ ...m, v: m.ab, turf: 0.9, dirt: 0.4, firm: 0.8 })),
+    field: EVENTS[0].field.map((m) => {
+      const c = m.cardId ? CARDS.find((x) => x.id === m.cardId) : null;
+      return { ...m, v: m.ab, turf: 0.9, dirt: 0.4, firm: 0.8, hid: c?.hid, marks: c?.marks ?? null, silks: c?.silks ?? null };
+    }),
   },
 ];
 
 const r2 = (v) => Math.round(v * 100) / 100;
+const strHash = (t) => { let h = 7; for (const ch of t) h = (h * 31 + ch.codePointAt(0)) >>> 0; return h % 100000; };
 mkdirSync('godot/data/races', { recursive: true });
 const index = [];
 for (const R of RACES) {
@@ -60,7 +64,8 @@ for (const R of RACES) {
     for (let f = 0; f < log.frames; f++) { pos.push(r2(log.pos[f * log.n + k])); off.push(r2(log.off[f * log.n + k])); }
     return {
       id, name: log.names[k], gate: log.gates[k], frame: log.frameNos[k], coat: c.coat, sex: c.sex,
-      silks: c.silks ?? null, order: r.order, time: r2(r.time), pos, off,
+      // 見た目（tools/export-godot-horse.mjs がゲーム本体の馬の布を撮るのに使う）：馬 id は白斑と勝負服を決める数、marks は実在馬の白斑
+      hid: c.hid ?? strHash(c.name), marks: c.marks ?? null, silks: c.silks ?? null, order: r.order, time: r2(r.time), pos, off,
     };
   });
   const out = {

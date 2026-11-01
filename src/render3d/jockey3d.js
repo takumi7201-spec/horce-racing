@@ -290,6 +290,8 @@ export function makeJockey({ id = 1, capColor = 0xffffff, pose = 'race', detail 
   const dark = new THREE.MeshStandardMaterial({ color: 0x151515, roughness: 0.5 });
   const glass = new THREE.MeshStandardMaterial({ color: 0x1d2a33, roughness: 0.08, metalness: 0.6 });
   const steel = new THREE.MeshStandardMaterial({ color: 0xc7cbd0, roughness: 0.25, metalness: 0.8 });
+  // 名前は描画に効かない。Godot へ書き出したとき、勝負服・袖・帽子の材質を馬ごとに差し替えるために引く
+  silks.name = 'silks'; sleeve.name = 'sleeve'; cap.name = 'cap'; boot.name = 'boot';
 
   const g = new THREE.Group();
   const add = (geo, mat) => { const m = new THREE.Mesh(geo, mat); g.add(m); return m; };

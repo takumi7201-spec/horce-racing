@@ -589,6 +589,10 @@ export function makeHorse({ id = 1, gate = 1, frame = 1, coat = '鹿毛', scale 
   const white = new THREE.MeshStandardMaterial({ color: 0xf4f1ea, roughness: 0.6, metalness: 0, side: THREE.DoubleSide });
   // 毛色と白を頂点色で塗り分けた脚（白が部品の途中で終わるとき）。
   const legPaint = new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.6, metalness: 0 });
+  // 材質と組に名前を付ける。描画には効かず、Godot へ書き出したとき（tools/export-godot-horse.mjs）に役割で引くため
+  body.name = 'body';
+  hide.name = 'hide'; hairMat.name = 'hair'; hoofMat.name = 'hoof'; paleHoof.name = 'hoofPale'; white.name = 'white'; legPaint.name = 'legPaint';
+  if (legLow !== hide) legLow.name = 'legLow';
 
   const mesh = (parent, geo, mat, x = 0, y = 0, z = 0) => {
     const m = new THREE.Mesh(geo, mat);
@@ -603,12 +607,14 @@ export function makeHorse({ id = 1, gate = 1, frame = 1, coat = '鹿毛', scale 
   // --- 首と頭 ---
   // 首と頭はキ甲を支点にした組にして、うつむき（草を食む）も表せるようにする。
   const neckPivot = new THREE.Group();
+  neckPivot.name = 'neck';
   neckPivot.position.set(...NECK_PIVOT);
   body.add(neckPivot);
   mesh(neckPivot, S.neck.geo, hide);
   mesh(neckPivot, S.mane, hairMat);
   mesh(neckPivot, S.crestHair, hairMat);
   const headPivot = new THREE.Group();
+  headPivot.name = 'head';
   headPivot.position.set(...POLL);
   neckPivot.add(headPivot);
   // 顔は布（毛色の地・鼻先の黒み・鼻の穴・口の線・白斑）を貼る。艶は胴と同じ。
@@ -616,6 +622,7 @@ export function makeHorse({ id = 1, gate = 1, frame = 1, coat = '鹿毛', scale 
   const high = (detail ?? (bare ? 'high' : 'low')) === 'high';
   // 実在馬は記事の白斑（marks.face）、ほかは id から決まる白斑。
   const faceMat = new THREE.MeshStandardMaterial({ map: faceTexture(coat, coatColor, id, high ? 512 : 256, marks?.face ? marks : null), roughness: 0.52, metalness: 0 });
+  faceMat.name = 'face';
   mesh(headPivot, high ? S.headHigh : S.headLow, faceMat);
   mesh(headPivot, S.forelock, hairMat);
   // 目：角膜の艶（クリアコート）を持つ黒褐色の玉と、まぶたの縁（黒い皮膚）・まぶたの皮膚。
@@ -623,6 +630,7 @@ export function makeHorse({ id = 1, gate = 1, frame = 1, coat = '鹿毛', scale 
   const eyeBall = new THREE.MeshPhysicalMaterial({ color: 0x1b120c, roughness: 0.35, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.04 });
   const lidEdge = new THREE.MeshStandardMaterial({ color: 0x15100d, roughness: 0.6, metalness: 0 });
   const lidSkin = new THREE.MeshStandardMaterial({ color: new THREE.Color(coatColor).multiplyScalar(0.62), roughness: 0.55, metalness: 0 });
+  eyeBall.name = 'eyeBall'; lidEdge.name = 'lidEdge'; lidSkin.name = 'lidSkin';
   for (const E of [S.eyeR, S.eyeL]) {
     mesh(headPivot, E.ball, eyeBall);
     mesh(headPivot, E.lidEdge, lidEdge);
@@ -630,8 +638,10 @@ export function makeHorse({ id = 1, gate = 1, frame = 1, coat = '鹿毛', scale 
   }
   // 耳：外は毛色、内（窪み）は暗い。
   const earInner = new THREE.MeshStandardMaterial({ color: new THREE.Color(coatColor).multiplyScalar(0.18), roughness: 0.9, metalness: 0 });
+  earInner.name = 'earInner';
   const ears = S.earBase.map((p, i) => {
     const pivot = new THREE.Group();
+    pivot.name = i === 0 ? 'earL' : 'earR';
     pivot.position.copy(p);
     pivot.rotation.z = (i === 0 ? 1 : -1) * 0.2;   // 少し外へ開く
     pivot.rotation.x = EAR_TILT;
@@ -646,10 +656,12 @@ export function makeHorse({ id = 1, gate = 1, frame = 1, coat = '鹿毛', scale 
 
   // --- 尾（付け根を支点に、走ると後ろへ流れる。毛は付け根の先でもう一段しなる） ---
   const tailPivot = new THREE.Group();
+  tailPivot.name = 'tail';
   tailPivot.position.set(...TAIL_ROOT);
   body.add(tailPivot);
   mesh(tailPivot, S.dock.geo, hide);
   const tailFlow = new THREE.Group();
+  tailFlow.name = 'tailFlow';
   tailFlow.position.set(0, -0.15, -0.075);
   tailPivot.add(tailFlow);
   mesh(tailFlow, S.tailHair.geo, hairMat);
@@ -667,11 +679,14 @@ export function makeHorse({ id = 1, gate = 1, frame = 1, coat = '鹿毛', scale 
   legDef.forEach((d, li) => {
     const base = d.front ? FRONT_HIP : HIND_HIP;
     const hip = new THREE.Group();
+    const legName = ['LF', 'RF', 'LH', 'RH'][li];
+    hip.name = `${legName}_hip`;
     hip.position.set(d.side * base.x, base.y, base.z);
     body.add(hip);
     // 付け根の陰を胴に合わせてあるので、左の脚は左右を写した形を使う。
     mesh(hip, d.front ? (d.side < 0 ? S.foreArmL : S.foreArm.geo) : (d.side < 0 ? S.thighL : S.thigh.geo), hide);
     const knee = new THREE.Group();
+    knee.name = `${legName}_knee`;
     // 前は膝が股の真下、後ろは飛節が股より後ろ（脛が後ろ下がり）。
     if (d.front) knee.position.set(0, -0.535, 0);
     else knee.position.set(0, -0.525, -0.14);
@@ -687,6 +702,7 @@ export function makeHorse({ id = 1, gate = 1, frame = 1, coat = '鹿毛', scale 
     const cannonName = d.front ? 'foreCannon' : 'hindCannon';
     mesh(knee, ...part(cannonName, S[cannonName].geo));
     const fetlock = new THREE.Group();
+    fetlock.name = `${legName}_fetlock`;
     fetlock.position.set(0, d.front ? -0.345 : -0.385, 0);
     knee.add(fetlock);
     mesh(fetlock, ...part('pastern', S.pastern.geo));
@@ -702,26 +718,29 @@ export function makeHorse({ id = 1, gate = 1, frame = 1, coat = '鹿毛', scale 
     // silks を渡すと勝負服と帽子はその色（一枚絵で実在の馬主の服を着せる）。
     const jk = makeJockey({ id, capColor: silks?.cap ?? FRAME_COLORS[(frame - 1) % 8] ?? 0xffffff, pose: riderPose, detail: high ? 'high' : 'low', silks });
     rider = jk.group;
+    rider.name = 'rider';
     rider.position.set(0, 1.6, -0.06);
     rider.userData.reinHands = jk.reinHands;
     body.add(rider);
     // レース用の小さな鞍（騎手の脚と鐙革の付け根になる）。鞍下はゼッケンが兼ねる。
     if (!tack) {
-      mesh(body, S.saddle, new THREE.MeshStandardMaterial({ color: 0x2a201a, roughness: 0.4, metalness: 0, side: THREE.DoubleSide }));
-      mesh(body, S.girth, new THREE.MeshStandardMaterial({ color: 0xe9e6de, roughness: 0.6, metalness: 0 }));
+      mesh(body, S.saddle, new THREE.MeshStandardMaterial({ name: 'saddle', color: 0x2a201a, roughness: 0.4, metalness: 0, side: THREE.DoubleSide }));
+      mesh(body, S.girth, new THREE.MeshStandardMaterial({ name: 'girth', color: 0xe9e6de, roughness: 0.6, metalness: 0 }));
     }
 
     // --- ゼッケン（馬番）。胴の脇に沿わせる ---
-    const side = new THREE.MeshStandardMaterial({ map: numberTexture(gate, frame), roughness: 0.75, metalness: 0, side: THREE.DoubleSide });
+    const side = new THREE.MeshStandardMaterial({ name: 'number', map: numberTexture(gate, frame), roughness: 0.75, metalness: 0, side: THREE.DoubleSide });
     mesh(body, S.clothR, side);
     mesh(body, S.clothL, side);
 
     // --- 頭絡（勒）と手綱 ---
     S.bridle ??= bridleGeometries();
-    const black = new THREE.MeshStandardMaterial({ color: 0x1c1511, roughness: 0.45, metalness: 0 });
+    const black = new THREE.MeshStandardMaterial({ name: 'bridle', color: 0x1c1511, roughness: 0.45, metalness: 0 });
     mesh(headPivot, S.bridle.leather, black);
-    mesh(headPivot, S.bridle.metal, new THREE.MeshStandardMaterial({ color: 0xb9bdc2, roughness: 0.3, metalness: 0.5 }));
+    mesh(headPivot, S.bridle.metal, new THREE.MeshStandardMaterial({ name: 'bit', color: 0xb9bdc2, roughness: 0.3, metalness: 0.5 }));
+    headPivot.userData.bits = [S.bridle.bitL, S.bridle.bitR];   // 銜の位置（Godot へ書き出すときに手綱の端として使う）
     reins = makeReins(black);
+    reins.mesh.name = 'reins';
     body.add(reins.mesh);
   }
 

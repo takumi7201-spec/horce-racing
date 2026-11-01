@@ -51,6 +51,7 @@ var vz := PackedFloat32Array()  # 内ラチの z
 var vy := PackedFloat32Array()  # 標高
 var nx := PackedFloat32Array()  # 外向きの単位ベクトル
 var nz := PackedFloat32Array()
+var kc := PackedFloat32Array()  # 曲率（コーナーで 1/半径）
 
 var course_root: Node3D
 var camera   # orbit_camera.gd（set_view・free_look を持つ）
@@ -138,10 +139,10 @@ func load_course(id: String, surf: String, keep_race := false) -> void:
 	var pts: Array = track.points
 	n = pts.size()
 	# Packed の配列は値として渡るので、for で回して resize しても元が伸びない。一つずつ
-	px.resize(n); vx.resize(n); vz.resize(n); vy.resize(n); nx.resize(n); nz.resize(n)
+	px.resize(n); vx.resize(n); vz.resize(n); vy.resize(n); nx.resize(n); nz.resize(n); kc.resize(n)
 	for i in n:
 		var q: Array = pts[i]
-		px[i] = q[0]; vx[i] = q[1]; vz[i] = q[2]; vy[i] = q[3]; nx[i] = q[4]; nz[i] = q[5]
+		px[i] = q[0]; vx[i] = q[1]; vz[i] = q[2]; vy[i] = q[3]; nx[i] = q[4]; nz[i] = q[5]; kc[i] = q[7]
 	if course_root:
 		course_root.queue_free()
 	course_root = Node3D.new()
@@ -170,6 +171,10 @@ func at_p(p: float, off: float, dy := 0.0) -> Vector3:
 	var f := fposmod(p, lap) / (lap / n)
 	var i := int(floor(f))
 	return at(i, off, dy).lerp(at(i + 1, off, dy), f - i)
+
+
+func curvature_at(p: float) -> float:
+	return kc[index_of(p)]
 
 
 func outward(i: int) -> Vector3:
@@ -735,7 +740,7 @@ func set_camera(mode: String) -> void:
 			camera.set_view(eye, center)
 		"ride":
 			ride_p = lap - float(track.homeStraight) - 200.0
-		"tv", "follow":
+		"tv", "follow", "side":
 			if race.is_empty():
 				set_camera("stand")
 				return
@@ -781,7 +786,8 @@ func load_race(id: String) -> void:
 	for h in r.horses:
 		var node := HorseModel.new()
 		course_root.add_child(node)
-		node.build(String(h.coat), int(h.frame), int(h.gate), h.get("silks"), hash(String(h.name)), font)
+		node.build("res://assets/horse/skins/%s" % String(r.id), int(h.gate), String(r.surface))
+		node.phase = randf()   # 位相をばらす（全頭が同じ脚で走ると行進に見える）
 		var pos := PackedFloat32Array(h.pos)
 		var off := PackedFloat32Array(h.off)
 		# ログはゴールで止まる。ゴールした時刻とその直前の速さを覚えて、絵だけ流して止める
@@ -832,12 +838,13 @@ func _update_race(delta: float, snap: bool) -> void:
 		# 向きは少し先の位置へ。横へ寄る動きも向きに出る（真横へ滑って見えないように）
 		var ahead := at_p(p + maxf(2.0, sv.y * 0.3), _sample(r.off, race_t + 0.3))
 		var d := ahead - node.position
-		var yaw := atan2(-d.x, -d.z)
+		var yaw := atan2(d.x, d.z)   # 馬のモデルは +Z が前（three.js 版と同じ）
 		r.yaw = yaw if snap else lerp_angle(float(r.yaw), yaw, clampf(delta * 8.0, 0.0, 1.0))
 		node.rotation = Vector3(0, float(r.yaw), 0)
-		if playing:
-			r.ph = fposmod(float(r.ph) + sv.y * delta * play_speed / STRIDE, 1.0)
-		node.pose(float(r.ph), sv.y)
+		# コーナーでは内へ少し倒す（遠心の釣り合い v²κ/g の 3 割、最大 0.12rad）。左回りは左（-Z 回り）へ
+		var lean := clampf(sv.y * sv.y * curvature_at(p) / 9.8 * 0.3, 0.0, 0.12)
+		var bank := -lean if track.dir == "left" else lean
+		node.pose(sv.y * delta * play_speed if playing else 0.0, sv.y, bank)
 		r.s = sv.x
 		r.v = sv.y
 	_update_race_camera(delta, snap)
@@ -858,7 +865,7 @@ func _ranked() -> Array:
 
 
 func _update_race_camera(delta: float, snap: bool) -> void:
-	if cam_mode != "tv" and cam_mode != "follow":
+	if cam_mode != "tv" and cam_mode != "follow" and cam_mode != "side":
 		return
 	var list := _ranked()
 	var lead: Dictionary = list[0]
@@ -872,6 +879,11 @@ func _update_race_camera(delta: float, snap: bool) -> void:
 		var mid := (float(lead.s) + float(list[k].s)) / 2.0
 		look = at_p(start + mid - 4.0, w * 0.3, 1.0)
 		eye = at_p(start + mid - 20.0, w + 22.0, 9.0)   # 望遠（画角 30°）で寄る。遠いと馬が点になった
+	elif cam_mode == "side":
+		# 並走：先頭の馬の外を同じ速さで並んで走り、馬を真横から見る（馬と騎手の作りが見える距離）
+		var off := _sample(lead.off, race_t)
+		look = at_p(start + float(lead.s) + 0.3, off, 1.3)
+		eye = at_p(start + float(lead.s) + 1.5, off + 7.5, 2.1)
 	else:
 		# 追走：先頭の馬の斜め後ろ
 		var off := _sample(lead.off, race_t)
@@ -995,7 +1007,7 @@ func _build_ui() -> void:
 	var cams := HBoxContainer.new()
 	cams.name = "Cams"
 	var group := ButtonGroup.new()
-	for c in [["tv", "中継"], ["follow", "追走"], ["stand", "スタンド"], ["aerial", "上空"], ["ride", "走路を回る"], ["free", "自由"]]:
+	for c in [["tv", "中継"], ["follow", "追走"], ["side", "並走"], ["stand", "スタンド"], ["aerial", "上空"], ["ride", "走路を回る"], ["free", "自由"]]:
 		var bt := Button.new()
 		bt.name = c[0]
 		bt.text = c[1]
