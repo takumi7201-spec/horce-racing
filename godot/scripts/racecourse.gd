@@ -76,6 +76,13 @@ var cam_look := Vector3.ZERO
 ## レースは load_race_data で渡す（Godot で走らせた走行ログ）。
 signal finished
 var embedded := false
+var light := "day"          # 光：day（昼）・dusk（冬の午後の低い日。有馬記念は 12 月の 15 時台）
+var winter := false         # 冬枯れの内馬場（有馬記念のころ、野芝は茶色く休む。走路は洋芝を播いて緑のまま）
+var env: Environment
+var sky_mat: ProceduralSkyMaterial
+var bc                      # broadcast.gd（中継の演出：自動のカメラ・画面の表示）
+const GATE_W := 1.05        # 発馬機の 1 枠の幅（m）
+const Broadcast := preload("res://scripts/broadcast.gd")
 var cues: Array = []        # スキルの演出：{s（その馬が走った距離）, gate, text, mine, unique, shown}
 var cue_box: VBoxContainer
 
@@ -206,7 +213,7 @@ func forward(i: int) -> Vector3:
 # ------------------------------------------------------------------ 環境（空・光）
 
 func _build_environment() -> void:
-	var sky_mat := ProceduralSkyMaterial.new()
+	sky_mat = ProceduralSkyMaterial.new()
 	sky_mat.sky_top_color = Color(0.30, 0.52, 0.85)
 	sky_mat.sky_horizon_color = Color(0.72, 0.80, 0.88)
 	sky_mat.ground_horizon_color = Color(0.55, 0.62, 0.55)
@@ -214,7 +221,7 @@ func _build_environment() -> void:
 	sky_mat.sun_angle_max = 20.0
 	var sky := Sky.new()
 	sky.sky_material = sky_mat
-	var env := Environment.new()
+	env = Environment.new()
 	env.background_mode = Environment.BG_SKY
 	env.sky = sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
@@ -247,8 +254,40 @@ func _aim_sun() -> void:
 	var i := index_of(-60.0)
 	var into_infield := -outward(i)
 	var along := forward(i)
+	# 冬の午後は日が低い（仰角 15° ほど）。向きは昼と同じスタンドの側から（落とし穴 24：向こう側に置くと馬が影絵になる）
+	# 低い日をスタンドの側から当てるとスタンドの影がホームの直線を覆って真っ暗になったので、冬は直線に沿う向きから（少しスタンド寄り）
 	var d := (into_infield * 0.75 + along * 0.35 + Vector3.DOWN * 0.95).normalized()
+	if light == "dusk":
+		d = (into_infield * 0.32 + along * 0.9 + Vector3.DOWN * 0.3).normalized()
 	sun.global_transform = Transform3D(Basis.looking_at(d, Vector3.UP), Vector3.ZERO)
+	_apply_light()
+
+
+## 空・日差し・霞の色。dusk は冬の午後：空の低いところが橙に焼け、日差しは黄色く、影が長い
+func _apply_light() -> void:
+	var sun: DirectionalLight3D = get_node("Sun")
+	if light == "dusk":
+		sky_mat.sky_top_color = Color(0.26, 0.40, 0.66)
+		sky_mat.sky_horizon_color = Color(0.96, 0.74, 0.52)
+		sky_mat.ground_horizon_color = Color(0.62, 0.52, 0.40)
+		sky_mat.sun_angle_max = 30.0
+		sun.light_color = Color(1.0, 0.80, 0.58)
+		sun.light_energy = 1.25
+		env.ambient_light_energy = 0.48
+		env.fog_light_color = Color(0.90, 0.72, 0.56)
+		env.fog_density = 0.00018
+		env.tonemap_exposure = 1.0
+	else:
+		sky_mat.sky_top_color = Color(0.30, 0.52, 0.85)
+		sky_mat.sky_horizon_color = Color(0.72, 0.80, 0.88)
+		sky_mat.ground_horizon_color = Color(0.55, 0.62, 0.55)
+		sky_mat.sun_angle_max = 20.0
+		sun.light_color = Color(1.0, 0.97, 0.9)
+		sun.light_energy = 1.3
+		env.ambient_light_energy = 0.6
+		env.fog_light_color = Color(0.70, 0.78, 0.86)
+		env.fog_density = 0.00012
+		env.tonemap_exposure = 1.05
 
 
 # ------------------------------------------------------------------ メッシュの道具
@@ -400,7 +439,7 @@ func _build_infield(edge: float) -> void:
 		v.append(q); nrm.append(Vector3.UP); uv.append(Vector2(q.x, q.z) * 0.05)
 	for i in n:
 		idx.append_array([0, 1 + i, 1 + (i + 1) % n])
-	var m := _mat(C_INFIELD, 1.0)
+	var m := _mat(C_INFIELD.lerp(Color(0.40, 0.35, 0.18), 0.75) if winter else C_INFIELD, 1.0)
 	m.albedo_texture = _grain(0.05, 0.75)
 	_add(_mesh(v, nrm, PackedColorArray(), uv, _face_up(v, idx)), m, "Infield")
 
@@ -426,7 +465,7 @@ func _build_verge() -> void:
 			var a := i * 3 + k
 			var b := j * 3 + k
 			idx.append_array([a, b, a + 1, a + 1, b, b + 1])
-	var m := _mat(C_OUTFIELD, 1.0)
+	var m := _mat(C_OUTFIELD.lerp(Color(0.42, 0.37, 0.20), 0.6) if winter else C_OUTFIELD, 1.0)
 	m.albedo_texture = _grain(0.05, 0.75)
 	_add(_mesh(v, nrm, PackedColorArray(), uv, _face_up(v, idx)), m, "Verge")
 
@@ -486,6 +525,87 @@ func _build_rail(off: float, height: float) -> void:
 
 
 ## 決勝線とゴール板。ゴール板は内ラチの内に立つ円い標識（赤い縁に白）。スタンドの側へ向ける。
+## 発馬機（ゲート）：発走位置に、頭数ぶんの枠を走路を横切って並べる。前の扉は開いた形（馬は走り抜ける）。
+## 枠の幅は GATE_W。馬の横の位置は発走の直後だけこの幅に広げる（_off）。色は白と深緑、外側に係員の台。
+func _build_gate(count: int) -> void:
+	var old := course_root.get_node_or_null("Gate")
+	if old:
+		old.queue_free()
+	var g := Node3D.new()
+	g.name = "Gate"
+	course_root.add_child(g)
+	var p0: float = float(race.start) + 0.9          # 前の扉の線（馬の鼻先より少し前）
+	var depth := 3.0
+	var white := _mat(Color(0.93, 0.94, 0.92), 0.5)
+	var green := _mat(Color(0.16, 0.36, 0.26), 0.6)
+	var pad := _mat(Color(0.12, 0.2, 0.3), 0.8)
+	var mid_p := p0 - depth / 2.0
+	var i := index_of(mid_p)
+	var fwd := forward(i)
+	var out := outward(i)
+	var basis := Basis(out, Vector3.UP, -fwd)        # x：外へ、z：後ろへ
+	var put := func(mesh: Mesh, mat: Material, off: float, along: float, y: float) -> void:
+		var mi := MeshInstance3D.new()
+		mi.mesh = mesh
+		mi.material_override = mat
+		var c := at_p(p0 - along, off, y)
+		mi.transform = Transform3D(basis, c)
+		g.add_child(mi)
+	# 仕切り（枠と枠の間の板）。下は脚が見えるよう開ける
+	for k in count + 1:
+		var off := RAIL_GAP + (k - 0.5) * GATE_W
+		var board := BoxMesh.new()
+		board.size = Vector3(0.08, 1.3, depth)
+		put.call(board, pad if k % 2 == 0 else green, off, depth / 2.0, 1.15)
+		var post := BoxMesh.new()
+		post.size = Vector3(0.12, 2.9, 0.12)
+		put.call(post, white, off, 0.0, 1.45)
+		put.call(post, white, off, depth, 1.45)
+	# 上の梁（前と後ろ）と屋根の板
+	var span := (count + 1) * GATE_W
+	var cen := RAIL_GAP + (count - 1) * GATE_W / 2.0
+	var beam := BoxMesh.new()
+	beam.size = Vector3(span + 0.4, 0.35, 0.3)
+	put.call(beam, green, cen, 0.0, 2.85)
+	put.call(beam, green, cen, depth, 2.85)
+	var top := BoxMesh.new()
+	top.size = Vector3(span + 0.4, 0.08, depth)
+	put.call(top, white, cen, depth / 2.0, 3.0)
+	# 開いた前の扉（左右に開いて前へ倒れた板）
+	for k in count:
+		var off := RAIL_GAP + k * GATE_W
+		var door := BoxMesh.new()
+		door.size = Vector3(0.04, 1.1, GATE_W * 0.48)
+		for side in [-1, 1]:
+			put.call(door, white, off + side * GATE_W * 0.5, -GATE_W * 0.24, 1.15)
+		# 馬番（前の梁）
+		var lab := Label3D.new()
+		lab.text = str(k + 1)
+		lab.font = UIK.font("black")
+		lab.font_size = 64
+		lab.pixel_size = 0.006
+		lab.modulate = Color.WHITE
+		lab.outline_size = 0
+		lab.double_sided = false
+		var lp := at_p(p0 + 0.17, off, 2.85)
+		lab.transform = Transform3D(Basis(Vector3.UP.cross(fwd), Vector3.UP, fwd), lp)   # 前から読める向き（右手系）
+		g.add_child(lab)
+	# 外の係員の台と、車輪の付いた脚
+	var tower := BoxMesh.new()
+	tower.size = Vector3(1.6, 3.6, depth)
+	put.call(tower, green, cen + span / 2.0 + 0.9, depth / 2.0, 1.8)
+	var wheel := CylinderMesh.new()
+	wheel.top_radius = 0.45
+	wheel.bottom_radius = 0.45
+	wheel.height = 0.3
+	for w_off in [RAIL_GAP - GATE_W, cen + span / 2.0 + 0.9]:
+		var mi := MeshInstance3D.new()
+		mi.mesh = wheel
+		mi.material_override = pad
+		mi.transform = Transform3D(basis * Basis(Vector3.FORWARD, PI / 2), at_p(p0 - depth / 2.0, w_off, 0.45))
+		g.add_child(mi)
+
+
 func _build_finish() -> void:
 	var w: float = track.width
 	var f := forward(0)
@@ -624,8 +744,18 @@ func _build_stand() -> void:
 		var s := 0.0
 		while s < length - 1.0:
 			s += 0.62 + rng.randf() * 0.25
-			if rng.randf() < 0.72:
+			if rng.randf() < 0.9:
 				spots.append(a + dir * s + o * float(row[0]) + Vector3.UP * (base_y - a.y + float(row[1]) + 0.42))
+	# 前庭の立ち見（大きなレースの日はラチ沿いまで人で埋まる）。ラチに近いほど密に
+	var row_d := 7.0
+	while row_d < 30.0:
+		var dens := lerpf(0.85, 0.35, (row_d - 7.0) / 23.0)
+		var s2 := 0.0
+		while s2 < length - 1.0:
+			s2 += 0.55 + rng.randf() * 0.3
+			if rng.randf() < dens:
+				spots.append(a + dir * s2 + o * (row_d + rng.randf() * 0.4) + Vector3.UP * (base_y - a.y + 0.06 + 0.42 + rng.randf() * 0.08))
+		row_d += 0.85
 	var mm := MultiMesh.new()
 	mm.transform_format = MultiMesh.TRANSFORM_3D
 	mm.use_colors = true
@@ -757,7 +887,7 @@ func set_camera(mode: String) -> void:
 			camera.set_view(eye, center)
 		"ride":
 			ride_p = lap - float(track.homeStraight) - 200.0
-		"tv", "follow", "side", "front":
+		"tv", "follow", "side", "front", "auto":
 			if race.is_empty():
 				set_camera("stand")
 				return
@@ -766,6 +896,8 @@ func set_camera(mode: String) -> void:
 			pass
 	camera.free_look = mode == "free"
 	camera.fov = 30.0 if mode == "tv" else 50.0
+	if bc and mode == "auto":
+		bc.reset_shot()
 	if ui:
 		for c in ui.get_node("Bar/Cams").get_children():
 			c.button_pressed = c.name == mode
@@ -806,13 +938,17 @@ func load_race_data(r: Dictionary, skins: Array, mine: Array = [], cue: Array = 
 	for rr in runners:
 		if mine.has(rr.id):
 			rr.mine = true
-			_add_mark(rr.node, rr.name)
+			rr.mark = _add_mark(rr.node, rr.name)
 	cues = cue.duplicate(true)
 	for c in cues:
 		c.shown = false
 
 
 func _start_race(r: Dictionary, build: Callable) -> void:
+	# 有馬記念は冬の午後（低い日・冬枯れの内馬場）。引数 --light=dusk でも
+	var dusk: bool = String(r.name).contains("有馬") or _args().get("light", "") == "dusk"
+	light = "dusk" if dusk else "day"
+	winter = dusk
 	load_course(r.course, r.surface, true)
 	race = r
 	# 発走位置は描く周回で決め直す（ゴール板から距離だけ手前）。直線だけのコース（新潟 1000m）も周回の上で見せる
@@ -838,13 +974,19 @@ func _start_race(r: Dictionary, build: Callable) -> void:
 		var v_fin := (pos[k_fin] - pos[maxi(0, k_fin - 5)]) / (dt * mini(5, maxi(1, k_fin)))
 		runners.append({ node = node, id = h.get("id", 0), frame = int(h.get("frame", 1)), mine = false, pos = pos, off = off, name = String(h.name), gate = int(h.gate), order = int(h.order),
 			time = float(h.time), t_fin = k_fin * dt, v_fin = v_fin, ph = randf(), yaw = 0.0, s = 0.0, v = 0.0 })
+	_build_gate(r.horses.size())
+	if bc == null:
+		bc = Broadcast.new()
+		bc.rc = self
+		add_child(bc)
+	bc.setup()
 	_sync_ui()
-	set_camera("tv")
+	set_camera("auto")
 	_update_race(0.0, true)
 
 
 ## 自分の馬の目印（頭の上の名札）。深度を見ずに前へ描く（馬群に埋もれない。three.js 版の makeMarker と同じ考え）
-func _add_mark(node: Node3D, nm: String) -> void:
+func _add_mark(node: Node3D, nm: String) -> Label3D:
 	var lb := Label3D.new()
 	lb.text = "▼ " + nm
 	lb.font = UIK.font("black")
@@ -858,6 +1000,7 @@ func _add_mark(node: Node3D, nm: String) -> void:
 	lb.pixel_size = 0.0006
 	lb.position = Vector3(0, 3.3, 0)
 	node.add_child(lb)
+	return lb
 
 
 func race_duration() -> float:
@@ -884,23 +1027,26 @@ func _s_at(r: Dictionary, t: float) -> Vector2:
 	return Vector2(float(race.distance) + CANTER * d + (v0 - CANTER) * EASE * (1.0 - e), CANTER + (v0 - CANTER) * e)
 
 
-## 内ラチからの横位置（絵の位置）。ログの値に RAIL_GAP を足す（横の並びと間隔はそのまま）
-func _off(arr: PackedFloat32Array, t: float) -> float:
-	return _sample(arr, t) + RAIL_GAP
+## 内ラチからの横位置（絵の位置）。ログの値に RAIL_GAP を足す（横の並びと間隔はそのまま）。
+## ただし発走から 120m は横の間隔を広げる：レースの計算は枠の間を 0.42m で置く（進路の判定のための値）が、
+## 発馬機の 1 枠は 1m 余りあり、0.42m のままでは馬が重なって枠に収まらない。広げた分は 120m で計算の値へ戻す。
+func _off(arr: PackedFloat32Array, t: float, s := 999.0) -> float:
+	var k := lerpf(GATE_W / 0.42, 1.0, smoothstep(0.0, 120.0, s))
+	return _sample(arr, t) * k + RAIL_GAP
 
 
 func _update_race(delta: float, snap: bool) -> void:
 	if playing:
-		race_t = minf(race_t + delta * play_speed, race_duration())
+		race_t = minf(race_t + delta * play_speed * (bc.slow if bc and cam_mode == "auto" else 1.0), race_duration())
 	var start: float = race.start
 	for r in runners:
 		var sv := _s_at(r, race_t)
-		var off := _off(r.off, race_t)
+		var off := _off(r.off, race_t, sv.x)
 		var p := start + sv.x
 		var node: Node3D = r.node
 		node.position = at_p(p, off)
 		# 向きは少し先の位置へ。横へ寄る動きも向きに出る（真横へ滑って見えないように）
-		var ahead := at_p(p + maxf(2.0, sv.y * 0.3), _off(r.off, race_t + 0.3))
+		var ahead := at_p(p + maxf(2.0, sv.y * 0.3), _off(r.off, race_t + 0.3, sv.x + sv.y * 0.3))
 		var d := ahead - node.position
 		var yaw := atan2(d.x, d.z)   # 馬のモデルは +Z が前（three.js 版と同じ）
 		r.yaw = yaw if snap else lerp_angle(float(r.yaw), yaw, clampf(delta * 8.0, 0.0, 1.0))
@@ -911,9 +1057,15 @@ func _update_race(delta: float, snap: bool) -> void:
 		node.pose(sv.y * delta * play_speed if playing else 0.0, sv.y, bank)
 		r.s = sv.x
 		r.v = sv.y
+		r.off_now = off
+		# 目印は画面の上で同じ大きさにしたいが、fixed_size の Label3D は画角が狭いほど大きく写る（望遠の正面で画面を覆った）。画角で割り戻す
+		if r.has("mark"):
+			r.mark.pixel_size = 0.0006 * tan(deg_to_rad(camera.fov) / 2.0) / tan(deg_to_rad(25.0))
 	_update_race_camera(delta, snap)
 	_update_board()
 	_update_cues()
+	if bc:
+		bc.update_hud(delta)
 
 
 ## スキルの演出：その馬が発動地点を過ぎたら札を出す（自分の馬は大きく、固有は帯）。最初からに戻したら出し直す
@@ -984,6 +1136,9 @@ func _ranked() -> Array:
 
 
 func _update_race_camera(delta: float, snap: bool) -> void:
+	if cam_mode == "auto":
+		bc.update_camera(delta, snap)
+		return
 	if not cam_mode in ["tv", "follow", "side", "front"]:
 		return
 	var list := _ranked()
@@ -1033,6 +1188,8 @@ func _update_board() -> void:
 	var list := _ranked()
 	var lead_s := float(list[0].s)
 	var t := minf(race_t, float(race.winnerTime))
+	(board.get_node("V/Title") as Label).visible = false   # 題と時計は中継の札（broadcast.gd）が出す
+	(board.get_node("V/Sub") as Label).visible = false
 	(board.get_node("V/Title") as Label).text = String(race.name)
 	var rem := maxf(0.0, float(race.distance) - lead_s)
 	(board.get_node("V/Sub") as Label).text = "%d:%04.1f　%s" % [int(t / 60.0), fmod(t, 60.0),
@@ -1075,7 +1232,7 @@ func _build_ui() -> void:
 	# 画面の札は育成モードと同じ見た目にする（素の灰色のボタンでは「しょぼい」と言われた）：生成りの札に紺の縁、選んでいるものは若草
 	var theme := Theme.new()
 	theme.default_font = UIK.font("black")
-	theme.default_font_size = 14
+	theme.default_font_size = 12
 	for cls in ["Button", "OptionButton"]:
 		for st in ["normal", "hover", "pressed", "hover_pressed", "focus", "disabled"]:
 			var sb := StyleBoxFlat.new()
@@ -1086,10 +1243,10 @@ func _build_ui() -> void:
 			sb.shadow_color = Color(0, 0, 0, 0.3)
 			sb.shadow_offset = Vector2(0, 3)
 			sb.shadow_size = 1
-			sb.content_margin_left = 10
-			sb.content_margin_right = 10
-			sb.content_margin_top = 4
-			sb.content_margin_bottom = 5
+			sb.content_margin_left = 8
+			sb.content_margin_right = 8
+			sb.content_margin_top = 3
+			sb.content_margin_bottom = 4
 			if st == "focus":
 				sb.draw_center = false
 				sb.shadow_size = 0
@@ -1102,7 +1259,12 @@ func _build_ui() -> void:
 
 	var bar := HBoxContainer.new()
 	bar.name = "Bar"
-	bar.position = Vector2(12, 12)
+	# 右上に寄せる（左上はレースの札と順位、中継の画面の邪魔をしない）
+	bar.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	bar.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	bar.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	bar.offset_right = -12
+	bar.offset_bottom = -8
 	bar.add_theme_constant_override("separation", 8)
 	ui.add_child(bar)
 
@@ -1175,7 +1337,7 @@ func _build_ui() -> void:
 	var cams := HBoxContainer.new()
 	cams.name = "Cams"
 	var group := ButtonGroup.new()
-	for c in [["tv", "中継"], ["follow", "追走"], ["side", "並走"], ["front", "正面"], ["stand", "スタンド"], ["aerial", "上空"], ["ride", "走路を回る"], ["free", "自由"]]:
+	for c in [["auto", "自動"], ["tv", "中継"], ["follow", "追走"], ["side", "並走"], ["front", "正面"], ["stand", "スタンド"], ["aerial", "上空"], ["ride", "走路を回る"], ["free", "自由"]]:
 		var bt := Button.new()
 		bt.name = c[0]
 		bt.text = c[1]
@@ -1197,7 +1359,7 @@ func _build_ui() -> void:
 	# 行は最初に作って中身だけ書き換える（毎コマ作り直すと重く、押したときに行が入れ替わる。落とし穴 50）
 	var board := PanelContainer.new()
 	board.name = "Board"
-	board.position = Vector2(14, 58 if embedded else 84)   # 競馬場単体ではコースの説明の行の下
+	board.position = Vector2(14, 82)   # レースの札（broadcast.gd）の下
 	board.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var bsb := StyleBoxFlat.new()
 	bsb.bg_color = Color(0.067, 0.188, 0.208, 0.84)
@@ -1249,7 +1411,7 @@ func _build_ui() -> void:
 	cue_box = VBoxContainer.new()
 	cue_box.name = "Cues"
 	cue_box.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	cue_box.position = Vector2(-20, 70)
+	cue_box.position = Vector2(-20, 130)
 	cue_box.grow_horizontal = Control.GROW_DIRECTION_BEGIN
 	cue_box.alignment = BoxContainer.ALIGNMENT_BEGIN
 	cue_box.add_theme_constant_override("separation", 6)
@@ -1300,6 +1462,9 @@ func _sync_ui() -> void:
 	var board: Control = ui.get_node("Board")
 	board.visible = not race.is_empty()
 	var info: Label = ui.get_node("Info")
+	info.visible = race.is_empty() and not embedded
+	if bc and bc.hud:
+		bc.hud.visible = not race.is_empty()
 	if embedded:
 		return
 	info.text = "%s %s　1 周 %dm・直線 %dm・幅 %dm・高低差 %.1fm（%s回り）　自由：右ドラッグで回す・ホイールで寄る・中ドラッグで動かす" % [
