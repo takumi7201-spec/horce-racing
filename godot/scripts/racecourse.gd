@@ -10,10 +10,17 @@ extends Node3D
 ## - 走路の法線は上に固定する（巻き方向で下を向くと暗くなり、どこが走路か分からなくなる）
 ## - 太陽はカメラの側（スタンドの側）から当てる。向こう側に置くと見えている面が全部陰になる
 ##
-## 起動の引数（`--` の後ろ）：--course=tokyo --surface=turf|dirt --cam=stand|aerial|ride|free --shot=画像の保存先
+## 馬を走らせるのはゲームのシミュレーション（src/sim/race.js）。ここは走行ログ（data/races/*.json、
+## tools/export-godot-races.mjs が書き出す）を再生するだけで、結果を作り直さない（ゲームと違う勝ち馬にしない）。
+##
+## 起動の引数（`--` の後ろ）：--course=tokyo --surface=turf|dirt --race=japancup --t=秒 --cam=tv|follow|stand|aerial|ride|free --shot=画像の保存先
 
 const TRACKS_PATH := "res://data/tracks.json"
 const OrbitCamera := preload("res://scripts/orbit_camera.gd")
+const HorseModel := preload("res://scripts/horse_model.gd")
+const RACES_PATH := "res://data/races.json"
+const STRIDE := 7.0      # 襲歩の 1 完歩（m）
+const RUN_OUT := 8.0     # ゴールの後、止まるまでの秒数（ログはゴールで止まるので、絵だけ流して減速させる）
 
 # 色。走路と内馬場は同系の緑にしない（three.js 版で、どこが走路か分からなくなった）
 const C_TURF_A := Color(0.14, 0.40, 0.13)
@@ -51,12 +58,23 @@ var ui: Control
 var ride_p := 0.0
 var font: SystemFont
 
+var races: Array = []
+var race: Dictionary = {}
+var runners: Array = []   # 馬ごと：{node, pos, off, name, gate, order, time, t_fin, v_fin, ph, yaw, s}
+var race_t := 0.0
+var playing := true
+var play_speed := 1.0
+var cam_eye := Vector3.ZERO
+var cam_look := Vector3.ZERO
+
 
 func _ready() -> void:
 	font = SystemFont.new()
 	# 日本語の字形を持つ字体を順に探す（Windows・mac・Linux）。既定の字体には漢字が無い
 	font.font_names = PackedStringArray(["Yu Gothic UI", "Meiryo", "Hiragino Sans", "Noto Sans CJK JP", "Noto Sans JP", "IPAGothic"])
 	tracks = JSON.parse_string(FileAccess.get_file_as_string(TRACKS_PATH)).courses
+	if FileAccess.file_exists(RACES_PATH):
+		races = JSON.parse_string(FileAccess.get_file_as_string(RACES_PATH)).races
 	var args := _args()
 	course_id = args.get("course", course_id)
 	surface = args.get("surface", surface)
@@ -65,7 +83,15 @@ func _ready() -> void:
 	camera = OrbitCamera.new()
 	add_child(camera)
 	_build_ui()
-	load_course(course_id, surface)
+	if args.has("race"):
+		load_race(args.race)
+		if args.has("t"):
+			race_t = float(args.t)
+			playing = false
+		if args.has("cam"):
+			set_camera(args.cam)
+	else:
+		load_course(course_id, surface)
 	if args.has("shot"):
 		_shoot(args.shot)
 
@@ -83,6 +109,8 @@ func _shoot(path: String) -> void:
 	# 草の模様（NoiseTexture2D）は裏で作られるので、数コマ待ってから撮る
 	for i in 40:
 		await get_tree().process_frame
+		if not race.is_empty():
+			_update_race(0.0, true)   # 止めた時刻の姿でカメラも合わせる
 	get_viewport().get_texture().get_image().save_png(path)
 	print("saved ", path)
 	get_tree().quit()
@@ -100,7 +128,10 @@ func find_track(id: String, surf: String) -> Dictionary:
 	return tracks[0]
 
 
-func load_course(id: String, surf: String) -> void:
+func load_course(id: String, surf: String, keep_race := false) -> void:
+	if not keep_race:
+		race = {}
+		runners = []
 	track = find_track(id, surf)
 	course_id = track.id
 	surface = track.surface
@@ -131,6 +162,14 @@ func at(i: int, off: float, dy := 0.0) -> Vector3:
 func index_of(p: float) -> int:
 	var lap: float = track.lap
 	return posmod(int(round(fposmod(p, lap) / (lap / n))), n)
+
+
+## 周回位置 p（m、周回をまたいでよい）の、外へ off m の位置。5m の刻みの間を線形に補う（馬の位置用）。
+func at_p(p: float, off: float, dy := 0.0) -> Vector3:
+	var lap: float = track.lap
+	var f := fposmod(p, lap) / (lap / n)
+	var i := int(floor(f))
+	return at(i, off, dy).lerp(at(i + 1, off, dy), f - i)
 
 
 func outward(i: int) -> Vector3:
@@ -696,6 +735,11 @@ func set_camera(mode: String) -> void:
 			camera.set_view(eye, center)
 		"ride":
 			ride_p = lap - float(track.homeStraight) - 200.0
+		"tv", "follow":
+			if race.is_empty():
+				set_camera("stand")
+				return
+			cam_eye = Vector3.ZERO   # 次のコマで寄せずに置く
 		_:
 			pass
 	camera.free_look = mode == "free"
@@ -705,6 +749,8 @@ func set_camera(mode: String) -> void:
 
 
 func _process(delta: float) -> void:
+	if not race.is_empty():
+		_update_race(delta, false)
 	if cam_mode != "ride" or n == 0:
 		return
 	# 馬の目の高さ（2.4m）で内から 1/3 の位置を 16m/s で回る。進行方向の 25m 先を見る
@@ -714,6 +760,149 @@ func _process(delta: float) -> void:
 	var eye := at(i, off, 2.4)
 	var look := at(i + 5, off, 2.0)
 	camera.set_view(eye, look)
+
+
+# ------------------------------------------------------------------ レース（走行ログの再生）
+
+func load_race(id: String) -> void:
+	var path := "res://data/races/%s.json" % id
+	if not FileAccess.file_exists(path):
+		push_warning("レースが無い: " + id)
+		return
+	var r: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(path))
+	load_course(r.course, r.surface, true)
+	race = r
+	race_t = 0.0
+	playing = true
+	runners = []
+	var dist: float = r.distance
+	var dt: float = r.dt
+	for h in r.horses:
+		var node := HorseModel.new()
+		course_root.add_child(node)
+		node.build(String(h.coat), int(h.frame), int(h.gate), h.get("silks"), hash(String(h.name)), font)
+		var pos := PackedFloat32Array(h.pos)
+		var off := PackedFloat32Array(h.off)
+		# ログはゴールで止まる。ゴールした時刻とその直前の速さを覚えて、絵だけ流して止める
+		var k_fin := pos.size() - 1
+		for k in pos.size():
+			if pos[k] >= dist - 0.01:
+				k_fin = k
+				break
+		var v_fin := (pos[k_fin] - pos[maxi(0, k_fin - 5)]) / (dt * mini(5, maxi(1, k_fin)))
+		runners.append({ node = node, pos = pos, off = off, name = String(h.name), gate = int(h.gate), order = int(h.order),
+			time = float(h.time), t_fin = k_fin * dt, v_fin = v_fin, ph = randf(), yaw = 0.0, s = 0.0, v = 0.0 })
+	_sync_ui()
+	set_camera("tv")
+	_update_race(0.0, true)
+
+
+func race_duration() -> float:
+	return (int(race.frames) - 1) * float(race.dt) + RUN_OUT
+
+
+func _sample(arr: PackedFloat32Array, t: float) -> float:
+	var f := t / float(race.dt)
+	var i := clampi(int(floor(f)), 0, arr.size() - 1)
+	var j := mini(i + 1, arr.size() - 1)
+	return lerpf(arr[i], arr[j], clampf(f - i, 0.0, 1.0))
+
+
+## 時刻 t の走った距離と速さ。ゴールの後は RUN_OUT 秒かけて止まる（ログは止まったまま）
+func _s_at(r: Dictionary, t: float) -> Vector2:
+	if t <= r.t_fin:
+		var s := _sample(r.pos, t)
+		return Vector2(s, (_sample(r.pos, t + 0.2) - s) / 0.2)
+	var d := minf(t - float(r.t_fin), RUN_OUT)
+	var v0: float = r.v_fin
+	return Vector2(float(race.distance) + v0 * (d - d * d / (2.0 * RUN_OUT)), v0 * (1.0 - d / RUN_OUT))
+
+
+func _update_race(delta: float, snap: bool) -> void:
+	if playing:
+		race_t = minf(race_t + delta * play_speed, race_duration())
+	var start: float = race.start
+	for r in runners:
+		var sv := _s_at(r, race_t)
+		var off := _sample(r.off, race_t)
+		var p := start + sv.x
+		var node: Node3D = r.node
+		node.position = at_p(p, off)
+		# 向きは少し先の位置へ。横へ寄る動きも向きに出る（真横へ滑って見えないように）
+		var ahead := at_p(p + maxf(2.0, sv.y * 0.3), _sample(r.off, race_t + 0.3))
+		var d := ahead - node.position
+		var yaw := atan2(-d.x, -d.z)
+		r.yaw = yaw if snap else lerp_angle(float(r.yaw), yaw, clampf(delta * 8.0, 0.0, 1.0))
+		node.rotation = Vector3(0, float(r.yaw), 0)
+		if playing:
+			r.ph = fposmod(float(r.ph) + sv.y * delta * play_speed / STRIDE, 1.0)
+		node.pose(float(r.ph), sv.y)
+		r.s = sv.x
+		r.v = sv.y
+	_update_race_camera(delta, snap)
+	_update_board()
+
+
+func _ranked() -> Array:
+	var list := runners.duplicate()
+	list.sort_custom(func(a, b) -> bool:
+		var fa := race_t >= float(a.t_fin)
+		var fb := race_t >= float(b.t_fin)
+		if fa and fb:
+			return int(a.order) < int(b.order)
+		if fa != fb:
+			return fa
+		return float(a.s) > float(b.s))
+	return list
+
+
+func _update_race_camera(delta: float, snap: bool) -> void:
+	if cam_mode != "tv" and cam_mode != "follow":
+		return
+	var list := _ranked()
+	var lead: Dictionary = list[0]
+	var start: float = race.start
+	var w: float = track.width
+	var eye: Vector3
+	var look: Vector3
+	if cam_mode == "tv":
+		# 中継：外ラチの外の高い所から、先頭から 3 番手あたりを横から追う（ホームではスタンドの側になる）
+		var k := mini(2, list.size() - 1)
+		var mid := (float(lead.s) + float(list[k].s)) / 2.0
+		look = at_p(start + mid, w * 0.35, 1.2)
+		eye = at_p(start + mid - 28.0, w + 38.0, 15.0)
+	else:
+		# 追走：先頭の馬の斜め後ろ
+		var off := _sample(lead.off, race_t)
+		look = at_p(start + float(lead.s) + 10.0, off, 1.6)
+		eye = at_p(start + float(lead.s) - 14.0, off + 4.0, 4.5)
+	if snap or cam_eye == Vector3.ZERO:
+		cam_eye = eye
+		cam_look = look
+	else:
+		var k2 := clampf(delta * 3.0, 0.0, 1.0)
+		cam_eye = cam_eye.lerp(eye, k2)
+		cam_look = cam_look.lerp(look, k2)
+	camera.set_view(cam_eye, cam_look)
+
+
+func _update_board() -> void:
+	var board: Label = ui.get_node("Board")
+	var list := _ranked()
+	var lead_s := float(list[0].s)
+	var lines := PackedStringArray()
+	var t := minf(race_t, float(race.winnerTime))
+	lines.append("%s　%d:%04.1f%s" % [race.name, int(t / 60.0), fmod(t, 60.0), "　確定" if race_t >= float(race.winnerTime) + 3.0 else ""])
+	var rem := maxf(0.0, float(race.distance) - lead_s)
+	if rem > 0.0:
+		lines.append("残り %dm" % int(ceil(rem)))
+	for k in mini(8, list.size()):
+		var r: Dictionary = list[k]
+		var gap := "" if k == 0 else ("　%.1f馬身" % ((lead_s - float(r.s)) / 2.4))
+		if race_t >= float(r.t_fin):
+			gap = "　%d:%04.1f" % [int(float(r.time) / 60.0), fmod(float(r.time), 60.0)]
+		lines.append("%d　%2d %s%s" % [k + 1, int(r.gate), r.name, gap])
+	board.text = "\n".join(lines)
 
 
 # ------------------------------------------------------------------ 画面（コースの切り替え）
@@ -735,6 +924,53 @@ func _build_ui() -> void:
 	bar.position = Vector2(12, 12)
 	bar.add_theme_constant_override("separation", 8)
 	ui.add_child(bar)
+
+	var rp := OptionButton.new()
+	rp.name = "Race"
+	rp.add_item("コースを見る")
+	rp.set_item_metadata(0, "")
+	for r in races:
+		rp.add_item(String(r.name))
+		rp.set_item_metadata(rp.item_count - 1, r.id)
+	rp.item_selected.connect(func(k: int) -> void:
+		var id: String = rp.get_item_metadata(k)
+		if id == "":
+			load_course(course_id, surface)
+		else:
+			load_race(id))
+	bar.add_child(rp)
+
+	var play := Button.new()
+	play.name = "Play"
+	play.text = "一時停止"
+	play.pressed.connect(func() -> void:
+		if race.is_empty():
+			return
+		if race_t >= race_duration():
+			race_t = 0.0
+			playing = true
+		else:
+			playing = not playing
+		_sync_ui())
+	bar.add_child(play)
+	var again := Button.new()
+	again.name = "Again"
+	again.text = "最初から"
+	again.pressed.connect(func() -> void:
+		if race.is_empty():
+			return
+		race_t = 0.0
+		playing = true
+		cam_eye = Vector3.ZERO
+		_sync_ui())
+	bar.add_child(again)
+	var spd := Button.new()
+	spd.name = "Speed"
+	spd.text = "×1"
+	spd.pressed.connect(func() -> void:
+		play_speed = {1.0: 2.0, 2.0: 4.0, 4.0: 0.5, 0.5: 1.0}.get(play_speed, 1.0)
+		spd.text = "×%s" % ("0.5" if play_speed == 0.5 else str(int(play_speed))))
+	bar.add_child(spd)
 
 	var pick := OptionButton.new()
 	pick.name = "Course"
@@ -758,7 +994,7 @@ func _build_ui() -> void:
 	var cams := HBoxContainer.new()
 	cams.name = "Cams"
 	var group := ButtonGroup.new()
-	for c in [["stand", "スタンド"], ["aerial", "上空"], ["ride", "走路を回る"], ["free", "自由"]]:
+	for c in [["tv", "中継"], ["follow", "追走"], ["stand", "スタンド"], ["aerial", "上空"], ["ride", "走路を回る"], ["free", "自由"]]:
 		var bt := Button.new()
 		bt.name = c[0]
 		bt.text = c[1]
@@ -776,6 +1012,16 @@ func _build_ui() -> void:
 	info.add_theme_constant_override("outline_size", 4)
 	ui.add_child(info)
 
+	# 着順の板（左下）。レースのときだけ出す
+	var board := Label.new()
+	board.name = "Board"
+	board.position = Vector2(14, 90)
+	board.add_theme_font_size_override("font_size", 18)
+	board.add_theme_color_override("font_color", Color.WHITE)
+	board.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
+	board.add_theme_constant_override("outline_size", 6)
+	ui.add_child(board)
+
 
 func _sync_ui() -> void:
 	var pick: OptionButton = ui.get_node("Bar/Course")
@@ -784,6 +1030,16 @@ func _sync_ui() -> void:
 			pick.select(k)
 	var surf: OptionButton = ui.get_node("Bar/Surface")
 	surf.select(0 if surface == "turf" else 1)
+	var rp: OptionButton = ui.get_node("Bar/Race")
+	for k in rp.item_count:
+		if rp.get_item_metadata(k) == String(race.get("id", "")):
+			rp.select(k)
+	for nm in ["Play", "Again", "Speed"]:
+		ui.get_node("Bar/" + nm).visible = not race.is_empty()
+	var play: Button = ui.get_node("Bar/Play")
+	play.text = "一時停止" if playing else "再生"
+	var board: Label = ui.get_node("Board")
+	board.visible = not race.is_empty()
 	var info: Label = ui.get_node("Info")
 	info.text = "%s %s　1 周 %dm・直線 %dm・幅 %dm・高低差 %.1fm（%s回り）　自由：右ドラッグで回す・ホイールで寄る・中ドラッグで動かす" % [
 		track.name, "芝" if surface == "turf" else "ダート", int(track.lap), int(track.homeStraight), int(track.width),
