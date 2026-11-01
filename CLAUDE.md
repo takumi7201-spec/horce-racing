@@ -35,6 +35,15 @@ pw.chromium.launch({
 });
 ```
 
+Godot のプロジェクト（`godot/`、Godot 4.7・Forward+・Jolt、持ち主は Windows で開く）は、クラウドでは公式のヘッドレスで操作する。
+GitHub のリリースは網の外（403）なので godotengine.org から取る（`.godot/` は作業用のキャッシュでコミットしない。`*.import` はコミットする）:
+
+```bash
+curl -sSL -o /tmp/godot.zip "https://downloads.godotengine.org/?version=4.7.2&flavor=stable&slug=linux.x86_64.zip" && unzip -o -d /tmp/godot /tmp/godot.zip
+/tmp/godot/Godot_v4.7.2-stable_linux.x86_64 --headless --path godot --import          # 取り込み（.import を作る）
+/tmp/godot/Godot_v4.7.2-stable_linux.x86_64 --headless --path godot --script x.gd      # SceneTree を継いだスクリプトを走らせる
+```
+
 Playwright で操作するときは、週送りは左下の NEXT（`.nextb`、長押しで `.skipmenu`）、画面の切り替えは左のメニュー（`.sideb`）。
 
 **3D をいじったら必ずスクリーンショットを撮って目で見る。** 統計やテストが通っていても
