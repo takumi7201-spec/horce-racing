@@ -1978,3 +1978,24 @@ button.ikev-banner:active { transform: translateY(3px); box-shadow: 0 3px 0 var(
 .ikd-cardwrap.open .ikd-menu { display: flex; }
 .ikd-mi { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 10px; border: 2px solid transparent; background: none; color: var(--ink); cursor: pointer; font: 900 14px/1 system-ui, sans-serif; white-space: nowrap; text-align: left; }
 .ikd-mi:hover, .ikd-mi.on { background: var(--leaf2); border-color: var(--ink); }
+
+/* ---- ガチャ：伏せて配って、順にめくる（ikusei.js の pulledGrid）。裏と表は 1 枚の箱を回す（すり替えない） ---- */
+.ikr { position: relative; flex: none; perspective: 900px; transition: opacity .3s cubic-bezier(.5, 0, .8, .4), transform .42s cubic-bezier(.3, .75, .1, 1); }
+.ikr.out { opacity: 0; transform: translateY(-14px) scale(.94); }
+.ikr-in { position: relative; width: 100%; height: 100%; transform-style: preserve-3d; transition: transform .45s cubic-bezier(.3, .75, .1, 1); }
+.ikr.down .ikr-in { transform: rotateY(180deg); }
+.ikr-in > .tcw, .ikr-back { backface-visibility: hidden; -webkit-backface-visibility: hidden; }
+.ikr-back { position: absolute; inset: 0; transform: rotateY(180deg); box-sizing: border-box; border: 3px solid var(--paper, #fbf8ef); box-shadow: 0 4px 0 #11303580;
+  background: repeating-linear-gradient(45deg, #ffffff14 0 5px, transparent 5px 11px), linear-gradient(160deg, #2c5a55, #113035); }
+/* 最後の 1 枚の溜め：裏が光る。SSR・LM は金、SR は銀 */
+.ikr.glow .ikr-back { animation: ikr-glow .8s ease-in-out forwards; --g: #ffd76a; }
+.ikr.glow.r-SR .ikr-back { --g: #dfe9f2; animation-duration: .45s; }
+.ikr.glow.r-LM .ikr-back { --g: #ffb3d9; }
+.ikr.glow:not(.down) { filter: drop-shadow(0 0 10px #ffd76acc); transition: filter .4s, opacity .3s, transform .42s; }
+.ikr.glow.r-SR:not(.down) { filter: drop-shadow(0 0 8px #dfe9f2cc); }
+@keyframes ikr-glow { from { box-shadow: 0 4px 0 #11303580, 0 0 0 0 transparent; } to { box-shadow: 0 4px 0 #11303580, 0 0 16px 5px var(--g); border-color: #fff4cc; } }
+/* めくり終えたら 3D の箱を外す（合成レイヤーを残さない） */
+.ikr.done { perspective: none; }
+.ikr.done .ikr-in { transform: none; transform-style: flat; transition: none; }
+.ikr.done .ikr-back { display: none; }
+.ikr.done .ikr-in > .tcw { backface-visibility: visible; -webkit-backface-visibility: visible; }

@@ -110,7 +110,7 @@ export const epithetOf = (c) => {
  * カード 1 枚。scale は 630×880 に対する倍率。opts.onClick を渡すと押せる。
  * opts.count があれば右上に枚数、opts.dim で暗く（持っていないカード）。
  */
-export function cardView(c, { scale = 0.4, onClick = null, count = 0, dim = false, badge = null, holo = null, tilt = 'hover' } = {}) {
+export function cardView(c, { scale = 0.4, onClick = null, count = 0, dim = false, badge = null, holo = null, tilt = 'hover', eager = false } = {}) {
   const T = THEME[c.rar];
   const H = HOLO[c.rar];
   const foil = FOIL[c.rar] ?? null;
@@ -172,7 +172,10 @@ export function cardView(c, { scale = 0.4, onClick = null, count = 0, dim = fals
   ]);
   if (onClick) wrap.onclick = () => onClick(c);
   if (!dim && tilt) attachTilt(wrap, card, { touch: tilt === 'full' });
-  if (!dim) whenVisible(wrap, () => cardArt(c).then((a) => {
+  // eager：画面に入るのを待たずに絵を付ける。ガチャの伏せたカード（3D で裏返した箱の中）は IntersectionObserver に
+  // 見えている扱いにならず、表になっても絵が付かなかった。10 枚だけなので待たずに撮る
+  const load = (fn) => (eager ? fn() : whenVisible(wrap, fn));
+  if (!dim) load(() => cardArt(c).then((a) => {
       const bEl = art.querySelector('.b');
       bEl.style.backgroundImage = `url(${a.bg})`;
       if (a.bgBaked) bEl.classList.add('baked');

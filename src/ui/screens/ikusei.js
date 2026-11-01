@@ -280,8 +280,8 @@ function gachaView(app, go) {
     save(app);
     app.ikLast = got;
     if (got.some((g) => g.isNew)) app.ikNew = true;   // 下のボタン列の「カード」に NEW を付ける（図鑑を開くまで）
-    const top = got.reduce((m, g) => Math.min(m, I.RARITIES.indexOf(g.card.rar)), 9);
-    sound.play(top <= 1 ? 'bell' : top <= 2 ? 'win' : 'ok');
+    app.ikReveal = true;   // 次の描画で 1 度だけ、伏せて配ってめくる（描き直したら表のまま）
+    sound.play('ok');
     go('gacha');
   };
   return [
@@ -293,10 +293,78 @@ function gachaView(app, go) {
       ]),
       el('p.note', { text: `排出率 ${Object.entries(I.RATES).map(([k, v]) => `${k} ${Math.round(v * 100)}%`).join('・')}　通算 ${p.pulls} 回` }),
     ]),
-    last.length ? card(`引いたカード（${last.length} 枚）`, [
-      el('div.ik-grid', last.map((g) => cardView(g.card, { scale: fit(0.3), badge: g.isNew ? 'NEW' : g.awaken ? `覚醒${g.awaken >= I.AWAKEN.max ? 'MAX' : g.awaken}` : null, onClick: (c) => showCard(app, c) }))),
-    ]) : null,
+    last.length ? card(`引いたカード（${last.length} 枚）`, [pulledGrid(app, last)]) : null,
   ];
+}
+
+/**
+ * 引いたカードの並び。引いた直後だけ演出する：伏せて配り、順にめくり、いちばん良い 1 枚（SR 以上）は最後に溜めてから
+ * 光ってめくれる。stageshow のデモ（.agents/skills/stageshow/examples/gacha-pull）と同じ筋。
+ * - 絵（cardArt）は WebGL で 1 枚ずつ撮るので、撮り終わる前にめくると絵の無いカードが表になる。1 枚ずつ自分の絵を待ってからめくる（1.2 秒まで）。
+ * - 伏せている間に押すと全部めくる（飛ばす）。めくり終えたカードを押すと今までどおり大きく見る。
+ * - めくり終えたら 3D の箱を外す（.done）。カード 1 枚ずつが 3D の合成レイヤーのまま残ると重い（落とし穴 93 の「重くしたもの」）。
+ */
+function pulledGrid(app, got) {
+  // 狭い画面でも 3 列に並べる（2 列だと 10 枚が 5 段になり、めくっている途中のカードが画面の外へ出る）
+  const scale = Math.min(fit(0.3), (Math.min(window.innerWidth, 900) - 80) / 3 / 630);
+  const face = (g) => cardView(g.card, { scale, eager: true, badge: g.isNew ? 'NEW' : g.awaken ? `覚醒${g.awaken >= I.AWAKEN.max ? 'MAX' : g.awaken}` : null, onClick: (c) => showCard(app, c) });
+  const fresh = app.ikReveal;
+  app.ikReveal = false;
+  const reduce = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (!fresh || reduce) return el('div.ik-grid', got.map(face));
+  // いちばん良い 1 枚（同じレア度なら後ろ）。SR 以上のときだけ最後に回して溜める
+  const rank = (g) => I.RARITIES.indexOf(g.card.rar);
+  let best = 0;
+  got.forEach((g, i) => { if (rank(g) <= rank(got[best])) best = i; });
+  const hold = got.length > 1 && rank(got[best]) <= I.RARITIES.indexOf('SR') ? best : -1;
+  const cells = got.map((g, i) => el(`div.ikr.out.down.r-${g.card.rar}`, { style: `width:${630 * scale}px;height:${880 * scale}px;transition-delay:${i * 50}ms` }, [
+    el('div.ikr-in', [face(g), el('div.ikr-back', { style: `border-radius:${26 * scale}px` })]),
+  ]));
+  let left = cells.length;
+  const flip = (i) => {
+    const c = cells[i];
+    if (!c.classList.contains('down')) return;
+    c.classList.remove('down');
+    if (--left === 0) setTimeout(() => cells.forEach((x) => x.classList.add('done')), 600);
+  };
+  let skipped = false;
+  const grid = el('div.ik-grid.ikr-grid', cells);
+  // 伏せている間の 1 押しは「全部めくる」。カードの onClick（大きく見る）まで届かせない
+  grid.addEventListener('click', (e) => {
+    if (left === 0) return;
+    e.stopPropagation();
+    skipped = true;
+    cells.forEach((_, i) => flip(i));
+  }, true);
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  (async () => {
+    await wait(30);
+    cells.forEach((c) => c.classList.remove('out'));
+    // 結果の欄の頭（「引いたカード」の題）を画面の上へ。真ん中に合わせると 1 段目が上に切れた
+    const sec = grid.closest('.card') ?? grid;
+    sec.style.scrollMarginTop = '72px';   // 上の帯（戻る・題・通貨）の下に題が来るように
+    sec.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+    // 絵は撮った順に届くので、1 枚ずつ自分の絵を待ってからめくる（1 枚 1.2 秒まで。遅い端末で 10 連が 30 秒かからないよう、待ちきれなければ表にして絵は後から付く）
+    const arts = got.map((g) => cardArt(g.card).catch(() => null));
+    await wait(700 + cells.length * 50);
+    for (let i = 0; i < cells.length && !skipped; i++) {
+      if (i === hold) continue;
+      await Promise.race([arts[i], wait(1200)]);
+      if (skipped) break;
+      flip(i);
+      sound.play('tick');
+      await wait(140);
+    }
+    if (skipped || hold < 0) return;
+    await Promise.race([arts[hold], wait(1200)]);
+    await wait(320);
+    cells[hold].classList.add('glow');
+    await wait(rank(got[hold]) <= 1 ? 850 : 450);
+    if (skipped) return;
+    flip(hold);
+    sound.play(rank(got[hold]) <= 1 ? 'bell' : 'win');
+  })();
+  return grid;
 }
 
 /**
