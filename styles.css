@@ -2040,3 +2040,52 @@ button.ikev-banner:active { transform: translateY(3px); box-shadow: 0 3px 0 var(
 @keyframes page-fade-out { to { opacity: 0; } }
 @keyframes modal-in { from { opacity: 0; transform: translateY(12px) scale(.985); } }
 @keyframes modal-out { to { opacity: 0; transform: translateY(6px) scale(.99); } }
+
+/* ---------------- レース観戦の中継の表示（ui/racehud.js。Godot 版の中継の札を移したもの。デザインはオリジナル） ----------------
+   左上にレースの札、その下に順位（.rankbox を左へ寄せる）、右上に時計、下に全馬の位置の帯と実況の字幕、ゴールの後に確定の札。
+   3D の上に重ねるので暗い半透明の地に白い縁（明るい空・暗い内馬場のどちらの上でも読める）。 */
+.view.bc .rankbox { left: 12px; right: auto; top: 76px; width: 230px; }
+.rhud { position: absolute; inset: 0; pointer-events: none; z-index: 3; font-variant-numeric: tabular-nums; }
+.rh-plate { position: absolute; left: 12px; top: 10px; display: flex; align-items: center; gap: 10px; max-width: calc(100% - 250px);
+  padding: 6px 16px 7px 12px; border-radius: 12px; border: 2.5px solid #ffffffe6;
+  background: linear-gradient(90deg, #113035e6, #2c5a55e0); box-shadow: 0 4px 0 #0005; color: #fff4dc; }
+.rh-grade { flex: none; padding: 1px 8px 2px; border-radius: 6px; border: 2px solid #113035;
+  background: linear-gradient(#ffe27a, #f3a332); color: #113035; font: italic 900 15px/1.2 system-ui, sans-serif; }
+.rh-pt { display: flex; flex-direction: column; min-width: 0; }
+.rh-pt b { font: italic 900 21px/1.15 system-ui, sans-serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rh-pt small { color: #d3e27f; font-weight: 800; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rh-clock { position: absolute; right: 12px; top: 10px; min-width: 150px; display: flex; flex-direction: column; align-items: flex-end;
+  padding: 4px 14px 6px; border-radius: 12px; border: 2.5px solid #ffffffe6; background: #113035e6; box-shadow: 0 4px 0 #0005; }
+.rh-time { color: #fff; font: italic 900 30px/1.1 system-ui, sans-serif; }
+.rh-rem { color: #d3e27f; font-weight: 900; font-size: 14px; }
+.rh-split { color: #f6cf86; font-weight: 800; font-size: 12px; }
+.rh-split:empty { display: none; }
+.rh-strip { position: absolute; left: 12px; right: 12px; bottom: 10px; height: 46px; width: calc(100% - 24px);
+  border-radius: 12px; border: 2px solid #ffffffb3; background: #113035c7; }
+.rh-cap { position: absolute; left: 50%; bottom: 66px; transform: translate(-50%, 8px); max-width: calc(100% - 40px);
+  padding: 7px 20px 8px; border-radius: 10px; border: 2.5px solid #a7cb0e; background: #113035eb; box-shadow: 0 4px 0 #0005;
+  color: #fff; font-weight: 900; font-size: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  opacity: 0; transition: opacity .18s var(--ease-move, ease), transform .24s var(--ease-move, ease); }
+.rh-cap.on { opacity: 1; transform: translate(-50%, 0); }
+.rh-cap.k-hot { border-color: #f3a332; }
+.rh-cap.k-goal { border-color: #ffe27a; font-size: 20px; }
+.rh-result { position: absolute; left: 50%; top: 70px; transform: translate(-50%, 8px); min-width: 300px;
+  padding: 10px 18px 12px; border-radius: 14px; border: 3px solid #113035; background: #fffaf0f5; box-shadow: 0 6px 0 #0005;
+  color: #113035; opacity: 0; transition: opacity .3s, transform .3s var(--ease-move, ease); }
+.rh-result.on { opacity: 1; transform: translate(-50%, 0); }
+.rh-rh { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.rh-rh b { font: italic 900 17px/1.2 system-ui, sans-serif; }
+.rh-fix { padding: 1px 8px 2px; border-radius: 6px; background: #c0392b; color: #fff; font: italic 900 14px/1.2 system-ui, sans-serif; }
+.rh-rr { display: grid; grid-template-columns: 3em 1.8em 1fr auto; gap: 8px; align-items: center; padding: 2px 0; }
+.rh-ord { font: italic 900 17px/1 system-ui, sans-serif; }
+.rh-rr:first-of-type .rh-ord { color: #c0641a; }
+.rh-gate { text-align: center; border-radius: 5px; font-weight: 900; font-size: 12px; padding: 1px 0; border: 1px solid #0003; }
+.rh-nm { font-weight: 900; font-size: 16px; } .rh-nm.mine { color: #c0641a; }
+.rh-tt { color: #4a5b58; font-weight: 800; font-size: 14px; }
+@media (max-width: 700px) {
+  .view.bc .rankbox { top: 64px; width: 168px; }
+  .rh-plate { max-width: calc(100% - 140px); padding: 4px 10px; } .rh-pt b { font-size: 16px; } .rh-pt small { display: none; }
+  .rh-clock { min-width: 110px; padding: 3px 10px 4px; } .rh-time { font-size: 22px; }
+  .rh-cap { font-size: 14px; bottom: 62px; } .rh-strip { height: 42px; }
+}
+@media (prefers-reduced-motion: reduce) { .rh-cap, .rh-result { transition: none; } }

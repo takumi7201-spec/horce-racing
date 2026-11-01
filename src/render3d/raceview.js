@@ -5,7 +5,8 @@
 // 逆に言うと、ここで「馬を追い越させる」ようなことはできない（それが正しい）。
 
 import * as THREE from '../../vendor/three/three.module.min.js';
-import { buildTrackMesh, trackPoint } from './track.js';
+import { buildTrackMesh, trackPoint, buildGate } from './track.js';
+import { createDirector } from './broadcast.js';
 import { makeHorse, makeShadowPatch, FRAME_COLORS } from './horse3d.js';
 import { makeWind } from './wind.js';
 import { buildTrack, posToWorld, elevationAt, curvatureAt, trackBounds } from '../sim/course.js';
@@ -14,6 +15,7 @@ import { yawForZForward } from './orient.js';
 import { clamp, lerp } from '../core/util.js';
 
 export const CAMERAS = [
+  { id: 'auto', name: '自動' },
   { id: 'mark', name: 'マーク馬' },
   { id: 'tv', name: '中継' },
   { id: 'side', name: '並走' },
@@ -21,6 +23,16 @@ export const CAMERAS = [
   { id: 'aerial', name: '俯瞰' },
   { id: 'finish', name: 'ゴール前' },
 ];
+
+// Godot 版の競馬場（godot/scripts/racecourse.gd）から移した見せ方の定数。
+const RAIL_GAP = 1.0;    // 横位置の 0 は内ラチの位置。馬の体と騎手の脚が柵に被らないよう、絵では 1m 外へ出す
+const GATE_W = 1.05;     // 発馬機の 1 枠の幅（m）。計算は枠の間を 0.42m で置くので、発走直後だけ絵の横の間隔を広げる
+const RUN_OUT = 14;      // 最後の馬がゴールしてから再生を続ける秒数（ゴールの後の流し）
+const CANTER = 7.5;      // ゴールの後に落ち着く駈歩の速さ（m/s）。止めずに走り抜けさせる
+const EASE = 4.5;        // 駈歩へ落ちるまでの時定数（秒）
+
+/** 冬の午後（有馬記念は 12 月の 15 時台）：空の低いところが橙に焼け、日差しは黄色く低い。 */
+const DUSK = { top: 0x42669f, bottom: 0xf5bd85, sun: 0.9, fog: 0xe6b88f, sunColor: 0xffcc94, hemiTop: 0xffe2c4, hemiBottom: 0x5a4a2c };
 
 const SKY = {
   晴: { top: 0x4a8fd8, bottom: 0xbfdcf2, sun: 1.0, fog: 0xc8dcee },
@@ -31,8 +43,8 @@ const SKY = {
 };
 
 /** 空。板ではなく内向きの球に頂点色のグラデーションを付ける。 */
-function makeSky(weather) {
-  const s = SKY[weather] ?? SKY['晴'];
+function makeSky(weather, dusk = false) {
+  const s = dusk ? DUSK : SKY[weather] ?? SKY['晴'];
   const geo = new THREE.SphereGeometry(4000, 24, 16);
   const top = new THREE.Color(s.top);
   const bot = new THREE.Color(s.bottom);
@@ -86,25 +98,49 @@ export function createRaceView(canvas, race, opts = {}) {
   const log = race.log;
   if (!log) throw new Error('走行ログの無いレースは再生できない');
   const track = race.track ?? buildTrack(race.courseId, race.surface, race.distance);
-  const duration = logDuration(log);
+  // 有馬記念は冬の午後（低い日・冬枯れの内馬場）。opts.light で決められる
+  const dusk = (opts.light ?? (/有馬/.test(race.name ?? '') ? 'dusk' : 'day')) === 'dusk';
+  const winter = dusk || (race.week != null && (race.week >= 45 || race.week <= 8));
+
+  // 馬ごとのゴールの時刻と、その直前の速さ。ログはゴールで止まるので、ゴールの後は絵だけ流す（Godot 版と同じ）
+  const finishOf = [];
+  for (let k = 0; k < log.n; k++) {
+    let kf = log.frames - 1;
+    for (let f = 0; f < log.frames; f++) if (log.pos[f * log.n + k] >= race.distance - 0.01) { kf = f; break; }
+    const back = Math.min(5, Math.max(1, kf));
+    const vFin = (log.pos[kf * log.n + k] - log.pos[(kf - back) * log.n + k]) / (log.dt * back);
+    finishOf.push({ tFin: kf * log.dt, vFin: Math.max(CANTER, vFin), offFin: log.off[kf * log.n + k] });
+  }
+  const duration = logDuration(log) + RUN_OUT;
 
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
   renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
   renderer.setClearColor(0x9ec6e6);
 
   const scene = new THREE.Scene();
-  const sky = SKY[race.weather] ?? SKY['晴'];
+  const sky = dusk ? DUSK : SKY[race.weather] ?? SKY['晴'];
   scene.fog = new THREE.Fog(sky.fog, 320, 2200);
-  scene.add(makeSky(race.weather));
+  scene.add(makeSky(race.weather, dusk));
 
   // three.js r155 以降は光源の強さが物理量になり、拡散反射が 1/π される。
   // 旧来の感覚で 1.0 を入れると全体が 3 分の 1 の明るさになる。
-  scene.add(new THREE.HemisphereLight(0xdcecff, 0x3a5c2c, (0.85 + sky.sun * 0.35) * Math.PI));
-  const sun = new THREE.DirectionalLight(0xfff3df, (0.35 + sky.sun * 0.55) * Math.PI);
+  scene.add(new THREE.HemisphereLight(dusk ? DUSK.hemiTop : 0xdcecff, dusk ? DUSK.hemiBottom : 0x3a5c2c, (0.85 + sky.sun * 0.35) * Math.PI * (dusk ? 1.25 : 1)));
+  // 冬の低い日は面に浅く当たるので、昼と同じ強さでは走路の芝が黒く沈んだ。強めに当てる
+  const sun = new THREE.DirectionalLight(dusk ? DUSK.sunColor : 0xfff3df, (0.35 + sky.sun * 0.55) * Math.PI * (dusk ? 1.5 : 1));
   sun.position.set(-320, 420, 260);
+  if (dusk) {
+    // 冬の低い日。スタンドの側から当てるとスタンドの影がホームの直線を覆うので、直線に沿う向き（少しスタンド寄り）から（Godot 版で踏んだ）
+    const a = posToWorld(track, track.lap - 60, 0), b = posToWorld(track, track.lap - 60, 1);
+    const ox = b.x - a.x, oz = b.z - a.z;
+    const fx = Math.cos(a.heading), fz = Math.sin(a.heading);
+    const dx = -ox * 0.32 + fx * 0.9, dz = -oz * 0.32 + fz * 0.9, dy = -0.3;
+    sun.position.set(-dx * 600, -dy * 600, -dz * 600);
+  }
   scene.add(sun);
 
-  scene.add(buildTrackMesh(track, { rng: seededRandom(race.distance + track.lap) }));
+  scene.add(buildTrackMesh(track, { rng: seededRandom(race.distance + track.lap), winter }));
+  // 発馬機（ゲート）を発走位置に置く。前の扉は開いた形（馬は走り抜ける）
+  scene.add(buildGate(track, track.start, log.n, { gateW: GATE_W, railGap: RAIL_GAP }));
 
   // --- 馬 ---
   const horses = [];
@@ -129,7 +165,7 @@ export function createRaceView(canvas, race, opts = {}) {
   let marks = new Set(opts.marks ?? []);
 
   const camera = new THREE.PerspectiveCamera(48, 1, 0.5, 5000);
-  let mode = opts.camera ?? (opts.marks?.length ? 'mark' : 'tv');
+  let mode = opts.camera ?? 'auto';
   let focusId = opts.focusId ?? null;
   let speed = opts.speed ?? 1;
   let time = 0;
@@ -139,6 +175,7 @@ export function createRaceView(canvas, race, opts = {}) {
   let disposed = false;
 
   const tmp = new THREE.Vector3();
+  let autoSlow = 1;
   const look = new THREE.Vector3();
   const camPos = new THREE.Vector3();
 
@@ -151,14 +188,44 @@ export function createRaceView(canvas, race, opts = {}) {
     camera.updateProjectionMatrix();
   }
 
-  /** いまの全馬の状態と順位。 */
+  /**
+   * 時刻 t の全馬（絵の位置）。ゴールの後は絵だけ流す：ゴールした速さから駈歩へ指数で落ち着き、止まらずに走り抜ける。
+   * v(d) = CANTER + (v0 − CANTER)·e^(−d/EASE) を積分した距離。横位置は発走から 120m だけ枠の幅に広げ、内ラチから RAIL_GAP 離す。
+   */
+  const logEnd = logDuration(log);
+  const order = new Map(race.results.map((r) => [r.horseId, r.order]));
+  function stateAt(t) {
+    const snap = sampleLog(log, Math.min(t, logEnd));
+    return snap.map((x, i) => {
+      const f = finishOf[i];
+      let s = x.s, v = x.v, off = x.off;
+      if (t > f.tFin) {
+        const d = t - f.tFin;
+        const e = Math.exp(-d / EASE);
+        s = race.distance + CANTER * d + (f.vFin - CANTER) * EASE * (1 - e);
+        v = CANTER + (f.vFin - CANTER) * e;
+        off = f.offFin;
+      }
+      const k = lerp(GATE_W / 0.42, 1, smooth01(s / 120));
+      return { ...x, index: i, s, v, off: off * k + RAIL_GAP, done: t >= f.tFin, order: order.get(x.id) ?? 99 };
+    });
+  }
+  /** いまの全馬の状態と順位（ゴールした馬は着順で、走っている馬は前から）。 */
   function sampleState() {
-    const snap = sampleLog(log, Math.min(time, duration));
-    const ranked = snap.map((x, i) => ({ ...x, index: i }))
-      .sort((a, b) => b.s - a.s);
-    const lead = ranked[0];
+    const snap = stateAt(time);
+    const ranked = snap.slice().sort((a, b) => (a.done && b.done ? a.order - b.order : a.done !== b.done ? (a.done ? -1 : 1) : b.s - a.s));
+    const lead = snap.reduce((m, x) => (x.s > m.s ? x : m), snap[0]);
     return { snap, ranked, lead };
   }
+  const at = (p, off, dy) => {
+    const w = posToWorld(track, p, off);
+    return { x: w.x, y: elevationAt(track, p) + dy, z: w.z };
+  };
+  const director = createDirector(track, race, log.ids.map((id, k) => {
+    const r = race.results.find((x) => x.horseId === id) ?? {};
+    return { id, name: log.names[k], gate: log.gates[k], frame: log.frameNos ? log.frameNos[k] : 1, order: r.order ?? 99, time: r.time ?? 0, tFin: finishOf[k].tFin };
+  }), stateAt, at);
+  let snapCam = true;
 
   function placeHorses(st) {
     // 騎手視点のときは、自分が乗っている騎手を消す。
@@ -167,7 +234,7 @@ export function createRaceView(canvas, race, opts = {}) {
     for (const h of horses) {
       if (h.rider) h.rider.visible = h.id !== hideRider;
       const x = st.snap[h.index];
-      const s = Math.min(x.s, race.distance);
+      const s = x.s;
       const p = track.start + s;
       const { point, heading, curvature } = trackPoint(track, p, x.off, tmp);
       h.group.position.copy(point);
@@ -188,6 +255,18 @@ export function createRaceView(canvas, race, opts = {}) {
   }
 
   function updateCamera(st) {
+    if (mode === 'auto') {
+      const c = director.camera(time, st.snap, snapCam);
+      snapCam = false;
+      camera.position.set(c.eye.x, c.eye.y, c.eye.z);
+      // 中継の画角は横長（16:9 前後）の画面で決めてある。縦長のスマホでは横に写る幅が足りず、並走の馬群が画面の外へ出た。
+      // 横の写る幅を 16:10 の画面と同じにするよう、縦の画角を広げる（広げすぎない）
+      const k = camera.aspect < 1.6 ? 1.6 / camera.aspect : 1;
+      setFov(Math.min(80, (2 * Math.atan(Math.tan((c.fov * Math.PI) / 360) * k) * 180) / Math.PI));
+      camera.lookAt(c.look.x, c.look.y, c.look.z);
+      autoSlow = c.slow;
+      return;
+    }
     if (mode !== 'photo') setFov(48);
     const lead = st.lead;
     const packS = (st.ranked[0].s + st.ranked[Math.min(2, st.ranked.length - 1)].s) / 2;
@@ -289,7 +368,9 @@ export function createRaceView(canvas, race, opts = {}) {
     pause() { playing = false; cancelAnimationFrame(raf); },
     toggle() { playing ? api.pause() : api.play(); },
     setSpeed(x) { speed = clamp(x, 0.25, 8); },
-    setCamera(m) { mode = m; },
+    setCamera(m) { mode = m; snapCam = true; director.reset(); },
+    /** 中継の字幕の予定・1000m 通過・勝ち馬のゴールの時刻（画面の表示が使う。ui/racehud.js） */
+    get broadcast() { return director; },
     setFocus(id) { focusId = id; },
     get focus() { return focusId; },
     /** スキル発動の光を馬に出す（見た目だけ）。 */
@@ -298,6 +379,8 @@ export function createRaceView(canvas, race, opts = {}) {
     setMarks(ids) { marks = new Set(ids); },
     seek(t) {
       time = clamp(t, 0, duration);
+      snapCam = true;
+      director.reset();
       draw();
     },
     resize,
@@ -328,8 +411,9 @@ export function createRaceView(canvas, race, opts = {}) {
       if (!on) continue;
       h.marker.mat.color.setHex(isFocus ? MARK_FOCUS : MARK_OWN);
       // 遠いほど大きくして、画面上ではおおよそ一定の大きさに保つ
-      const d = camera.position.distanceTo(h.group.position);
-      h.marker.group.scale.setScalar(clamp(d / 36, 0.9, 5) * (isFocus ? 1.15 : 1));
+      // 画角が狭い（望遠の）カメラでは同じ距離でも大きく写るので、画角で割り戻す
+      const d = camera.position.distanceTo(h.group.position) * Math.tan((camera.fov * Math.PI) / 360) / Math.tan((24 * Math.PI) / 180);
+      h.marker.group.scale.setScalar(clamp(d / 36, 0.5, 5) * (isFocus ? 1.15 : 1));
     }
   }
 
@@ -435,9 +519,10 @@ export function createRaceView(canvas, race, opts = {}) {
         time,
         duration,
         remaining: Math.max(0, race.distance - st.lead.s),
+        lead: st.lead,
         ranked: st.ranked.map((x, i) => ({
           order: i + 1, id: x.id, name: x.name, gate: x.gate,
-          s: x.s, v: x.v,
+          s: x.s, v: x.v, done: x.done,
           gap: st.lead.s - x.s,
           frame: log.frameNos ? log.frameNos[x.index] : Math.min(8, Math.ceil(x.gate / 2)),
         })),
@@ -452,9 +537,12 @@ export function createRaceView(canvas, race, opts = {}) {
     last = now;
     if (dt > 0.25) dt = 0.25;        // タブを離れたあとに飛ばさない
     // ゴール手前は少しだけスローにする。写真判定が見えるように。
-    const st0 = sampleState();
-    const near = race.distance - st0.lead.s;
-    const slow = near < 60 && near > 0 ? 0.55 : 1;
+    // 自動のカメラは中継の演出が決める（ゴール前の真横のカットだけ）。ほかのカメラは先頭が残り 60m の間
+    let slow = autoSlow;
+    if (mode !== 'auto') {
+      const near = race.distance - sampleState().lead.s;
+      slow = near < 60 && near > 0 ? 0.55 : 1;
+    }
     time += dt * speed * slow;
     if (time >= duration) {
       time = duration;
@@ -470,6 +558,11 @@ export function createRaceView(canvas, race, opts = {}) {
   resize();
   draw();
   return api;
+}
+
+function smooth01(x) {
+  const t = clamp(x, 0, 1);
+  return t * t * (3 - 2 * t);
 }
 
 /** 木の配置などを毎回同じにするための小さな擬似乱数。 */

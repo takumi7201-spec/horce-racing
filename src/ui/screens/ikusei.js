@@ -3,6 +3,7 @@
 // プロフィールは localStorage に置く（数 KB。牧場のセーブの IndexedDB とは別）。
 // 画面は app.go('ik', { view }) で切り替える。レースの結果（走行ログ）は保存しないので app.ikRace に持つ。
 
+import { createRaceHud } from '../racehud.js';
 import { el, card, table, button, toast, modal, ask, tabs, frameChip } from '../dom.js';
 import { icon } from '../icons.js';
 import { cardArt, cardArtIfReady } from '../../render3d/cardart.js';
@@ -845,18 +846,17 @@ function watchView(app) {
   const myIds = race.results.filter((r) => R.mine.includes(r.horseId)).sort((a, b) => a.gate - b.gate).map((r) => r.horseId);
   const canvas = el('canvas.race3d');
   const rankList = el('ol.rank');
-  const hud = el('div.hud', [el('div.hud-dist'), el('div.hud-time')]);
   const camBar = el('div.cambar');
   const ctrl = el('div.ctrl-right');
   const fx = el('div.ik-fx');
   const wrap = el('div.watch.ik-watch', [
-    el('div.view', [canvas, hud, fx, el('div.rankbox', [el('h3', { text: R.title ?? race.name }), rankList])]),
+    el('div.view.bc', [canvas, fx, el('div.rankbox', [el('h3', { text: '順位' }), rankList])]),
     el('div.controls', [camBar, ctrl]),
   ]);
   let view = null;
   requestAnimationFrame(() => {
     try {
-      view = createRaceView(canvas, race, { focusId: myIds[0] ?? null, marks: myIds, camera: 'mark', looks: R.looks });
+      view = createRaceView(canvas, race, { focusId: myIds[0] ?? null, marks: myIds, camera: 'auto', looks: R.looks });
     } catch (e) {
       wrap.appendChild(el('p.bad', { text: `3D を初期化できなかった：${e.message}` }));
       return;
@@ -871,10 +871,11 @@ function watchView(app) {
     }
     const shown = window.innerWidth < 700 ? 5 : 10;
     const skillFx = skillEffects(R, race, fx, view);
+    const hud = createRaceHud(view, race, { mine: myIds, title: R.title ?? race.name });
+    wrap.querySelector('.view').appendChild(hud.node);
     view.onFrame = (st) => {
       skillFx.frame(st);
-      hud.firstChild.textContent = st.remaining > 0.5 ? `残り ${Math.round(st.remaining)}m` : 'ゴール';
-      hud.lastChild.textContent = `${st.time.toFixed(1)} 秒`;
+      hud.frame(st);
       for (const r of st.ranked) {
         const row = rows.get(r.id);
         if (!row) continue;

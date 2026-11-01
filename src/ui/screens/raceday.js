@@ -10,6 +10,7 @@ import { createRaceView, CAMERAS } from '../../render3d/raceview.js';
 import { horseImg } from '../horse-sprite.js';
 import { showResult } from './races.js';
 import * as sound from '../sound.js';
+import { createRaceHud } from '../racehud.js';
 
 export function raceDayScreen(app) {
   const races = app.params.races ?? [];
@@ -89,15 +90,11 @@ function watchView(app, race, races, idx, next) {
 
   const canvas = el('canvas.race3d');
   const rankList = el('ol.rank');
-  const hud = el('div.hud', [
-    el('div.hud-dist'),
-    el('div.hud-time'),
-  ]);
   const camBar = el('div.cambar');
   const markBar = el('div.markbar');
   const speedBar = el('div.speedbar');
   const wrap = el('div.watch', [
-    el('div.view', [canvas, hud, el('div.rankbox', [el('h3', { text: '順位' }), rankList])]),
+    el('div.view.bc', [canvas, el('div.rankbox', [el('h3', { text: '順位' }), rankList])]),
     el('div.controls', [markBar, camBar, speedBar, el('div.ctrl-right')]),
   ]);
 
@@ -106,13 +103,16 @@ function watchView(app, race, races, idx, next) {
   requestAnimationFrame(() => {
     try {
       view = createRaceView(canvas, race, {
-        focusId: myId, marks: myIds, camera: myId != null ? 'mark' : 'tv', looks: G.raceLooks(g, race),
+        focusId: myId, marks: myIds, camera: 'auto', looks: G.raceLooks(g, race),
       });
     } catch (e) {
       wrap.appendChild(el('p.bad', { text: `3D を初期化できなかった：${e.message}` }));
       return;
     }
     app.onResize = () => view && view.resize();
+    // 中継の表示（札・時計・位置の帯・実況の字幕・確定）。Godot 版から移したもの
+    const hud = createRaceHud(view, race, { mine: myIds });
+    wrap.querySelector('.view').appendChild(hud.node);
 
     const info = new Map(race.results.map((r) => [r.horseId, r]));
     const mineSet = new Set(myIds);
@@ -145,8 +145,7 @@ function watchView(app, race, races, idx, next) {
     // 狭い画面では順位欄が画面の半分を覆うので、上位を減らす
     const shown = window.innerWidth < 700 ? 5 : 10;
     view.onFrame = (st) => {
-      hud.firstChild.textContent = st.remaining > 0.5 ? `残り ${Math.round(st.remaining)}m` : 'ゴール';
-      hud.lastChild.textContent = `${st.time.toFixed(1)} 秒`;
+      hud.frame(st);
       for (const r of st.ranked) {
         const row = rows.get(r.id);
         if (!row) continue;
