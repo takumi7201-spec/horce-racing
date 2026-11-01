@@ -128,44 +128,76 @@ func _first_mesh(n: Node) -> MeshInstance3D:
 
 
 # ------------------------------------------------------------------ 手綱
+# 銜（bitL・bitR）から騎手の手（handL・handR）へ。まっすぐ張ると首の中を通って見える（首を貫いた）ので、
+# 首の脇を回る 3 次のベジエにする。首の太さは首の形の幅（AABB）から取り、その外へ少し離す。
+# 帯は短い円柱を 10 本つないで毎コマ置き直す（頭と首は完歩に合わせて揺れるので、形を固定できない）。
+
+const REIN_SEG := 10
+var neck_half := 0.16
+
 
 func _build_reins(root: Node) -> void:
 	var mat := StandardMaterial3D.new()
 	mat.albedo_color = Color(0.11, 0.08, 0.07)
 	mat.roughness = 0.5
+	# 首の太さ：首の組の直下の毛の形の幅
+	for c in neck.get_children():
+		if c is MeshInstance3D:
+			neck_half = maxf(0.08, c.mesh.get_aabb().size.x / 2.0)
+			break
+	var cyl := CylinderMesh.new()
+	cyl.top_radius = 0.009
+	cyl.bottom_radius = 0.009
+	cyl.height = 1.0
+	cyl.radial_segments = 5
+	cyl.rings = 1
 	for side in ["L", "R"]:
 		var bit: Node3D = root.find_child("bit" + side, true, false)
 		var hand: Node3D = root.find_child("hand" + side, true, false)
 		if bit == null or hand == null:
 			continue
-		var strap := MeshInstance3D.new()
-		var cyl := CylinderMesh.new()
-		cyl.top_radius = 0.008
-		cyl.bottom_radius = 0.008
-		cyl.height = 1.0
-		cyl.radial_segments = 4
-		cyl.rings = 1
-		strap.mesh = cyl
-		strap.material_override = mat
-		strap.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		add_child(strap)
-		reins.append([strap, bit, hand])
+		var segs: Array = []
+		for k in REIN_SEG:
+			var strap := MeshInstance3D.new()
+			strap.mesh = cyl
+			strap.material_override = mat
+			strap.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			add_child(strap)
+			segs.append(strap)
+		reins.append([segs, bit, hand])
+
+
+func _bez(a: Vector3, b: Vector3, c: Vector3, d: Vector3, t: float) -> Vector3:
+	var u := 1.0 - t
+	return a * (u * u * u) + b * (3.0 * u * u * t) + c * (3.0 * u * t * t) + d * (t * t * t)
 
 
 func _update_reins() -> void:
 	for r in reins:
 		var a: Vector3 = to_local(r[1].global_position)
 		var b: Vector3 = to_local(r[2].global_position)
-		var d := b - a
-		var len := d.length()
-		if len < 0.01:
-			continue
-		var y := d / len
-		var x := y.cross(Vector3.FORWARD).normalized()
-		if x.length() < 0.5:
-			x = Vector3.RIGHT
-		var z := x.cross(y)
-		r[0].transform = Transform3D(Basis(x, y * len, z), (a + b) / 2.0)
+		var side := signf(a.x) if absf(a.x) > 0.001 else signf(b.x)
+		# 制御点：銜から 3 割のところで首の幅の 8 割、7 割のところで首の幅の外へ。少し持ち上げて垂れを抑える
+		var c1 := a.lerp(b, 0.3) + Vector3(side * neck_half * 0.8, 0.04, 0)
+		var c2 := a.lerp(b, 0.7) + Vector3(side * (neck_half + 0.04), 0.06, 0)
+		var prev := a
+		for k in REIN_SEG:
+			var q := _bez(a, c1, c2, b, float(k + 1) / REIN_SEG)
+			var d := q - prev
+			var len := d.length()
+			var seg: MeshInstance3D = r[0][k]
+			if len < 0.001:
+				seg.visible = false
+				prev = q
+				continue
+			seg.visible = true
+			var y := d / len
+			var x := y.cross(Vector3.FORWARD)
+			if x.length() < 0.1:
+				x = y.cross(Vector3.UP)
+			x = x.normalized()
+			seg.transform = Transform3D(Basis(x, y * len, x.cross(y)), (prev + q) / 2.0)
+			prev = q
 
 
 # ------------------------------------------------------------------ 蹴り上げ

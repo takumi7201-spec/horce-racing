@@ -20,7 +20,10 @@ const OrbitCamera := preload("res://scripts/orbit_camera.gd")
 const HorseModel := preload("res://scripts/horse_model.gd")
 const RACES_PATH := "res://data/races.json"
 const STRIDE := 7.0      # 襲歩の 1 完歩（m）
-const RUN_OUT := 8.0     # ゴールの後、止まるまでの秒数（ログはゴールで止まるので、絵だけ流して減速させる）
+const RUN_OUT := 14.0    # 最後の馬がゴールしてから再生を続ける秒数（ゴールの後の流し）
+const CANTER := 7.5      # ゴールの後に落ち着く駈歩の速さ（m/s）。止めずに走り抜けさせる
+const EASE := 4.5        # 駈歩へ落ちるまでの時定数（秒）
+const RAIL_GAP := 1.0    # 横位置の 0 は内ラチの位置。馬の体と騎手の脚が柵に被らないよう、絵では 1m 外へ出す
 
 # 色。走路と内馬場は同系の緑にしない（three.js 版で、どこが走路か分からなくなった）
 const C_TURF_A := Color(0.14, 0.40, 0.13)
@@ -740,7 +743,7 @@ func set_camera(mode: String) -> void:
 			camera.set_view(eye, center)
 		"ride":
 			ride_p = lap - float(track.homeStraight) - 200.0
-		"tv", "follow", "side":
+		"tv", "follow", "side", "front":
 			if race.is_empty():
 				set_camera("stand")
 				return
@@ -815,14 +818,22 @@ func _sample(arr: PackedFloat32Array, t: float) -> float:
 	return lerpf(arr[i], arr[j], clampf(f - i, 0.0, 1.0))
 
 
-## 時刻 t の走った距離と速さ。ゴールの後は RUN_OUT 秒かけて止まる（ログは止まったまま）
+## 時刻 t の走った距離と速さ。ログはゴールで止まるので、ゴールの後は絵だけ流す：
+## ゴールした速さから駈歩（CANTER）へ指数で落ち着き、止まらずに決勝線を走り抜けていく（余韻）。
+## v(d) = CANTER + (v0 − CANTER)·e^(−d/EASE) を積分した距離。
 func _s_at(r: Dictionary, t: float) -> Vector2:
 	if t <= r.t_fin:
 		var s := _sample(r.pos, t)
 		return Vector2(s, (_sample(r.pos, t + 0.2) - s) / 0.2)
-	var d := minf(t - float(r.t_fin), RUN_OUT)
+	var d := t - float(r.t_fin)
 	var v0: float = r.v_fin
-	return Vector2(float(race.distance) + v0 * (d - d * d / (2.0 * RUN_OUT)), v0 * (1.0 - d / RUN_OUT))
+	var e := exp(-d / EASE)
+	return Vector2(float(race.distance) + CANTER * d + (v0 - CANTER) * EASE * (1.0 - e), CANTER + (v0 - CANTER) * e)
+
+
+## 内ラチからの横位置（絵の位置）。ログの値に RAIL_GAP を足す（横の並びと間隔はそのまま）
+func _off(arr: PackedFloat32Array, t: float) -> float:
+	return _sample(arr, t) + RAIL_GAP
 
 
 func _update_race(delta: float, snap: bool) -> void:
@@ -831,12 +842,12 @@ func _update_race(delta: float, snap: bool) -> void:
 	var start: float = race.start
 	for r in runners:
 		var sv := _s_at(r, race_t)
-		var off := _sample(r.off, race_t)
+		var off := _off(r.off, race_t)
 		var p := start + sv.x
 		var node: Node3D = r.node
 		node.position = at_p(p, off)
 		# 向きは少し先の位置へ。横へ寄る動きも向きに出る（真横へ滑って見えないように）
-		var ahead := at_p(p + maxf(2.0, sv.y * 0.3), _sample(r.off, race_t + 0.3))
+		var ahead := at_p(p + maxf(2.0, sv.y * 0.3), _off(r.off, race_t + 0.3))
 		var d := ahead - node.position
 		var yaw := atan2(d.x, d.z)   # 馬のモデルは +Z が前（three.js 版と同じ）
 		r.yaw = yaw if snap else lerp_angle(float(r.yaw), yaw, clampf(delta * 8.0, 0.0, 1.0))
@@ -865,7 +876,7 @@ func _ranked() -> Array:
 
 
 func _update_race_camera(delta: float, snap: bool) -> void:
-	if cam_mode != "tv" and cam_mode != "follow" and cam_mode != "side":
+	if not cam_mode in ["tv", "follow", "side", "front"]:
 		return
 	var list := _ranked()
 	var lead: Dictionary = list[0]
@@ -879,14 +890,19 @@ func _update_race_camera(delta: float, snap: bool) -> void:
 		var mid := (float(lead.s) + float(list[k].s)) / 2.0
 		look = at_p(start + mid - 4.0, w * 0.3, 1.0)
 		eye = at_p(start + mid - 20.0, w + 22.0, 9.0)   # 望遠（画角 30°）で寄る。遠いと馬が点になった
+	elif cam_mode == "front":
+		# 正面：先頭の馬の少し前の斜めから、向かってくる顔を撮る（手綱と首まわりが見える）
+		var off := _off(lead.off, race_t)
+		look = at_p(start + float(lead.s) + 0.5, off, 1.6)
+		eye = at_p(start + float(lead.s) + 7.0, off + 2.5, 2.3)
 	elif cam_mode == "side":
 		# 並走：先頭の馬の外を同じ速さで並んで走り、馬を真横から見る（馬と騎手の作りが見える距離）
-		var off := _sample(lead.off, race_t)
+		var off := _off(lead.off, race_t)
 		look = at_p(start + float(lead.s) + 0.3, off, 1.3)
 		eye = at_p(start + float(lead.s) + 1.5, off + 7.5, 2.1)
 	else:
 		# 追走：先頭の馬の斜め後ろ
-		var off := _sample(lead.off, race_t)
+		var off := _off(lead.off, race_t)
 		look = at_p(start + float(lead.s) + 10.0, off, 1.6)
 		eye = at_p(start + float(lead.s) - 14.0, off + 4.0, 4.5)
 	if snap or cam_eye == Vector3.ZERO:
@@ -1007,7 +1023,7 @@ func _build_ui() -> void:
 	var cams := HBoxContainer.new()
 	cams.name = "Cams"
 	var group := ButtonGroup.new()
-	for c in [["tv", "中継"], ["follow", "追走"], ["side", "並走"], ["stand", "スタンド"], ["aerial", "上空"], ["ride", "走路を回る"], ["free", "自由"]]:
+	for c in [["tv", "中継"], ["follow", "追走"], ["side", "並走"], ["front", "正面"], ["stand", "スタンド"], ["aerial", "上空"], ["ride", "走路を回る"], ["free", "自由"]]:
 		var bt := Button.new()
 		bt.name = c[0]
 		bt.text = c[1]
