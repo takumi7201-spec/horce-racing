@@ -140,7 +140,20 @@ export function createRaceView(canvas, race, opts = {}) {
 
   scene.add(buildTrackMesh(track, { rng: seededRandom(race.distance + track.lap), winter }));
   // 発馬機（ゲート）を発走位置に置く。前の扉は開いた形（馬は走り抜ける）
-  scene.add(buildGate(track, track.start, log.n, { gateW: GATE_W, railGap: RAIL_GAP }));
+  const gate = buildGate(track, track.start, log.n, { gateW: GATE_W, railGap: RAIL_GAP });
+  scene.add(gate);
+  // 発馬機は発走のあと外ラチの外へ引き出して片付ける（置いたままだと、1 周するレースで馬群が発馬機を素通りし、
+  // 中継のどのカットにも映り込んだ）。4 秒から 6 秒かけて外へ引き、外ラチを越えたら消す。走行ログには触らない
+  const gateOut = (() => {
+    const a = posToWorld(track, track.start, 0), b = posToWorld(track, track.start, 1);
+    return { x: b.x - a.x, z: b.z - a.z };
+  })();
+  function updateGate() {
+    const k = smooth01((time - 4) / 6);
+    const d = k * (track.width + 8);
+    gate.position.set(gateOut.x * d, 0, gateOut.z * d);
+    gate.visible = time < 10;
+  }
 
   // --- 馬 ---
   const horses = [];
@@ -239,7 +252,11 @@ export function createRaceView(canvas, race, opts = {}) {
       const { point, heading, curvature } = trackPoint(track, p, x.off, tmp);
       h.group.position.copy(point);
       // 馬はローカル +Z が前方。-heading にすると 90 度ずれて真横を向く。
+      // 坂では体を前後に傾ける（上りは鼻先を上げる）。向き → 傾きの順に当てる（YXZ）
+      const slope = (elevationAt(track, p + 1.2) - elevationAt(track, p - 1.2)) / 2.4;
+      h.group.rotation.order = 'YXZ';
       h.group.rotation.y = yawForZForward(heading);
+      h.group.rotation.x = -Math.atan(slope);
       // コーナーでは内に傾ける。曲率と速度から遠心力ぶん。
       const bank = curvature * x.v * x.v * 0.0045 * (track.dir > 0 ? 1 : -1);
       h.update(s, x.v, bank);
@@ -509,6 +526,7 @@ export function createRaceView(canvas, race, opts = {}) {
   function draw() {
     const st = sampleState();
     placeHorses(st);
+    updateGate();
     updateCamera(st);
     updateMarkers(st);
     updateWind(st);

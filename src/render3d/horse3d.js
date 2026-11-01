@@ -19,6 +19,7 @@
 
 import * as THREE from '../../vendor/three/three.module.min.js';
 import { makeJockey } from './jockey3d.js';
+import { lerp } from '../core/util.js';
 import {
   headGeometry, eyeGeometries, earGeometry, earBase, forelockGeometry, faceTexture,
   halterGeometries, bridleGeometries, hash01,
@@ -531,6 +532,7 @@ function makeReins(mat) {
   mesh.frustumCulled = false;
   const HANDS = [[-0.09, 0.2, 0.74], [0.09, 0.2, 0.74]];   // 騎手の組（左・右）
   const rotX = (y, z, a) => [y * Math.cos(a) - z * Math.sin(a), y * Math.sin(a) + z * Math.cos(a)];
+  let neckHalf = null;   // 首の形の幅の半分（初回に首の組の形から測る）
   function update(headPivot, neckPivot, rider, bridle) {
     const bits = [bridle.bitL, bridle.bitR];
     for (let r = 0; r < 2; r++) {
@@ -546,12 +548,28 @@ function makeReins(mat) {
       const h = hv ? [hv.x, hv.y, hv.z] : HANDS[r];
       let [hy, hz] = rotX(h[1], h[2], rider.rotation.x);
       hy += rider.position.y; hz += rider.position.z;
-      const len = Math.hypot(h[0] - b.x, hy - by, hz - bz);
-      const sag = 0.02 * len;
+      // 銜から手へまっすぐ張ると首の中を通る（首は頭より太い）。Godot 版（horse_model.gd の _update_reins）と同じく、
+      // 首の脇を回る 3 次ベジエにする：銜から 3 割で首の幅の 8 割、7 割で首の幅の外へ。少し持ち上げて垂れを抑える
+      if (neckHalf == null) {
+        neckHalf = 0.08;
+        for (const c of neckPivot.children) {
+          if (!c.isMesh) continue;
+          c.geometry.computeBoundingBox();
+          neckHalf = Math.max(neckHalf, (c.geometry.boundingBox.max.x - c.geometry.boundingBox.min.x) / 2);
+          break;
+        }
+      }
+      const side = Math.abs(b.x) > 0.001 ? Math.sign(b.x) : Math.sign(h[0]) || 1;
+      const P0 = [b.x, by, bz], P3 = [h[0], hy, hz];
+      const P1 = [lerp(b.x, h[0], 0.3) + side * neckHalf * 0.8, lerp(by, hy, 0.3) + 0.04, lerp(bz, hz, 0.3)];
+      const P2 = [lerp(b.x, h[0], 0.7) + side * (neckHalf + 0.04), lerp(by, hy, 0.7) + 0.06, lerp(bz, hz, 0.7)];
       const o = r * (N + 1) * 2 * 3;
       for (let k = 0; k <= N; k++) {
-        const t = k / N;
-        const x = b.x + (h[0] - b.x) * t, y = by + (hy - by) * t - sag * 4 * t * (1 - t), z = bz + (hz - bz) * t;
+        const t = k / N, u = 1 - t;
+        const c0 = u * u * u, c1 = 3 * u * u * t, c2 = 3 * u * t * t, c3 = t * t * t;
+        const x = P0[0] * c0 + P1[0] * c1 + P2[0] * c2 + P3[0] * c3;
+        const y = P0[1] * c0 + P1[1] * c1 + P2[1] * c2 + P3[1] * c3;
+        const z = P0[2] * c0 + P1[2] * c1 + P2[2] * c2 + P3[2] * c3;
         const w = 0.009;
         pos.set([x - w, y, z, x + w, y, z], o + k * 6);
       }

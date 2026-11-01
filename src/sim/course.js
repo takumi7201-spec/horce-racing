@@ -433,6 +433,16 @@ export function elevationAt(track, p) {
       h -= (gradeAt(track, (i - 0.5) * ELEV_STEP, 0) / 1000) * ELEV_STEP;
       tbl[i] = h;
     }
+    // 輪を閉じる。坂の表（slopes）は直線の坂しか持たず、1 周の上り下りの合計が 0 にならない（中山 1.8m・中京 2.8m）。
+    // そのままだと決勝線の前後で標高が段になり、周回の途中で決勝線を通るレース（中山 2500m）とゴールの後の流しで、
+    // 馬が段を跳び上がって（落ちて）見えた。残り距離に比例して少しずつ戻して、1 周で 0 に戻す（勾配の差は 0.1〜0.2%）。
+    // 見た目の標高だけの話で、レースの計算（gradeAt）には触らない。
+    if (!track.straightCourse) {
+      const fl = track.lap / ELEV_STEP;
+      const k = Math.min(n - 2, Math.floor(fl));
+      const end = lerp(tbl[k], tbl[k + 1], fl - k);
+      for (let i = 1; i < n; i++) tbl[i] -= end * Math.min(1, (i * ELEV_STEP) / track.lap);
+    }
     track._elev = tbl;
   }
   const L = track.lap;

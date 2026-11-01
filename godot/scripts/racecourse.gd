@@ -525,6 +525,17 @@ func _build_rail(off: float, height: float) -> void:
 
 
 ## 決勝線とゴール板。ゴール板は内ラチの内に立つ円い標識（赤い縁に白）。スタンドの側へ向ける。
+## 発馬機は発走のあと外ラチの外へ引き出して片付ける（置いたままだと、1 周するレースで馬群が素通りし、
+## 中継のどのカットにも映り込んだ）。4 秒から 6 秒かけて外へ引き、外ラチを越えたら消す
+func _update_gate() -> void:
+	var g: Node3D = course_root.get_node_or_null("Gate")
+	if g == null:
+		return
+	var k := smoothstep(0.0, 1.0, (race_t - 4.0) / 6.0)
+	g.position = outward(index_of(float(race.start))) * k * (float(track.width) + 8.0)
+	g.visible = race_t < 10.0
+
+
 ## 発馬機（ゲート）：発走位置に、頭数ぶんの枠を走路を横切って並べる。前の扉は開いた形（馬は走り抜ける）。
 ## 枠の幅は GATE_W。馬の横の位置は発走の直後だけこの幅に広げる（_off）。色は白と深緑、外側に係員の台。
 func _build_gate(count: int) -> void:
@@ -1050,7 +1061,9 @@ func _update_race(delta: float, snap: bool) -> void:
 		var d := ahead - node.position
 		var yaw := atan2(d.x, d.z)   # 馬のモデルは +Z が前（three.js 版と同じ）
 		r.yaw = yaw if snap else lerp_angle(float(r.yaw), yaw, clampf(delta * 8.0, 0.0, 1.0))
-		node.rotation = Vector3(0, float(r.yaw), 0)
+		# 坂では体を前後に傾ける（上りは鼻先を上げる）。Godot のオイラー角は YXZ（向き → 傾き）
+		var slope := (at_p(p + 1.2, off).y - at_p(p - 1.2, off).y) / 2.4
+		node.rotation = Vector3(-atan(slope), float(r.yaw), 0)
 		# コーナーでは内へ少し倒す（遠心の釣り合い v²κ/g の 3 割、最大 0.12rad）。左回りは左（-Z 回り）へ
 		var lean := clampf(sv.y * sv.y * curvature_at(p) / 9.8 * 0.3, 0.0, 0.12)
 		var bank := -lean if track.dir == "left" else lean
@@ -1061,6 +1074,7 @@ func _update_race(delta: float, snap: bool) -> void:
 		# 目印は画面の上で同じ大きさにしたいが、fixed_size の Label3D は画角が狭いほど大きく写る（望遠の正面で画面を覆った）。画角で割り戻す
 		if r.has("mark"):
 			r.mark.pixel_size = 0.0006 * tan(deg_to_rad(camera.fov) / 2.0) / tan(deg_to_rad(25.0))
+	_update_gate()
 	_update_race_camera(delta, snap)
 	_update_board()
 	_update_cues()
