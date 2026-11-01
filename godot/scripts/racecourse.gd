@@ -16,14 +16,14 @@ const TRACKS_PATH := "res://data/tracks.json"
 const OrbitCamera := preload("res://scripts/orbit_camera.gd")
 
 # 色。走路と内馬場は同系の緑にしない（three.js 版で、どこが走路か分からなくなった）
-const C_TURF_A := Color(0.21, 0.51, 0.23)
-const C_TURF_B := Color(0.29, 0.60, 0.31)
-const C_TURF_WORN := Color(0.36, 0.50, 0.24)   # 内ラチ沿いの荒れ（開催が進むと内が傷む）
-const C_DIRT_A := Color(0.50, 0.38, 0.25)
-const C_DIRT_B := Color(0.57, 0.44, 0.30)
+const C_TURF_A := Color(0.14, 0.40, 0.13)
+const C_TURF_B := Color(0.19, 0.48, 0.17)
+const C_TURF_WORN := Color(0.30, 0.40, 0.17)   # 内ラチ沿いの荒れ（開催が進むと内が傷む）
+const C_DIRT_A := Color(0.40, 0.28, 0.17)
+const C_DIRT_B := Color(0.46, 0.33, 0.21)
 const C_INFIELD := Color(0.13, 0.30, 0.11)
 const C_OUTFIELD := Color(0.15, 0.33, 0.12)
-const C_APRON := Color(0.62, 0.62, 0.60)
+const C_APRON := Color(0.50, 0.48, 0.45)
 const C_RAIL := Color(0.96, 0.96, 0.96)
 const C_STAND := Color(0.80, 0.81, 0.83)
 const C_ROOF := Color(0.30, 0.34, 0.40)
@@ -157,7 +157,7 @@ func _build_environment() -> void:
 	env.background_mode = Environment.BG_SKY
 	env.sky = sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	env.ambient_light_energy = 0.9
+	env.ambient_light_energy = 0.6
 	env.tonemap_mode = Environment.TONE_MAPPER_ACES
 	env.tonemap_exposure = 1.05
 	env.ssao_enabled = true   # Forward+ だけで効く（互換レンダラでは無視される）
@@ -586,6 +586,7 @@ func _build_stand() -> void:
 	lab.font_size = 160
 	lab.pixel_size = 0.05
 	lab.outline_size = 0
+	lab.double_sided = false   # 屋根の後ろから鏡文字で透けて見えた
 	lab.modulate = Color(0.95, 0.95, 0.95)
 	var lp := mid + o * (d0 - 4.2)
 	lp.y = base_y + 26.2
@@ -685,7 +686,7 @@ func set_camera(mode: String) -> void:
 		"stand":
 			# スタンドの前の縁の高さ（上の段の客の目）。建物の中に入らないよう前庭の上に置く
 			var i := index_of(-30.0)
-			var eye := at(i, w + 24.0, 22.0)
+			var eye := at(i, w + 14.0, 19.0)   # 屋根の前の縁より手前（奥に置くと屋根の裏が画面の上を覆う）
 			var look := at(index_of(lap - float(track.homeStraight) * 0.55), w * 0.5, 0.0)
 			camera.set_view(eye, look)
 		"aerial":

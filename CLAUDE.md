@@ -44,6 +44,15 @@ curl -sSL -o /tmp/godot.zip "https://downloads.godotengine.org/?version=4.7.2&fl
 /tmp/godot/Godot_v4.7.2-stable_linux.x86_64 --headless --path godot --script x.gd      # SceneTree を継いだスクリプトを走らせる
 ```
 
+Godot の競馬場（`godot/scenes/racecourse.tscn`・`godot/scripts/racecourse.gd`）は、走路の形を `godot/data/tracks.json` から読む。
+これは `npm run godot-tracks`（`tools/export-godot-tracks.mjs`）が course.js から書き出したもので、**course.js を変えたら書き出し直す**
+（Godot の側でオーバルを作り直すと、レースの走路と画面の走路が二つに割れる）。絵を確かめるときは Xvfb と互換レンダラで撮る
+（持ち主の Forward+ とは影・SSAO の出方が違う）：
+`xvfb-run -a -s "-screen 0 1600x900x24" /tmp/godot/Godot_v4.7.2-stable_linux.x86_64 --path godot --rendering-method gl_compatibility --rendering-driver opengl3 --resolution 1600x900 -- --course=tokyo --surface=turf --cam=stand --shot=/tmp/x.png`
+- 上を向く面は三角形ごとに巻きをそろえる（`_face_up`）。Godot の表は時計回りで、両面描きでも裏から見た面は法線が返って黒く写った。巻きは右回り・左回りで逆になる。
+- 頂点色・インスタンスの色は `vertex_color_is_srgb`。線形のまま渡すと芝が薄緑に抜けた。
+- 芝とダートは同時には描かない（course.js の芝とダートのオーバルは入れ子にならない大きさで、重ねると交差する）。米国のダートだけ内に芝の帯を描く。
+
 Playwright で操作するときは、週送りは左下の NEXT（`.nextb`、長押しで `.skipmenu`）、画面の切り替えは左のメニュー（`.sideb`）。
 
 **3D をいじったら必ずスクリーンショットを撮って目で見る。** 統計やテストが通っていても
