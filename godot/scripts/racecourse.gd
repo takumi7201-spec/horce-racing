@@ -18,6 +18,7 @@ extends Node3D
 const TRACKS_PATH := "res://data/tracks.json"
 const OrbitCamera := preload("res://scripts/orbit_camera.gd")
 const HorseModel := preload("res://scripts/horse_model.gd")
+const UIK := preload("res://scripts/ik/ui.gd")   # 育成モードと同じ字体と配色（画面の札・順位表）
 const RACES_PATH := "res://data/races.json"
 const STRIDE := 7.0      # 襲歩の 1 完歩（m）
 const RUN_OUT := 14.0    # 最後の馬がゴールしてから再生を続ける秒数（ゴールの後の流し）
@@ -804,6 +805,7 @@ func load_race_data(r: Dictionary, skins: Array, mine: Array = [], cue: Array = 
 		node.build_with(skins[k].meta, skins[k].tex, String(r.surface)))
 	for rr in runners:
 		if mine.has(rr.id):
+			rr.mine = true
 			_add_mark(rr.node, rr.name)
 	cues = cue.duplicate(true)
 	for c in cues:
@@ -834,7 +836,7 @@ func _start_race(r: Dictionary, build: Callable) -> void:
 				k_fin = k
 				break
 		var v_fin := (pos[k_fin] - pos[maxi(0, k_fin - 5)]) / (dt * mini(5, maxi(1, k_fin)))
-		runners.append({ node = node, id = h.get("id", 0), pos = pos, off = off, name = String(h.name), gate = int(h.gate), order = int(h.order),
+		runners.append({ node = node, id = h.get("id", 0), frame = int(h.get("frame", 1)), mine = false, pos = pos, off = off, name = String(h.name), gate = int(h.gate), order = int(h.order),
 			time = float(h.time), t_fin = k_fin * dt, v_fin = v_fin, ph = randf(), yaw = 0.0, s = 0.0, v = 0.0 })
 	_sync_ui()
 	set_camera("tv")
@@ -845,7 +847,7 @@ func _start_race(r: Dictionary, build: Callable) -> void:
 func _add_mark(node: Node3D, nm: String) -> void:
 	var lb := Label3D.new()
 	lb.text = "▼ " + nm
-	lb.font = font
+	lb.font = UIK.font("black")
 	lb.font_size = 30
 	lb.outline_size = 8
 	lb.modulate = Color("#f3a332")
@@ -942,10 +944,13 @@ func _show_cue(c: Dictionary) -> void:
 	sb.content_margin_right = 14
 	sb.content_margin_top = 6
 	sb.content_margin_bottom = 6
-	sb.border_color = Color.WHITE
-	sb.set_border_width_all(3 if c.mine else 0)
+	sb.border_color = UIK.INK if (c.mine or c.get("unique", false)) else Color(1, 1, 1, 0.7)
+	sb.set_border_width_all(3 if c.mine else 2)
+	sb.shadow_color = Color(0, 0, 0, 0.35)
+	sb.shadow_offset = Vector2(0, 4)
+	sb.shadow_size = 1
 	pc.add_theme_stylebox_override("panel", sb)
-	var lb := Label.new()
+	var lb := UIK.label("", 16, Color.WHITE, "title")
 	lb.text = ("%d %s　「%s」" % [int(c.gate), c.name, c.text]) if not c.get("unique", false) else ("★ %s「%s」" % [c.name, c.text])
 	lb.add_theme_font_size_override("font_size", 26 if c.get("unique", false) else (22 if c.mine else 16))
 	lb.add_theme_color_override("font_color", Color("#113035") if (c.mine or c.get("unique", false)) else Color.WHITE)
@@ -1018,23 +1023,45 @@ func _update_race_camera(delta: float, snap: bool) -> void:
 	camera.set_view(cam_eye, cam_look)
 
 
+## 枠の色（JRA）：1 白・2 黒・3 赤・4 青・5 黄・6 緑・7 橙・8 桃
+const FRAME_BG := [Color("#ffffff"), Color("#222222"), Color("#e23b3b"), Color("#2f62c9"), Color("#f5d230"), Color("#2f9a4a"), Color("#f39a2a"), Color("#f39ac0")]
+const FRAME_FG := [Color("#111111"), Color("#ffffff"), Color("#ffffff"), Color("#ffffff"), Color("#111111"), Color("#ffffff"), Color("#111111"), Color("#111111")]
+
+
 func _update_board() -> void:
-	var board: Label = ui.get_node("Board")
+	var board: Control = ui.get_node("Board")
 	var list := _ranked()
 	var lead_s := float(list[0].s)
-	var lines := PackedStringArray()
 	var t := minf(race_t, float(race.winnerTime))
-	lines.append("%s　%d:%04.1f%s" % [race.name, int(t / 60.0), fmod(t, 60.0), "　確定" if race_t >= float(race.winnerTime) + 3.0 else ""])
+	(board.get_node("V/Title") as Label).text = String(race.name)
 	var rem := maxf(0.0, float(race.distance) - lead_s)
-	if rem > 0.0:
-		lines.append("残り %dm" % int(ceil(rem)))
-	for k in mini(8, list.size()):
+	(board.get_node("V/Sub") as Label).text = "%d:%04.1f　%s" % [int(t / 60.0), fmod(t, 60.0),
+		("残り %dm" % int(ceil(rem))) if rem > 0.0 else ("確定" if race_t >= float(race.winnerTime) + 3.0 else "ゴール")]
+	for k in 8:
+		var row: Control = board.get_node("V/R%d" % k)
+		row.visible = k < list.size()
+		if not row.visible:
+			continue
 		var r: Dictionary = list[k]
-		var gap := "" if k == 0 else ("　%.1f馬身" % ((lead_s - float(r.s)) / 2.4))
+		var gap := "" if k == 0 else ("%.1f馬身" % ((lead_s - float(r.s)) / 2.4))
 		if race_t >= float(r.t_fin):
-			gap = "　%d:%04.1f" % [int(float(r.time) / 60.0), fmod(float(r.time), 60.0)]
-		lines.append("%d　%2d %s%s" % [k + 1, int(r.gate), r.name, gap])
-	board.text = "\n".join(lines)
+			gap = "%d:%04.1f" % [int(float(r.time) / 60.0), fmod(float(r.time), 60.0)]
+		var fi := clampi(int(r.get("frame", 1)) - 1, 0, 7)
+		var gp: PanelContainer = row.get_node("Gate")
+		if gp.get_meta("fi", -1) != fi:
+			var sb := StyleBoxFlat.new()
+			sb.bg_color = FRAME_BG[fi]
+			sb.set_corner_radius_all(5)
+			sb.border_color = Color(1, 1, 1, 0.6)
+			sb.set_border_width_all(1)
+			gp.add_theme_stylebox_override("panel", sb)
+			(gp.get_node("L") as Label).add_theme_color_override("font_color", FRAME_FG[fi])
+			gp.set_meta("fi", fi)
+		(gp.get_node("L") as Label).text = str(int(r.gate))
+		var nm: Label = row.get_node("Name")
+		nm.text = String(r.name)
+		nm.add_theme_color_override("font_color", Color("#ffd36a") if r.get("mine", false) else Color.WHITE)
+		(row.get_node("Gap") as Label).text = gap
 
 
 # ------------------------------------------------------------------ 画面（コースの切り替え）
@@ -1045,9 +1072,31 @@ func _build_ui() -> void:
 	ui = Control.new()
 	ui.set_anchors_preset(Control.PRESET_FULL_RECT)
 	ui.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	# 画面の札は育成モードと同じ見た目にする（素の灰色のボタンでは「しょぼい」と言われた）：生成りの札に紺の縁、選んでいるものは若草
 	var theme := Theme.new()
-	theme.default_font = font
-	theme.default_font_size = 16
+	theme.default_font = UIK.font("black")
+	theme.default_font_size = 14
+	for cls in ["Button", "OptionButton"]:
+		for st in ["normal", "hover", "pressed", "hover_pressed", "focus", "disabled"]:
+			var sb := StyleBoxFlat.new()
+			sb.bg_color = {normal = UIK.PAPER, hover = Color("#ffffff"), pressed = UIK.LEAF2, hover_pressed = UIK.LEAF2, disabled = Color("#d9d3c4")}.get(st, UIK.PAPER)
+			sb.set_corner_radius_all(10)
+			sb.border_color = UIK.INK
+			sb.set_border_width_all(2)
+			sb.shadow_color = Color(0, 0, 0, 0.3)
+			sb.shadow_offset = Vector2(0, 3)
+			sb.shadow_size = 1
+			sb.content_margin_left = 10
+			sb.content_margin_right = 10
+			sb.content_margin_top = 4
+			sb.content_margin_bottom = 5
+			if st == "focus":
+				sb.draw_center = false
+				sb.shadow_size = 0
+				sb.border_color = UIK.SUN
+			theme.set_stylebox(st, cls, sb)
+		for c in ["font_color", "font_hover_color", "font_pressed_color", "font_hover_pressed_color", "font_focus_color"]:
+			theme.set_color(c, cls, UIK.INK)
 	ui.theme = theme
 	layer.add_child(ui)
 
@@ -1144,14 +1193,56 @@ func _build_ui() -> void:
 	info.add_theme_constant_override("outline_size", 4)
 	ui.add_child(info)
 
-	# 着順の板（左下）。レースのときだけ出す
-	var board := Label.new()
+	# 着順の板（左上）。レースのときだけ出す。題・時計と残り・上位 8 頭（順位・枠の色の馬番・馬名・差）
+	# 行は最初に作って中身だけ書き換える（毎コマ作り直すと重く、押したときに行が入れ替わる。落とし穴 50）
+	var board := PanelContainer.new()
 	board.name = "Board"
-	board.position = Vector2(14, 90)
-	board.add_theme_font_size_override("font_size", 18)
-	board.add_theme_color_override("font_color", Color.WHITE)
-	board.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
-	board.add_theme_constant_override("outline_size", 6)
+	board.position = Vector2(14, 58 if embedded else 84)   # 競馬場単体ではコースの説明の行の下
+	board.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var bsb := StyleBoxFlat.new()
+	bsb.bg_color = Color(0.067, 0.188, 0.208, 0.84)
+	bsb.set_corner_radius_all(12)
+	bsb.border_color = Color(1, 1, 1, 0.85)
+	bsb.set_border_width_all(2)
+	bsb.content_margin_left = 12
+	bsb.content_margin_right = 14
+	bsb.content_margin_top = 8
+	bsb.content_margin_bottom = 10
+	board.add_theme_stylebox_override("panel", bsb)
+	var bv := VBoxContainer.new()
+	bv.name = "V"
+	bv.add_theme_constant_override("separation", 3)
+	var title := UIK.label("", 18, Color("#fff4dc"), "title")
+	title.name = "Title"
+	bv.add_child(title)
+	var sub := UIK.label("", 13, UIK.LEAF2, "black")
+	sub.name = "Sub"
+	bv.add_child(sub)
+	for k in 8:
+		var row := HBoxContainer.new()
+		row.name = "R%d" % k
+		row.add_theme_constant_override("separation", 7)
+		var rk := UIK.label(str(k + 1), 16, Color("#ffd36a") if k < 3 else Color.WHITE, "title")
+		rk.custom_minimum_size.x = 18
+		rk.name = "Rank"
+		row.add_child(rk)
+		var gp := PanelContainer.new()
+		gp.name = "Gate"
+		gp.custom_minimum_size = Vector2(24, 20)
+		var gl := UIK.label("", 12, UIK.INK, "black")
+		gl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		gl.name = "L"
+		gp.add_child(gl)
+		row.add_child(gp)
+		var nm := UIK.label("", 14, Color.WHITE, "black")
+		nm.name = "Name"
+		nm.custom_minimum_size.x = 150
+		row.add_child(nm)
+		var gap := UIK.label("", 12, Color("#cfe0d6"), "body")
+		gap.name = "Gap"
+		row.add_child(gap)
+		bv.add_child(row)
+	board.add_child(bv)
 	ui.add_child(board)
 
 	# スキルの演出の札（右上から下へ積む）
@@ -1206,7 +1297,7 @@ func _sync_ui() -> void:
 		ui.get_node("Bar/" + nm).visible = not race.is_empty()
 	var play: Button = ui.get_node("Bar/Play")
 	play.text = "一時停止" if playing else "再生"
-	var board: Label = ui.get_node("Board")
+	var board: Control = ui.get_node("Board")
 	board.visible = not race.is_empty()
 	var info: Label = ui.get_node("Info")
 	if embedded:

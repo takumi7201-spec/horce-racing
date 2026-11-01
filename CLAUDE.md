@@ -80,7 +80,21 @@ Godot の競馬場（`godot/scenes/racecourse.tscn`・`godot/scripts/racecourse.
     - log・cos・pow は V8（fdlibm）と C の数学関数で最後の桁が 1 割ほど違うが、着順と時計には出なかった。
   - レース 1 戦の計算は GDScript で約 0.2 秒（16 頭 × 2500 コマ）。馬ごとの状態は並べた配列（PackedFloat64Array）で持つ（辞書だと遅い）。
   - 画面の入れ替えで本文を `position` で動かすと、大きさが決まる前の画面で錨が狂って本文が右へずれた。余白（offset_top・offset_bottom）で動かす。
-  - 空の上に紺の字を直に置くと読めない。見出しは `_head()`（白い字に紺の縁）。
+  - **見た目はゲームの育成モードに合わせる（素の Button と 1 色の箱では「しょぼい」と言われた）。** 部品は `ik/ui.gd`：
+    `Box`（角の丸い箱。グラデーション・紺の縁・白い縁の外の輪郭・下にずらした影・網点を `shaders/ui_box.gdshader` 1 枚で描く。
+    StyleBoxFlat は 1 色しか塗れない）、`section`（見出しの帯 --grad の付いた枠）、`button`・`chip`、斜体の極太の見出し（`font("title")`）、
+    アイコン（ゲームの `icons.js` と `ikusei.js` の SVG を `npm run godot-ikusei` が `assets/ui/icons` に書く）。画面はゲームの CSS の並び
+    （上の帯・傾いた下のボタン列と菱形のガチャ・縦長のホームの舞台・チケット・バナー）を写した。カードの背景だけの絵（`assets/cards/bg`、
+    `npm run godot-ikusei -- --bg`）をバナー・チケット・完成馬の見出しに敷く。競馬場の画面の札と順位表（枠の色の馬番）も同じ字体と配色。
+  - **字体は同梱（M PLUS 1p の Medium・Bold・Black、`assets/fonts`、OFL）。** SystemFont はクラウドの Linux に IPAGothic 1 本しか無く、
+    見出しが細い等幅になった（持ち主の Windows とも絵が変わる）。M PLUS に無い字（聳）は SystemFont を fallbacks に入れて出す。
+    斜体は FontVariation の `variation_transform`（y に 0.22 の x を混ぜて上ほど右へ）。
+  - **シェーダの箱で踏んだもの：** 位置は UV ではなく頂点の位置（`VERTEX` を varying で渡す）で測る（draw_rect の UV が 0..1 にならず、
+    大きな箱が縮んでぼやけた）。大きさは `_draw` のたびに渡す（木に入る前に size を決めた箱は RESIZED が来ず、既定の 100×40 で描かれた）。
+    角の丸みは短い辺の半分で頭打ち（丸い札に 999 を渡すと距離が壊れて消えた）。影の無い透明な箱は影の色も消す（絵の上の縁の下に
+    同じ形の影が出て、バナーの絵全体が暗く沈んだ）。**`clip_children` を使わない**（親の箱が黒く潰れた）。丸く切り抜く絵は
+    `UI.mask()`（`shaders/ui_mask.gdshader`）を絵の側に掛け、ほかは `clip_contents` の矩形で切る。
+  - 空の上に紺の字を直に置くと読めない。枠（section）の中に置くか、白い字に紺の縁（`UI.outlined`）。
   - 確かめ用の引数：`res://scenes/ikusei.tscn -- --demo=11 --screen=train --race=40 --cam=side --shot=/tmp/x.png`（`--pull=10`・`--card=P1-02`・`--event=秒`・`--result=1`）。
 
 Playwright で操作するときは、週送りは左下の NEXT（`.nextb`、長押しで `.skipmenu`）、画面の切り替えは左のメニュー（`.sideb`）。

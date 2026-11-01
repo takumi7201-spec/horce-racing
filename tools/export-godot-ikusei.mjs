@@ -23,6 +23,8 @@ import { PHYS, TICK, GROUNDS, GROUND_EFFECT, GROWTH_CURVE, COATS, PRIZE_SHARE } 
 import { raceSkillDefs, supportSkillDefs } from '../src/sim/ikusei-skills.js';
 
 const ART = process.argv.includes('--art');
+// --bg だけ：カードの背景（馬の居ない一枚絵。バナーとチケットに敷く）だけを撮る
+const BG_ONLY = process.argv.includes('--bg');
 const OUT = 'godot/data/ikusei';
 mkdirSync(OUT, { recursive: true });
 
@@ -65,7 +67,27 @@ const data = {
 writeFileSync(`${OUT}/data.json`, JSON.stringify(data));
 console.log(`${OUT}/data.json：カード ${cards.length} 枚、番組 ${graded.length}、条件戦の場 ${combos.length}、コース ${Object.keys(courses).length}`);
 
-if (!ART) process.exit(0);
+// ---------------------------------------------------------------- アイコン（ゲームと同じ 24×24 の線の絵。Godot は白で読み、色は modulate で付ける）
+// src/ui/icons.js の P と src/ui/screens/ikusei.js の SVG から、定義の行をそのまま拾う（画面の部品なので Node から読まずに文字で取る）
+{
+  const { readFileSync } = await import('node:fs');
+  const pick = (file, from) => {
+    const t = readFileSync(file, 'utf8');
+    const body = t.slice(t.indexOf(from));
+    const out = {};
+    for (const m of body.slice(0, body.indexOf('};')).matchAll(/^\s*(\w+):\s*'(.*)',\s*$/gm)) out[m[1]] = m[2];
+    return out;
+  };
+  const icons = { ...pick('src/ui/icons.js', 'const P = {'), ...pick('src/ui/screens/ikusei.js', 'const SVG = {') };
+  mkdirSync('godot/assets/ui/icons', { recursive: true });
+  for (const [k, v] of Object.entries(icons)) {
+    // 96px で書く（Godot は SVG を書かれた大きさで絵にする。24px のままだと大きく貼ったときにぼける）
+    writeFileSync(`godot/assets/ui/icons/${k}.svg`, `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="96" height="96" fill="none" stroke="#ffffff" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">${v.replaceAll('currentColor', '#ffffff')}</svg>\n`);
+  }
+  console.log(`godot/assets/ui/icons：${Object.keys(icons).length} 個`);
+}
+
+if (!ART && !BG_ONLY) process.exit(0);
 
 // ---------------------------------------------------------------- 絵（ブラウザで撮る）
 const { default: pw } = await import('/opt/node-tools/node_modules/playwright/index.js');
@@ -84,6 +106,24 @@ try {
   await page.waitForTimeout(500);
 
   const cdir = 'godot/assets/cards';
+  mkdirSync(`${cdir}/bg`, { recursive: true });
+  for (const c of IK.CARDS) {
+    // 背景（ぼかしを焼き込んだ絵）。横 420px の webp
+    const url = await page.evaluate(async (id) => {
+      const { cardArt } = await import('/src/render3d/cardart.js');
+      const { cardById } = await import('/src/sim/ikusei.js');
+      const a = await cardArt(cardById(id));
+      const im = await new Promise((res) => { const i = new Image(); i.onload = () => res(i); i.src = a.bg; });
+      const cv = document.createElement('canvas');
+      cv.width = 420; cv.height = Math.round((im.height / im.width) * 420);
+      cv.getContext('2d').drawImage(im, 0, 0, cv.width, cv.height);
+      return cv.toDataURL('image/webp', 0.8);
+    }, c.id);
+    writeFileSync(`${cdir}/bg/${c.id}.webp`, b64(url));
+    process.stdout.write(`\rbg ${c.id} `);
+  }
+  console.log(`\n${cdir}/bg：${IK.CARDS.length} 枚`);
+  if (BG_ONLY) { await browser.close(); server.kill(); process.exit(0); }
   mkdirSync(`${cdir}/face`, { recursive: true });
   mkdirSync(`${cdir}/sticker`, { recursive: true });
   for (const c of IK.CARDS) {
