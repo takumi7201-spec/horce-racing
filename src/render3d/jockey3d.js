@@ -139,6 +139,7 @@ export function silksColors(id) {
   return [a, b];
 }
 
+// 一本輪は胸に白い帯が 1 本（ダイワスカーレットの大城敬三の服）。馬 id から選ぶ柄には入れない（並びを変えると既存の騎手の服が変わる）。
 const PATTERNS = ['無地', '縦縞', '輪', 'たすき', '山形', '玉', '肩章'];
 
 const silksCache = new Map();
@@ -171,6 +172,7 @@ function silksTextures(id, custom = null) {
   } else if (pat === '玉') {
     for (let y = 18; y < 128; y += 34) for (let x = (y / 34) % 2 ? 16 : 0; x < 256; x += 32) { g.beginPath(); g.arc(x, y, 8, 0, Math.PI * 2); g.fill(); }
   } else if (pat === '肩章') g.fillRect(0, 0, 256, 30);
+  else if (pat === '一本輪') g.fillRect(0, 34, 256, 22);
   // 腰の下はズボン（白）。
   g.fillStyle = '#f2f0ea'; g.fillRect(0, 116, 256, 12);
   // 縫い目と布のしわ（ごく弱く）。
@@ -247,6 +249,7 @@ const L = { upper: 0.29, fore: 0.27, thigh: 0.42, shin: 0.41 };
  * race：モンキー乗り。腰を鞍から浮かせ、背中はほぼ水平、頭を上げて前を見る。鐙は短く膝が高い。
  *   手は手綱を持って首の上（手綱の付け根 makeReins の HANDS と同じ点）。
  * celebrate：ゴール後のガッツポーズ。上体を起こし、左手で鞭を突き上げる。右手は手綱。
+ * canter：返し馬（発走前にゆっくり走らせる）。上体をほぼ起こし、両手は手綱を持って鬐甲の前に低く。
  */
 const POSES = {
   race: {
@@ -258,6 +261,11 @@ const POSES = {
     pelvis: [0, 0.19, -0.06], neck: [0, 0.69, 0.13], head: [0, 0.82, 0.16], headTilt: -0.05,
     hands: [[0.38, 1.0, -0.04], [-0.09, 0.32, 0.5]], ankles: [[0.3, -0.2, 0.17], [-0.3, -0.2, 0.17]],
     whipHand: 0, whip: [0.18, 0.52, -0.3],
+  },
+  canter: {
+    pelvis: [0, 0.2, -0.04], neck: [0, 0.64, 0.24], head: [0, 0.77, 0.3], headTilt: 0.06,
+    hands: [[0.1, 0.28, 0.6], [-0.1, 0.28, 0.6]], ankles: [[0.3, -0.24, 0.12], [-0.3, -0.24, 0.12]],
+    whip: [-0.04, 0.4, -0.32],
   },
 };
 
