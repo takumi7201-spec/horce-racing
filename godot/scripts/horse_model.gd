@@ -37,6 +37,21 @@ func _ready() -> void:
 
 ## skin_dir：res://assets/horse/skins/<レース> / gate：馬番 / surface：turf・dirt（蹴り上げの色）
 func build(skin_dir: String, gate: int, surface: String) -> void:
+	var meta := {}
+	var path := skin_dir + "/skins.json"
+	if FileAccess.file_exists(path):
+		meta = JSON.parse_string(FileAccess.get_file_as_string(path)).get(str(gate), {})
+	var tex := {}
+	for k in ["face", "number", "silks", "sleeve"]:
+		var p := "%s/%d_%s.png" % [skin_dir, gate, k]
+		if ResourceLoader.exists(p):
+			tex[k] = load(p)
+	build_with(meta, tex, surface)
+
+
+## 布と色を直に渡して作る（育成モードのレースは Godot で走らせるので、出走馬は前もって決まらない。
+## ik/skins.gd が手持ち［assets/horse/lib］から馬ごとに組む）。meta：{mats, legs}、tex：{face, number, silks, sleeve}（Texture2D）
+func build_with(meta: Dictionary, tex: Dictionary, surface: String) -> void:
 	var root: Node3D = HORSE_SCENE.instantiate()
 	add_child(root)
 	body = root.find_child("body", true, false)
@@ -53,24 +68,15 @@ func build(skin_dir: String, gate: int, surface: String) -> void:
 			hip = root.find_child(L[0] + "_hip", true, false), knee = root.find_child(L[0] + "_knee", true, false),
 			fetlock = root.find_child(L[0] + "_fetlock", true, false), front = L[1], gallop = L[2], walk = L[3], name = L[0],
 		})
-	_apply_skin(root, skin_dir, gate)
+	_apply_skin(root, meta, tex)
 	_build_reins(root)
 	_build_kicks(surface)
 
 
 # ------------------------------------------------------------------ 布と色
 
-func _apply_skin(root: Node, dir: String, gate: int) -> void:
-	var meta := {}
-	var path := dir + "/skins.json"
-	if FileAccess.file_exists(path):
-		meta = JSON.parse_string(FileAccess.get_file_as_string(path)).get(str(gate), {})
+func _apply_skin(root: Node, meta: Dictionary, tex: Dictionary) -> void:
 	var cols: Dictionary = meta.get("mats", {})
-	var tex := {}
-	for k in ["face", "number", "silks", "sleeve"]:
-		var p := "%s/%d_%s.png" % [dir, gate, k]
-		if ResourceLoader.exists(p):
-			tex[k] = load(p)
 	# 材質は名前ごとに 1 つ作って、同じ名前の面で使い回す（ゼッケンは左右 2 枚）
 	var make := func(base: Material, nm: String) -> Material:
 		if _mats.has(nm):

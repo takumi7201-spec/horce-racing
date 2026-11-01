@@ -71,14 +71,27 @@ var play_speed := 1.0
 var cam_eye := Vector3.ZERO
 var cam_look := Vector3.ZERO
 
+## 育成モード（ik/ikusei_app.gd）から呼ぶとき。コースとレースの選択を隠し、「結果へ」で finished を出す。
+## レースは load_race_data で渡す（Godot で走らせた走行ログ）。
+signal finished
+var embedded := false
+var cues: Array = []        # スキルの演出：{s（その馬が走った距離）, gate, text, mine, unique, shown}
+var cue_box: VBoxContainer
+
 
 func _ready() -> void:
 	font = SystemFont.new()
 	# 日本語の字形を持つ字体を順に探す（Windows・mac・Linux）。既定の字体には漢字が無い
 	font.font_names = PackedStringArray(["Yu Gothic UI", "Meiryo", "Hiragino Sans", "Noto Sans CJK JP", "Noto Sans JP", "IPAGothic"])
 	tracks = JSON.parse_string(FileAccess.get_file_as_string(TRACKS_PATH)).courses
-	if FileAccess.file_exists(RACES_PATH):
+	if FileAccess.file_exists(RACES_PATH) and not embedded:
 		races = JSON.parse_string(FileAccess.get_file_as_string(RACES_PATH)).races
+	if embedded:
+		_build_environment()
+		camera = OrbitCamera.new()
+		add_child(camera)
+		_build_ui()
+		return
 	var args := _args()
 	course_id = args.get("course", course_id)
 	surface = args.get("surface", surface)
@@ -779,8 +792,29 @@ func load_race(id: String) -> void:
 		push_warning("レースが無い: " + id)
 		return
 	var r: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(path))
+	var dir := "res://assets/horse/skins/%s" % String(r.id)
+	_start_race(r, func(node, h) -> void: node.build(dir, int(h.gate), String(r.surface)))
+
+
+## Godot で走らせたレース（育成モード）。r は load_race と同じ形（horses に pos・off）、skins は馬ごとの {meta, tex}
+## （ik/skins.gd）、mine は自分の馬の id の並び（目印を付ける）、cue は発動したスキルの演出の並び。
+func load_race_data(r: Dictionary, skins: Array, mine: Array = [], cue: Array = []) -> void:
+	_start_race(r, func(node, h) -> void:
+		var k: int = r.horses.find(h)
+		node.build_with(skins[k].meta, skins[k].tex, String(r.surface)))
+	for rr in runners:
+		if mine.has(rr.id):
+			_add_mark(rr.node, rr.name)
+	cues = cue.duplicate(true)
+	for c in cues:
+		c.shown = false
+
+
+func _start_race(r: Dictionary, build: Callable) -> void:
 	load_course(r.course, r.surface, true)
 	race = r
+	# 発走位置は描く周回で決め直す（ゴール板から距離だけ手前）。直線だけのコース（新潟 1000m）も周回の上で見せる
+	race.start = fposmod(float(track.lap) - fmod(float(r.distance), float(track.lap)), float(track.lap))
 	race_t = 0.0
 	playing = true
 	runners = []
@@ -789,7 +823,7 @@ func load_race(id: String) -> void:
 	for h in r.horses:
 		var node := HorseModel.new()
 		course_root.add_child(node)
-		node.build("res://assets/horse/skins/%s" % String(r.id), int(h.gate), String(r.surface))
+		build.call(node, h)
 		node.phase = randf()   # 位相をばらす（全頭が同じ脚で走ると行進に見える）
 		var pos := PackedFloat32Array(h.pos)
 		var off := PackedFloat32Array(h.off)
@@ -800,11 +834,28 @@ func load_race(id: String) -> void:
 				k_fin = k
 				break
 		var v_fin := (pos[k_fin] - pos[maxi(0, k_fin - 5)]) / (dt * mini(5, maxi(1, k_fin)))
-		runners.append({ node = node, pos = pos, off = off, name = String(h.name), gate = int(h.gate), order = int(h.order),
+		runners.append({ node = node, id = h.get("id", 0), pos = pos, off = off, name = String(h.name), gate = int(h.gate), order = int(h.order),
 			time = float(h.time), t_fin = k_fin * dt, v_fin = v_fin, ph = randf(), yaw = 0.0, s = 0.0, v = 0.0 })
 	_sync_ui()
 	set_camera("tv")
 	_update_race(0.0, true)
+
+
+## 自分の馬の目印（頭の上の名札）。深度を見ずに前へ描く（馬群に埋もれない。three.js 版の makeMarker と同じ考え）
+func _add_mark(node: Node3D, nm: String) -> void:
+	var lb := Label3D.new()
+	lb.text = "▼ " + nm
+	lb.font = font
+	lb.font_size = 30
+	lb.outline_size = 8
+	lb.modulate = Color("#f3a332")
+	lb.outline_modulate = Color("#113035")
+	lb.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	lb.no_depth_test = true
+	lb.fixed_size = true
+	lb.pixel_size = 0.0006
+	lb.position = Vector3(0, 3.3, 0)
+	node.add_child(lb)
 
 
 func race_duration() -> float:
@@ -860,6 +911,58 @@ func _update_race(delta: float, snap: bool) -> void:
 		r.v = sv.y
 	_update_race_camera(delta, snap)
 	_update_board()
+	_update_cues()
+
+
+## スキルの演出：その馬が発動地点を過ぎたら札を出す（自分の馬は大きく、固有は帯）。最初からに戻したら出し直す
+func _update_cues() -> void:
+	if cues.is_empty() or cue_box == null:
+		return
+	for c in cues:
+		var rr = null
+		for x in runners:
+			if int(x.gate) == int(c.gate):
+				rr = x
+		if rr == null:
+			continue
+		var past: bool = float(rr.s) >= float(c.at)
+		if past and not c.shown and race_t < float(rr.t_fin) + 0.5:
+			c.shown = true
+			_show_cue(c)
+		elif not past and c.shown:
+			c.shown = false
+
+
+func _show_cue(c: Dictionary) -> void:
+	var pc := PanelContainer.new()
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color("#f3a332") if c.get("unique", false) else (Color("#a7cb0e") if c.mine else Color(0.07, 0.19, 0.21, 0.85))
+	sb.set_corner_radius_all(10)
+	sb.content_margin_left = 14
+	sb.content_margin_right = 14
+	sb.content_margin_top = 6
+	sb.content_margin_bottom = 6
+	sb.border_color = Color.WHITE
+	sb.set_border_width_all(3 if c.mine else 0)
+	pc.add_theme_stylebox_override("panel", sb)
+	var lb := Label.new()
+	lb.text = ("%d %s　「%s」" % [int(c.gate), c.name, c.text]) if not c.get("unique", false) else ("★ %s「%s」" % [c.name, c.text])
+	lb.add_theme_font_size_override("font_size", 26 if c.get("unique", false) else (22 if c.mine else 16))
+	lb.add_theme_color_override("font_color", Color("#113035") if (c.mine or c.get("unique", false)) else Color.WHITE)
+	pc.add_child(lb)
+	cue_box.add_child(pc)
+	pc.modulate.a = 0.0
+	pc.position.x = 40.0
+	var tw := pc.create_tween()
+	tw.tween_property(pc, "modulate:a", 1.0, 0.18)
+	tw.tween_interval(2.6 if c.mine else 1.6)
+	tw.tween_property(pc, "modulate:a", 0.0, 0.3)
+	tw.tween_callback(pc.queue_free)
+	# 固有スキルは 1.5 秒だけゆっくり見せる（ゲームの観戦と同じ）
+	if c.get("unique", false) and c.mine:
+		var keep := play_speed
+		play_speed = 0.35
+		get_tree().create_timer(1.5).timeout.connect(func() -> void: play_speed = keep)
 
 
 func _ranked() -> Array:
@@ -1051,6 +1154,42 @@ func _build_ui() -> void:
 	board.add_theme_constant_override("outline_size", 6)
 	ui.add_child(board)
 
+	# スキルの演出の札（右上から下へ積む）
+	cue_box = VBoxContainer.new()
+	cue_box.name = "Cues"
+	cue_box.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	cue_box.position = Vector2(-20, 70)
+	cue_box.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	cue_box.alignment = BoxContainer.ALIGNMENT_BEGIN
+	cue_box.add_theme_constant_override("separation", 6)
+	cue_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	ui.add_child(cue_box)
+
+	if not embedded:
+		var back := Button.new()
+		back.text = "◀ カード育成"
+		back.pressed.connect(func() -> void: get_tree().change_scene_to_file("res://scenes/ikusei.tscn"))
+		bar.add_child(back)
+		bar.move_child(back, 0)
+	if embedded:
+		for nm in ["Race", "Course", "Surface"]:
+			bar.get_node(nm).visible = false
+		info.visible = false
+		var skip := Button.new()
+		skip.text = "ゴールまで飛ばす"
+		skip.pressed.connect(func() -> void:
+			var last := 0.0
+			for r in runners:
+				last = maxf(last, float(r.t_fin))
+			race_t = maxf(race_t, last)
+			_update_race(0.0, true))
+		bar.add_child(skip)
+		var done := Button.new()
+		done.text = "結果へ ▶"
+		done.add_theme_color_override("font_color", Color("#f3a332"))
+		done.pressed.connect(func() -> void: finished.emit())
+		bar.add_child(done)
+
 
 func _sync_ui() -> void:
 	var pick: OptionButton = ui.get_node("Bar/Course")
@@ -1070,6 +1209,8 @@ func _sync_ui() -> void:
 	var board: Label = ui.get_node("Board")
 	board.visible = not race.is_empty()
 	var info: Label = ui.get_node("Info")
+	if embedded:
+		return
 	info.text = "%s %s　1 周 %dm・直線 %dm・幅 %dm・高低差 %.1fm（%s回り）　自由：右ドラッグで回す・ホイールで寄る・中ドラッグで動かす" % [
 		track.name, "芝" if surface == "turf" else "ダート", int(track.lap), int(track.homeStraight), int(track.width),
 		float(track.rise), "右" if track.dir == "right" else "左"]

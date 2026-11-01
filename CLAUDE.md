@@ -62,6 +62,26 @@ Godot の競馬場（`godot/scenes/racecourse.tscn`・`godot/scripts/racecourse.
   （horse3d.js の `body`・`neck`・`LF_hip`…、材質の `hide`・`face`・`silks`…。描画には効かない）、Godot は名前で引いて update() と同じ動きを当て、
   馬ごとの布（顔・ゼッケン・勝負服）と色を `skins/<レース>/` から差し替える。**horse3d.js の形や動きを変えたら書き出し直し、`horse_model.gd` の `pose()` も合わせる。**
   脚の白が部品の途中で終わる馬（頂点色の `legPaint`）は形が別なので、Godot では繋を白・管を地の色にしている。
+- **カード育成モードも Godot にある（主シーン `godot/scenes/ikusei.tscn`）。** 中身は `src/sim/ikusei.js`・`ikusei-skills.js`・`race.js`（と使う
+  course.js・horse.js の部分）を GDScript に移したもの（`godot/scripts/ik/`：`rng.gd`・`race_sim.gd`・`ikusei.gd`）。画面は `ik/ikusei_app.gd`、
+  レースは Godot で走らせ、走行ログを競馬場（`racecourse.gd` の `load_race_data`、`embedded`）で再生する。プロフィールは `user://ikusei.json`。
+  - **表は書き出す（`npm run godot-ikusei`）。** カード（+値・カードパワー・覚醒ごとのスキルも JS の関数で）・番組・条件戦の場・コースの公表値・物理の定数を
+    `godot/data/ikusei/data.json` に。cards.js・events.js・params.js・schedule.js・ikusei.js の数を変えたら書き出し直す。`--art` でカードの表（cardView を撮る）・
+    顔・切り抜き（`godot/assets/cards/`）と馬の布の手持ち（`godot/assets/horse/lib/`：カードの馬ごと、毛色ごとの顔、勝負服 24 通り、ゼッケン 18 番 × 8 枠）。
+  - **JS と同じ結果になる（`npm run godot-ikusei-verify`）。** 3 つのシードで 30 回引いて 1 頭育て、ランク戦とイベントを走る筋書きと、対戦の舞台 10 戦を
+    両方で回して比べる：ガチャ・練習・46 戦の着順と時計がすべて一致（時計の差 0.000 秒）。ikusei.js・race.js を変えたら GDScript も直してこれを通す。
+    移すときに踏んだもの：
+    - **Godot の JSON は 17 桁の小数を最後の桁で読み違える**（2000 個中 234 個）。短い小数（0.76）は正しく読む。だからコースは半径や中心を渡さず、
+      公表値（周回・直線・向正面）から Godot で `buildTrack` と同じ式で組む。
+    - **乱数の鍵の数は "%d" で書く。** 保存した JSON を読み直すと数が小数になり、そのまま str() すると "12345.0" で別の乱数になる。
+    - Math.imul は 64 bit の int で 16 bit ずつ掛ける。`seed * 0x85ebca6b` は JS では倍精度の積（2^53 を超えて丸まる）を >>> 0 で切っているので、Godot でも倍精度で掛ける。
+    - JS の sort は安定、Godot の sort_custom は安定でない。番組の候補（距離の差が同じ場が並ぶ）は `stable_sort` で並べる。Math.round は floor(x+0.5)。
+    - `createHorse` は毛色を乱数で 1 回引く。使わない値でも同じだけ引く（でないと枠順の入れ替えから全部ずれる）。オッズの計算も乱数を引く。
+    - log・cos・pow は V8（fdlibm）と C の数学関数で最後の桁が 1 割ほど違うが、着順と時計には出なかった。
+  - レース 1 戦の計算は GDScript で約 0.2 秒（16 頭 × 2500 コマ）。馬ごとの状態は並べた配列（PackedFloat64Array）で持つ（辞書だと遅い）。
+  - 画面の入れ替えで本文を `position` で動かすと、大きさが決まる前の画面で錨が狂って本文が右へずれた。余白（offset_top・offset_bottom）で動かす。
+  - 空の上に紺の字を直に置くと読めない。見出しは `_head()`（白い字に紺の縁）。
+  - 確かめ用の引数：`res://scenes/ikusei.tscn -- --demo=11 --screen=train --race=40 --cam=side --shot=/tmp/x.png`（`--pull=10`・`--card=P1-02`・`--event=秒`・`--result=1`）。
 
 Playwright で操作するときは、週送りは左下の NEXT（`.nextb`、長押しで `.skipmenu`）、画面の切り替えは左のメニュー（`.sideb`）。
 

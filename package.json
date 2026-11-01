@@ -16,7 +16,11 @@
     "godot-tracks": "node tools/export-godot-tracks.mjs",
     "godot-races": "node tools/export-godot-races.mjs",
     "godot-horse": "node tools/export-godot-horse.mjs",
-    "sprite": "node tools/make-horse-sprite.mjs assets/horse-src.png --keep 47,19 --keep 23,31 --keep 39,31 --keep 36,27 --keep 6,5 --keep 45,15 --keep 46,17"
+    "sprite": "node tools/make-horse-sprite.mjs assets/horse-src.png --keep 47,19 --keep 23,31 --keep 39,31 --keep 36,27 --keep 6,5 --keep 45,15 --keep 46,17",
+    "godot-ikusei": "node tools/export-godot-ikusei.mjs",
+    "godot-ikusei-verify": "node tools/verify-godot-ikusei.mjs"
   },
-  "engines": { "node": ">=18" }
+  "engines": {
+    "node": ">=18"
+  }
 }
