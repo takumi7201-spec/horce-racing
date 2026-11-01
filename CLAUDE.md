@@ -54,7 +54,9 @@ Godot の競馬場（`godot/scenes/racecourse.tscn`・`godot/scripts/racecourse.
 - 芝とダートは同時には描かない（course.js の芝とダートのオーバルは入れ子にならない大きさで、重ねると交差する）。米国のダートだけ内に芝の帯を描く。
 - 馬を走らせるのはゲームのシミュレーション。`npm run godot-races`（`tools/export-godot-races.mjs`）が `simulateRace` の走行ログ（0.2 秒ごとの走った距離と横位置）を
   `godot/data/races/*.json` に書き出し、Godot は再生するだけ（`racecourse.gd` の `_update_race`、馬は `horse_model.gd`）。Godot 側で走らせ直すとゲームと違う勝ち馬になる。
-  ログはゴールで止まるので、ゴールの後は直前の速さから 8 秒で止まるように絵だけ流す。race.js やカードの値を変えたら書き出し直す。
+  ログはゴールで止まるので、ゴールの後は絵だけ流す：ゴールの速さから駈歩（7.5m/s）へ指数で落ち着き、止めずに走り抜ける（最後の馬のゴールから 14 秒）。
+  ログの横位置 0 は内ラチの位置なので、絵では 1m 外へ出す（`RAIL_GAP`。出さないと内の馬が柵に被った）。race.js やカードの値を変えたら書き出し直す。
+- 手綱はまっすぐ張ると首を貫く。首の形の幅（AABB）から首の脇を回る 3 次ベジエにして、短い円柱 10 本で毎コマ置く（`horse_model.gd` の `_update_reins`）。
 - 馬と騎手の形はゲーム本体（horse3d.js・horsehead.js・jockey3d.js）を `npm run godot-horse`（`tools/export-godot-horse.mjs`）が glTF にしたもの
   （`godot/assets/horse/horse.glb`、three.js の GLTFExporter r169 を `tools/vendor/` に同梱）。関節の組と材質に名前を付けてあるので
   （horse3d.js の `body`・`neck`・`LF_hip`…、材質の `hide`・`face`・`silks`…。描画には効かない）、Godot は名前で引いて update() と同じ動きを当て、
