@@ -743,6 +743,7 @@ func set_camera(mode: String) -> void:
 		_:
 			pass
 	camera.free_look = mode == "free"
+	camera.fov = 30.0 if mode == "tv" else 50.0
 	if ui:
 		for c in ui.get_node("Bar/Cams").get_children():
 			c.button_pressed = c.name == mode
@@ -869,8 +870,8 @@ func _update_race_camera(delta: float, snap: bool) -> void:
 		# 中継：外ラチの外の高い所から、先頭から 3 番手あたりを横から追う（ホームではスタンドの側になる）
 		var k := mini(2, list.size() - 1)
 		var mid := (float(lead.s) + float(list[k].s)) / 2.0
-		look = at_p(start + mid, w * 0.35, 1.2)
-		eye = at_p(start + mid - 28.0, w + 38.0, 15.0)
+		look = at_p(start + mid - 4.0, w * 0.3, 1.0)
+		eye = at_p(start + mid - 20.0, w + 22.0, 9.0)   # 望遠（画角 30°）で寄る。遠いと馬が点になった
 	else:
 		# 追走：先頭の馬の斜め後ろ
 		var off := _sample(lead.off, race_t)
