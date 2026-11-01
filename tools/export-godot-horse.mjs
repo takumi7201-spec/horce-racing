@@ -63,7 +63,20 @@ try {
       const { makeHorse } = await import('/src/render3d/horse3d.js');
       const { faceTexture } = await import('/src/render3d/horsehead.js');
       const hex = (c) => `#${c.getHexString()}`;
-      const png = (tex) => tex?.image?.toDataURL?.('image/png') ?? null;
+      // three.js の布は flipY（画像の下端が v=0）、glTF は画像の上端が v=0。GLTFExporter は形の中の布を上下に返して書くが、
+      // ここで別に書き出す布はそのままだと上下が逆さまに貼られる（ゼッケンの数字・顔の白斑・勝負服の柄が逆さまになった）。返して書く
+      const png = (tex) => {
+        const img = tex?.image;
+        if (!img?.toDataURL) return null;
+        if (tex.flipY === false) return img.toDataURL('image/png');
+        const c = document.createElement('canvas');
+        c.width = img.width; c.height = img.height;
+        const g = c.getContext('2d');
+        g.translate(0, c.height);
+        g.scale(1, -1);
+        g.drawImage(img, 0, 0);
+        return c.toDataURL('image/png');
+      };
       return runners.map((r) => {
         const h = makeHorse({ id: r.hid, gate: r.gate, frame: r.frame, coat: r.coat, marks: r.marks, silks: r.silks, detail: 'high' });
         const mats = {};
