@@ -52,6 +52,9 @@ Godot の競馬場（`godot/scenes/racecourse.tscn`・`godot/scripts/racecourse.
 - 上を向く面は三角形ごとに巻きをそろえる（`_face_up`）。Godot の表は時計回りで、両面描きでも裏から見た面は法線が返って黒く写った。巻きは右回り・左回りで逆になる。
 - 頂点色・インスタンスの色は `vertex_color_is_srgb`。線形のまま渡すと芝が薄緑に抜けた。
 - 芝とダートは同時には描かない（course.js の芝とダートのオーバルは入れ子にならない大きさで、重ねると交差する）。米国のダートだけ内に芝の帯を描く。
+- 馬を走らせるのはゲームのシミュレーション。`npm run godot-races`（`tools/export-godot-races.mjs`）が `simulateRace` の走行ログ（0.2 秒ごとの走った距離と横位置）を
+  `godot/data/races/*.json` に書き出し、Godot は再生するだけ（`racecourse.gd` の `_update_race`、馬は `horse_model.gd`）。Godot 側で走らせ直すとゲームと違う勝ち馬になる。
+  ログはゴールで止まるので、ゴールの後は直前の速さから 8 秒で止まるように絵だけ流す。race.js やカードの値を変えたら書き出し直す。
 
 Playwright で操作するときは、週送りは左下の NEXT（`.nextb`、長押しで `.skipmenu`）、画面の切り替えは左のメニュー（`.sideb`）。
 
