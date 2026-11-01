@@ -125,8 +125,15 @@ export function tabs(items, current, onPick) {
 
 /** モーダル。close() で閉じる。 */
 export function modal(title, body, { onClose = null, wide = false } = {}) {
+  // 閉じるときは一瞬で消さず、少し沈めて消す（stageshow：何もポンと出さない・消さない）。答え（onClose）はすぐ返す
+  let closed = false;
   const close = () => {
-    wrap.remove();
+    if (closed) return;
+    closed = true;
+    wrap.classList.add('closing');
+    const rm = () => wrap.remove();
+    wrap.addEventListener('animationend', (e) => { if (e.target === wrap) rm(); });
+    setTimeout(rm, 260);
     if (onClose) onClose();
   };
   const wrap = el('div.modal-wrap', {

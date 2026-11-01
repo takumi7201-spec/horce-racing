@@ -1999,3 +1999,44 @@ button.ikev-banner:active { transform: translateY(3px); box-shadow: 0 3px 0 var(
 .ikr.done .ikr-in { transform: none; transform-style: flat; transition: none; }
 .ikr.done .ikr-back { display: none; }
 .ikr.done .ikr-in > .tcw { backface-visibility: visible; -webkit-backface-visibility: visible; }
+
+/* ================================================================ 動き（stageshow の motion.md に合わせる）
+   - 曲線は二つ：移動は cubic-bezier(.45, 0, .1, 1)、何も無いところからの出現は cubic-bezier(.25, .8, .25, 1)
+   - 画面の入れ替えは枠を保って本文だけ：前の本文は 170ms で消え（app.js の takeGhost）、新しい本文は 8px 下から浮かぶ
+   - 何もポンと出さない・消さない（モーダル・メニュー・トースト）。押したときの手応えは速いまま（.12s）
+   - 動きを減らす設定では、すべて止める */
+:root { --ease-move: cubic-bezier(.45, 0, .1, 1); --ease-in: cubic-bezier(.25, .8, .25, 1); }
+.page-ghost { position: fixed; inset: 0; z-index: 1; pointer-events: none; }
+
+@media (prefers-reduced-motion: no-preference) {
+  /* 本文の段（カード）を読む順に。7 段目からは一緒に出す */
+  .main.page-in > *, .ikp-body.page-in > * { animation: page-rise .26s var(--ease-in) both; }
+  .ikh-wrap.page-in > :not(.ik-sky) { animation: page-fade .22s var(--ease-in) both; }
+  .page-in > :nth-child(2) { animation-delay: 40ms; }
+  .page-in > :nth-child(3) { animation-delay: 80ms; }
+  .page-in > :nth-child(4) { animation-delay: 120ms; }
+  .page-in > :nth-child(5) { animation-delay: 160ms; }
+  .page-in > :nth-child(n+6) { animation-delay: 200ms; }
+
+  /* モーダル：背景は薄く敷き、板は少し下から（大きさはほとんど変えない：文字を拡大縮小しない） */
+  .modal-wrap { animation: page-fade .2s ease-out both; }
+  .modal-wrap > .modal { animation: modal-in .3s var(--ease-in) both; }
+  .modal-wrap.closing { animation: page-fade-out .18s ease-in both; pointer-events: none; }
+  .modal-wrap.closing > .modal { animation: modal-out .18s ease-in both; }
+
+  #toast { transition: opacity .22s ease-out, transform .32s var(--ease-in); }
+
+  /* 選んでいる印は色で移る（一瞬で塗り替えない） */
+  .tab, .sideb .sb-tile, .sideb .sb-label, .ikd, .ikd-mi, .seg button { transition: background-color .18s, color .18s, border-color .18s, transform .15s, box-shadow .15s; }
+  .btn { transition: transform .12s, box-shadow .12s, background-color .15s, border-color .15s, color .15s, filter .15s, opacity .2s; }
+
+  /* 育成モードの「カード」の一覧：下から開いて、閉じるときも沈んで消える */
+  .ikd-menu { display: flex !important; visibility: hidden; opacity: 0; transform: translateY(8px) scale(.98); transform-origin: 0 100%;
+    transition: opacity .16s ease-in, transform .18s ease-in, visibility 0s linear .18s; }
+  .ikd-cardwrap.open .ikd-menu { visibility: visible; opacity: 1; transform: none; transition: opacity .2s ease-out, transform .28s var(--ease-in), visibility 0s; }
+}
+@keyframes page-rise { from { opacity: 0; transform: translateY(8px); } }
+@keyframes page-fade { from { opacity: 0; } }
+@keyframes page-fade-out { to { opacity: 0; } }
+@keyframes modal-in { from { opacity: 0; transform: translateY(12px) scale(.985); } }
+@keyframes modal-out { to { opacity: 0; transform: translateY(6px) scale(.99); } }

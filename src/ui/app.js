@@ -231,6 +231,19 @@ export function start(root) {
     },
 
     render() {
+      // 画面が変わったときだけ、本文を入れ替える動きを付ける（stageshow の page swap：枠はそのまま、本文だけ 200ms の
+      // クロスフェードと 8px の浮き上がり）。同じ画面の描き直し（週送り・練習の 1 ターン）では動かさない。
+      const key = viewKey(app);
+      const prevKey = app._viewKey;
+      app._viewKey = key;
+      const swap = prevKey != null && key !== prevKey && !/raceday|ik:watch/.test(`${key} ${prevKey}`) && !reducedMotion();
+      const ghost = swap ? takeGhost(ui) : null;
+      paint();
+      if (swap) enterPage(ui, ghost);
+    },
+  };
+
+  function paint() {
       clear(ui);
       app.onArrow = null;
       const screen = SCREENS[app.screen] ?? homeScreen;
@@ -252,8 +265,7 @@ export function start(root) {
         el('main.main', screen(app)),
         dock(app),
       ]));
-    },
-  };
+  }
 
   // 背景（3D の放牧地）と前面（画面）を分けて持つ。render() が消すのは前面だけ。
   const bg = el('div.bg', [
@@ -292,12 +304,59 @@ export function start(root) {
     }
     if (e.key === 's' || e.key === 'S') app.openSaveMenu();
     // 馬の詳細では ← → で前後の馬へ。
-    if (app.onArrow && document.querySelector('.modal-wrap') == null) {
+    if (app.onArrow && document.querySelector('.modal-wrap:not(.closing)') == null) {
       if (e.key === 'ArrowLeft') app.onArrow(-1);
       if (e.key === 'ArrowRight') app.onArrow(1);
     }
   });
   return app;
+}
+
+// ---------------------------------------------------------------- 画面の入れ替え
+// 以前は clear(ui) で前の画面を 1 フレームで消して次を描いていた（ポンと切り替わる）。stageshow の動きの規則
+// （.agents/skills/stageshow/references/motion.md の Recipes：page swap は枠を保ち、本文だけをクロスフェードする）に合わせる。
+
+/** 画面の同一性。これが変わったときだけ入れ替えの動きを付ける。 */
+function viewKey(app) {
+  const p = app.params ?? {};
+  return [app.screen, p.view, p.id, p.real, p.tab].map((v) => v ?? '').join(':');
+}
+
+function reducedMotion() {
+  return typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
+/**
+ * 前の画面の本文を、消す前に抜き出して上に重ねる（複製ではなく移すので、描き直しの費用が掛からない）。
+ * 牧場は .main（fixed のスクロール枠）、育成モードは .ikm（スクロール枠）。移すとスクロール位置が 0 に戻るので覚えて戻す。
+ * 重ねる層は z-index 1：上の帯・メニュー・NEXT（z-index を持つ枠）より下、新しい本文より上。枠は新旧で同じ絵なので、
+ * 重なっても変わって見えるのは本文だけ。
+ */
+function takeGhost(ui) {
+  const old = ui.querySelector('.main') ?? ui.querySelector('.ikm');
+  if (!old) return null;
+  const top = old.scrollTop;
+  const g = el('div.page-ghost', { 'aria-hidden': 'true' });
+  g.inert = true;
+  g.appendChild(old);
+  document.body.appendChild(g);
+  old.scrollTop = top;
+  return g;
+}
+
+/** 新しい本文を 8px 下から浮かせて出し、前の本文を消す。段落（カード）は読む順に 40ms ずつずらす（CSS の .page-in）。 */
+function enterPage(ui, ghost) {
+  if (ghost) {
+    const done = () => ghost.remove();
+    const a = ghost.animate?.([{ opacity: 1 }, { opacity: 0 }], { duration: 170, easing: 'cubic-bezier(.4, 0, 1, 1)', fill: 'forwards' });
+    if (a) a.onfinish = done;
+    setTimeout(done, 400);   // animate が無い・止まった環境でも残さない
+  }
+  const body = ui.querySelector('.main') ?? ui.querySelector('.ikp-body') ?? ui.querySelector('.ikh-wrap');
+  if (!body) return;
+  body.classList.add('page-in');
+  // 動き終えたら外す（変形が残ると、中の position: fixed の基準が変わる）
+  setTimeout(() => body.classList.remove('page-in'), 600);
 }
 
 /**
