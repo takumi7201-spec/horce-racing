@@ -87,6 +87,132 @@ static func plus_of(c: Dictionary) -> Dictionary:
 	return c.plus
 
 
+# ------------------------------------------------------------------ 配合（育成馬を作る。src/sim/ikusei.js の bredCard と同じ）
+## 育成馬は父のカード（牡）× 母のカード（牝）。名前は自分で決め、脚質は両親の脚質のあいだから選ぶ。
+## 素の値は両親の平均（小数 3 桁に丸める）、+値は能力ごとに高いほう、レーススキルは交互に受け継ぐ（多いほうの数 +1 まで）。
+## 保存するのは親の id・名前・脚質・性・毛色だけで、値は毎回両親から作り直す（Godot の JSON は長い小数を読み違える）。
+
+const STYLE_NAMES := ["逃げ", "先行", "差し", "追込"]
+const STYLE_VALUE := [0.12, 0.37, 0.62, 0.87]
+const SUPPORT_SLOTS := 4
+const NAME_MAX := 12
+
+
+static func style_idx(x: float) -> int:
+	return 0 if x < 0.25 else (1 if x < 0.5 else (2 if x < 0.75 else 3))
+
+
+static func _r3(x: float) -> float:
+	return floor(x * 1000.0 + 0.5) / 1000.0
+
+
+static func foal_styles(sire: Dictionary, dam: Dictionary) -> Array:
+	var a := style_idx(float(sire.style))
+	var b := style_idx(float(dam.style))
+	return STYLE_NAMES.slice(mini(a, b), maxi(a, b) + 1)
+
+
+static func foal_default_style(sire: Dictionary, dam: Dictionary) -> String:
+	return STYLE_NAMES[jround((style_idx(float(sire.style)) + style_idx(float(dam.style))) / 2.0)]
+
+
+static func foal_name_idea(sire: Dictionary, dam: Dictionary) -> String:
+	var a: String = sire.name
+	var b: String = dam.name
+	return (a.substr(0, int(ceil(a.length() / 2.0))) + b.substr(int(floor(b.length() / 2.0)))).substr(0, NAME_MAX)
+
+
+static func _inherit_skills(fs: Array, ds: Array, si: int) -> Array:
+	var out := []
+	var n := maxi(fs.size(), ds.size())
+	for i in n:
+		for id in [fs[i] if i < fs.size() else null, ds[i] if i < ds.size() else null]:
+			if id == null or out.has(id):
+				continue
+			if (id == "front" and si != 0) or (id == "closer" and si < 2):
+				continue
+			out.append(id)
+	return out.slice(0, n + 1)
+
+
+## f = {id, sire, dam, name, style, sex, coat, aw = [父の覚醒, 母の覚醒]}
+static func bred_card(f: Dictionary) -> Dictionary:
+	var s: Dictionary = card(f.sire)
+	var d: Dictionary = card(f.dam)
+	var si := maxi(0, STYLE_NAMES.find(f.style))
+	var aw: Array = f.get("aw", [0, 0])
+	var v := {}
+	var plus := {}
+	for k in STATS:
+		v[k] = _r3((float(s.v[k]) + float(d.v[k])) / 2.0)
+		plus[k] = maxi(int(s.plus[k]), int(d.plus[k]))
+	var turf := _r3((float(s.turf) + float(d.turf)) / 2.0)
+	var dirt := _r3((float(s.dirt) + float(d.dirt)) / 2.0)
+	var uniq = s.id if s.rar == "LM" else (d.id if d.rar == "LM" else null)
+	return {
+		id = "B%d" % int(f.id), pack = "BRED", bred = true, rar = RARITIES[mini(RARITIES.find(s.rar), RARITIES.find(d.rar))],
+		name = f.name, sex = f.sex, coat = f.coat, marks = null, sireId = s.id, damId = d.id, sire = s.name, dam = d.name,
+		damSire = d.get("sire", ""), line = s.get("line", ""), v = v, plus = plus, turf = turf, dirt = dirt,
+		firm = _r3((float(s.firm) + float(d.firm)) / 2.0), soft = _r3((float(s.soft) + float(d.soft)) / 2.0),
+		dist = jround((float(s.dist) + float(d.dist)) / 20.0) * 10,
+		range = jround((float(s.range) + float(d.range)) / 2.0 + absf(float(s.dist) - float(d.dist)) / 4.0),
+		style = STYLE_VALUE[si], unique = uniq, epithetText = "%s × %s" % [s.name, d.name],
+		art = s.id if f.coat == s.coat else d.id,
+		raceSkills = _inherit_skills(skills_of(s, int(aw[0])).race, skills_of(d, int(aw[1])).race, si),
+	}
+
+
+static func unique_card_of(c) -> Variant:
+	if c == null:
+		return null
+	if c.get("bred", false):
+		return card(c.unique) if c.get("unique") != null else null
+	return c if c.rar == "LM" else null
+
+
+static func trainee_card(run: Dictionary) -> Dictionary:
+	if run.get("sire") == null:
+		return card(run.trainee)
+	return bred_card({id = int(run.id), sire = run.sire, dam = run.dam, name = run.name, style = run.style, sex = run.sex, coat = run.coat,
+		aw = run.get("awaken", {}).get("ps", [0, 0])})
+
+
+## 完成馬の姿（カードの形）。配合の馬は保存した値から。
+static func horse_card(h: Dictionary) -> Variant:
+	if h.get("cardId") != null:
+		return card(h.cardId)
+	var s = card(h.get("sire"))
+	var d = card(h.get("dam"))
+	var plus := {}
+	for k in STATS:
+		plus[k] = maxi(int(s.plus[k]), int(d.plus[k])) if s != null and d != null else 3
+	return {id = "B%d" % int(h.id), pack = "BRED", bred = true, rar = h.rar, name = h.name, sex = h.sex, coat = h.coat, marks = null,
+		sireId = h.get("sire"), damId = h.get("dam"), sire = s.name if s != null else "", dam = d.name if d != null else "",
+		damSire = d.get("sire", "") if d != null else "", line = s.get("line", "") if s != null else "", plus = plus,
+		turf = h.turf, dirt = h.dirt, firm = h.firm, soft = h.soft, dist = h.dist, range = h.range, style = h.style, unique = h.get("unique"),
+		epithetText = "%s × %s" % [s.name if s != null else "", d.name if d != null else ""],
+		## Godot は撮った絵を持たないので、毛色を受け継いだ親のカードの絵を使う
+		art = (s.id if (s != null and h.coat == s.coat) or d == null else d.id) if s != null or d != null else "P1-01"}
+
+
+static func _init_stats(c: Dictionary, awt: int) -> Dictionary:
+	var stats := {}
+	for k in STATS:
+		stats[k] = jround(200 + (float(c.v[k]) - 0.55) * 1200 + awt * int(data().awaken.init))
+	return stats
+
+
+static func breed_preview(p: Dictionary, sire_id: String, dam_id: String, style = null) -> Dictionary:
+	var s: Dictionary = card(sire_id)
+	var d: Dictionary = card(dam_id)
+	var styles := foal_styles(s, d)
+	var st: String = style if styles.has(style) else foal_default_style(s, d)
+	var aw := [awaken_of(count_of(p, sire_id)), awaken_of(count_of(p, dam_id))]
+	var c := bred_card({id = int(p.nextId), sire = sire_id, dam = dam_id, name = "", style = st, sex = "牡", coat = s.coat, aw = aw})
+	var awt := int(floor((aw[0] + aw[1]) / 2.0))
+	return {card = c, styles = styles, style = st, awaken = awt, init = _init_stats(c, awt)}
+
+
 static func surf_of(c: Dictionary) -> String:
 	return "芝" if c.turf >= c.dirt else "ダート"
 
@@ -343,7 +469,7 @@ static func ground_of(k: String) -> String:
 ## この時期に出られるレース（重賞は勝ち数と性で、条件戦は自分のクラス）。最大 4 つ。
 static func race_options(run: Dictionary) -> Array:
 	var slot: Dictionary = data().slots[int(run.slot)]
-	var c = card(run.trainee)
+	var c = trainee_card(run)
 	var cls := _class_of(run)
 	var opts := []
 	var age := int(slot.age)
@@ -378,23 +504,44 @@ static func race_options(run: Dictionary) -> Array:
 
 # ------------------------------------------------------------------ 育成の進行
 
-static func start_run(p: Dictionary, trainee_id: String, support_ids: Array) -> Dictionary:
-	var t = card(trainee_id)
+## 育成を始める。breed = {sire, dam, name, style}。始められないときは理由の文字列を返す（空なら始めた）。
+static func start_run(p: Dictionary, breed: Dictionary, support_ids: Array) -> String:
+	var s = card(breed.get("sire"))
+	var d = card(breed.get("dam"))
+	if s == null or d == null or count_of(p, s.id) == 0 or count_of(p, d.id) == 0:
+		return "そのカードを持っていない"
+	if s.sex != "牡" or d.sex != "牝":
+		return "父は牡、母は牝のカード"
+	var nm := String(breed.get("name", "")).strip_edges()
+	if nm.is_empty() or nm.length() > NAME_MAX:
+		return "名前は 1〜%d 文字" % NAME_MAX
+	var styles := foal_styles(s, d)
+	var style: String = breed.get("style") if styles.has(breed.get("style")) else foal_default_style(s, d)
+	if support_ids.size() != SUPPORT_SLOTS:
+		return "サポートは %d 枚" % SUPPORT_SLOTS
+	for id in support_ids:
+		if count_of(p, id) == 0 or id == s.id or id == d.id:
+			return "サポートに使えないカード"
 	var seed := Rng.hash_seed(key(["run", p.seed, p.nextId]))
-	var aw := {t = awaken_of(count_of(p, trainee_id)), s = support_ids.map(func(id): return awaken_of(count_of(p, id)))}
-	var stats := {}
-	for k in STATS:
-		stats[k] = jround(200 + (float(t.v[k]) - 0.55) * 1200 + aw.t * int(data().awaken.init))
+	var frng = rng_of(["foal", seed])
+	var sex := "牡" if frng.next() < 0.5 else "牝"
+	var coat: String = s.coat if frng.next() < 0.5 else d.coat
+	var ps := [awaken_of(count_of(p, s.id)), awaken_of(count_of(p, d.id))]
+	var aw := {t = int(floor((ps[0] + ps[1]) / 2.0)), s = support_ids.map(func(id): return awaken_of(count_of(p, id))), ps = ps}
+	var id := int(p.nextId)
+	var c := bred_card({id = id, sire = s.id, dam = d.id, name = nm, style = style, sex = sex, coat = coat, aw = ps})
 	var levels := {}
 	for k in STATS:
 		levels[k] = 1.0
 	p.run = {
-		id = int(p.nextId), seed = seed, trainee = trainee_id, supports = support_ids.duplicate(),
-		turn = 0, slot = 0, stats = stats, energy = 100, mood = 2, fans = 0, starts = 0, wins = 0, gradedWins = 0, giWins = 0,
-		levels = levels, races = [], log = ["%sの育成を始めた" % t.name], bonds = [0, 0, 0, 0], learned = [], awaken = aw,
+		id = id, seed = seed, trainee = null, sire = s.id, dam = d.id, name = nm, style = style, sex = sex, coat = coat,
+		supports = support_ids.duplicate(),
+		turn = 0, slot = 0, stats = _init_stats(c, aw.t), energy = 100, mood = 2, fans = 0, starts = 0, wins = 0, gradedWins = 0, giWins = 0,
+		levels = levels, races = [], log = ["%s × %sの仔「%s」（%s・%s・%s）の育成を始めた" % [s.name, d.name, nm, sex, coat, style]],
+		bonds = [0, 0, 0, 0], learned = [], awaken = aw,
 	}
-	p.nextId = int(p.nextId) + 1
-	return p.run
+	p.nextId = id + 1
+	return ""
 
 
 static func aw_t(run: Dictionary) -> int:
@@ -443,7 +590,7 @@ static func training_board(run: Dictionary) -> Dictionary:
 
 
 static func training_preview(run: Dictionary, kind: String) -> Dictionary:
-	var t = card(run.trainee)
+	var t = trainee_card(run)
 	var plus: Dictionary = t.plus
 	var tr: Dictionary = TRAIN[kind]
 	var idx: Array = training_board(run)[kind]
@@ -493,13 +640,14 @@ static func training_preview(run: Dictionary, kind: String) -> Dictionary:
 
 
 static func _add_stats(run: Dictionary, gains: Dictionary) -> void:
-	var plus: Dictionary = card(run.trainee).plus
+	var plus: Dictionary = trainee_card(run).plus
 	for k in gains:
 		run.stats[k] = maxi(0, mini(cap_of(int(plus[k]), aw_t(run)), int(run.stats[k]) + int(gains[k])))
 
 
 static func run_skills(run: Dictionary) -> Array:
-	var out: Array = (skills_of(card(run.trainee), aw_t(run)).race as Array).duplicate()
+	var tc := trainee_card(run)
+	var out: Array = (tc.raceSkills if tc.get("bred", false) else skills_of(tc, aw_t(run)).race as Array).duplicate()
 	out.append_array(run.get("learned", []))
 	return out
 
@@ -609,17 +757,30 @@ static func run_race(race: Dictionary, field: Array, seed_key: String, year := 2
 
 
 static func trainee_spec(run: Dictionary) -> Dictionary:
-	var c = card(run.trainee)
+	var c = trainee_card(run)
 	var ab := {}
 	for k in STATS:
 		ab[k] = ability_of(float(run.stats[k]))
 	return {id = 1, name = c.name, sex = c.sex, coat = c.coat, ab = ab, dist = c.dist, range = c.range, turf = c.turf, dirt = c.dirt,
-		firm = c.firm, soft = c.soft, style = c.style, cardId = c.id}
+		firm = c.firm, soft = c.soft, style = c.style, cardId = null if c.get("bred", false) else c.id}
 
 
-static func _with_skills(spec: Dictionary, skills: Array, card_id, race: Dictionary, battle: bool, aw := 0) -> Dictionary:
-	var c = card(card_id) if card_id != null else null
+## src はカード id か、{rar, unique}（配合の馬：レア度と固有を受け継いだ LM の親）。
+static func _with_skills(spec: Dictionary, skills: Array, src, race: Dictionary, battle: bool, aw := 0) -> Dictionary:
+	if src is Dictionary:
+		var u = card(src.unique) if src.get("unique") != null else null
+		return apply_race_skills(spec, skills, race, battle, src.rar, u, aw)
+	var c = card(src) if src != null else null
 	return apply_race_skills(spec, skills, race, battle, c.rar if c != null else "N", c if (c != null and c.rar == "LM") else null, aw)
+
+
+static func _run_src(run: Dictionary) -> Variant:
+	var c := trainee_card(run)
+	return {rar = c.rar, unique = c.unique} if c.get("bred", false) else c.id
+
+
+static func _horse_src(h: Dictionary) -> Variant:
+	return h.cardId if h.get("cardId") != null else {rar = h.rar, unique = h.get("unique")}
 
 
 ## 今のターンのレースに出る。結果を返し、育成を次のターンへ進める。
@@ -631,7 +792,7 @@ static func race_turn(run: Dictionary, choice: String) -> Dictionary:
 			race = o
 	var rng = rng_of(["field", run.seed, run.slot])
 	var n := 16 if race.grade == "GI" else 12
-	var me0 := _with_skills(trainee_spec(run), run_skills(run), run.trainee, race, false, aw_t(run))
+	var me0 := _with_skills(trainee_spec(run), run_skills(run), _run_src(run), race, false, aw_t(run))
 	var field := [me0.spec]
 	for i in range(1, n):
 		field.append(_npc_horse(rng, i, race.level, race))
@@ -682,13 +843,18 @@ static func rank_of(rating: float) -> String:
 
 static func finish_run(p: Dictionary) -> Dictionary:
 	var run: Dictionary = p.run
-	var c = card(run.trainee)
+	var c = trainee_card(run)
+	var bred: bool = c.get("bred", false)
 	var h := {
-		id = int(run.id), cardId = c.id, name = c.name, sex = c.sex, coat = c.coat, rar = c.rar, stats = (run.stats as Dictionary).duplicate(),
+		id = int(run.id), cardId = null if bred else c.id, name = c.name, sex = c.sex, coat = c.coat, rar = c.rar, stats = (run.stats as Dictionary).duplicate(),
 		dist = c.dist, range = c.range, turf = c.turf, dirt = c.dirt, firm = c.firm, soft = c.soft, style = c.style,
 		starts = run.starts, wins = run.wins, gradedWins = run.gradedWins, giWins = run.giWins, fans = run.fans,
 		races = run.races, supports = run.supports, battles = 0, battleWins = 0, skills = run_skills(run), awaken = aw_t(run),
 	}
+	if bred:
+		h.sire = c.sireId
+		h.dam = c.damId
+		h.unique = c.unique
 	h.rating = rating_of(h)
 	h.rank = rank_of(h.rating)
 	p.finished.append(h)
@@ -740,7 +906,7 @@ static func battle_npc(p: Dictionary, horse_id, race_id: String, diff := "normal
 	my_avg /= 5.0
 	var level := clampf_(my_avg + float(data().difficulty[diff].d), 0.55, 0.92)
 	var pool := cards().filter(func(c): return c.name != me.name and ((race.surface == "ダート") == (c.dirt > c.turf)))
-	var mine0 := _with_skills(finished_spec(me, 0), finished_skills(me), me.cardId, race, true, int(me.get("awaken", 0)))
+	var mine0 := _with_skills(finished_spec(me, 0), finished_skills(me), _horse_src(me), race, true, int(me.get("awaken", 0)))
 	var field := [mine0.spec]
 	var fired := {100: mine0.fired}
 	var used := {}
@@ -788,7 +954,7 @@ static func event_race(p: Dictionary, horse_id, event_id: String, star: int) -> 
 	var race: Dictionary = (ev.race as Dictionary).duplicate()
 	var k := key(["event", p.seed, event_id, st.tries])
 	var rng = Rng.make(Rng.hash_seed(k))
-	var mine0 := _with_skills(finished_spec(me, 0), finished_skills(me), me.cardId, race, true, int(me.get("awaken", 0)))
+	var mine0 := _with_skills(finished_spec(me, 0), finished_skills(me), _horse_src(me), race, true, int(me.get("awaken", 0)))
 	var field := [mine0.spec]
 	var fired := {100: mine0.fired}
 	var sd: float = data().starD[str(star)]
@@ -837,7 +1003,7 @@ static func battle_own(p: Dictionary, horse_ids: Array, race_id: String) -> Dict
 	var fired := {}
 	var field := []
 	for i in list.size():
-		var x := _with_skills(finished_spec(list[i], i), finished_skills(list[i]), list[i].cardId, race, true, int(list[i].get("awaken", 0)))
+		var x := _with_skills(finished_spec(list[i], i), finished_skills(list[i]), _horse_src(list[i]), race, true, int(list[i].get("awaken", 0)))
 		fired[100 + i] = x.fired
 		field.append(x.spec)
 	var res := run_race(race, field, key(["own", p.seed, p.battles]))

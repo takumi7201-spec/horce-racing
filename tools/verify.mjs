@@ -1077,8 +1077,27 @@ section('カード育成モード');
   // 1 回の育成を最後まで（練習は体力を見て、レースは最初の候補）
   const idBefore = peekHorseId();
   const own = I.owned(big);
-  const lmCard = own.find((c) => c.rar === 'LM');
-  const run = I.startRun(big, lmCard.id, own.filter((c) => c.id !== lmCard.id).slice(0, 4).map((c) => c.id));
+  // 育成馬は配合で作る（父は牡・母は牝のカード）。LM の父の固有スキルを受け継ぐ
+  const lmCard = own.find((c) => c.rar === 'LM' && c.sex === '牡');
+  const damCard = own.find((c) => c.sex === '牝');
+  const pv = I.breedPreview(big, lmCard.id, damCard.id);
+  const sup0 = own.filter((c) => c.id !== lmCard.id && c.id !== damCard.id).slice(0, 4).map((c) => c.id);
+  const bad = (f) => { try { f(); return false; } catch { return true; } };
+  check('配合：父は牡・母は牝、名前は 1〜12 文字、サポートに父母は使えない',
+    bad(() => I.startRun(I.newProfile(1), { sire: damCard.id, dam: lmCard.id, name: 'テスト' }, sup0))
+    && bad(() => I.startRun(big, { sire: lmCard.id, dam: damCard.id, name: ' ' }, sup0))
+    && bad(() => I.startRun(big, { sire: lmCard.id, dam: damCard.id, name: 'テスト' }, [damCard.id, ...sup0.slice(1)])) && big.run == null);
+  const ps = I.plusOf(lmCard), pd = I.plusOf(damCard);
+  const st = I.foalStyles(lmCard, damCard);
+  check(`配合：伸びしろは両親の高いほう、初期値は平均、脚質は両親のあいだ（${st.join('・')}）、固有を受け継ぐ`,
+    I.STATS.every((k) => pv.card.plus[k] === Math.max(ps[k], pd[k]) && Math.abs(pv.card.v[k] - (lmCard.v[k] + damCard.v[k]) / 2) < 0.001)
+    && st.includes(pv.style) && pv.card.unique === lmCard.id && I.uniqueOf(pv.card)?.name === I.skillsOf(lmCard).unique.name
+    && I.foalStyles({ style: 0.1 }, { style: 0.8 }).join() === '逃げ,先行,差し,追込');
+  const run = I.startRun(big, { sire: lmCard.id, dam: damCard.id, name: '  テストホース ', style: st[st.length - 1] }, sup0);
+  const tc0 = I.traineeCard(run);
+  check(`配合：名前・脚質が決めたとおりで、脚質に合わないスキルは受け継がない（${run.name}・${run.style}・${tc0.raceSkills.join(',')}）`,
+    run.name === 'テストホース' && run.style === st[st.length - 1] && tc0.name === 'テストホース'
+    && !(run.style !== '逃げ' && tc0.raceSkills.includes('front')) && !(['逃げ', '先行'].includes(run.style) && tc0.raceSkills.includes('closer')));
   let k = 0;
   while (!I.runDone(run)) {
     if (I.isRaceTurn(run)) I.raceTurn(run, I.raceOptions(run)[0].id);
@@ -1103,15 +1122,16 @@ section('カード育成モード');
   const cue = (n) => I.skillCue(n, 2000).at;
   check('観戦の演出は場面に合わせて出る（逃げ切り → 王道 → 末脚炸裂 → 固有は最後の 400m）',
     cue('逃げ切り') < cue('王道') && cue('王道') < cue('末脚炸裂') && I.skillCue('最強の再来', 2000).unique && cue('最強の再来') >= 1600);
-  check(`覚えたスキルが完成馬に残る（${h.skills.length} 個）`, I.skillsOf(lmCard).race.every((id) => h.skills.includes(id)) && I.finishedSkills(h).length >= I.skillsOf(lmCard).race.length);
+  check(`覚えたスキルが完成馬に残る（${h.skills.length} 個）`, tc0.raceSkills.every((id) => h.skills.includes(id)) && I.finishedSkills(h).length >= tc0.raceSkills.length
+    && h.name === 'テストホース' && h.sire === lmCard.id && h.dam === damCard.id && h.unique === lmCard.id && I.horseCard(h).name === h.name);
   // 覚醒：同じカードを重ねて持つと、育てる馬もサポートも強くなる。1 枚なら何も変わらない
   const awRun = (n) => {
     const q = I.newProfile(21);
-    const t = I.CARDS.find((c) => c.rar === 'N');
+    const t = I.CARDS.find((c) => c.rar === 'N' && c.sex === '牡'), m = I.CARDS.find((c) => c.rar === 'N' && c.sex === '牝');
     const sup = I.CARDS.filter((c) => c.rar === 'SR').slice(0, 4);
-    q.cards[t.id] = n;
+    q.cards[t.id] = n; q.cards[m.id] = n;
     for (const c of sup) q.cards[c.id] = n;
-    const r = I.startRun(q, t.id, sup.map((c) => c.id));
+    const r = I.startRun(q, { sire: t.id, dam: m.id, name: 'カクセイ' }, sup.map((c) => c.id));
     let j = 0;
     while (!I.runDone(r)) {
       if (I.isRaceTurn(r)) I.raceTurn(r, I.raceOptions(r)[0].id);

@@ -17,10 +17,11 @@ function scenario(seed) {
   const p = IK.newProfile(seed);
   const pulls = IK.pull(p, 30).map((g) => g.card.id);
   const own = IK.owned(p);
-  const trainee = own[0].id;
-  const sup = own.slice(1, 5).map((c) => c.id);
-  while (sup.length < 4) sup.push(sup[0]);
-  IK.startRun(p, trainee, sup);
+  // 育成馬は配合（最初の牡 × 最初の牝）。脚質は選べるうちのいちばん後ろ（脚質のスキルの受け継ぎも見る）
+  const sire = own.find((c) => c.sex === '牡'), dam = own.find((c) => c.sex === '牝');
+  const sup = own.filter((c) => c !== sire && c !== dam).slice(0, 4).map((c) => c.id);
+  const styles = IK.foalStyles(sire, dam);
+  IK.startRun(p, { sire: sire.id, dam: dam.id, name: IK.foalNameIdea(sire, dam), style: styles[styles.length - 1] }, sup);
   const run = p.run;
   const steps = [];
   while (!IK.runDone(run)) {
@@ -43,7 +44,7 @@ function scenario(seed) {
   const h = IK.finishRun(p);
   const b = IK.battleNpc(p, h.id, 'japan-cup', 'normal');
   const e = IK.eventRace(p, h.id, 'arc1999', 1);
-  return { pulls, steps, stats: h.stats, rating: h.rating, skills: h.skills, battle: orders(b.result), event: orders(e.result) };
+  return { pulls, steps, stats: h.stats, rating: h.rating, skills: h.skills, name: h.name, sex: h.sex, coat: h.coat, battle: orders(b.result), event: orders(e.result) };
 }
 
 function raceCheck(r) {
@@ -84,6 +85,7 @@ js.scenarios.forEach((s, k) => {
     } else if (!same(st, gs)) { bad++; console.log(`✗ 種 ${k} 手順 ${i}：${st[1]} / ${gs[1]}`); }
   });
   if (!same(s.stats, g.stats)) { bad++; console.log(`✗ 種 ${k}：完成の能力 ${JSON.stringify(s.stats)} / ${JSON.stringify(g.stats)}`); }
+  if (s.name !== g.name || s.sex !== g.sex || s.coat !== g.coat) { bad++; console.log(`✗ 種 ${k}：育成馬 ${s.name}・${s.sex}・${s.coat} / ${g.name}・${g.sex}・${g.coat}`); }
   if (!same(s.skills, g.skills)) { bad++; console.log(`✗ 種 ${k}：スキル ${s.skills} / ${g.skills}`); }
   maxDt = Math.max(maxDt, cmpOrder(`種 ${k} ランク戦`, s.battle, g.battle), cmpOrder(`種 ${k} イベント`, s.event, g.event));
   nRace += 2;

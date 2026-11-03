@@ -84,7 +84,13 @@ func _ready() -> void:
 			args[kv[0]] = kv[1]
 	if args.has("demo"):
 		_demo(int(args.demo))
-	go(args.get("screen", "home"), {id = int(args.id)} if args.has("id") else {})
+	if args.has("deck"):
+		# 確かめ用：育成をやめて、おまかせの編成（父・母・サポート）を開く
+		p.run = null
+		go("deck")
+		_omakase()
+	else:
+		go(args.get("screen", "home"), {id = int(args.id)} if args.has("id") else {})
 	if args.has("toturn"):
 		while int(p.run.turn) < int(args.toturn):
 			if IK.is_race_turn(p.run):
@@ -132,7 +138,10 @@ func _demo(seed: int) -> void:
 	p = IK.new_profile(seed)
 	IK.pull(p, 60)
 	var own := IK.owned(p)
-	IK.start_run(p, own[0].id, own.slice(1, 5).map(func(c): return c.id))
+	var ms := own.filter(func(c): return c.sex == "牡")
+	var fs := own.filter(func(c): return c.sex == "牝")
+	var rest := own.filter(func(c): return c.id != ms[0].id and c.id != fs[0].id)
+	IK.start_run(p, {sire = ms[0].id, dam = fs[0].id, name = IK.foal_name_idea(ms[0], fs[0])}, rest.slice(0, 4).map(func(c): return c.id))
 	while not IK.run_done(p.run):
 		if IK.is_race_turn(p.run):
 			IK.race_turn(p.run, IK.race_options(p.run)[0].id)
@@ -141,7 +150,10 @@ func _demo(seed: int) -> void:
 		else:
 			IK.train(p.run, IK.STATS[int(p.run.turn) % 5])
 	IK.finish_run(p)
-	IK.start_run(p, own[1].id, [own[0].id, own[2].id, own[3].id, own[4].id])
+	var m2: Dictionary = ms[1] if ms.size() > 1 else ms[0]
+	var f2: Dictionary = fs[1] if fs.size() > 1 else fs[0]
+	var rest2 := own.filter(func(c): return c.id != m2.id and c.id != f2.id)
+	IK.start_run(p, {sire = m2.id, dam = f2.id, name = IK.foal_name_idea(m2, f2)}, rest2.slice(0, 4).map(func(c): return c.id))
 	for i in 6:
 		if IK.is_race_turn(p.run):
 			IK.race_turn(p.run, IK.race_options(p.run)[0].id)
@@ -159,6 +171,11 @@ func save() -> void:
 
 func _tex(path: String) -> Texture2D:
 	return load(path) if ResourceLoader.exists(path) else null
+
+
+## 絵の id（配合の馬は毛色を受け継いだ親のカードの絵）
+func _aid(c: Dictionary) -> String:
+	return c.get("art", c.id)
 
 
 func _card_tex(id: String) -> Texture2D:
@@ -195,7 +212,7 @@ func W() -> float:
 
 ## カードの表（傾けると光沢とホロが流れる）。w は幅（高さは 880/630 倍）
 func _card_view(c: Dictionary, w: float, tilt := true, on_click := Callable()) -> Control:
-	var tr := _img(_card_tex(c.id))
+	var tr := _img(_card_tex(_aid(c)))
 	tr.custom_minimum_size = Vector2(w, w * 880.0 / 630.0)
 	var mat := ShaderMaterial.new()
 	mat.shader = TILT
@@ -225,7 +242,7 @@ func _card_view(c: Dictionary, w: float, tilt := true, on_click := Callable()) -
 ## 顔の丸いアイコン（枠の色がレア度。LM は虹）。count で右上に枚数と覚醒
 func _icon(c: Dictionary, size := 86.0, badge := "", on_click := Callable(), dim := false, count := 0) -> CardIcon:
 	var ic := CardIcon.new()
-	ic.face = _face_tex(c.id)
+	ic.face = _face_tex(_aid(c))
 	ic.rar = c.rar
 	ic.badge = badge
 	ic.count = count
@@ -587,14 +604,18 @@ func _home_card() -> Dictionary:
 	var fav = p.get("fav")
 	if fav != null and IK.count_of(p, fav) > 0:
 		return IK.card(fav)
+	if fav is String and fav.begins_with("B"):
+		var fh = IK.find_finished(p, int(fav.substr(1)))
+		if fh != null:
+			return IK.horse_card(fh)
 	if p.run != null:
-		return IK.card(p.run.trainee)
+		return IK.trainee_card(p.run)
 	if p.finished.size() > 0:
 		var best = p.finished[0]
 		for h in p.finished:
 			if int(h.rating) > int(best.rating):
 				best = h
-		return IK.card(best.cardId)
+		return IK.horse_card(best)
 	var own := IK.owned(p)
 	if own.size() > 0:
 		var best: Dictionary = own[0]
@@ -618,7 +639,7 @@ func _home() -> Control:
 	var ava := UI.box({c = [LEAF2, SUN2], angle = 135.0, radius = 12.0, border = 3.0, border_color = Color.WHITE, outline = 2.5, shadow = Vector2(0, 4), pad = Vector4(3, 3, 3, 3)})
 	ava.position = Vector2(x0, 8)
 	ava.size = Vector2(58, 58)
-	ava.add_child(UI.mask(_img(_face_tex(hc.id), true), 9.0))
+	ava.add_child(UI.mask(_img(_face_tex(_aid(hc)), true), 9.0))
 	ava.press(_pick_favorite)
 	page.add_child(ava)
 	var pw := UI.box({c = [INK], radius = 999.0, border = 0.0, shadow = Vector2.ZERO, pad = Vector4(10, 3, 14, 4)})
@@ -657,14 +678,16 @@ func _home() -> Control:
 	layer.add_child(city)
 
 	# 主役：白縁の切り抜きをふわっと浮かせる
-	var hero := _img(_sticker_tex(hc.id))
+	var hero := _img(_sticker_tex(_aid(hc)))
 	hero.position = Vector2(sw * 0.06, shh * 0.02)
 	hero.size = Vector2(sw * 0.94, shh * 0.66)
 	hero.mouse_filter = Control.MOUSE_FILTER_STOP
 	hero.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	hero.gui_input.connect(func(e: InputEvent) -> void:
 		if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
-			if owned:
+			if hc.get("bred", false):
+				go("train") if p.run != null and "B%d" % int(p.run.id) == hc.id else go("horse", {id = int(hc.id.substr(1))})
+			elif owned:
 				_show_card(hc)
 			else:
 				go("gacha"))
@@ -729,7 +752,7 @@ func _home() -> Control:
 	prog.size = Vector2(130, 160)
 	prog.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var ring := Ring.new()
-	ring.face = _face_tex(run.trainee) if run != null else null
+	ring.face = _face_tex(_aid(IK.trainee_card(run))) if run != null else null
 	ring.p = float(int(run.turn)) / IK.TOTAL_TURNS if run != null else 0.0
 	ring.big = str(int(run.starts)) if run != null else "0"
 	ring.position = Vector2(14, 34)
@@ -755,7 +778,7 @@ func _home() -> Control:
 	layer.add_child(prog)
 
 	# 右下：チケット（ランク対戦・カード図鑑）
-	var t1 := _ticket("ランク", "対戦", _bg_tex(hc.id), "完成馬 %d頭" % p.finished.size(), go.bind("battle"))
+	var t1 := _ticket("ランク", "対戦", _bg_tex(_aid(hc)), "完成馬 %d頭" % p.finished.size(), go.bind("battle"))
 	t1.position = Vector2(sw - t1.size.x - 6, shh - 250)
 	t1.rotation = -0.07
 	layer.add_child(t1)
@@ -1290,38 +1313,66 @@ func _deck() -> Control:
 	var page := UI.vbox(18)
 	if p.run != null:
 		var v0 := UI.vbox(10)
-		v0.add_child(UI.label("育成の途中は組み直せない（%s を育成中）。" % IK.card(p.run.trainee).name, 15, INK, "black"))
+		v0.add_child(UI.label("育成の途中は組み直せない（%s を育成中）。" % IK.trainee_card(p.run).name, 15, INK, "black"))
 		var b := UI.button("育成へ", go.bind("train"), "primary")
 		b.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 		v0.add_child(b)
 		page.add_child(UI.section("編成", v0))
 		return page
-	var trainee = opts.get("t")
+	var own := IK.owned(p)
+	var males := own.filter(func(c): return c.sex == "牡").size()
+	var females := own.filter(func(c): return c.sex == "牝").size()
+	if own.size() < 2 + IK.SUPPORT_SLOTS or males == 0 or females == 0:
+		var v1 := UI.vbox(10)
+		v1.add_child(UI.label("育成には父（牡のカード）・母（牝のカード）とサポート %d 枚の、あわせて %d 種のカードが要る（いま %d 種・牡 %d・牝 %d）。" % [IK.SUPPORT_SLOTS, 2 + IK.SUPPORT_SLOTS, own.size(), males, females], 15, INK, "black"))
+		var gb := UI.button("ガチャへ", go.bind("gacha"), "primary")
+		gb.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+		v1.add_child(gb)
+		page.add_child(UI.section("編成", v1))
+		return page
+	var sire = opts.get("f")
+	var dam = opts.get("m")
 	var sup: Array = opts.get("s", [])
 	var v := UI.vbox(10)
 	var slots := UI.hbox(12, BoxContainer.ALIGNMENT_CENTER)
-	var names := ["育てる馬", "サポート 1", "サポート 2", "サポート 3", "サポート 4"]
-	var ids := [trainee] + sup
-	for i in 5:
+	var names := ["父（牡）", "母（牝）", "サポート 1", "サポート 2", "サポート 3", "サポート 4"]
+	var ids := [sire, dam] + sup
+	for i in 6:
+		if i == 1:
+			var x := UI.label("×", 28, Color("#4a5b58"), "title")
+			x.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+			slots.add_child(x)
 		var sv := UI.vbox(4)
-		var l := UI.label(names[i], 12, Color("#b0641a") if i == 0 else Color("#4a5b58"), "black")
+		var l := UI.label(names[i], 12, Color("#3d6fb0") if i == 0 else (Color("#c0517a") if i == 1 else Color("#4a5b58")), "black")
 		l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		sv.add_child(l)
 		var id = ids[i] if i < ids.size() else null
 		if id != null:
-			sv.add_child(_card_view(IK.card(id), 132, false, func() -> void: _deck_toggle(id)))
+			sv.add_child(_card_view(IK.card(id), 118, false, func() -> void: _deck_toggle(id)))
 		else:
 			var e := Dashed.new()
-			e.custom_minimum_size = Vector2(132, 184)
+			e.custom_minimum_size = Vector2(118, 165)
 			sv.add_child(e)
 		slots.add_child(sv)
 	v.add_child(slots)
-	v.add_child(UI.label("まず育てる馬を選び、続けてサポートを 4 枚選ぶ。選んだカードをもう一度押すと外れる。", 12, Color("#4a5b58")))
-	v.add_child(UI.label("サポートと友情練習を 2 回すると（覚醒 3 なら 1 回）、そのサポートのレーススキルを覚える（完成馬に残る）。同じカードを重ねて持つと覚醒して強くなる。", 12, Color("#4a5b58")))
+	var pv = IK.breed_preview(p, sire, dam, opts.get("st")) if sire != null and dam != null else null
+	if pv != null:
+		opts.st = pv.style
+		if String(opts.get("n", "")).is_empty():
+			opts.n = IK.foal_name_idea(IK.card(sire), IK.card(dam))
+		v.add_child(_breed_panel(pv))
+	else:
+		v.add_child(UI.label("牡のカードを押すと父、牝のカードを押すと母に入る。両親が決まると、生まれる仔の名前と脚質を決められる。続けてサポートを 4 枚選ぶ。選んだカードをもう一度押すと外れる。", 12, Color("#4a5b58")))
+	v.add_child(UI.label("サポートと友情練習を 2 回すると（覚醒 3 なら 1 回）、そのサポートのレーススキルを覚える（完成馬に残る）。同じカードを重ねて持つと覚醒して強くなる（育成馬の覚醒は両親の平均）。", 12, Color("#4a5b58")))
 	var bh := UI.hbox(14, BoxContainer.ALIGNMENT_CENTER)
-	var ok: bool = trainee != null and sup.size() == 4
+	var ok: bool = pv != null and sup.size() == IK.SUPPORT_SLOTS
 	var sb := UI.button("育成を始める", func() -> void:
-		IK.start_run(p, trainee, sup)
+		if not ok:
+			return
+		var err := IK.start_run(p, {sire = sire, dam = dam, name = opts.get("n", ""), style = opts.get("st")}, sup)
+		if err != "":
+			toast(err)
+			return
 		save()
 		go("train"), "primary" if ok else "off", 20)
 	sb.pad = Vector4(30, 10, 30, 12)
@@ -1330,39 +1381,153 @@ func _deck() -> Control:
 	om.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	bh.add_child(om)
 	v.add_child(bh)
-	page.add_child(UI.section("編成（育てる馬 1 枚＋サポート 4 枚）", v))
+	page.add_child(UI.section("編成（父 × 母の配合で育成馬を作る＋サポート %d 枚）" % IK.SUPPORT_SLOTS, v))
 	var g := _grid(_cols(W() - 30, 120), 6, 14)
-	for c in IK.owned(p):
-		var is_t: bool = trainee == c.id
-		var is_s: bool = sup.has(c.id)
-		g.add_child(_tile(c, c.name, "%s %d　%s・%s" % [c.rar, int(c.power), "芝" if c.turf >= c.dirt else "ダ", c.distCat], _deck_toggle.bind(c.id),
-			{badge = "育" if is_t else ("サ" if is_s else ""), sel = is_t or is_s}))
+	for c in own:
+		var badge := "父" if sire == c.id else ("母" if dam == c.id else ("サ" if sup.has(c.id) else ""))
+		g.add_child(_tile(c, c.name, "%s %d　%s・%s・%s" % [c.rar, int(c.power), c.sex, "芝" if c.turf >= c.dirt else "ダ", c.distCat], _deck_toggle.bind(c.id),
+			{badge = badge, sel = badge != ""}))
 	page.add_child(UI.section("持っているカード", g))
 	return page
 
 
+## 生まれる仔：名前（自分で決める）・脚質（両親のあいだから選ぶ）・伸びしろ・初期値・適性・受け継ぐスキル
+func _breed_panel(pv: Dictionary) -> Control:
+	var c: Dictionary = pv.card
+	var bx := UI.box({c = [Color("#fffdf4")], radius = 12.0, border = 2.0, shadow = Vector2.ZERO, pad = Vector4(14, 10, 14, 10)})
+	var v := UI.vbox(8)
+	var hh := UI.hbox(10)
+	hh.add_child(UI.label("生まれる仔", 17, INK, "title"))
+	hh.add_child(UI.label("%s　%s%s" % [c.epithetText, c.rar, "・覚醒%d" % int(pv.awaken) if int(pv.awaken) > 0 else ""], 12, Color("#4a5b58"), "black"))
+	v.add_child(hh)
+	var row := func(k: String) -> HBoxContainer:
+		var r := UI.hbox(8)
+		var l := UI.label(k, 12, Color("#4a5b58"), "black")
+		l.custom_minimum_size.x = 64
+		l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		r.add_child(l)
+		v.add_child(r)
+		return r
+	# 名前：打つたびに画面を作り直すと焦点が外れるので、値だけ覚える
+	var r0: HBoxContainer = row.call("名前")
+	var le := LineEdit.new()
+	le.text = opts.get("n", "")
+	le.max_length = IK.NAME_MAX
+	le.custom_minimum_size = Vector2(260, 38)
+	le.add_theme_font_override("font", UI.font("black"))
+	le.add_theme_font_size_override("font_size", 18)
+	le.add_theme_color_override("font_color", INK)
+	var sbx := StyleBoxFlat.new()
+	sbx.bg_color = Color.WHITE
+	sbx.border_color = Color("#d6cda9")
+	sbx.set_border_width_all(2)
+	sbx.set_corner_radius_all(9)
+	sbx.content_margin_left = 10
+	le.add_theme_stylebox_override("normal", sbx)
+	le.add_theme_stylebox_override("focus", sbx)
+	le.text_changed.connect(func(t: String) -> void: opts.n = t)
+	r0.add_child(le)
+	r0.add_child(UI.button("案", func() -> void:
+		opts.n = IK.foal_name_idea(IK.card(c.sireId), IK.card(c.damId))
+		le.text = opts.n, "paper", 13))
+	var r1: HBoxContainer = row.call("脚質")
+	for st in IK.STYLE_NAMES:
+		var on: bool = st == pv.style
+		var can: bool = (pv.styles as Array).has(st)
+		var b := UI.button(st, func() -> void:
+			if can:
+				var o := opts.duplicate()
+				o.st = st
+				go("deck", o), "primary" if on else ("paper" if can else "off"), 14)
+		r1.add_child(b)
+	var sire_c = IK.card(c.sireId)
+	var dam_c = IK.card(c.damId)
+	r1.add_child(UI.label("父 %s × 母 %s" % [IK.style_name(float(sire_c.style)), IK.style_name(float(dam_c.style))], 12, Color("#4a5b58"), "black"))
+	var r2: HBoxContainer = row.call("伸びしろ")
+	for k in IK.STATS:
+		var n := int(c.plus[k])
+		r2.add_child(_pill("%s+%d" % [IK.STAT_SHORT[k], n], Color("#ffe08a") if n >= 5 else (Color("#fff0c2") if n == 4 else Color("#f1ecd8"))))
+	var r3: HBoxContainer = row.call("初期値")
+	for k in IK.STATS:
+		r3.add_child(_pill("%s %d" % [IK.STAT_SHORT[k], int(pv.init[k])], Color("#f1ecd8")))
+	var r4: HBoxContainer = row.call("適性")
+	r4.add_child(UI.label("%s・%s（%d〜%dm）" % [IK.surf_of(c), IK.dist_cat(float(c.dist)), maxi(1000, int(c.dist) - int(c.range)), mini(3600, int(c.dist) + int(c.range))], 14, INK, "black"))
+	var r5: HBoxContainer = row.call("受け継ぐ")
+	var uc = IK.unique_card_of(c)
+	if uc != null:
+		r5.add_child(_pill(IK.skills_of(uc).unique.name, Color("#ffe9a8")))
+	for id in c.raceSkills:
+		r5.add_child(_pill(IK.skill_info(id).name, Color("#dcecff")))
+	v.add_child(UI.label("伸びしろは能力ごとに両親の高いほう、初期値は両親の平均。性と毛色は生まれてのお楽しみ。逃げ切り・末脚炸裂は選んだ脚質に合うときだけ受け継ぐ。", 11, Color("#4a5b58")))
+	bx.add_child(v)
+	return bx
+
+
 func _deck_toggle(id: String) -> void:
-	var trainee = opts.get("t")
-	var sup: Array = opts.get("s", []).duplicate()
-	if trainee == id:
-		trainee = null
+	var o := opts.duplicate()
+	var sup: Array = o.get("s", []).duplicate()
+	var c = IK.card(id)
+	var parents := func() -> void:
+		o.erase("n")
+		o.erase("st")
+	if o.get("f") == id:
+		o.erase("f")
+		parents.call()
+	elif o.get("m") == id:
+		o.erase("m")
+		parents.call()
 	elif sup.has(id):
 		sup.erase(id)
-	elif trainee == null:
-		trainee = id
-	elif sup.size() < 4:
+	elif c.sex == "牡" and o.get("f") == null:
+		o.f = id
+		parents.call()
+	elif c.sex == "牝" and o.get("m") == null:
+		o.m = id
+		parents.call()
+	elif sup.size() < IK.SUPPORT_SLOTS:
 		sup.append(id)
-	go("deck", {t = trainee, s = sup})
+	else:
+		toast("サポートは %d 枚まで（外すにはもう一度押す）" % IK.SUPPORT_SLOTS)
+		return
+	o.s = sup
+	go("deck", o)
 
 
-## おまかせ：カードパワーのいちばん高いカードを育て、次の 4 枚をサポートに
+## おまかせ：カードパワーのいちばん高い牡を父・牝を母に、残りの上から 4 枚をサポートに
 func _omakase() -> void:
 	var own := IK.owned(p)
 	own.sort_custom(func(a, b): return int(a.power) > int(b.power))
-	if own.size() < 5:
-		toast("カードが 5 種そろっていない。ガチャで引こう")
+	var ms := own.filter(func(c): return c.sex == "牡")
+	var fs := own.filter(func(c): return c.sex == "牝")
+	if own.size() < 2 + IK.SUPPORT_SLOTS or ms.is_empty() or fs.is_empty():
+		toast("牡と牝を含む %d 種のカードがそろっていない。ガチャで引こう" % (2 + IK.SUPPORT_SLOTS))
 		return
-	go("deck", {t = own[0].id, s = own.slice(1, 5).map(func(c): return c.id)})
+	var f: String = opts.get("f", ms[0].id)
+	var m: String = opts.get("m", fs[0].id)
+	var o := opts.duplicate()
+	o.f = f
+	o.m = m
+	o.s = own.filter(func(c): return c.id != f and c.id != m).slice(0, IK.SUPPORT_SLOTS).map(func(c): return c.id)
+	go("deck", o)
+
+
+## 配合で作った育成馬の札（カードの代わり。切り抜き・名前・両親）
+func _foal_plate(c: Dictionary) -> Control:
+	var bx := UI.box({c = [Color("#fffdf4"), Color("#f4ecd0")], radius = 14.0, border = 3.0, shadow = Vector2(0, 5), pad = Vector4(10, 8, 10, 10)})
+	bx.custom_minimum_size.x = 200
+	var v := UI.vbox(4)
+	var st := _img(_sticker_tex(_aid(c)))
+	st.custom_minimum_size = Vector2(180, 150)
+	v.add_child(st)
+	var nh := UI.hbox(6)
+	nh.add_child(_rar_badge(c.rar, 12))
+	nh.add_child(UI.label(c.name, 18, INK, "title"))
+	v.add_child(nh)
+	v.add_child(UI.label("%s・%s・%s" % [c.sex, c.coat, IK.style_name(float(c.style))], 12, Color("#4a5b58"), "black"))
+	v.add_child(UI.label("父 %s" % c.sire, 12, Color("#4a5b58"), "black"))
+	v.add_child(UI.label("母 %s" % c.dam, 12, Color("#4a5b58"), "black"))
+	bx.add_child(v)
+	return bx
 
 
 # ------------------------------------------------------------------ 育成
@@ -1371,7 +1536,7 @@ func _train() -> Control:
 	if p.run == null:
 		return _deck()
 	var run: Dictionary = p.run
-	var c = IK.card(run.trainee)
+	var c = IK.trainee_card(run)
 	var page := UI.vbox(16)
 	# 上：時期と進み
 	var tb := UI.box({c = [PAPER], radius = 14.0, border = 3.0, shadow = Vector2(0, 5), pad = Vector4(16, 8, 16, 9)})
@@ -1390,7 +1555,7 @@ func _train() -> Control:
 	var cols := UI.hbox(16)
 	# 左：カードと状態
 	var left := UI.vbox(12)
-	left.add_child(_card_view(c, 200))
+	left.add_child(_foal_plate(c) if c.get("bred", false) else _card_view(c, 200))
 	var st := UI.vbox(7)
 	var er := UI.hbox(8)
 	var el := UI.label("体力", 12, Color("#4a5b58"), "black")
@@ -1420,7 +1585,7 @@ func _train() -> Control:
 	var ab := UI.vbox(8)
 	for k in IK.STATS:
 		ab.add_child(_stat_row(IK.STAT_LABEL[k], int(run.stats[k]), IK.cap_of(int(c.plus[k]), IK.aw_t(run))))
-	ab.add_child(UI.label("黄色の線は伸びしろの上限（カードの +値）", 11, Color("#4a5b58")))
+	ab.add_child(UI.label("黄色の線は伸びしろの上限（%s）" % ("両親の +値の高いほう" if c.get("bred", false) else "カードの +値"), 11, Color("#4a5b58")))
 	right.add_child(UI.section("能力", ab))
 	var sk := UI.vbox(8)
 	var r1 := HFlowContainer.new()
@@ -1429,6 +1594,9 @@ func _train() -> Control:
 	l1.custom_minimum_size = Vector2(150, 24)
 	l1.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	r1.add_child(l1)
+	var uc = IK.unique_card_of(c)
+	if uc != null:
+		r1.add_child(_pill(IK.skills_of(uc).unique.name, Color("#ffe9a8")))
 	for id in IK.run_skills(run):
 		r1.add_child(_pill(IK.skill_info(id).name, Color("#dcecff")))
 	sk.add_child(r1)
@@ -1710,7 +1878,7 @@ func _finished() -> Control:
 	list.sort_custom(func(a, b): return int(a.rating) > int(b.rating))
 	var g := _grid(_cols(W() - 30, 120), 6, 14)
 	for h in list:
-		var c = IK.card(h.cardId)
+		var c = IK.horse_card(h)
 		g.add_child(_tile(c, h.name, "%d戦%d勝　%d" % [int(h.starts), int(h.wins), int(h.rating)], go.bind("horse", {id = h.id}), {badge = h.rank}))
 	var v := UI.vbox(10)
 	if list.is_empty():
@@ -1727,7 +1895,7 @@ func _horse() -> Control:
 	var h = IK.find_finished(p, opts.get("id", -1))
 	if h == null:
 		return _finished()
-	var c = IK.card(h.cardId)
+	var c = IK.horse_card(h)
 	var page := UI.vbox(18)
 	page.add_child(_horse_head(h, c))
 	var cols := UI.hbox(16)
@@ -1768,11 +1936,11 @@ func _horse_head(h: Dictionary, c: Dictionary) -> Control:
 	var lay := Control.new()
 	lay.custom_minimum_size.y = 220
 	lay.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var bg := _img(_bg_tex(c.id), true)
+	var bg := _img(_bg_tex(_aid(c)), true)
 	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
 	lay.add_child(bg)
 	lay.add_child(_shade(0.9, 0.0))
-	var st := _img(_sticker_tex(c.id))
+	var st := _img(_sticker_tex(_aid(c)))
 	st.size = Vector2(380, 260)
 	st.position = Vector2(W() - 420, -14)
 	lay.add_child(st)
@@ -1818,7 +1986,7 @@ func _battle() -> Control:
 	hf.add_theme_constant_override("h_separation", 6)
 	hf.add_theme_constant_override("v_separation", 10)
 	for h in p.finished:
-		hf.add_child(_tile(IK.card(h.cardId), h.name, "%s %d" % [h.rank, int(h.rating)], go.bind("battle", {id = h.id, race = race_id, diff = diff}), {sel = int(h.id) == int(hid), badge = h.rank}))
+		hf.add_child(_tile(IK.horse_card(h), h.name, "%s %d" % [h.rank, int(h.rating)], go.bind("battle", {id = h.id, race = race_id, diff = diff}), {sel = int(h.id) == int(hid), badge = h.rank}))
 	v.add_child(hf)
 	v.add_child(UI.label("舞台（GI）", 12, Color("#4a5b58"), "black"))
 	var rf := HFlowContainer.new()
@@ -1910,7 +2078,7 @@ func _event() -> Control:
 		var hf := HFlowContainer.new()
 		hf.add_theme_constant_override("h_separation", 6)
 		for h in p.finished:
-			hf.add_child(_tile(IK.card(h.cardId), h.name, "%s %d" % [h.rank, int(h.rating)], go.bind("event", {id = h.id}), {sel = int(h.id) == int(hid), badge = h.rank}))
+			hf.add_child(_tile(IK.horse_card(h), h.name, "%s %d" % [h.rank, int(h.rating)], go.bind("event", {id = h.id}), {sel = int(h.id) == int(hid), badge = h.rank}))
 		v.add_child(hf)
 		var stars := HFlowContainer.new()
 		stars.add_theme_constant_override("h_separation", 10)

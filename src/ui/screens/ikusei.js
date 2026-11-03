@@ -79,8 +79,12 @@ function heroCard(p) {
   const own = (id) => (id && p.cards[id] ? I.cardById(id) : null);
   const best = [...p.finished].sort((a, b) => b.rating - a.rating)[0];
   const top = [...I.owned(p)].sort((a, b) => I.RARITIES.indexOf(a.rar) - I.RARITIES.indexOf(b.rar) || I.cardPower(b) - I.cardPower(a))[0];
-  return own(p.fav) ?? own(p.run?.trainee) ?? own(best?.cardId) ?? top ?? I.cardById('P1-40') ?? I.CARDS[0];
+  // 配合で作った完成馬（B<id>）もホームに立たせられる
+  const bred = (id) => { const h = typeof id === 'string' && id[0] === 'B' ? p.finished.find((x) => `B${x.id}` === id) : null; return h ? I.horseCard(h) : null; };
+  return own(p.fav) ?? bred(p.fav) ?? (p.run?.sire ? I.traineeCard(p.run) : own(p.run?.trainee)) ?? (best ? I.horseCard(best) : null) ?? top ?? I.cardById('P1-40') ?? I.CARDS[0];
 }
+/** 二つ名（配合の馬は両親）。 */
+const epiOf = (c) => (c.bred ? `${c.sire} × ${c.dam}` : epithetOf(c));
 
 /**
  * ステッカー（白縁の切り抜き）を入れる。絵は撮るまで時間が掛かるので、届いたら差し込む。
@@ -169,12 +173,12 @@ function homeView(app, go) {
   const heroImg = el('img.ikh-sticker', { alt: hc.name, draggable: false });
   stickerInto(heroImg, hc);
   const hero = el('button.ikh-hero', {
-    onclick: () => (p.cards[hc.id] ? showCard(app, hc) : go('gacha')),
-    title: p.cards[hc.id] ? 'カードを見る' : 'ガチャで出る',
+    onclick: () => (hc.bred ? (p.run && `B${p.run.id}` === hc.id ? go('run') : go('horse', { id: Number(hc.id.slice(1)) })) : p.cards[hc.id] ? showCard(app, hc) : go('gacha')),
+    title: hc.bred ? '馬を見る' : p.cards[hc.id] ? 'カードを見る' : 'ガチャで出る',
   }, [heroImg, el('div.ikh-plate', [
     el(`span.rb.r-${hc.rar}`, { text: hc.rar }),
-    el('span.nm', [el('small', { text: epithetOf(hc) }), el('b', { text: hc.name })]),
-    p.cards[hc.id] ? null : el('em', { text: '未所持' }),
+    el('span.nm', [el('small', { text: epiOf(hc) }), el('b', { text: hc.name })]),
+    p.cards[hc.id] || hc.bred ? null : el('em', { text: '未所持' }),
   ])]);
 
   // 左上：アバター（主役の顔）と戦力。押すとお気に入りを選ぶ
@@ -216,7 +220,7 @@ function homeView(app, go) {
   ]);
 
   // 左下：育成の進み（参考画像の「当前进度」）
-  const tc = run ? I.cardById(run.trainee) : null;
+  const tc = run ? I.traineeCard(run) : null;
   const pf = el('span.ikh-prog-face');
   if (tc) stickerInto(pf, tc, { mode: 'face', zoom: 2.2 });
   const pct = run ? Math.round((run.turn / I.TOTAL_TURNS) * 100) : 0;
@@ -609,56 +613,65 @@ function deckOnlyView(app, go) {
   return deckView(app, go);
 }
 
-/** 編成：育てる馬 1 枚、サポート 4 枚。 */
+/**
+ * 編成：父（牡のカード）× 母（牝のカード）で育成馬を作り（名前は自分で決め、脚質は両親のあいだから選ぶ）、サポート 4 枚と組む。
+ * カードを押すと、空いている枠へ入る（牡は父、牝は母、埋まっていればサポート）。もう一度押すと外れる。
+ */
 function deckView(app, go) {
   const p = app.ik;
   const have = I.owned(p);
-  app.ikDeck ??= { trainee: null, supports: [] };
+  app.ikDeck ??= { sire: null, dam: null, supports: [], name: '', style: null };
   const d = app.ikDeck;
-  d.supports = d.supports.filter((id) => p.cards[id] && id !== d.trainee);
-  if (have.length < 5) {
+  if (d.sire && !p.cards[d.sire]) d.sire = null;
+  if (d.dam && !p.cards[d.dam]) d.dam = null;
+  d.supports = d.supports.filter((id) => p.cards[id] && id !== d.sire && id !== d.dam);
+  const males = have.filter((c) => c.sex === '牡'), females = have.filter((c) => c.sex === '牝');
+  if (have.length < 2 + I.SUPPORT_SLOTS || !males.length || !females.length) {
     return [card('編成', [
-      el('p', { text: `育成には 5 種類のカードが要る（いま ${have.length} 種）。` }),
+      el('p', { text: `育成には父（牡のカード）・母（牝のカード）と、サポート ${I.SUPPORT_SLOTS} 枚の、あわせて ${2 + I.SUPPORT_SLOTS} 種のカードが要る（いま ${have.length} 種・牡 ${males.length}・牝 ${females.length}）。` }),
       button('ガチャへ', () => go('gacha'), { cls: 'primary' }),
     ])];
   }
   // カードの「編成」から開いたときは、選び直しても編成の画面に留まる（育成の画面へ飛ばない）
   const self = app.params.view === 'deck' ? 'deck' : 'run';
+  const parentsChanged = () => { d.name = ''; d.style = null; };
   const pick = (c) => {
-    if (!d.trainee || d.trainee === c.id) d.trainee = d.trainee === c.id ? null : c.id;
-    else if (d.supports.includes(c.id)) d.supports = d.supports.filter((x) => x !== c.id);
-    else if (d.supports.length < 4) d.supports.push(c.id);
-    else return toast('サポートは 4 枚まで（外すにはもう一度押す）', { bad: true });
+    if (d.sire === c.id) { d.sire = null; parentsChanged(); } else if (d.dam === c.id) { d.dam = null; parentsChanged(); } else if (d.supports.includes(c.id)) d.supports = d.supports.filter((x) => x !== c.id);
+    else if (c.sex === '牡' && !d.sire) { d.sire = c.id; parentsChanged(); } else if (c.sex === '牝' && !d.dam) { d.dam = c.id; parentsChanged(); } else if (d.supports.length < I.SUPPORT_SLOTS) d.supports.push(c.id);
+    else return toast(`サポートは ${I.SUPPORT_SLOTS} 枚まで（外すにはもう一度押す）`, { bad: true });
     go(self);
   };
   const slot = (id, label) => el('div.ik-slot', [
     el('small', { text: label }),
     id ? cardView(I.cardById(id), { scale: 0.22, onClick: () => pick(I.cardById(id)) }) : el('div.ik-empty', { text: '空き' }),
   ]);
-  const ready = d.trainee && d.supports.length === 4;
+  const sire = d.sire ? I.cardById(d.sire) : null, dam = d.dam ? I.cardById(d.dam) : null;
+  const pv = sire && dam ? I.breedPreview(p, sire.id, dam.id, d.style) : null;
+  if (pv) { d.style = pv.style; if (!d.name) d.name = I.foalNameIdea(sire, dam); }
+  const ready = pv && d.supports.length === I.SUPPORT_SLOTS && d.name.trim();
+  const start = button('育成を始める', () => {
+    try { I.startRun(p, { sire: d.sire, dam: d.dam, name: d.name, style: d.style }, d.supports); } catch (e) { return toast(e.message, { bad: true }); }
+    app.ikDeck = null;
+    save(app);
+    sound.play('ok');
+    go('run');
+  }, { cls: 'primary big', disabled: !ready });
   return [
-    card('編成（育てる馬 1 枚＋サポート 4 枚）', [
-      el('div.ik-deck', [slot(d.trainee, '育てる馬'), ...[0, 1, 2, 3].map((i) => slot(d.supports[i], `サポート ${i + 1}`))]),
-      d.trainee ? traineeNote(I.cardById(d.trainee)) : el('p.note', { text: 'まず育てる馬を選び、続けてサポートを 4 枚選ぶ。選んだカードをもう一度押すと外れる。' }),
-      d.trainee ? el('div.ik-deckskills', [
-        el('div', [el('small', { text: `育てる馬のレーススキル${awkLabel(p, d.trainee)}` }), skillTags(I.skillsOf(I.cardById(d.trainee), I.awakenOfCard(p, d.trainee)).race, I.skillsOf(I.cardById(d.trainee)).unique)]),
-        ...d.supports.map((id) => el('div', [el('small', { text: `${I.cardById(id).name}（サポート${awkLabel(p, id)}）` }), skillTags(I.skillsOf(I.cardById(id), I.awakenOfCard(p, id)).support, null, { small: true })])),
-      ]) : null,
-      el('p.note', { text: 'サポートと友情練習を 2 回すると（覚醒 3 なら 1 回）、そのサポートのレーススキルを覚える（完成馬に残る）。同じカードを重ねて持つと覚醒して強くなる。' }),
+    card(`編成（父 × 母の配合で育成馬を作る＋サポート ${I.SUPPORT_SLOTS} 枚）`, [
+      el('div.ik-deck', [slot(d.sire, '父（牡）'), el('b.ik-cross', { text: '×' }), slot(d.dam, '母（牝）'), ...[0, 1, 2, 3].map((i) => slot(d.supports[i], `サポート ${i + 1}`))]),
+      pv ? breedPanel(p, pv, sire, dam, d, () => { start.disabled = !(d.supports.length === I.SUPPORT_SLOTS && d.name.trim()); }, () => go(self))
+        : el('p.note', { text: '牡のカードを押すと父、牝のカードを押すと母に入る。両親が決まると、生まれる仔の名前と脚質を決められる。続けてサポートを 4 枚選ぶ。選んだカードをもう一度押すと外れる。' }),
+      d.supports.length ? el('div.ik-deckskills', d.supports.map((id) => el('div', [el('small', { text: `${I.cardById(id).name}（サポート${awkLabel(p, id)}）` }), skillTags(I.skillsOf(I.cardById(id), I.awakenOfCard(p, id)).support, null, { small: true })]))) : null,
+      el('p.note', { text: 'サポートと友情練習を 2 回すると（覚醒 3 なら 1 回）、そのサポートのレーススキルを覚える（完成馬に残る）。同じカードを重ねて持つと覚醒して強くなる（育成馬の覚醒は両親の平均）。' }),
       el('div.ik-gbtns', [
-        button('育成を始める', () => {
-          I.startRun(p, d.trainee, d.supports);
-          app.ikDeck = null;
-          save(app);
-          sound.play('ok');
-          go('run');
-        }, { cls: 'primary big', disabled: !ready }),
+        start,
         button('おまかせ', () => {
           // 覚醒したカードを優先する（1 段でカードパワー 8 ぶん）
           const sc = (c) => I.cardPower(c) + 8 * I.awakenOfCard(p, c.id);
           const s = [...have].sort((a, b) => sc(b) - sc(a));
-          d.trainee ??= s[0].id;
-          d.supports = s.filter((c) => c.id !== d.trainee).slice(0, 4).map((c) => c.id);
+          if (!d.sire) { d.sire = s.find((c) => c.sex === '牡').id; parentsChanged(); }
+          if (!d.dam) { d.dam = s.find((c) => c.sex === '牝').id; parentsChanged(); }
+          d.supports = s.filter((c) => c.id !== d.sire && c.id !== d.dam).slice(0, I.SUPPORT_SLOTS).map((c) => c.id);
           go(self);
         }, { cls: 'ghost' }),
       ]),
@@ -666,10 +679,37 @@ function deckView(app, go) {
     card('持っているカード', [
       el('div.ik-grid', have.map((c) => cardView(c, {
         scale: fit(0.24), count: p.cards[c.id], onClick: pick,
-        badge: c.id === d.trainee ? '育成' : d.supports.includes(c.id) ? `サポ${d.supports.indexOf(c.id) + 1}` : null,
+        badge: c.id === d.sire ? '父' : c.id === d.dam ? '母' : d.supports.includes(c.id) ? `サポ${d.supports.indexOf(c.id) + 1}` : null,
       }))),
     ]),
   ];
+}
+
+/** 生まれる仔：名前（自分で決める）・脚質（両親のあいだから選ぶ）・伸びしろ・適性・受け継ぐスキル。 */
+function breedPanel(p, pv, sire, dam, d, onName, redraw) {
+  const c = pv.card;
+  const name = el('input.inp.ik-name', {
+    type: 'text', value: d.name, maxLength: I.NAME_MAX, placeholder: '馬名', spellcheck: false,
+    // 1 文字ごとに画面を描き直すと入力欄の焦点が外れる（落とし穴 77 と同じ）。値だけ覚える
+    oninput: (e) => { d.name = e.target.value; onName(); },
+  });
+  const styleOfCard = (x) => I.STYLE_NAMES[x < 0.25 ? 0 : x < 0.5 ? 1 : x < 0.75 ? 2 : 3];
+  return el('div.ik-breed', [
+    el('div.ik-breed-h', [el('b', { text: '生まれる仔' }), el('small', { text: `${sire.name} × ${dam.name}　${c.rar}${pv.awaken ? `・覚醒${pv.awaken}` : ''}` })]),
+    el('label.ik-breed-row', [el('small', { text: '名前' }), name,
+      button('案', () => { d.name = I.foalNameIdea(sire, dam); name.value = d.name; onName(); }, { cls: 'sm ghost' })]),
+    el('div.ik-breed-row', [el('small', { text: '脚質' }),
+      el('div.ik-styles', I.STYLE_NAMES.map((s) => el(`button.ik-style${s === pv.style ? '.on' : ''}`, {
+        disabled: !pv.styles.includes(s), title: pv.styles.includes(s) ? '' : '両親の脚質のあいだにない',
+        onclick: () => { d.style = s; redraw(); },
+      }, s))),
+      el('small.ik-breed-par', { text: `父 ${styleOfCard(sire.style)} × 母 ${styleOfCard(dam.style)}` })]),
+    el('div.ik-breed-row', [el('small', { text: '伸びしろ' }), el('span.ik-plus', I.STATS.map((k) => el(`span.p${c.plus[k]}`, { text: `${I.STAT_SHORT[k]}+${c.plus[k]}` })))]),
+    el('div.ik-breed-row', [el('small', { text: '初期値' }), el('span.ik-plus', I.STATS.map((k) => el('span', { text: `${I.STAT_SHORT[k]} ${pv.init[k]}` })))]),
+    el('div.ik-breed-row', [el('small', { text: '適性' }), el('span', { text: `${c.turf >= c.dirt ? '芝' : 'ダート'}・${I.distCat(c.dist)}（${Math.max(1000, c.dist - c.range)}〜${Math.min(3600, c.dist + c.range)}m）` })]),
+    el('div.ik-breed-row', [el('small', { text: '受け継ぐ' }), skillTags(c.raceSkills, I.uniqueOf(c))]),
+    el('p.note', { text: '伸びしろは能力ごとに両親の高いほう、初期値は両親の平均。性と毛色は生まれてのお楽しみ。逃げ切り・末脚炸裂は選んだ脚質に合うときだけ受け継ぐ。' }),
+  ]);
 }
 
 /** 覚醒の段（見出しに添える）。 */
@@ -684,7 +724,7 @@ function traineeNote(c) {
 function trainView(app, go) {
   const p = app.ik;
   const run = p.run;
-  const c = I.cardById(run.trainee);
+  const c = I.traineeCard(run);
   const plus = I.plusOf(c);
   const cap = (k) => I.capOf(plus[k], run.awaken?.t ?? 0);
   const statRows = I.STATS.map((k) => el('div.ik-stat', [
@@ -694,7 +734,7 @@ function trainView(app, go) {
     el('span.bar', [el('i', { style: `width:${(run.stats[k] / 1200) * 100}%` }), el('em', { style: `left:${(cap(k) / 1200) * 100}%`, title: `上限 ${cap(k)}` })]),
   ]));
   const side = el('div.ik-side', [
-    cardView(c, { scale: 0.32, onClick: (x) => showCard(app, x) }),
+    c.bred ? foalPlate(c) : cardView(c, { scale: 0.32, onClick: (x) => showCard(app, x) }),
     el('div.ik-meta', [
       el('div', [el('small', { text: '体力' }), el('span.bar.en', [el('i', { style: `width:${run.energy}%` })]), el('b', { text: String(run.energy) })]),
       el('div', [el('small', { text: '気分' }), el(`b.mood.m${run.mood}`, { text: I.MOODS[run.mood] })]),
@@ -762,10 +802,10 @@ function trainView(app, go) {
     el('div.ik-run', [
       side,
       el('div.ik-main', [
-        card('能力', [el('div.ik-stats', statRows), el('p.note', { text: '黄色の線は伸びしろの上限（カードの +値）' })]),
+        card('能力', [el('div.ik-stats', statRows), el('p.note', { text: `黄色の線は伸びしろの上限（${c.bred ? '両親の +値の高いほう' : 'カードの +値'}）` })]),
         card('スキル', [
           el('div.ik-deckskills', [
-            el('div', [el('small', { text: 'レースで使う' }), skillTags(I.runSkills(run), I.skillsOf(c).unique)]),
+            el('div', [el('small', { text: 'レースで使う' }), skillTags(I.runSkills(run), I.uniqueOf(c))]),
             el('div', [el('small', { text: 'サポートとの絆（友情練習でスキルを覚える）' }), el('span.ik-bonds', run.supports.map((id, i) => {
               const sc = I.cardById(id);
               const b = (run.bonds ?? [])[i] ?? 0;
@@ -987,8 +1027,19 @@ function skillEffects(R, race, fx, view) {
 
 // ---------------------------------------------------------------- 完成馬
 
+/** 配合で作った育成馬の札（カードの代わり。切り抜き・名前・両親）。 */
+function foalPlate(c) {
+  const img = el('img.ik-foal-img', { alt: c.name, draggable: false });
+  stickerInto(img, c);
+  return el(`div.ik-foal.r-${c.rar}`, [
+    img,
+    el('div.ik-foal-n', [el(`span.rb.r-${c.rar}`, { text: c.rar }), el('b', { text: c.name }), el('small', { text: `${c.sex}・${c.coat}・${I.STYLE_NAMES[c.style < 0.25 ? 0 : c.style < 0.5 ? 1 : c.style < 0.75 ? 2 : 3]}` })]),
+    el('div.ik-foal-p', [el('span', ['父 ', el('b', { text: c.sire })]), el('span', ['母 ', el('b', { text: c.dam })])]),
+  ]);
+}
+
 function finishedCard(h) {
-  const c = I.cardById(h.cardId);
+  const c = I.horseCard(h);
   return el(`div.ik-fin.${RCLS(h.rar)}`, [
     el('div.fh', [el(`span.rk.rk-${h.rank.replace('+', 'p')}`, { text: h.rank }), el('b', { text: h.name }), el('small', { text: `評価点 ${h.rating}` })]),
     el('div.fs', I.STATS.map((k) => el('span', [el('small', { text: I.STAT_SHORT[k] }), el('b', { text: I.gradeOfPts(h.stats[k]) }), el('i', { text: String(h.stats[k]) })]))),
@@ -1011,7 +1062,7 @@ function stableView(app, go) {
  * 以前の横長の札（finishedCard）は 1 頭に 1 行を使い、頭数が増えると探しにくかった。
  */
 function finishedIcon(h, go) {
-  const c = I.cardById(h.cardId);
+  const c = I.horseCard(h);
   const face = el('span.ik-ico-face');
   const node = el(`button.ik-ico.r-${h.rar}`, { onclick: () => go('horse', { id: h.id }), title: `${h.name}　評価点 ${h.rating}` }, [
     el('span.ik-ico-ring', [face, el('span.ik-ico-rar', { text: h.rar })]),
@@ -1037,7 +1088,7 @@ function horseView(app, go) {
   const lineup = [...p.finished].sort((a, b) => b.rating - a.rating);
   const h = lineup.find((x) => x.id === app.params.id) ?? lineup[0];
   if (!h) return stableView(app, go);
-  const c = I.cardById(h.cardId);
+  const c = I.horseCard(h);
   const at = lineup.indexOf(h);
   const step = (d) => app.go('ik', { view: 'horse', id: lineup[(at + d + lineup.length) % lineup.length].id }, { replace: true });
 
@@ -1070,7 +1121,7 @@ function horseView(app, go) {
   ]);
   const stage = el('div.ikx-stage', [
     el('div.ikh-city'),
-    el('button.ikx-hero', { onclick: () => c && showCard(app, c), title: 'カードを見る' }, img),
+    el('button.ikx-hero', { onclick: () => c && !c.bred && showCard(app, c), title: c?.bred ? h.name : 'カードを見る' }, img),
     info,
     lineup.length > 1 ? el('button.ikx-arrow.l', { onclick: () => step(-1), title: '前の馬' }, icon('back', { size: 24 })) : null,
     lineup.length > 1 ? el('button.ikx-arrow.r', { onclick: () => step(1), title: '次の馬' }, icon('back', { size: 24 })) : null,
@@ -1122,9 +1173,11 @@ function horseView(app, go) {
         big.length ? el('ul.ikx-wins', big.map((r) => el('li', [el(`span.gr.${r.grade}`, { text: r.grade }), ` ${r.name}`, el('small', { text: ` ${I.SLOTS[r.slot]?.label ?? ''}` })])))
           : el('p.note', { text: '重賞の勝ち鞍はまだ無い。' }),
         el('h4', { text: 'スキル' }),
-        skillTags(I.finishedSkills(h), c ? I.skillsOf(c).unique : null),
+        skillTags(I.finishedSkills(h), I.uniqueOf(c)),
         el('h4', { text: '育てたカード' }),
-        el('div.ikx-sups', [c ? el(`span.${RCLS(c.rar)}`, { text: `育成 ${c.rar} ${c.name}` }) : null,
+        el('div.ikx-sups', [
+          ...(c?.bred ? [I.cardById(h.sire), I.cardById(h.dam)].filter(Boolean).map((x, i) => el(`span.${RCLS(x.rar)}`, { text: `${i ? '母' : '父'} ${x.rar} ${x.name}` }))
+            : c ? [el(`span.${RCLS(c.rar)}`, { text: `育成 ${c.rar} ${c.name}` })] : []),
           ...(h.supports ?? []).map((id) => I.cardById(id)).filter(Boolean).map((s) => el(`span.${RCLS(s.rar)}`, { text: `${s.rar} ${s.name}` }))]),
       ]),
     ]);
@@ -1134,7 +1187,7 @@ function horseView(app, go) {
   return [
     el('header.ikx-top', [
       el(`span.rb.r-${h.rar}`, { text: h.rar }),
-      el('div.ikx-name', [el('small', { text: c ? epithetOf(c) : '' }), el('b', { text: h.name })]),
+      el('div.ikx-name', [el('small', { text: c ? epiOf(c) : '' }), el('b', { text: h.name })]),
       el('span.ikx-sa', { text: `${h.sex}　${h.coat}` }),
       lineup.length > 1 ? el('span.ikx-count', { text: `${at + 1} / ${lineup.length}` }) : null,
     ]),

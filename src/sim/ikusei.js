@@ -1,4 +1,4 @@
-// 育成モード：ガチャで集めたカードを 5 枚（育てる馬 1 枚＋サポート 4 枚）組み、2 歳・3 歳の 2 年で
+// 育成モード：ガチャで集めたカードで育成馬を作り（父のカード × 母のカードの配合。名前は自分で決める）、サポート 4 枚と組んで、2 歳・3 歳の 2 年で
 // 練習とレース 10 戦をこなして競走馬を完成させる。完成馬は NPC のランク戦や、自分の完成馬どうしで戦わせる。
 //
 // 牧場経営（world.js）とは別のモード。世界は作らず、レースの計算（race.js の simulateRace）だけを借りる。
@@ -39,6 +39,8 @@ export const cardById = (id) => BY_ID.get(id) ?? null;
  * +5 は値の高い順に付け、残りは値で +4〜+1。カードの絵（試作）と同じ規則。
  */
 export function plusOf(card) {
+  // 配合で作った育成馬は両親から決めた +値を持つ（bredCard）
+  if (card.plus) return card.plus;
   const order = [...STATS].sort((a, b) => card.v[b] - card.v[a]);
   const top5 = { LM: 3, SSR: card.v[order[2]] >= 0.75 ? 3 : 2, SR: 2, R: 1, N: 1 }[card.rar] ?? 1;
   const out = {};
@@ -198,7 +200,7 @@ const COMBOS = [...new Map(GRADED.filter((r) => !r.abroad).map((r) => [`${r.cour
 /** この時期に出られるレース（重賞は勝ち数と性で、条件戦は自分のクラス）。最大 4 つ。 */
 export function raceOptions(run) {
   const slot = SLOTS[run.slot];
-  const card = cardById(run.trainee);
+  const card = traineeCard(run);
   const cls = classOf(run);
   const opts = [];
   if (slot.kind !== 'debut' && run.wins >= 1) {
@@ -237,25 +239,141 @@ export function groundOf(key) {
 
 // ---------------------------------------------------------------- 育成の進行
 
+// ---------------------------------------------------------------- 配合（育成馬を作る）
+//
+// 育成馬は父のカード（牡）と母のカード（牝）から作る。名前は自分で決め、脚質は両親の脚質のあいだから選ぶ
+// （逃げの父 × 差しの母なら 逃げ・先行・差し のどれか）。
+// - 素の値（初期値）は両親の平均、伸びしろの上限（+値）は能力ごとに高いほう。得意の違う両親を組むと上限がそろう。
+// - 距離・馬場の適性は平均。距離の幅は、両親の距離が離れているほど広がる。
+// - レーススキルは両親のスキルを交互に受け継ぐ（多いほうの数 +1 まで）。脚質を決めるスキル（逃げ切り・末脚炸裂）は
+//   選んだ脚質に合うときだけ。LM の親が居れば固有スキル（二つ名）も受け継ぐ（両親とも LM なら父の）。
+// - 性と毛色は (育成のシード) から決める。覚醒は両親の覚醒の平均（切り捨て）。
+// 育成馬はカードと同じ形（bredCard）で、保存するのは親の id と名前・脚質・性・毛色だけ（小数を保存しない。Godot の JSON は
+// 長い小数を読み違える）。値は毎回両親から作り直す。
+
+export const STYLE_NAMES = ['逃げ', '先行', '差し', '追込'];
+const STYLE_VALUE = [0.12, 0.37, 0.62, 0.87];
+const styleIdx = (x) => (x < 0.25 ? 0 : x < 0.5 ? 1 : x < 0.75 ? 2 : 3);
+const r3 = (x) => Math.round(x * 1000) / 1000;
+const avg3 = (a, b) => r3((a + b) / 2);
+/** 編成のサポートの枚数（父・母とは別）。 */
+export const SUPPORT_SLOTS = 4;
+/** 名前の長さの上限。 */
+export const NAME_MAX = 12;
+
+/** 両親から選べる脚質（両親の脚質のあいだ）。 */
+export function foalStyles(sire, dam) {
+  const a = styleIdx(sire.style), b = styleIdx(dam.style);
+  return STYLE_NAMES.slice(Math.min(a, b), Math.max(a, b) + 1);
+}
+/** 既定の脚質（両親のまんなか）。 */
+export const foalDefaultStyle = (sire, dam) => STYLE_NAMES[Math.round((styleIdx(sire.style) + styleIdx(dam.style)) / 2)];
+/** 名前の案（父の名の前半＋母の名の後半）。 */
+export function foalNameIdea(sire, dam) {
+  const a = [...sire.name], b = [...dam.name];
+  return (a.slice(0, Math.ceil(a.length / 2)).join('') + b.slice(Math.floor(b.length / 2)).join('')).slice(0, NAME_MAX);
+}
+
+/** 両親のレーススキルを交互に受け継ぐ。脚質を決めるスキルは選んだ脚質に合うときだけ。 */
+function inheritSkills(fs, ds, si) {
+  const ok = (id) => (id === 'front' ? si === 0 : id === 'closer' ? si >= 2 : true);
+  const out = [];
+  for (let i = 0; i < Math.max(fs.length, ds.length); i++) {
+    for (const id of [fs[i], ds[i]]) if (id && ok(id) && !out.includes(id)) out.push(id);
+  }
+  return out.slice(0, Math.max(fs.length, ds.length) + 1);
+}
+
 /**
- * 育成を始める。trainee は育てる馬のカード、supports はサポート 4 枚（重複可、育てる馬と同じカードは不可）。
- * 初期値はカードの値から（2 歳の夏の素の力）。
+ * 配合で作る育成馬（カードと同じ形）。f = { id, sire, dam, name, style, sex, coat, aw: [父の覚醒, 母の覚醒] }。
  */
-export function startRun(profile, traineeId, supportIds) {
-  const t = cardById(traineeId);
-  if (!t || !profile.cards[traineeId]) throw new Error('そのカードを持っていない');
-  if (supportIds.length !== 4) throw new Error('サポートは 4 枚');
-  for (const s of supportIds) if (!profile.cards[s] || s === traineeId) throw new Error('サポートに使えないカード');
+export function bredCard(f) {
+  const s = cardById(f.sire), d = cardById(f.dam);
+  const ps = plusOf(s), pd = plusOf(d);
+  const si = Math.max(0, STYLE_NAMES.indexOf(f.style));
+  const turf = avg3(s.turf, d.turf), dirt = avg3(s.dirt, d.dirt);
+  const aw = f.aw ?? [0, 0];
+  return {
+    id: `B${f.id}`, pack: 'BRED', bred: true, rar: RARITIES[Math.min(RARITIES.indexOf(s.rar), RARITIES.indexOf(d.rar))],
+    region: s.region, name: f.name, sex: f.sex, age: 3, coat: f.coat, marks: null, hid: 900000 + f.id,
+    sireId: s.id, damId: d.id, sire: s.name, dam: d.name, damSire: d.sire, line: s.line,
+    v: Object.fromEntries(STATS.map((k) => [k, avg3(s.v[k], d.v[k])])),
+    plus: Object.fromEntries(STATS.map((k) => [k, Math.max(ps[k], pd[k])])),
+    turf, dirt, firm: avg3(s.firm, d.firm), soft: avg3(s.soft, d.soft),
+    dist: Math.round((s.dist + d.dist) / 20) * 10, range: Math.round((s.range + d.range) / 2 + Math.abs(s.dist - d.dist) / 4),
+    style: STYLE_VALUE[si], gi: 0, graded: 0,
+    race: { name: '自家生産', info: `${s.name} × ${d.name}`, year: '', venue: '' }, travel: null,
+    surface: turf >= dirt ? '芝' : 'ダート', shot: 'profile', desert: false,
+    unique: [s, d].find((c) => c.rar === 'LM')?.id ?? null,
+    raceSkills: inheritSkills(skillsOf(s, aw[0]).race, skillsOf(d, aw[1]).race, si),
+  };
+}
+
+/** 固有スキルを持つカード（LM のカード、育成馬なら LM の親）。 */
+export const uniqueCardOf = (c) => (!c ? null : c.bred ? (c.unique ? cardById(c.unique) : null) : c.rar === 'LM' ? c : null);
+/** 固有スキルの名前と説明（画面用）。 */
+export const uniqueOf = (c) => { const u = uniqueCardOf(c); return u ? skillsOf(u).unique : null; };
+
+/** 育成中の馬（カードの形）。配合で作った馬は両親から作り直す。古い育成（カード 1 枚を育てる）はそのカード。 */
+export function traineeCard(run) {
+  if (!run.sire) return cardById(run.trainee);
+  return bredCard({ id: run.id, sire: run.sire, dam: run.dam, name: run.name, style: run.style, sex: run.sex, coat: run.coat, aw: run.awaken?.ps });
+}
+
+/** 完成馬の姿（カードの形。絵を撮るのに使う）。配合の馬は保存した値から。 */
+export function horseCard(h) {
+  if (h.cardId) return cardById(h.cardId);
+  const s = cardById(h.sire), d = cardById(h.dam);
+  return {
+    id: `B${h.id}`, pack: 'BRED', bred: true, rar: h.rar, name: h.name, sex: h.sex, coat: h.coat, marks: null, hid: 900000 + h.id,
+    sireId: h.sire, damId: h.dam, sire: s?.name ?? '', dam: d?.name ?? '', damSire: d?.sire ?? '', line: s?.line ?? '',
+    plus: s && d ? Object.fromEntries(STATS.map((k) => [k, Math.max(plusOf(s)[k], plusOf(d)[k])])) : undefined,
+    v: Object.fromEntries(STATS.map((k) => [k, abilityOf(h.stats[k])])), turf: h.turf, dirt: h.dirt, firm: h.firm, soft: h.soft,
+    dist: h.dist, range: h.range, style: h.style, surface: h.turf >= h.dirt ? '芝' : 'ダート', shot: 'profile', desert: false, unique: h.unique ?? null,
+  };
+}
+
+/** 配合の見込み（編成の画面で、名前と脚質を決める前に見せる）。 */
+export function breedPreview(profile, sireId, damId, style = null) {
+  const s = cardById(sireId), d = cardById(damId);
+  const styles = foalStyles(s, d);
+  const st = styles.includes(style) ? style : foalDefaultStyle(s, d);
+  const aw = [awakenOf(profile.cards[sireId]), awakenOf(profile.cards[damId])];
+  const c = bredCard({ id: profile.nextId, sire: sireId, dam: damId, name: '', style: st, sex: '牡', coat: s.coat, aw });
+  return { card: c, styles, style: st, awaken: Math.floor((aw[0] + aw[1]) / 2), init: initStats(c, Math.floor((aw[0] + aw[1]) / 2)) };
+}
+
+const initStats = (c, awT) => Object.fromEntries(STATS.map((k) => [k, Math.round(200 + (c.v[k] - 0.55) * 1200 + awT * AWAKEN.init)]));
+
+/**
+ * 育成を始める。breed = { sire, dam, name, style }（父は牡・母は牝のカード）、supports はサポート 4 枚（父母と同じカードは不可）。
+ * 初期値は両親の値の平均から（2 歳の夏の素の力）。
+ */
+export function startRun(profile, breed, supportIds) {
+  const s = cardById(breed?.sire), d = cardById(breed?.dam);
+  if (!s || !profile.cards[s.id] || !d || !profile.cards[d.id]) throw new Error('そのカードを持っていない');
+  if (s.sex !== '牡' || d.sex !== '牝') throw new Error('父は牡、母は牝のカード');
+  const name = String(breed.name ?? '').trim();
+  if (!name || [...name].length > NAME_MAX) throw new Error(`名前は 1〜${NAME_MAX} 文字`);
+  const styles = foalStyles(s, d);
+  const style = styles.includes(breed.style) ? breed.style : foalDefaultStyle(s, d);
+  if (supportIds.length !== SUPPORT_SLOTS) throw new Error(`サポートは ${SUPPORT_SLOTS} 枚`);
+  for (const id of supportIds) if (!profile.cards[id] || id === s.id || id === d.id) throw new Error('サポートに使えないカード');
   const seed = hashSeed(`run:${profile.seed}:${profile.nextId}`);
-  const stats = {};
-  // カードの値の差を出発点の差にする（重みが小さいと LM と SR の完成時の能力が 8% しか違わなかった）
+  const rng = makeRng(hashSeed(`foal:${seed}`));
+  const sex = rng.next() < 0.5 ? '牡' : '牝';
+  const coat = rng.next() < 0.5 ? s.coat : d.coat;
   // 覚醒は始めた時点の枚数で決める（育成の途中で引いても、その育成は変わらない）
-  const awaken = { t: awakenOf(profile.cards[traineeId]), s: supportIds.map((id) => awakenOf(profile.cards[id])) };
-  for (const k of STATS) stats[k] = Math.round(200 + (t.v[k] - 0.55) * 1200 + awaken.t * AWAKEN.init);
+  const ps = [awakenOf(profile.cards[s.id]), awakenOf(profile.cards[d.id])];
+  const awaken = { t: Math.floor((ps[0] + ps[1]) / 2), s: supportIds.map((id) => awakenOf(profile.cards[id])), ps };
+  const id = profile.nextId++;
+  const c = bredCard({ id, sire: s.id, dam: d.id, name, style, sex, coat, aw: ps });
+  // カードの値の差を出発点の差にする（重みが小さいと LM と SR の完成時の能力が 8% しか違わなかった）
+  const stats = initStats(c, awaken.t);
   profile.run = {
-    id: profile.nextId++, seed, trainee: traineeId, supports: [...supportIds],
+    id, seed, trainee: null, sire: s.id, dam: d.id, name, style, sex, coat, supports: [...supportIds],
     turn: 0, slot: 0, stats, energy: 100, mood: 2, fans: 0, starts: 0, wins: 0, gradedWins: 0, giWins: 0,
-    levels: Object.fromEntries(STATS.map((k) => [k, 1])), races: [], log: [`${t.name}の育成を始めた`],
+    levels: Object.fromEntries(STATS.map((k) => [k, 1])), races: [], log: [`${s.name} × ${d.name}の仔「${name}」（${sex}・${coat}・${style}）の育成を始めた`],
     bonds: [0, 0, 0, 0], learned: [], awaken,
   };
   return profile.run;
@@ -305,7 +423,7 @@ export function trainingBoard(run) {
 
 /** 練習の見込み（伸びる点と失敗率）。画面で練習を選ぶ前に見せる。 */
 export function trainingPreview(run, kind) {
-  const t = cardById(run.trainee);
+  const t = traineeCard(run);
   const plus = plusOf(t);
   const tr = TRAIN[kind];
   const idx = trainingBoard(run)[kind];
@@ -337,7 +455,7 @@ export function trainingPreview(run, kind) {
 }
 
 const addStats = (run, gains) => {
-  const plus = plusOf(cardById(run.trainee));
+  const plus = plusOf(traineeCard(run));
   for (const [k, g] of Object.entries(gains)) run.stats[k] = Math.max(0, Math.min(capOf(plus[k], awT(run)), run.stats[k] + g));
 };
 
@@ -423,23 +541,32 @@ function npcHorse(rng, i, level, race) {
 
 /** 育成中の馬をレースの馬の形に。 */
 export function traineeSpec(run) {
-  const c = cardById(run.trainee);
+  const c = traineeCard(run);
   return {
     id: 1, name: c.name, sex: c.sex, coat: c.coat, ab: Object.fromEntries(STATS.map((k) => [k, abilityOf(run.stats[k])])),
-    dist: c.dist, range: c.range, turf: c.turf, dirt: c.dirt, firm: c.firm, soft: c.soft, style: c.style, cardId: c.id,
+    dist: c.dist, range: c.range, turf: c.turf, dirt: c.dirt, firm: c.firm, soft: c.soft, style: c.style, cardId: c.bred ? null : c.id,
   };
 }
 
 /** 育成中の馬のレーススキル（カードの分と、サポートから覚えた分）。 */
 export function runSkills(run) {
-  return [...skillsOf(cardById(run.trainee), awT(run)).race, ...(run.learned ?? [])];
+  const c = traineeCard(run);
+  return [...(c.raceSkills ?? skillsOf(c, awT(run)).race), ...(run.learned ?? [])];
 }
 
-/** レーススキルを効かせた馬の形と、発動したスキル。 */
-function withSkills(spec, skills, cardId, race, battle, awaken = 0) {
-  const c = cardById(cardId);
-  return applyRaceSkills(spec, skills, race, { battle, rar: c?.rar ?? 'N', uniqueOf: c?.rar === 'LM' ? c : null, awaken });
+/**
+ * レーススキルを効かせた馬の形と、発動したスキル。src はカード id か、{ rar, unique }（配合の馬：レア度と固有を受け継いだ LM の親）。
+ */
+function withSkills(spec, skills, src, race, battle, awaken = 0) {
+  const c = typeof src === 'object' && src ? null : cardById(src);
+  const rar = c?.rar ?? src?.rar ?? 'N';
+  const u = c ? (c.rar === 'LM' ? c : null) : src?.unique ? cardById(src.unique) : null;
+  return applyRaceSkills(spec, skills, race, { battle, rar, uniqueOf: u, awaken });
 }
+/** 育成中の馬のスキルの出どころ。 */
+const runSrc = (run) => { const c = traineeCard(run); return c.bred ? { rar: c.rar, unique: c.unique } : c.id; };
+/** 完成馬のスキルの出どころ。 */
+const horseSrc = (h) => (h.cardId ? h.cardId : { rar: h.rar, unique: h.unique ?? null });
 
 /**
  * レースを 1 つ走らせる。field は出走馬の形（runnerHorse に渡すもの）。
@@ -474,7 +601,7 @@ export function raceTurn(run, choice) {
   const race = opts.find((o) => o.id === choice) ?? opts[opts.length - 1];
   const rng = makeRng(hashSeed(`field:${run.seed}:${run.slot}`));
   const n = race.grade === 'GI' ? 16 : 12;
-  const me0 = withSkills(traineeSpec(run), runSkills(run), run.trainee, race, false, awT(run));
+  const me0 = withSkills(traineeSpec(run), runSkills(run), runSrc(run), race, false, awT(run));
   const field = [me0.spec];
   for (let i = 1; i < n; i++) field.push(npcHorse(rng, i, race.level, race));
   // 体力と気分を能力に効かせる（体力が少ないと仕上がりが落ちる）
@@ -516,9 +643,10 @@ export function rankOf(rating) {
 export function finishRun(profile) {
   const run = profile.run;
   if (!run || !runDone(run)) throw new Error('まだ育成の途中');
-  const c = cardById(run.trainee);
+  const c = traineeCard(run);
   const horse = {
-    id: run.id, cardId: c.id, name: c.name, sex: c.sex, coat: c.coat, rar: c.rar, stats: { ...run.stats },
+    id: run.id, cardId: c.bred ? null : c.id, name: c.name, sex: c.sex, coat: c.coat, rar: c.rar, stats: { ...run.stats },
+    ...(c.bred ? { sire: c.sireId, dam: c.damId, unique: c.unique } : {}),
     dist: c.dist, range: c.range, turf: c.turf, dirt: c.dirt, firm: c.firm, soft: c.soft, style: c.style,
     starts: run.starts, wins: run.wins, gradedWins: run.gradedWins, giWins: run.giWins, fans: run.fans,
     races: run.races, supports: run.supports, battles: 0, battleWins: 0,
@@ -564,7 +692,7 @@ export function battleNpc(profile, horseId, raceId, diff = 'normal') {
   const myAvg = STATS.reduce((s, k) => s + abilityOf(me.stats[k]), 0) / 5;
   const level = clamp(myAvg + DIFFICULTY[diff].d, 0.55, 0.92);
   const pool = CARDS.filter((c) => c.name !== me.name && ((race.surface === 'ダート') === (c.dirt > c.turf)));
-  const mine0 = withSkills(finishedSpec(me, 0), finishedSkills(me), me.cardId, race, true, me.awaken ?? 0);
+  const mine0 = withSkills(finishedSpec(me, 0), finishedSkills(me), horseSrc(me), race, true, me.awaken ?? 0);
   const field = [mine0.spec];
   const fired = { 100: mine0.fired };
   const used = new Set();
@@ -610,7 +738,7 @@ export function eventRace(profile, horseId, eventId, star) {
   const race = { ...ev.race };
   const key = `event:${profile.seed}:${eventId}:${st.tries}`;
   const rng = makeRng(hashSeed(key));
-  const mine0 = withSkills(finishedSpec(me, 0), finishedSkills(me), me.cardId, race, true, me.awaken ?? 0);
+  const mine0 = withSkills(finishedSpec(me, 0), finishedSkills(me), horseSrc(me), race, true, me.awaken ?? 0);
   const field = [mine0.spec];
   const fired = { 100: mine0.fired };
   ev.field.forEach((m, i) => {
@@ -649,7 +777,7 @@ export function battleOwn(profile, horseIds, raceId) {
   if (list.length < 2) throw new Error('2 頭以上を選ぶ');
   const fired = {};
   const field = list.map((h, i) => {
-    const x = withSkills(finishedSpec(h, i), finishedSkills(h), h.cardId, race, true, h.awaken ?? 0);
+    const x = withSkills(finishedSpec(h, i), finishedSkills(h), horseSrc(h), race, true, h.awaken ?? 0);
     fired[100 + i] = x.fired;
     return x.spec;
   });

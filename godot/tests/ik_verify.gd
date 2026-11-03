@@ -33,14 +33,16 @@ func scenario(seed: int) -> Dictionary:
 	var p := IK.new_profile(seed)
 	var pulls := IK.pull(p, 30).map(func(g): return g.card.id)
 	var own := IK.owned(p)
-	var trainee: String = own[0].id
+	# 育成馬は配合（最初の牡 × 最初の牝）。脚質は選べるうちのいちばん後ろ（脚質のスキルの受け継ぎも見る）
+	var sire: Dictionary = own.filter(func(c): return c.sex == "牡")[0]
+	var dam: Dictionary = own.filter(func(c): return c.sex == "牝")[0]
 	var sup := []
-	for c in own.slice(1):
-		if sup.size() < 4:
+	for c in own:
+		if sup.size() < 4 and c.id != sire.id and c.id != dam.id:
 			sup.append(c.id)
-	while sup.size() < 4:
-		sup.append(sup[0])
-	IK.start_run(p, trainee, sup)
+	var styles := IK.foal_styles(sire, dam)
+	var err := IK.start_run(p, {sire = sire.id, dam = dam.id, name = IK.foal_name_idea(sire, dam), style = styles[styles.size() - 1]}, sup)
+	assert(err == "", err)
 	var run: Dictionary = p.run
 	var steps := []
 	while not IK.run_done(run):
@@ -65,7 +67,7 @@ func scenario(seed: int) -> Dictionary:
 	var h := IK.finish_run(p)
 	var b := IK.battle_npc(p, h.id, "japan-cup", "normal")
 	var e := IK.event_race(p, h.id, "arc1999", 1)
-	return {pulls = pulls, steps = steps, stats = h.stats, rating = h.rating, skills = h.skills,
+	return {pulls = pulls, steps = steps, stats = h.stats, rating = h.rating, skills = h.skills, name = h.name, sex = h.sex, coat = h.coat,
 		battle = orders(b.result), event = orders(e.result)}
 
 

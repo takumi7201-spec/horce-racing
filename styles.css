@@ -1347,7 +1347,35 @@ canvas.race3d { width: 100%; height: 100%; display: block; }
 .ik-deck { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
 .ik-slot { display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .ik-slot small { font-size: 11px; font-weight: 800; color: var(--fg2); }
-.ik-slot:first-child small { color: #b5651d; }
+.ik-slot:first-child small { color: #3d6fb0; }
+.ik-slot:nth-child(3) small { color: #c0517a; }
+.ik-cross { align-self: center; font-size: 26px; font-weight: 900; color: var(--fg2); margin: 0 -4px; }
+/* 配合（生まれる仔） */
+.ik-breed { margin: 10px 0; padding: 10px 12px; border-radius: 12px; background: #fffdf4; border: 2px solid #e8dfbf; display: flex; flex-direction: column; gap: 7px; }
+.ik-breed-h { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.ik-breed-h b { font-size: 16px; font-weight: 900; }
+.ik-breed-h small { color: var(--fg2); font-weight: 700; }
+.ik-breed-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ik-breed-row > small:first-child { width: 4.5em; flex: none; font-weight: 800; color: var(--fg2); }
+.ik-name { flex: 1; min-width: 10em; max-width: 18em; font-size: 16px; font-weight: 800; }
+.ik-styles { display: flex; gap: 4px; }
+.ik-style { padding: 5px 12px; border-radius: 999px; border: 2px solid #d6cda9; background: #fff; font-weight: 800; cursor: pointer; }
+.ik-style.on { background: linear-gradient(135deg, #a7cb0e, #f3a332); border-color: #113035; color: #113035; }
+.ik-style:disabled { opacity: .35; cursor: not-allowed; }
+.ik-breed-par { color: var(--fg2); }
+.ik-plus { display: flex; gap: 6px; flex-wrap: wrap; font-weight: 800; font-size: 13px; }
+.ik-plus span { padding: 1px 7px; border-radius: 6px; background: #f1ecd8; }
+.ik-plus .p5 { background: #ffe08a; color: #7a4a00; }
+.ik-plus .p4 { background: #fff0c2; }
+/* 育成中の配合の馬（カードの代わりの札） */
+.ik-foal { width: 200px; border-radius: 14px; background: linear-gradient(160deg, #fffdf4, #f4ecd0); border: 3px solid #fff;
+  box-shadow: var(--shadow); padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+.ik-foal-img { width: 100%; aspect-ratio: 1.25; object-fit: contain; opacity: 0; transition: opacity .3s; }
+.ik-foal-img.ready { opacity: 1; }
+.ik-foal-n { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.ik-foal-n b { font-size: 17px; font-weight: 900; }
+.ik-foal-n small, .ik-foal-p { color: var(--fg2); font-size: 12px; font-weight: 700; }
+.ik-foal-p { display: flex; flex-direction: column; }
 .ik-empty { width: 138px; height: 193px; border: 2px dashed var(--line2); border-radius: 10px;
   display: flex; align-items: center; justify-content: center; color: var(--fg2); background: #fffc; }
 
@@ -2089,3 +2117,8 @@ button.ikev-banner:active { transform: translateY(3px); box-shadow: 0 3px 0 var(
   .rh-cap { font-size: 14px; bottom: 62px; } .rh-strip { height: 42px; }
 }
 @media (prefers-reduced-motion: reduce) { .rh-cap, .rh-result { transition: none; } }
+.ik-foal-n .rb { font: 900 12px/1 serif; padding: 4px 6px; border-radius: 7px; border: 2px solid #113035; color: #113035; background: #e8e8f0; }
+.ik-foal-n .rb.r-LM { background: conic-gradient(from 30deg, #ff8fb0, #ffd36a, #fff59a, #9bffc0, #8fe6ff, #b0a2ff, #ff8fb0); }
+.ik-foal-n .rb.r-SSR { background: linear-gradient(#fff6c8, #f2c84a); }
+.ik-foal-n .rb.r-SR { background: linear-gradient(#fff, #c4cad6); }
+.ik-foal-n .rb.r-R { background: linear-gradient(#ffe2c4, #d69a5c); }
