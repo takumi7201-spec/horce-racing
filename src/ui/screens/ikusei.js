@@ -380,7 +380,9 @@ const GACHA_PICK = ['アーモンドアイ', 'ザルカヴァ', 'レイチェル
 function gachaBanner(app) {
   const inPool = (c) => c.pack in I.PACKS;
   const picks = GACHA_PICK.map((n) => I.CARDS.find((c) => c.name === n)).filter(Boolean);
-  const lms = I.CARDS.filter((c) => inPool(c) && c.rar === 'LM');
+  // 顔の列は新しい弾の LM だけ（全弾の LM 30 種を並べると 2 段にあふれて馬の絵に重なった）
+  const newPack = picks[0]?.pack ?? 'P4';
+  const lms = I.CARDS.filter((c) => c.pack === newPack && c.rar === 'LM');
   const total = I.CARDS.filter(inPool).length;
   const have = I.CARDS.filter((c) => inPool(c) && app.ik.cards[c.id]).length;
   const bg = el('span.ikev-bg');
@@ -403,7 +405,7 @@ function gachaBanner(app) {
       el('b.ikev-ttl', { text: '名馬ガチャ' }),
       el('span.ikev-sub', { text: `NEW 第4弾【${I.PACKS.P4}】牡馬を破った名牝 40 頭` }),
       el('span.ikev-rw', [el('i', { text: 'PICK UP' }), el('span', { text: picks.map((c) => c.name).join('・') })]),
-      el('span.ikgb-faces', [el('small', { text: `LM ${lms.length} 種` }), ...faces]),
+      el('span.ikgb-faces', [el('small', { text: `第${newPack.slice(1)}弾 LM ${lms.length} 種` }), ...faces]),
       el('span.ikgb-foot', { text: `全 ${total} 種・所持 ${have} 種　LM ${Math.round(I.RATES.LM * 100)}%・SSR ${Math.round(I.RATES.SSR * 100)}%` }),
     ]),
   ]);

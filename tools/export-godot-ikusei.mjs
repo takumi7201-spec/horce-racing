@@ -1,7 +1,7 @@
 // カード育成モードを Godot へ渡す（godot/data/ikusei/data.json）。
 //
 //   npm run godot-ikusei            データだけ
-//   npm run godot-ikusei -- --art   カードの絵・顔・切り抜き・馬の布も（ブラウザで撮る。数分かかる）
+//   npm run godot-ikusei -- --art   カードの絵・顔・切り抜き・馬の布も（ブラウザで撮る。数分かかる。--only=P4-04 でその札だけ）
 //
 // Godot の育成モード（godot/scripts/ik/）は、ゲームの src/sim/ikusei.js・ikusei-skills.js・race.js を GDScript に
 // 移したもの。数値の表（カード・番組・コース・物理の定数）はここで書き出して、Godot は読むだけにする（二重に持たない）。
@@ -25,6 +25,9 @@ import { raceSkillDefs, supportSkillDefs } from '../src/sim/ikusei-skills.js';
 const ART = process.argv.includes('--art');
 // --bg だけ：カードの背景（馬の居ない一枚絵。バナーとチケットに敷く）だけを撮る
 const BG_ONLY = process.argv.includes('--bg');
+// --only=P4-04,P4-05：その札だけ撮り直す（全部撮ると十数分かかる）
+const ONLY = process.argv.find((x) => x.startsWith('--only='))?.slice(7).split(',') ?? null;
+const ART_CARDS = ONLY ? IK.CARDS.filter((c) => ONLY.includes(c.id)) : IK.CARDS;
 const OUT = 'godot/data/ikusei';
 mkdirSync(OUT, { recursive: true });
 
@@ -107,7 +110,7 @@ try {
 
   const cdir = 'godot/assets/cards';
   mkdirSync(`${cdir}/bg`, { recursive: true });
-  for (const c of IK.CARDS) {
+  for (const c of ART_CARDS) {
     // 背景（ぼかしを焼き込んだ絵）。横 420px の webp
     const url = await page.evaluate(async (id) => {
       const { cardArt } = await import('/src/render3d/cardart.js');
@@ -126,7 +129,7 @@ try {
   if (BG_ONLY) { await browser.close(); server.kill(); process.exit(0); }
   mkdirSync(`${cdir}/face`, { recursive: true });
   mkdirSync(`${cdir}/sticker`, { recursive: true });
-  for (const c of IK.CARDS) {
+  for (const c of ART_CARDS) {
     // カードの表：ホロと箔が止まった姿。傾けるのと光沢は Godot の側で掛ける
     const r = await page.evaluate(async (id) => {
       const { cardView } = await import('/src/ui/cardview.js');

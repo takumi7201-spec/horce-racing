@@ -969,13 +969,15 @@ func _gacha_banner() -> Control:
 	pu.add_child(puh)
 	pu.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	v.add_child(pu)
-	var lms := IK.cards().filter(func(c): return c.rar == "LM" and IK.in_packs(c))
+	# 顔の列は新しい弾の LM だけ（全弾の LM 30 種は 3 段にあふれて馬の絵に重なった）
+	var new_pack: String = IK.card(pick[0]).pack
+	var lms := IK.cards().filter(func(c): return c.rar == "LM" and c.pack == new_pack)
 	var faces := HFlowContainer.new()
 	faces.add_theme_constant_override("h_separation", 4)
 	faces.add_theme_constant_override("v_separation", 4)
 	faces.custom_minimum_size.x = minf(540.0, w0 * 0.52)
 	faces.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var lml := UI.label("LM %d 種" % lms.size(), 11, LEAF2, "black")
+	var lml := UI.label("第%s弾 LM %d 種" % [new_pack.substr(1), lms.size()], 11, LEAF2, "black")
 	lml.custom_minimum_size.y = 30
 	lml.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	faces.add_child(lml)
