@@ -146,7 +146,7 @@ const silksCache = new Map();
 /**
  * 勝負服の布（胴・袖）。u は周（0 が横、0.25 が前、0.75 が背）、v は長さ（胴は腰 0 → 首 1）。
  * custom（{ body, accent, pattern, sleeve: 'plain'|'hoops' }）を渡すと、その色と柄で作る（実在の馬主の服など）。
- * 写真に合わせるときの追加：pattern '十字襷'（前と背に X）・'玉霰'（細かい玉）・'元禄'（市松）・'縦縞細'・'吊り'（ズボン吊り）、
+ * 写真に合わせるときの追加：pattern '十字襷'（前と背に X）・'玉霰'（細かい玉）・'元禄'（市松）・'縦縞細'・'吊り'（ズボン吊り）・'肩章M'、
  * sleeve 'body'（胴と同じ色）・'stripes'（縦縞）・'band'（肘に 1 本）・'cuffs'（袖口だけ）、
  * sleeveBase・sleeveAccent で袖の地と柄の色を胴と別にできる（サンデーレーシングの黒地に黄縦縞の袖など）。
  */
@@ -175,6 +175,12 @@ function silksTextures(id, custom = null) {
   } else if (pat === '玉') {
     for (let y = 18; y < 128; y += 34) for (let x = (y / 34) % 2 ? 16 : 0; x < 256; x += 32) { g.beginPath(); g.arc(x, y, 8, 0, Math.PI * 2); g.fill(); }
   } else if (pat === '肩章') g.fillRect(0, 0, 256, 30);
+  else if (pat === '肩章M') {
+    // 肩章と胸・背の大きな M（ウィンクスのマジックブラッドストックの服）
+    g.fillRect(0, 0, 256, 26);
+    g.font = '900 64px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    for (const cx of [64, 192]) g.fillText('M', cx, 70);
+  }
   else if (pat === '一本輪') g.fillRect(0, 34, 256, 22);
   else if (pat === '十字襷') {
     for (const cx of [64, 192]) for (const r of [-0.85, 0.85]) { g.save(); g.translate(cx, 64); g.rotate(r); g.fillRect(-80, -9, 160, 18); g.restore(); }
