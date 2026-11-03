@@ -146,6 +146,9 @@ const silksCache = new Map();
 /**
  * 勝負服の布（胴・袖）。u は周（0 が横、0.25 が前、0.75 が背）、v は長さ（胴は腰 0 → 首 1）。
  * custom（{ body, accent, pattern, sleeve: 'plain'|'hoops' }）を渡すと、その色と柄で作る（実在の馬主の服など）。
+ * 写真に合わせるときの追加：pattern '十字襷'（前と背に X）・'玉霰'（細かい玉）・'元禄'（市松）・'縦縞細'・'吊り'（ズボン吊り）、
+ * sleeve 'body'（胴と同じ色）・'stripes'（縦縞）・'band'（肘に 1 本）・'cuffs'（袖口だけ）、
+ * sleeveBase・sleeveAccent で袖の地と柄の色を胴と別にできる（サンデーレーシングの黒地に黄縦縞の袖など）。
  */
 function silksTextures(id, custom = null) {
   const key = custom ? JSON.stringify(custom) : id;
@@ -173,6 +176,14 @@ function silksTextures(id, custom = null) {
     for (let y = 18; y < 128; y += 34) for (let x = (y / 34) % 2 ? 16 : 0; x < 256; x += 32) { g.beginPath(); g.arc(x, y, 8, 0, Math.PI * 2); g.fill(); }
   } else if (pat === '肩章') g.fillRect(0, 0, 256, 30);
   else if (pat === '一本輪') g.fillRect(0, 34, 256, 22);
+  else if (pat === '十字襷') {
+    for (const cx of [64, 192]) for (const r of [-0.85, 0.85]) { g.save(); g.translate(cx, 64); g.rotate(r); g.fillRect(-80, -9, 160, 18); g.restore(); }
+  } else if (pat === '玉霰') {
+    for (let y = 10; y < 116; y += 20) for (let x = (y / 20) % 2 ? 10 : 0; x < 256; x += 20) { g.beginPath(); g.arc(x, y, 4.5, 0, Math.PI * 2); g.fill(); }
+  } else if (pat === '元禄') {
+    for (let y = 0; y < 116; y += 29) for (let x = (y / 29) % 2 ? 32 : 0; x < 256; x += 64) g.fillRect(x, y, 32, 29);
+  } else if (pat === '縦縞細') for (let x = 0; x < 256; x += 20) g.fillRect(x, 0, 6, 128);
+  else if (pat === '吊り') for (const x of [44, 76, 172, 204]) g.fillRect(x, 0, 10, 116);   // ズボン吊り（前と背に 2 本ずつ。ストーンストリートの服）
   // 腰の下はズボン（白）。
   g.fillStyle = '#f2f0ea'; g.fillRect(0, 116, 256, 12);
   // 縫い目と布のしわ（ごく弱く）。
@@ -181,10 +192,21 @@ function silksTextures(id, custom = null) {
   const sleeve = document.createElement('canvas');
   sleeve.width = 64; sleeve.height = 64;
   const s = sleeve.getContext('2d');
-  const sleevePat = custom ? (custom.sleeve === 'hoops' ? 0.9 : 0) : hash01(id, 6);
-  s.fillStyle = sleevePat < 0.5 ? B : A;
-  s.fillRect(0, 0, 64, 64);
-  if (sleevePat >= 0.5) { s.fillStyle = B; for (let y = 6; y < 64; y += 18) s.fillRect(0, y, 64, 7); }
+  const sv = custom?.sleeve;
+  if (custom && ['body', 'stripes', 'band', 'cuffs'].includes(sv)) {
+    // 袖の地と柄（既定は胴の地と柄の色）。袖の布の v は肩 0 → 袖口 1（キャンバスの下が肩）
+    const SB = custom.sleeveBase ?? A, SA = custom.sleeveAccent ?? B;
+    s.fillStyle = SB; s.fillRect(0, 0, 64, 64);
+    s.fillStyle = SA;
+    if (sv === 'stripes') for (let x = 0; x < 64; x += 16) s.fillRect(x, 0, 7, 64);
+    else if (sv === 'band') s.fillRect(0, 26, 64, 12);
+    else if (sv === 'cuffs') s.fillRect(0, 2, 64, 12);
+  } else {
+    const sleevePat = custom ? (sv === 'hoops' ? 0.9 : 0) : hash01(id, 6);
+    s.fillStyle = sleevePat < 0.5 ? (custom?.sleeveBase ?? B) : A;
+    s.fillRect(0, 0, 64, 64);
+    if (sleevePat >= 0.5) { s.fillStyle = custom?.sleeveAccent ?? B; for (let y = 6; y < 64; y += 18) s.fillRect(0, y, 64, 7); }
+  }
   s.fillStyle = '#f2f0ea'; s.fillRect(0, 60, 64, 4);   // 袖口のゴム
   const tex = (c) => { const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; };
   const out = { body: tex(body), sleeve: tex(sleeve), pattern: pat };

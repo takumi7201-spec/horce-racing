@@ -134,6 +134,8 @@ const BACKDROPS = {
   desert: { top: [0.56, 0.66, 0.80], horizon: [0.90, 0.88, 0.84], glow: 0.25, infield: 0xcdb58c, trees: false, stand: false, apron: 0xd8c39c },
   // 10 月のパリ（1999 年の凱旋門賞は重馬場の曇天）。夕日の金色を落とし、白っぽい空と濃い芝。
   paris: { top: [0.50, 0.58, 0.68], horizon: [0.86, 0.87, 0.86], glow: 0.12, infield: 0x356f34, trees: true, stand: true },
+  // 曇りの昼（写真に合わせる。2020 年の安田記念は稍重の曇天）
+  cloudy: { top: [0.50, 0.58, 0.68], horizon: [0.86, 0.87, 0.86], glow: 0.12, infield: 0x356f34, trees: true, stand: true },
   // 晴れた昼の競馬場（ダイワスカーレットの返し馬の写真、2008 年秋の東京）。
   day: { top: [0.42, 0.6, 0.86], horizon: [0.88, 0.9, 0.92], glow: 0.18, infield: 0x3f8a3a, trees: true, stand: true },
 };
