@@ -167,6 +167,7 @@ export function createRaceView(canvas, race, opts = {}) {
       frame: log.frameNos ? log.frameNos[i] : Math.min(8, Math.ceil(log.gates[i] / 2)),
       coat: look.coat ?? meta.coat ?? '鹿毛',
       marks: look.marks ?? null,
+      gear: look.gear ?? null,
     });
     const shadow = makeShadowPatch();
     scene.add(h.group, shadow);

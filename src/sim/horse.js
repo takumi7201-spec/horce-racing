@@ -182,8 +182,9 @@ const INJURIES = [
   { name: '繋ぎの炎症', weeks: 8, severity: 0.2 },
   { name: '脚部不安', weeks: 4, severity: 0.1 },
 ];
-export function rollInjury(horse, rng, { extra = 0 } = {}) {
-  const risk = (0.004 + horse.fatigue * 0.055 + extra) * (1.7 - horse.sound);
+export function rollInjury(horse, rng, { extra = 0, mul = 1 } = {}) {
+  // mul はバンテージなど（gear.js）。乱数は同じだけ引く（確率の大きさだけ変える）。
+  const risk = (0.004 + horse.fatigue * 0.055 + extra) * (1.7 - horse.sound) * mul;
   if (!rng.chance(risk)) return null;
   const inj = rng.weighted(INJURIES, [14, 4, 26, 8, 20, 28]);
   horse.injury = { name: inj.name, weeks: Math.round(inj.weeks * rng.range(0.6, 1.2)) };

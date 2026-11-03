@@ -318,7 +318,7 @@ export function shootFinish(renderer, o) {
   // 馬：主役と相手。脚の位相は update に「進んだ距離」で渡す（1 完歩 = STRIDE m）。
   const models = [];
   const place = (h, dx, dz, ph, detail) => {
-    const m = makeHorse({ id: h.id, gate: h.gate ?? 1, frame: h.frame ?? 1, coat: h.coat, marks: h.marks ?? null, silks: h.silks ?? null, detail, riderPose: h === hero ? riderPose : 'race' });
+    const m = makeHorse({ id: h.id, gate: h.gate ?? 1, frame: h.frame ?? 1, coat: h.coat, marks: h.marks ?? null, silks: h.silks ?? null, gear: h.gear ?? null, detail, riderPose: h === hero ? riderPose : 'race' });
     m.update(((ph % 1) + 1) % 1 * STRIDE, 17, 0);
     // 写真に合わせて脚ごとの角度を上書きする（legPose：lf 左前・rf 右前・lh 左後・rh 右後 → { hip, knee, fetlock } のラジアン）。
     // 股は正で後ろ、前脚の膝は正で蹄を後ろへ畳む。位相だけでは「左前を伸ばし、右前は畳む」の組み合わせが作れなかった。

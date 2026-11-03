@@ -948,3 +948,136 @@ export function faceTexture(coat, coatHex, id, size = 512, face = null) {
   }
   return tex;
 }
+
+// ---------------------------------------------------------------- 馬具（sim/gear.js）
+//
+// どれも体表の座標 (s, f) で置く（落とし穴 87）。頭の組に付けるので、首を振ってもずれない。
+// - メンコ：項から目の下までを覆う覆面（目の穴あき）と、耳を包む耳袋。縁と目の穴は縁取りの帯。
+// - ブリンカー：目の外の椀（後ろと横を覆い、前は開いている）。メンコの上に付ける。
+// - シャドーロール：鼻革の上半分を覆う太いボア。
+// - チークピーシーズ：頬革に沿うボア。
+
+/** 目の中心（体表の座標）。 */
+export function eyeSF() {
+  const E = features().eye;
+  return { s: E.s, f: fOfA(E.s, E.a) };
+}
+
+/** 面の帯（体表の座標の格子）。keep(s, f) が偽の格子は抜く（目の穴）。 */
+function surfacePatch(s0, s1, fMax, keep, { lift = 0.006, ns = 28, nf = 36, front = null } = {}) {
+  const pos = [], idx = [];
+  const at = [];
+  for (let i = 0; i <= ns; i++) {
+    const row = [];
+    for (let j = 0; j <= nf; j++) {
+      const f = -fMax + (2 * fMax * j) / nf;
+      // 前の縁は顎の側ほど後ろへ下げる（覆面の下の縁が口角へ向かって斜めに切れる）
+      const sEnd = front ? front(f) : s1;
+      const s = s0 + ((sEnd - s0) * i) / ns;
+      row.push(pos.length / 3);
+      pos.push(...headPoint(s, f, { lift }).toArray());
+      at.push([s, f]);
+    }
+  }
+  const W = nf + 1;
+  for (let i = 0; i < ns; i++) {
+    for (let j = 0; j < nf; j++) {
+      const a = i * W + j, b = a + 1, c = a + W, d = c + 1;
+      const [sm, fm] = [(at[a][0] + at[d][0]) / 2, (at[a][1] + at[d][1]) / 2];
+      if (!keep(sm, fm)) continue;
+      idx.push(a, c, b, b, c, d);
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  return geo;
+}
+
+/** 体表の座標の楕円（目の穴の縁）。 */
+const ellipsePath = (s, f, rs, rf, n = 28) => {
+  const out = [];
+  for (let k = 0; k <= n; k++) { const t = (2 * Math.PI * k) / n; out.push([s + rs * Math.cos(t), f + rf * Math.sin(t)]); }
+  return out;
+};
+
+/**
+ * メンコ（覆面と耳袋）。cloth は布、trim は縁取り。耳袋は耳の組の座標（付け根が原点、+y が上）で返す。
+ */
+export function menkoGeometries(detail = 'high') {
+  const hi = detail === 'high';
+  const E = eyeSF();
+  const RS = 0.034, RF = 0.105;   // 目の穴（軸方向 m・周方向の割合）
+  const inHole = (s, f) => {
+    const ds = (s - E.s) / RS, df = (Math.abs(f) - E.f) / RF;
+    return ds * ds + df * df < 1;
+  };
+  const front = (f) => 0.27 - 0.07 * f * f;            // 鼻筋の上ほど前まで覆う
+  const cloth = surfacePatch(-0.05, 0.27, 0.78, (s, f) => !inHole(s, f), { lift: 0.0065, ns: hi ? 30 : 14, nf: hi ? 40 : 18, front });
+  const frontEdge = [];
+  for (let k = 0; k <= 30; k++) { const f = -0.78 + (1.56 * k) / 30; frontEdge.push([front(f), f]); }
+  const trim = merge([
+    strap(ellipsePath(E.s, E.f, RS, RF), { width: 0.012, lift: 0.0085 }),
+    strap(ellipsePath(E.s, -E.f, RS, RF), { width: 0.012, lift: 0.0085 }),
+    strap(frontEdge, { width: 0.014, lift: 0.0085 }),
+  ]);
+  // 耳袋：耳より一回り大きい、先の丸い円錐（耳の組の座標）。
+  const ear = new THREE.ConeGeometry(0.046, 0.175, hi ? 18 : 8, 1, true).translate(0, 0.0875, 0).scale(1, 1, 0.72);
+  const tip = new THREE.SphereGeometry(0.009, 8, 6).translate(0, 0.176, 0);
+  const earCup = merge([ear, tip]);
+  earCup.computeVertexNormals();
+  for (const g of [cloth, trim, earCup]) g.userData.shared = true;
+  return { cloth, trim, earCup };
+}
+
+/** ブリンカーの椀（目の外。後ろと横を覆い、前は開く）。 */
+export function blinkerGeometry() {
+  const E = eyeSF();
+  const cup = (f) => {
+    // 4 分の 1 の球（後ろ側と外側）。体表の向きにそろえる。
+    // 小さいと目の脇のこぶにしか見えなかった。目より一回り大きく、外へ張り出させる
+    const g = new THREE.SphereGeometry(0.068, 18, 12, 0, Math.PI / 2, 0.12, Math.PI - 0.24).scale(1, 0.9, 0.85);
+    return placeOn(g, E.s - 0.006, f, { lift: 0.006 });
+  };
+  const g = merge([cup(E.f), cup(-E.f)]);
+  g.computeVertexNormals();
+  g.userData.shared = true;
+  return g;
+}
+
+/** 体表の座標の線に沿う太い管（ボア）。 */
+function fleece(path, radius, lift, seg = 48) {
+  const pts = path.map(([s, f]) => headPoint(s, f, { lift }));
+  const curve = new THREE.CatmullRomCurve3(pts);
+  const g = new THREE.TubeGeometry(curve, seg, radius, 12, false);
+  return g;
+}
+
+/** シャドーロール（鼻革の上を覆うボア）。 */
+export function shadowRollGeometry() {
+  const path = [];
+  // 鼻筋の上ほど太く盛る（実物は上が厚いボア。側面まで同じ太さだと輪投げの輪に見えた）
+  for (let k = 0; k <= 24; k++) { const f = -0.62 + (1.24 * k) / 24; path.push([0.335 + 0.035 * f * f, f]); }
+  const g = fleece(path, 0.032, 0.03);
+  const pos = g.getAttribute('position');
+  const c = headPoint(0.335, 0);
+  for (let i = 0; i < pos.count; i++) {
+    const p = new THREE.Vector3().fromBufferAttribute(pos, i);
+    const up = p.clone().sub(c).dot(HEAD_U);       // 鼻筋の上（額側）ほど外へ
+    p.addScaledVector(HEAD_U, Math.max(0, up + 0.02) * 0.35);
+    pos.setXYZ(i, p.x, p.y, p.z);
+  }
+  g.computeVertexNormals();
+  g.userData.shared = true;
+  return g;
+}
+
+/** チークピーシーズ（頬革に沿うボア。口角の上から目の下まで）。 */
+export function cheekGeometry() {
+  const R = [[0.44, 0.56], [0.36, 0.545], [0.27, 0.52], [0.21, 0.5]];
+  const L = R.map(([s, f]) => [s, -f]);
+  const g = merge([fleece(R, 0.02, 0.02, 16), fleece(L, 0.02, 0.02, 16)]);
+  g.userData.shared = true;
+  return g;
+}

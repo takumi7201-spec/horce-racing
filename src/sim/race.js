@@ -25,6 +25,7 @@ import {
 } from './horse.js';
 import { buildTrack, curvatureAt, gradeAt, SURFACE, posToWorld, getCourse } from './course.js';
 import { clamp, clamp01, lerp, formatMargin } from '../core/util.js';
+import { gearEffect } from './gear.js';
 
 /** 馬 1 頭が横に必要とする幅（m）。進路の取り合いの判定に使う。 */
 const BODY_W = 2.2;
@@ -87,9 +88,13 @@ function prepareRunner(entry, spec, rng) {
     240, Math.min(1000, spec.distance - 180),
   );
 
-  // ゲート。気性と騎手で出遅れる。
+  // 馬具（世界のレースだけ entry.gear を持つ。持たない馬は何も変わらない：育成モードと Godot の一致を保つ）。
+  // 効き目は気性に足す量で、気性の悪い馬ほど効く（gear.js）。
+  const gx = gearEffect(entry.gear, horse.temper);
+
+  // ゲート。気性と騎手で出遅れる（メンコ・シャドーロールで音や影に驚かない）。
   const gateDelay = Math.max(0, PHYS.GATE_BASE
-    + rng.normal(0, 0.17) * (1.6 - horse.temper)
+    + rng.normal(0, 0.17) * (1.6 - (horse.temper + gx.start))
     - (jk.skill - 0.5) * 0.12);
 
   return {
@@ -101,8 +106,8 @@ function prepareRunner(entry, spec, rng) {
     // 掛かりやすさ。気性が悪いと道中で引っ張り合いになり余力を使う。
     // 平均的な気性（0.5）では掛からない。ここを緩くすると全馬の回顧が
     // 「終始掛かり気味」になり、言葉として意味を失う。
-    pull: clamp01((0.52 - horse.temper) * 2.4 - jk.skill * 0.4),
-    guts: eff.guts, spirit: horse.spirit,
+    pull: clamp01((0.52 - (horse.temper + gx.pull)) * 2.4 - jk.skill * 0.4),
+    guts: eff.guts, spirit: horse.spirit, focus: gx.focus,
     accMax: PHYS.ACC_MAX_BASE + PHYS.ACC_MAX_GAIN * eff.power,
     // 状態
     p: 0, v: 0, s: 0, off: 0, hpLeft: hp, busted: false, bustT: 0,
@@ -214,6 +219,8 @@ export function simulateRace(spec, rng, opts = {}) {
       // 残り 400m は根性と底力で粘る。
       if (rem < 400) {
         vCap *= 1 + PHYS.GUTS_GAIN * (r.guts * 0.7 + r.spirit * 0.3) * (1 - rem / 400);
+        // ブリンカー：前だけを見て、追ってから集中する
+        if (r.focus) vCap *= 1 + r.focus * (1 - rem / 400);
       }
 
       // --- 目標速度 ---

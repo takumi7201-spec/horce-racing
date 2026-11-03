@@ -9,6 +9,7 @@ import { clamp01, lerp } from '../core/util.js';
 import { rollInjury, horseAge } from './horse.js';
 import { trainerBonus } from './jockey.js';
 import { NO_EFFECT } from './facilities.js';
+import { gearOf, gearEffect } from './gear.js';
 
 /**
  * 調教メニュー。
@@ -75,7 +76,7 @@ export function trainWeek(horse, rng, { year, trainer, menuId = 'normal', fx = N
   if (menu.id === 'gate') horse.temper = clamp01(horse.temper + 0.006);
 
   const risk = menu.risk * tb.injury;
-  const injury = rollInjury(horse, rng, { extra: risk > 0 ? risk * (1 - fx.safety) : risk });
+  const injury = rollInjury(horse, rng, { extra: risk > 0 ? risk * (1 - fx.safety) : risk, mul: gearEffect(gearOf(horse), horse.temper).injury });
   return { injury, grew };
 }
 

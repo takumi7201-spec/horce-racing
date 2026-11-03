@@ -69,8 +69,33 @@ func build_with(meta: Dictionary, tex: Dictionary, surface: String) -> void:
 			fetlock = root.find_child(L[0] + "_fetlock", true, false), front = L[1], gallop = L[2], walk = L[3], name = L[0],
 		})
 	_apply_skin(root, meta, tex)
+	_apply_gear(root, meta.get("gear", []))
 	_build_reins(root)
 	_build_kicks(surface)
+
+
+# ------------------------------------------------------------------ 馬具（sim/gear.js）
+# 形は全部の馬具を付けた馬で書き出してある（tools/export-godot-horse.mjs）。付けていない馬具の面は隠す。
+# 色（メンコ・シャドーロール）は skins.json の mats に入っているので、_apply_skin がもう塗ってある。
+const GEAR_MATS := {menko = ["menko", "menkoTrim"], blinker = ["blinker"], shadowRoll = ["shadowRoll"], cheek = ["cheek"], bandage = ["bandage"]}
+
+
+func _apply_gear(root: Node, gear: Array) -> void:
+	var hide := {}
+	for k in GEAR_MATS:
+		if not gear.has(k):
+			for nm in GEAR_MATS[k]:
+				hide[nm] = true
+	for mi in root.find_children("*", "MeshInstance3D", true, false):
+		var m: Material = mi.mesh.surface_get_material(0) if mi.mesh.get_surface_count() > 0 else null
+		if m != null and hide.has(m.resource_name):
+			mi.visible = false
+	# メンコを付けた馬は前髪を中に入れる（ゲームと同じ）
+	if gear.has("menko"):
+		for mi in root.find_children("*", "MeshInstance3D", true, false):
+			var m2: Material = mi.mesh.surface_get_material(0) if mi.mesh.get_surface_count() > 0 else null
+			if m2 != null and m2.resource_name == "hair" and mi.get_parent() == head:
+				mi.visible = false
 
 
 # ------------------------------------------------------------------ 布と色

@@ -1045,6 +1045,30 @@ section('実在馬の白斑');
   check('レースの 3D に世界の毛色が渡る', runners.length === 5 && runners.every((h) => looks.get(h.id)?.coat === h.coat));
 }
 
+section('馬具');
+{
+  const Gr = await import('../src/sim/gear.js');
+  const live = [...w.horses.values()].filter((h) => !h.dead && !h.retired && h.ownerId !== 'player').slice(0, 2000);
+  const rate = (k) => live.filter((h) => Gr.gearOf(h)[k]).length / live.length;
+  const same = live.slice(0, 50).every((h) => JSON.stringify(Gr.gearOf(h)) === JSON.stringify(Gr.npcGear(h)));
+  check(`NPC の馬具は id と気性から決まる（メンコ ${(rate('menko') * 100).toFixed(0)}%・ブリンカー ${(rate('blinker') * 100).toFixed(0)}%・シャドーロール ${(rate('shadowRoll') * 100).toFixed(0)}%）`,
+    same && rate('menko') > 0.25 && rate('menko') < 0.6 && rate('blinker') > 0.02 && rate('blinker') < 0.3);
+  const bad = live.filter((h) => h.temper < 0.4), good = live.filter((h) => h.temper > 0.65);
+  const br = (L) => L.filter((h) => Gr.gearOf(h).blinker).length / Math.max(1, L.length);
+  check(`気性の悪い馬ほどブリンカーを付ける（気性難 ${(br(bad) * 100).toFixed(0)}%・素直 ${(br(good) * 100).toFixed(0)}%）`, br(bad) > br(good));
+  const e0 = Gr.gearEffect(undefined, 0.3), eb = Gr.gearEffect({ blinker: true, menko: '#fff' }, 0.3), eg = Gr.gearEffect({ blinker: true }, 0.8);
+  check('馬具の無い馬は何も変わらず、気性の悪い馬ほど効く', e0.start === 0 && e0.pull === 0 && e0.focus === 0 && e0.injury === 1
+    && eb.pull > 0.05 && eb.start > 0.05 && eg.pull === 0);
+  const mine = w.player.horses.map((x) => w.horses.get(x.id ?? x)).find((h) => h && !h.retired);
+  const other = live[0];
+  const r1 = GG.setHorseGear(game, mine.id, { menko: '#c8202a', blinker: true, cheek: true, bandage: true });
+  const r2 = GG.setHorseGear(game, other.id, { blinker: true });
+  check(`自分の馬だけ馬具を決められ、ブリンカーとチークピーシーズは重ねない（${GG.gearNames(r1.gear).join('・')}）`,
+    r1.ok && !r2.ok && r1.gear.blinker && !r1.gear.cheek && GG.horseView(game, mine.id).gear.menko === '#c8202a');
+  GG.setHorseGear(game, mine.id, {});
+  check('馬具を外すと「付けない」と決めたまま（id から導く馬具に戻らない）', JSON.stringify(Gr.gearOf(mine)) === '{}');
+}
+
 section('カード育成モード');
 {
   const I = await import('../src/sim/ikusei.js');

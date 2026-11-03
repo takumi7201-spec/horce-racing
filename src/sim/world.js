@@ -40,6 +40,7 @@ import {
 } from './realsires.js';
 import { W, ABROAD_COST } from './schedule.js';
 import { historicalRunners, foreignRunners, ghostRunners, readyAbroad, FOREIGN_JOCKEYS, isAbroadRunnerOf } from './abroad.js';
+import { gearOf, gearEffect } from './gear.js';
 
 /**
  * 1 世代あたりの産駒数。
@@ -1009,6 +1010,7 @@ export function advanceWeek(world, opts = {}) {
         gate: i + 1,
         frame: frameOf(i + 1, horses.length),
         styleOrder: isPlayer ? pe?.styleOrder : null,
+        gear: gearOf(h),
       };
     });
 
@@ -1108,7 +1110,7 @@ function applyResult(world, race, res, rng, news) {
     if (h.record.length > 30) h.record.shift();
     h.classId = classForWins(h.wins);
     applyRaceEffect(h, rng, { year: world.year, distance: race.distance, order: r.order, field, hard });
-    rollInjury(h, rng, { extra: hard ? 0.012 : 0.004 });
+    rollInjury(h, rng, { extra: hard ? 0.012 : 0.004, mul: gearEffect(gearOf(h), h.temper).injury });
 
     // 騎手・調教師の成績。
     const j = r.jockeyId != null ? world.jockeys.get(r.jockeyId) : null;

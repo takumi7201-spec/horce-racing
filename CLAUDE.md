@@ -16,7 +16,7 @@ three.js は `vendor/three/` に同梱している（CDN に依存させない�
 
 ```bash
 npm start                  # http://localhost:8080（Node だけで配信）
-npm test                   # 265 項目の検証。数字をいじったら必ず通す
+npm test                   # 270 項目の検証。数字をいじったら必ず通す
 npm run timecheck          # レースの時計だけを実測レンジと照合
 npm run season -- --years 10   # 10 年回して競馬界の健全性を見る（--start 1975 で開始年）
 npm run icons              # PWA アイコンを書き出す
@@ -1192,6 +1192,23 @@ Playwright で操作するときは、週送りは左下の NEXT（`.nextb`、�
       と `sleeveBase`・`sleeveAccent`。曇りの背景 `cloudy`（`photostage.js`）。
     - **Commons の API は共用の出口から 429 が続く。** `upload.wikimedia.org` のサムネイルを md5 のパスで直に取り、断られたら元の画像を取る。
       SVG の服の図は 960px の PNG が作られず断られ続けることがある。1 枚に数分かかるので裏で順に取る。
+
+99. **馬具（`sim/gear.js`：メンコ・シャドーロール・ブリンカー・チークピーシーズ・バンテージ）。**
+    - **効き目は気性に足す量で、気性の悪い馬ほど効く**（`gearEffect`。気性 0.6 以上にはほぼ効かない）：メンコはゲートの出遅れ、
+      シャドーロールは出遅れと掛かり、ブリンカーは掛かりと残り 400m の集中（`focus`、最大 1.2%）、チークピーシーズはその弱いもの、
+      バンテージは故障の起きやすさ ×0.85（`rollInjury` の `mul`。乱数は同じだけ引く）。
+    - **世界のレースだけが馬具を持つ**（`world.js` が出走の行に `gear: gearOf(h)` を付ける）。race.js は `entry.gear` の無い馬では
+      何も変えないので、カード育成モード（とその Godot 版 race_sim.gd）の結果は変わらない（`godot-ikusei-verify` 一致のまま）。
+    - **NPC の馬具は馬 id と気性から決める（`npcGear`、乱数を使わない・保存しない）**：メンコ 3 割強、気性難ほどブリンカー・シャドーロール、
+      バンテージ 35%。プレイヤーが決めた馬具だけ `horse.gear` に保存する（外しても「付けない」と決めたまま、id からの馬具に戻らない）。
+    - 画面：馬の詳細の「詳細」タブの一覧に「馬具」の行（上の枠に置いたら高さが足りず見切れた）。自分の現役馬は「変更」で付け替え
+      （`G.setHorseGear`、メンコとシャドーロールは色を選べる、ブリンカーとチークピーシーズは重ねない）。
+    - 3D（`horsehead.js` の `menkoGeometries`・`blinkerGeometry`・`shadowRollGeometry`・`cheekGeometry`、`makeHorse({ gear })`）：
+      メンコは項から目の下までの覆面（目の穴と縁取り）と耳袋、ブリンカーは目の外の椀、シャドーロールは鼻革の上のボア（鼻筋の上ほど厚く盛る。
+      同じ太さの管だと輪投げの輪に見えた）、バンテージは管に一回り太く巻く。**メンコを付けた馬は前髪を隠す**（覆面を突き抜けて額に黒い筋が出た）。
+      レース（`G.raceLooks` が渡す）・馬の詳細（鞍を付けた現役馬だけ）・カードの一枚絵（`card.gear`）に出る。
+    - Godot：馬の形は全部の馬具を付けた形で書き出し（`export-godot-horse.mjs`）、`horse_model.gd` の `_apply_gear` が付けていない馬具の面を隠す。
+      レースの書き出し（`export-godot-races.mjs`）が出走馬ごとに `npcGear` で馬具を書く（見た目だけ）。確かめは `godot/tests/gear_check.gd`。
 
 ## 健全性の目安（`npm test` が見ている）
 

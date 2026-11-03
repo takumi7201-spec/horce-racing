@@ -31,7 +31,9 @@ try {
     const { makeHorse } = await import('/src/render3d/horse3d.js');
     const { GLTFExporter } = await import('/tools/vendor/GLTFExporter.js');
     // 脚の白なし・鹿毛を形の手本にする（色と布は Godot で馬ごとに差し替える）
-    const h = makeHorse({ id: 1, gate: 1, frame: 1, coat: '鹿毛', detail: 'high', marks: { legs: [0, 0, 0, 0] } });
+    // 馬具は全部付けた形で書き出し、Godot が馬ごとに要らないものを隠す（horse_model.gd の _apply_gear）
+    const h = makeHorse({ id: 1, gate: 1, frame: 1, coat: '鹿毛', detail: 'high', marks: { legs: [0, 0, 0, 0] },
+      gear: { menko: '#ffffff', shadowRoll: '#ffffff', blinker: true, cheek: true, bandage: true } });
     h.update(0, 0);
     const g = h.group;
     const reins = g.getObjectByName('reins');
@@ -58,7 +60,7 @@ try {
   const index = JSON.parse(readFileSync('godot/data/races.json', 'utf8')).races;
   for (const R of index) {
     const race = JSON.parse(readFileSync(`godot/data/races/${R.id}.json`, 'utf8'));
-    const runners = race.horses.map((h) => ({ gate: h.gate, frame: h.frame, coat: h.coat, hid: h.hid, marks: h.marks, silks: h.silks }));
+    const runners = race.horses.map((h) => ({ gate: h.gate, frame: h.frame, coat: h.coat, hid: h.hid, marks: h.marks, silks: h.silks, gear: h.gear ?? null }));
     const skins = await page.evaluate(async (runners) => {
       const { makeHorse } = await import('/src/render3d/horse3d.js');
       const { faceTexture } = await import('/src/render3d/horsehead.js');
@@ -78,7 +80,7 @@ try {
         return c.toDataURL('image/png');
       };
       return runners.map((r) => {
-        const h = makeHorse({ id: r.hid, gate: r.gate, frame: r.frame, coat: r.coat, marks: r.marks, silks: r.silks, detail: 'high' });
+        const h = makeHorse({ id: r.hid, gate: r.gate, frame: r.frame, coat: r.coat, marks: r.marks, silks: r.silks, gear: r.gear, detail: 'high' });
         const mats = {};
         const tex = {};
         h.group.traverse((o) => {
@@ -100,7 +102,7 @@ try {
           const m = (g) => g.children.filter((c) => c.isMesh).map((c) => c.material.name || 'hide');
           legs[L] = { cannon: m(k)[0], pastern: m(f)[0], hoof: m(f)[1] };
         }
-        return { gate: r.gate, mats, tex, legs };
+        return { gate: r.gate, mats, tex, legs, gear: Object.keys(r.gear ?? {}).filter((k) => r.gear[k]) };
       });
     }, runners);
     const dir = `godot/assets/horse/skins/${R.id}`;
@@ -110,7 +112,7 @@ try {
       for (const [k, url] of Object.entries(s.tex)) {
         if (url) writeFileSync(`${dir}/${s.gate}_${k}.png`, Buffer.from(url.split(',')[1], 'base64'));
       }
-      meta[s.gate] = { mats: s.mats, legs: s.legs };
+      meta[s.gate] = { mats: s.mats, legs: s.legs, gear: s.gear };
     }
     writeFileSync(`${dir}/skins.json`, JSON.stringify(meta));
     console.log(`${R.name}：${skins.length} 頭の布`);

@@ -11,6 +11,7 @@ import { writeFileSync, mkdirSync } from 'node:fs';
 import { CARDS, runRace } from '../src/sim/ikusei.js';
 import { EVENTS } from '../src/sim/data/events.js';
 import { buildTrack } from '../src/sim/course.js';
+import { npcGear } from '../src/sim/gear.js';
 
 const specOf = (c, id) => ({
   id, name: c.name, sex: c.sex, coat: c.coat, ab: c.v, dist: c.dist, range: c.range,
@@ -66,6 +67,8 @@ for (const R of RACES) {
       id, name: log.names[k], gate: log.gates[k], frame: log.frameNos[k], coat: c.coat, sex: c.sex,
       // 見た目（tools/export-godot-horse.mjs がゲーム本体の馬の布を撮るのに使う）：馬 id は白斑と勝負服を決める数、marks は実在馬の白斑
       hid: c.hid ?? strHash(c.name), marks: c.marks ?? null, silks: c.silks ?? null, order: r.order, time: r2(r.time), pos, off,
+      // 馬具は見た目だけ（このレースの計算には入れていない。馬 id から NPC と同じ決め方で）
+      gear: npcGear({ id: c.hid ?? strHash(c.name), temper: 0.5 }),
     };
   });
   const out = {

@@ -2122,3 +2122,20 @@ button.ikev-banner:active { transform: translateY(3px); box-shadow: 0 3px 0 var(
 .ik-foal-n .rb.r-SSR { background: linear-gradient(#fff6c8, #f2c84a); }
 .ik-foal-n .rb.r-SR { background: linear-gradient(#fff, #c4cad6); }
 .ik-foal-n .rb.r-R { background: linear-gradient(#ffe2c4, #d69a5c); }
+
+/* 馬具（馬の詳細の欄と付け替えの画面） */
+.gearline { display: inline-flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.gearline i { font-style: normal; font-size: 12px; padding: 1px 7px; border-radius: 999px; background: #eef3e6; border: 1px solid #0001; }
+.gearline i.gearchip { display: inline-flex; align-items: center; gap: 4px; }
+.gdot { width: 9px; height: 9px; border-radius: 50%; border: 1px solid #0006; display: inline-block; }
+.gchange { font-size: 12px; padding: 1px 8px; border-radius: 999px; border: 1px solid #2f8f4a; background: #fff; color: #2f8f4a; cursor: pointer; font-weight: 700; }
+.gearm { display: flex; flex-direction: column; gap: 8px; min-width: min(420px, 82vw); }
+.gear-row { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line2, #0002); }
+.gear-row.on { border-color: #e6a800; background: #fff7d8; }
+.gear-tog { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; background: none; border: 0; padding: 0; text-align: left; cursor: pointer; color: inherit; }
+.gear-tog b { font-size: 15px; }
+.gear-tog small { opacity: .75; }
+.gear-colors { display: flex; gap: 6px; flex-wrap: wrap; }
+.gear-c { width: 24px; height: 24px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 1px #0005; cursor: pointer; }
+.gear-c.on { box-shadow: 0 0 0 3px #e6a800; }
+.gear-acts { display: flex; gap: 8px; justify-content: flex-end; }

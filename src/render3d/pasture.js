@@ -508,7 +508,7 @@ export function createPasture(canvas, labelLayer) {
    *   tack は現役の競走馬だけ（繁殖牝馬に鞍は置かない）
    */
   function setPortrait(info) {
-    const key = info ? `${info.id}:${info.coat}:${info.age ?? 3}:${info.tack ? 1 : 0}` : '';
+    const key = info ? `${info.id}:${info.coat}:${info.age ?? 3}:${info.tack ? 1 : 0}:${JSON.stringify(info.gear ?? null)}` : '';
     if ((portrait?.key ?? '') === key) return;
     if (portrait) {
       scene.remove(portrait.model.group);
@@ -522,7 +522,8 @@ export function createPasture(canvas, labelLayer) {
       return;
     }
     const young = (info.age ?? 3) < 2;
-    const model = makeHorse({ id: info.id, coat: info.coat, marks: info.marks ?? null, bare: true, tack: !!info.tack && !young, scale: foalScale(info.age) });
+    // 馬具は鞍を付けた現役の競走馬だけ（放牧中の馬にメンコは付けない）
+    const model = makeHorse({ id: info.id, coat: info.coat, marks: info.marks ?? null, bare: true, tack: !!info.tack && !young, gear: info.tack && !young ? info.gear ?? null : null, scale: foalScale(info.age) });
     model.group.traverse((o) => { if (o.isMesh) o.castShadow = true; });
     model.group.position.copy(PORTRAIT_POS);
     model.group.rotation.y = yawForZForward(PORTRAIT_HEADING);

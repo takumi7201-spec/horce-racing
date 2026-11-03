@@ -23,6 +23,7 @@ import { lerp } from '../core/util.js';
 import {
   headGeometry, eyeGeometries, earGeometry, earBase, forelockGeometry, faceTexture,
   halterGeometries, bridleGeometries, hash01,
+  menkoGeometries, blinkerGeometry, shadowRollGeometry, cheekGeometry,
 } from './horsehead.js';
 
 /** 1 完歩の距離（m）。 */
@@ -590,7 +591,7 @@ function makeReins(mat) {
  *   detail は頭の細かさ（'high' 牧場・詳細、'low' レース）。既定は bare なら high
  * @returns {{group:THREE.Group, update:Function, legs:Array, body:THREE.Group, rider:THREE.Group|null}}
  */
-export function makeHorse({ id = 1, gate = 1, frame = 1, coat = '鹿毛', scale = 1, bare = false, tack = false, padColor = 0xe8c33a, detail = null, riderPose = 'race', marks = null, silks = null } = {}) {
+export function makeHorse({ id = 1, gate = 1, frame = 1, coat = '鹿毛', scale = 1, bare = false, tack = false, padColor = 0xe8c33a, detail = null, riderPose = 'race', marks = null, silks = null, gear = null } = {}) {
   const S = shapes();
   const group = new THREE.Group();
   const body = new THREE.Group();   // 胴体まわり（上下に揺れる）
@@ -642,7 +643,7 @@ export function makeHorse({ id = 1, gate = 1, frame = 1, coat = '鹿毛', scale 
   const faceMat = new THREE.MeshStandardMaterial({ map: faceTexture(coat, coatColor, id, high ? 512 : 256, marks?.face ? marks : null), roughness: 0.52, metalness: 0 });
   faceMat.name = 'face';
   mesh(headPivot, high ? S.headHigh : S.headLow, faceMat);
-  mesh(headPivot, S.forelock, hairMat);
+  const forelockMesh = mesh(headPivot, S.forelock, hairMat);
   // 目：角膜の艶（クリアコート）を持つ黒褐色の玉と、まぶたの縁（黒い皮膚）・まぶたの皮膚。
   // 色の掛け算は線形の値なので、見た目で 8 割の暗さにするには 0.6 前後を掛ける。
   const eyeBall = new THREE.MeshPhysicalMaterial({ color: 0x1b120c, roughness: 0.35, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.04 });
@@ -667,6 +668,29 @@ export function makeHorse({ id = 1, gate = 1, frame = 1, coat = '鹿毛', scale 
     mesh(pivot, i === 0 ? S.earL : S.earR, [hide, earInner]);
     return pivot;
   });
+
+  // --- 馬具（sim/gear.js。gear が無ければ付けない） ---
+  // 形は全頭で共有（細かさの 2 段ごと）、色だけ馬ごと。ボアは毛足の長い布なので艶なし。
+  if (gear) {
+    const det = high ? 'high' : 'low';
+    S.gear ??= {};
+    const G = (S.gear[det] ??= { menko: menkoGeometries(det), blinker: blinkerGeometry(), shadow: shadowRollGeometry(), cheek: cheekGeometry() });
+    const cloth = (c, name) => new THREE.MeshStandardMaterial({ name, color: new THREE.Color(c), roughness: 0.85, metalness: 0, side: THREE.DoubleSide });
+    if (gear.menko) {
+      // 前髪はメンコの中に入れる（出しておくと覆面を突き抜けて額に黒い筋が出た）
+      forelockMesh.visible = false;
+      const mc = cloth(gear.menko, 'menko');
+      // 縁取りは地と対になる色（白い地には紺、ほかは白）
+      const light = new THREE.Color(gear.menko).getHSL({ h: 0, s: 0, l: 0 }).l > 0.7;
+      mesh(headPivot, G.menko.cloth, mc);
+      mesh(headPivot, G.menko.trim, cloth(light ? '#1f3f9e' : '#f4f2ec', 'menkoTrim'));
+      for (const e of ears) mesh(e, G.menko.earCup, mc);
+    }
+    if (gear.blinker) mesh(headPivot, G.blinker, cloth(gear.menko ?? '#1c1c1c', 'blinker'));
+    if (gear.shadowRoll) mesh(headPivot, G.shadow, new THREE.MeshStandardMaterial({ name: 'shadowRoll', color: new THREE.Color(gear.shadowRoll), roughness: 1, metalness: 0 }));
+    if (gear.cheek) mesh(headPivot, G.cheek, new THREE.MeshStandardMaterial({ name: 'cheek', color: 0xf4f2ec, roughness: 1, metalness: 0 }));
+  }
+  const bandageMat = gear?.bandage ? new THREE.MeshStandardMaterial({ name: 'bandage', color: 0xf2f0ea, roughness: 0.9, metalness: 0 }) : null;
 
   // 白斑（顔）は布に描いてある。脚の白は芦毛・白毛には付けない。
   const markable = coat !== '芦毛' && coat !== '白毛';
@@ -719,6 +743,8 @@ export function makeHorse({ id = 1, gate = 1, frame = 1, coat = '鹿毛', scale 
     };
     const cannonName = d.front ? 'foreCannon' : 'hindCannon';
     mesh(knee, ...part(cannonName, S[cannonName].geo));
+    // バンテージ：管に一回り太く巻く（膝の下から球節まで）
+    if (bandageMat) mesh(knee, S[cannonName].geo, bandageMat).scale.set(1.12, 0.96, 1.12);
     const fetlock = new THREE.Group();
     fetlock.name = `${legName}_fetlock`;
     fetlock.position.set(0, d.front ? -0.345 : -0.385, 0);

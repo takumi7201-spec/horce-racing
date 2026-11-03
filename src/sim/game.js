@@ -24,6 +24,8 @@ import {
 } from './params.js';
 import { SURFACE, courseName, courseShort as courseShortOf, getCourse, DIR } from './course.js';
 import { marksOf } from './markings.js';
+import { gearOf, setGear, GEAR, GEAR_KEYS, GEAR_COLORS, gearNames, gearEffect } from './gear.js';
+export { GEAR, GEAR_KEYS, GEAR_COLORS, gearNames };
 import { clamp01, sum, byDesc, formatMoney, formatTime, rankOf } from '../core/util.js';
 
 /** 新規ゲーム。 */
@@ -70,7 +72,7 @@ export function raceLooks(g, race) {
   const out = new Map();
   for (const r of race.results) {
     const h = g.world.horses.get(r.horseId);
-    if (h) out.set(r.horseId, { coat: h.coat, marks: marksOf(h) });
+    if (h) out.set(r.horseId, { coat: h.coat, marks: marksOf(h), gear: gearOf(h) });
   }
   return out;
 }
@@ -88,7 +90,7 @@ export function horseView(g, id) {
   const raw = effectiveAbility(h, vy, { ignoreCondition: true });
   return {
     horse: h,
-    id: h.id, name: h.name, sex: h.sex, coat: h.coat, marks: marksOf(h),
+    id: h.id, name: h.name, sex: h.sex, coat: h.coat, marks: marksOf(h), gear: gearOf(h),
     age: h.preview ? null : horseAge(h, w.year),
     owner: w.owners.get(h.ownerId)?.name ?? '—',
     isMine: h.ownerId === 'player',
@@ -325,6 +327,24 @@ export function retireOutcome(g, horseId) {
 /**
  * 引退させる。breed: false で種牡馬・繁殖に上げない（実在馬は既定で必ず上がるので、その逃げ道）。
  */
+/**
+ * 馬具を決める（自分の現役馬だけ）。gear は { menko: 色, shadowRoll: 色, blinker, cheek, bandage }。
+ * 決めると、その馬は id から導く馬具（gear.js の npcGear）ではなく、この馬具で走る。
+ */
+export function setHorseGear(g, horseId, gear) {
+  const h = g.world.horses.get(horseId);
+  if (!h || h.ownerId !== 'player' || h.retired || h.dead) return { ok: false, msg: '自分の現役馬だけ馬具を決められる' };
+  return { ok: true, gear: setGear(h, gear) };
+}
+
+/** 馬具の効き目の説明（画面用。この馬の気性での大きさ）。 */
+export function gearAdvice(g, horseId) {
+  const h = g.world.horses.get(horseId);
+  if (!h) return null;
+  const e = gearEffect(gearOf(h), h.temper);
+  return { start: e.start, pull: e.pull, focus: e.focus, injury: e.injury, temper: h.temper };
+}
+
 export function retire(g, horseId, { breed = true } = {}) {
   const w = g.world;
   const h = w.horses.get(horseId);

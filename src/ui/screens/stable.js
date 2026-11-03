@@ -319,6 +319,62 @@ function infoPanel(v, career) {
   ]);
 }
 
+/** 付けている馬具の札（メンコとシャドーロールは色の点つき）。 */
+function gearChips(gear) {
+  return G.GEAR_KEYS.filter((k) => gear?.[k]).map((k) => el('i.gearchip', { title: G.GEAR[k].desc }, [
+    typeof gear[k] === 'string' ? el('span.gdot', { style: `background:${gear[k]}` }) : null, G.GEAR[k].name,
+  ]));
+}
+
+/**
+ * 馬具を付け替える（自分の現役馬）。効き目は気性の悪い馬ほど大きい（sim/gear.js）。
+ * メンコとシャドーロールは色を選べる。決めると、その馬は次のレースからこの馬具で走る。
+ */
+function gearModal(app, v) {
+  const g = app.game;
+  const cur = { ...(v.gear ?? {}) };
+  let m = null;
+  const body = el('div.gearm');
+  const draw = () => {
+    const adv = G.gearAdvice(g, v.id);
+    body.replaceChildren(
+      el('p.note', { text: `気性 ${Math.round((adv?.temper ?? 0.5) * 100)}（低いほど馬具が効く）。付けた馬具はレースの 3D にも出る。` }),
+      ...G.GEAR_KEYS.map((k) => {
+        const on = !!cur[k];
+        const colored = k === 'menko' || k === 'shadowRoll';
+        return el(`div.gear-row${on ? '.on' : ''}`, [
+          el('button.gear-tog', {
+            onclick: () => {
+              if (on) delete cur[k];
+              else {
+                cur[k] = colored ? (k === 'shadowRoll' ? G.GEAR_COLORS[0] : G.GEAR_COLORS[1]) : true;
+                if (k === 'blinker') delete cur.cheek;
+                if (k === 'cheek') delete cur.blinker;
+              }
+              draw();
+            },
+          }, [el('b', { text: G.GEAR[k].name }), el('small', { text: G.GEAR[k].desc })]),
+          colored && on ? el('div.gear-colors', G.GEAR_COLORS.map((c) => el(`button.gear-c${cur[k] === c ? '.on' : ''}`, {
+            style: `background:${c}`, title: c, onclick: () => { cur[k] = c; draw(); },
+          }))) : null,
+        ]);
+      }),
+      el('div.gear-acts', [
+        button('決める', () => {
+          const r = G.setHorseGear(g, v.id, cur);
+          if (!r.ok) return toast(r.msg, { bad: true });
+          toast(`${v.name}の馬具：${G.gearNames(r.gear).join('・') || 'なし'}`);
+          m?.close();
+          app.render();
+        }, { cls: 'primary' }),
+        button('やめる', () => m?.close()),
+      ]),
+    );
+  };
+  draw();
+  m = modal(`${v.name}の馬具`, [body]);
+}
+
 /** 月桂冠。弧に沿って葉を並べた SVG（記号の文字は使わない）。右側は左右反転で作る。 */
 function laurel(side) {
   const pts = [];
@@ -562,6 +618,12 @@ function tabContent(app, tid, v, career) {
       ['厩舎', `${v.trainer}${v.trainerStyle ? `（${v.trainerStyle}）` : ''}`],
       ['主戦騎手', v.jockey],
       ['調教', v.isMine && !v.retired && v.age >= 2 ? menu : '—'],
+      // 馬具（現役の競走馬だけ。自分の馬は押して付け替える。上の枠に置くと高さが足りず見切れた）
+      ...(!v.retired && !v.dead && !v.broodmare && !v.stallion && v.age >= 2 ? [['馬具', el('span.gearline', [
+        ...gearChips(v.gear),
+        G.gearNames(v.gear).length ? null : el('i', { text: 'なし' }),
+        v.isMine ? el('button.gchange', { text: '変更', onclick: () => gearModal(app, v) }) : null,
+      ])]] : []),
       ['父', v.sire], ['母', v.dam], ['母の父', v.damSire],
     ]),
     el('div.crs', [
