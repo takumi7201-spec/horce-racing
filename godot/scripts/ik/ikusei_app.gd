@@ -725,7 +725,7 @@ func _home() -> Control:
 	left.position = Vector2(4, 12)
 	var ev_left: int = 5 - IK.event_state(p, ev.id).cleared.size()
 	left.add_child(_round_entry(_face_tex(ev.reward), LEAF2, "イベント 開催中", TEAL2, str(ev_left) if ev_left > 0 else "", go.bind("event")))
-	left.add_child(_round_entry(_face_tex("P3-01"), SUN2, "ガチャ NEW", Color("#c97f22"), "!", go.bind("gacha")))
+	left.add_child(_round_entry(_face_tex("P4-01"), SUN2, "ガチャ NEW", Color("#c97f22"), "!", go.bind("gacha")))
 	left.add_child(_round_entry(null, Color("#eee6c8"), "遊びかた", LEAF, "", _howto, "book"))
 	layer.add_child(left)
 
@@ -933,7 +933,7 @@ func _gacha() -> Control:
 
 ## ガチャのバナー（ゲームの gachaBanner）：PICK UP の背景と切り抜き、題、LM の顔の列、収録数
 func _gacha_banner() -> Control:
-	var pick := ["P3-01", "P3-02", "P3-03"]
+	var pick := ["P4-01", "P4-07", "P4-04"]
 	var lay := Control.new()
 	lay.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	lay.custom_minimum_size.y = 380
@@ -943,7 +943,7 @@ func _gacha_banner() -> Control:
 	lay.add_child(_shade(0.92, 0.0))
 	# 切り抜きを右に重ねる（奥から手前へ）
 	var w0 := W()
-	var places := [[0.43, 18.0, 0.92, "P3-02"], [0.67, 60.0, 0.86, "P3-03"], [0.53, 96.0, 1.0, "P3-01"]]
+	var places := [[0.43, 18.0, 0.92, "P4-07"], [0.67, 60.0, 0.86, "P4-04"], [0.53, 96.0, 1.0, "P4-01"]]
 	for pl in places:
 		var st := _img(_sticker_tex(pl[3]))
 		var hh: float = 380.0 * pl[2]
@@ -959,7 +959,7 @@ func _gacha_banner() -> Control:
 	v.add_child(chip)
 	v.add_child(UI.label("WINNING ROAD", 10, LEAF2, "black"))
 	v.add_child(UI.outlined("名馬ガチャ", 50, Color("#fff4dc"), "title", Color("#0d2a2e"), 6))
-	v.add_child(UI.outlined("NEW 第3弾【揺るがぬ者たち】生涯、連対を外さなかった SSR 3 頭", 15, Color.WHITE, "black", Color("#0d2a2e"), 4))
+	v.add_child(UI.outlined("NEW 第4弾【女傑たちの凱歌】牡馬を破った名牝 40 頭", 15, Color.WHITE, "black", Color("#0d2a2e"), 4))
 	var pu := UI.box({c = [Color(1, 1, 1, 0.14)], radius = 999.0, border = 1.5, border_color = Color(1, 1, 1, 0.5), shadow = Vector2.ZERO, pad = Vector4(4, 3, 12, 3)})
 	var puh := UI.hbox(6)
 	var tag := UI.box({c = [Color("#ff7ea6"), Color("#ffd36a"), Color("#7fe0ff")], angle = 90.0, radius = 999.0, border = 0.0, shadow = Vector2.ZERO, pad = Vector4(6, 0, 6, 1)})

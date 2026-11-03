@@ -198,7 +198,7 @@ function homeView(app, go) {
     if (c) stickerInto(face, c, { mode: 'face' });
     return el(`button.ikh-ev.${cls}`, { onclick }, [face, el('span.ikh-ev-l', { text: label }), badge ? el('i.ik-badge', { text: badge }) : null]);
   };
-  const gc = I.CARDS.find((c) => c.name === 'ダイワスカーレット') ?? I.CARDS[0];
+  const gc = I.CARDS.find((c) => c.name === 'アーモンドアイ') ?? I.CARDS[0];
   const evNow = I.EVENTS[0];
   const evCard = I.cardById(evNow.reward);
   const evLeft = 5 - I.eventState(p, evNow.id).cleared.length;
@@ -373,10 +373,10 @@ function pulledGrid(app, got) {
 }
 
 /**
- * ガチャのバナー。ガチャは一つなので、新しく入ったカード（PICK UP：生涯連対の SSR 3 頭）の一枚絵を背景に、切り抜きを並べ、
+ * ガチャのバナー。ガチャは一つなので、新しく入ったカード（PICK UP：第 4 弾【女傑たちの凱歌】の LM 3 頭）の一枚絵を背景に、切り抜きを並べ、
  * 収録の LM の顔・収録数と所持数・排出率を載せる。絵はカードの一枚絵を使い回す（cardArt。WebGL を増やさない：落とし穴 23）。
  */
-const GACHA_PICK = ['ダイワスカーレット', 'エルコンドルパサー', 'シンザン'];
+const GACHA_PICK = ['アーモンドアイ', 'ザルカヴァ', 'レイチェルアレクサンドラ'];
 function gachaBanner(app) {
   const inPool = (c) => c.pack in I.PACKS;
   const picks = GACHA_PICK.map((n) => I.CARDS.find((c) => c.name === n)).filter(Boolean);
@@ -401,7 +401,7 @@ function gachaBanner(app) {
       el('span.ikev-tag.gacha', { text: 'GACHA' }),
       el('small.ikev-en', { text: 'WINNING ROAD' }),
       el('b.ikev-ttl', { text: '名馬ガチャ' }),
-      el('span.ikev-sub', { text: `NEW 第3弾【${I.PACKS.P3}】生涯、連対を外さなかった SSR 3 頭` }),
+      el('span.ikev-sub', { text: `NEW 第4弾【${I.PACKS.P4}】牡馬を破った名牝 40 頭` }),
       el('span.ikev-rw', [el('i', { text: 'PICK UP' }), el('span', { text: picks.map((c) => c.name).join('・') })]),
       el('span.ikgb-faces', [el('small', { text: `LM ${lms.length} 種` }), ...faces]),
       el('span.ikgb-foot', { text: `全 ${total} 種・所持 ${have} 種　LM ${Math.round(I.RATES.LM * 100)}%・SSR ${Math.round(I.RATES.SSR * 100)}%` }),

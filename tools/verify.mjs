@@ -1050,9 +1050,16 @@ section('カード育成モード');
   const I = await import('../src/sim/ikusei.js');
   const { peekHorseId } = await import('../src/sim/horse.js');
   const ids = new Set(I.CARDS.map((c) => c.id));
-  check(`カード ${I.CARDS.length} 枚（第 1 弾 40・第 2 弾 40・第 3 弾 3・イベント 1、id が重ならない）`,
-    I.CARDS.length === 84 && ids.size === 84 && I.CARDS.filter((c) => c.pack === 'P1').length === 40 && I.CARDS.filter((c) => c.pack === 'P2').length === 40
+  check(`カード ${I.CARDS.length} 枚（第 1 弾 40・第 2 弾 40・第 3 弾 3・第 4 弾 40・イベント 1、id が重ならない）`,
+    I.CARDS.length === 124 && ids.size === 124 && I.CARDS.filter((c) => c.pack === 'P4').length === 40 && I.CARDS.filter((c) => c.pack === 'P1').length === 40 && I.CARDS.filter((c) => c.pack === 'P2').length === 40
     && I.CARDS.filter((c) => c.pack === 'P3').length === 3 && I.CARDS.filter((c) => c.pack === 'EV').length === 1);
+  // 第 4 弾は牝馬だけ。配分は過去の弾と同じ（LM 10・SSR 6・SR 6・R 8・N 10）、全カードに二つ名、LM と SSR の看板は牡馬混合の GI
+  const p4 = I.CARDS.filter((c) => c.pack === 'P4');
+  const nr = (r) => p4.filter((c) => c.rar === r).length;
+  check(`第 4 弾【${I.PACKS.P4}】は牝馬 40 頭（LM ${nr('LM')}・SSR ${nr('SSR')}・SR ${nr('SR')}・R ${nr('R')}・N ${nr('N')}）、二つ名つき、同じ馬が他の弾に居ない`,
+    p4.every((c) => c.sex === '牝' && c.epithet) && nr('LM') === 10 && nr('SSR') === 6 && nr('SR') === 6 && nr('R') === 8 && nr('N') === 10
+    && new Set(I.CARDS.map((c) => c.name)).size === I.CARDS.length
+    && p4.filter((c) => c.rar === 'LM' || c.rar === 'SSR').every((c) => c.race.info.startsWith('GI') && !/オークス|牝|女王|ヴィクトリア|ディスタフ|フィリー/.test(c.race.name)));
   const p3 = I.CARDS.filter((c) => c.pack === 'P3');
   check(`第 3 弾は生涯連対の SSR 3 頭（${p3.map((c) => c.name).join('・')}）、二つ名つき、カードパワーは LM を超えない`,
     p3.every((c) => c.rar === 'SSR' && c.epithet && /生涯連対/.test(c.record) && I.cardPower(c) <= 380)
