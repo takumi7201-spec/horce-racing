@@ -2143,22 +2143,27 @@ button.ikev-banner:active { transform: translateY(3px); box-shadow: 0 3px 0 var(
 .gear-c.on { box-shadow: 0 0 0 3px #e6a800; }
 .gear-acts { display: flex; gap: 8px; justify-content: flex-end; }
 
-/* ---- カードエディット（完成馬をカードにする。ikusei.js の cardEditView） ---- */
-.ikce { display: grid; grid-template-columns: minmax(0, 460px) minmax(0, 1fr); gap: 16px; align-items: start; }
-@media (max-width: 820px) { .ikce { grid-template-columns: minmax(0, 1fr); } }
-.ikce-view { position: sticky; top: 8px; }
-/* 狭い画面は絵を上に貼り付けて小さく（操作の下に絵が流れて、動かした結果が見えなくなった） */
+/* ---- カードエディット（完成馬をカードにする。ikusei.js の cardEditView）。全画面の別ページ ---- */
+.ikce-full { position: fixed; inset: 0; z-index: 30; display: grid; grid-template-rows: auto minmax(0, 1fr); background: radial-gradient(ellipse at 40% 30%, #1d4a50, #0b1b1e 75%); }
+.ikce-top { display: flex; align-items: center; gap: 12px; padding: 8px 14px; background: #113035; border-bottom: 3px solid #0b1b1e; }
+.ikce-top .ikp-back { flex: none; }
+.ikce-ttl { flex: 1; min-width: 0; display: flex; flex-direction: column; color: #fff; line-height: 1.2; }
+.ikce-ttl b { font-size: 18px; font-style: italic; font-weight: 900; }
+.ikce-ttl small { opacity: .8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ikce-main { display: grid; grid-template-columns: minmax(0, 1fr) 410px; min-height: 0; }
+/* 絵は枠いっぱいに、カードの縦横比のまま（container の大きさで決める） */
+.ikce-stagebox { container-type: size; display: flex; align-items: center; justify-content: center; min-height: 0; padding: 10px; }
+.ikce-frame { position: relative; width: min(100cqw, 96.8cqh); aspect-ratio: 606 / 626; border-radius: 14px; overflow: hidden; border: 3px solid #0b1b1e; box-shadow: 0 6px 24px #0008; background: #0d1a10; }
+.ikce-cv { display: block; width: 100%; height: 100%; touch-action: none; cursor: crosshair; }
+.ikce-hint { position: absolute; left: 8px; bottom: 8px; font-size: 11px; color: #fff; background: #0009; padding: 2px 8px; border-radius: 999px; pointer-events: none; }
+.ikce-side { background: var(--paper, #fffaf0); overflow: auto; padding: 10px 14px 28px; border-left: 3px solid #0b1b1e; }
 @media (max-width: 820px) {
-  .ikce-view { top: 0; z-index: 3; padding: 4px 6px 2px; margin: 0 -6px; background: #113035ee; border-radius: 0 0 14px 14px; }
-  .ikce-frame { display: flex; justify-content: center; }
-  .ikce-cv { width: auto; max-width: 100%; max-height: 36vh; }
-  .ikce-view .ik-gbtns { margin: 6px 0 2px; }
+  .ikce-main { grid-template-columns: minmax(0, 1fr); grid-template-rows: 46vh minmax(0, 1fr); }
+  .ikce-stagebox { padding: 6px; }
+  .ikce-side { border-left: 0; border-top: 3px solid #0b1b1e; }
 }
-.ikce-frame { position: relative; border-radius: 14px; overflow: hidden; border: 3px solid var(--ink, #113035); box-shadow: 0 5px 0 #0d2a2e55; background: #0d1a10; }
-.ikce-cv { display: block; width: 100%; height: auto; aspect-ratio: 606 / 626; touch-action: none; cursor: grab; }
-.ikce-cv:active { cursor: grabbing; }
-.ikce-hint { position: absolute; left: 8px; bottom: 8px; font-size: 11px; color: #fff; background: #0008; padding: 2px 8px; border-radius: 999px; pointer-events: none; }
-.ikce-who { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 18px; }
+.ikce-part { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border-radius: 12px; background: #eef3e6; border: 2px solid #11303522; }
+.ikce-part > b { font-size: 15px; }
 .ikce-tabs { margin-bottom: 8px; }
 .ikce-panel { display: flex; flex-direction: column; gap: 8px; }
 .ikce-panel h4 { margin: 6px 0 0; font-size: 14px; }

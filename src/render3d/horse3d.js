@@ -591,7 +591,7 @@ function makeReins(mat) {
  *   detail は頭の細かさ（'high' 牧場・詳細、'low' レース）。既定は bare なら high
  * @returns {{group:THREE.Group, update:Function, legs:Array, body:THREE.Group, rider:THREE.Group|null}}
  */
-export function makeHorse({ id = 1, gate = 1, frame = 1, coat = '鹿毛', scale = 1, bare = false, tack = false, padColor = 0xe8c33a, detail = null, riderPose = 'race', marks = null, silks = null, gear = null } = {}) {
+export function makeHorse({ id = 1, gate = 1, frame = 1, coat = '鹿毛', scale = 1, bare = false, tack = false, padColor = 0xe8c33a, detail = null, riderPose = 'race', marks = null, silks = null, gear = null, riderRig = null } = {}) {
   const S = shapes();
   const group = new THREE.Group();
   const body = new THREE.Group();   // 胴体まわり（上下に揺れる）
@@ -755,17 +755,22 @@ export function makeHorse({ id = 1, gate = 1, frame = 1, coat = '鹿毛', scale 
   });
 
   // --- 騎手（牧場では付けない） ---
+  // riderRig はカードエディットのリグ（姿勢の点のずれ）。作り直せるよう関数にしておく（setRiderRig）。
+  const buildRider = (rr) => {
+    const jk = makeJockey({ id, capColor: silks?.cap ?? FRAME_COLORS[(frame - 1) % 8] ?? 0xffffff, pose: riderPose, detail: high ? 'high' : 'low', silks, rig: rr });
+    const g = jk.group;
+    g.name = 'rider';
+    g.position.set(0, 1.6, -0.06);
+    g.userData.reinHands = jk.reinHands;
+    body.add(g);
+    return g;
+  };
   let rider = null;
   let reins = null;
   if (!bare) {
     // 騎手は jockey3d.js（勝負服は馬 id、ヘルメットの覆いは枠色＝JRA の帽色）。
     // silks を渡すと勝負服と帽子はその色（一枚絵で実在の馬主の服を着せる）。
-    const jk = makeJockey({ id, capColor: silks?.cap ?? FRAME_COLORS[(frame - 1) % 8] ?? 0xffffff, pose: riderPose, detail: high ? 'high' : 'low', silks });
-    rider = jk.group;
-    rider.name = 'rider';
-    rider.position.set(0, 1.6, -0.06);
-    rider.userData.reinHands = jk.reinHands;
-    body.add(rider);
+    rider = buildRider(riderRig);
     // レース用の小さな鞍（騎手の脚と鐙革の付け根になる）。鞍下はゼッケンが兼ねる。
     if (!tack) {
       mesh(body, S.saddle, new THREE.MeshStandardMaterial({ name: 'saddle', color: 0x2a201a, roughness: 0.4, metalness: 0, side: THREE.DoubleSide }));
@@ -867,7 +872,23 @@ export function makeHorse({ id = 1, gate = 1, frame = 1, coat = '鹿毛', scale 
     if (reins) reins.update(headPivot, neckPivot, rider, S.bridle);
   }
 
-  return { group, update, legs, body, rider, head: headPivot };
+  /** 騎手だけ作り直す（カードエディットで手や腰の点を動かしたとき。馬を作り直すより軽い）。 */
+  function setRiderRig(rr) {
+    if (!rider) return;
+    const rot = rider.rotation.x;
+    body.remove(rider);
+    disposeHorse(rider);
+    rider = buildRider(rr);
+    rider.rotation.x = rot;
+    if (reins) reins.update(headPivot, neckPivot, rider, S.bridle);
+  }
+  /** update の後で関節を動かしたら、手綱を張り直す（銜と手の位置が変わる）。 */
+  function refreshReins() { if (reins && rider) reins.update(headPivot, neckPivot, rider, S.bridle); }
+  return {
+    group, update, legs, body, get rider() { return rider; }, head: headPivot, setRiderRig, refreshReins,
+    // リグで動かす部位（カードエディット）
+    parts: { body, neck: neckPivot, head: headPivot, earL: ears[0], earR: ears[1], tail: tailPivot, tailFlow },
+  };
 }
 
 /** 影の代わりの楕円。地面に貼って足元を締める（影より軽い）。 */

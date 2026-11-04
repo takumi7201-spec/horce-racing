@@ -299,14 +299,33 @@ const POSES = {
 };
 
 /**
+ * 騎手のリグの点（カードエディットで動かす）。姿勢の点に足すずれ（騎手の組の座標、m）で持つ。
+ * 肘・膝は手と足首から IK で決まるので、点だけ動かせば腕と脚が付いてくる。
+ */
+export const RIDER_POINTS = { pelvis: '腰', neck: '肩', head: '頭', handL: '左手', handR: '右手', ankleL: '左足', ankleR: '右足' };
+/** 姿勢（race・celebrate・canter）にリグのずれを足した点。 */
+export function riderPose(pose, rig = null) {
+  const P = POSES[pose] ?? POSES.race;
+  if (!rig) return P;
+  const add = (a, d) => (Array.isArray(d) ? a.map((x, i) => x + (Number(d[i]) || 0)) : a);
+  return { ...P, pelvis: add(P.pelvis, rig.pelvis), neck: add(P.neck, rig.neck), head: add(P.head, rig.head),
+    hands: [add(P.hands[0], rig.handL), add(P.hands[1], rig.handR)], ankles: [add(P.ankles[0], rig.ankleL), add(P.ankles[1], rig.ankleR)] };
+}
+/** リグの点の位置（騎手の組の座標）。 */
+export function riderPointPos(pose, rig, key) {
+  const P = riderPose(pose, rig);
+  return { pelvis: P.pelvis, neck: P.neck, head: P.head, handL: P.hands[0], handR: P.hands[1], ankleL: P.ankles[0], ankleR: P.ankles[1] }[key];
+}
+
+/**
  * 騎手を作る。
  * @param {{id:number, frame:number, capColor:number, pose?:string, detail?:'high'|'low'}} o
  * @returns {{group:THREE.Group, reinHands:THREE.Vector3[]}} 手綱を持つ手（騎手の組の座標。左 +x・右 -x の順）。
  *   ガッツポーズでは両方の手綱を右手でまとめて持つ。
  */
-export function makeJockey({ id = 1, capColor = 0xffffff, pose = 'race', detail = 'low', silks: custom = null }) {
+export function makeJockey({ id = 1, capColor = 0xffffff, pose = 'race', detail = 'low', silks: custom = null, rig = null }) {
   const S = shapes(detail);
-  const P = POSES[pose] ?? POSES.race;
+  const P = riderPose(pose, rig);
   const high = detail !== 'low';
   const tex = silksTextures(id, custom);
   const silks = new THREE.MeshStandardMaterial({ map: tex.body, roughness: 0.36, metalness: 0.02 });

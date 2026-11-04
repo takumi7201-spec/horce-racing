@@ -54,6 +54,20 @@ export const ART_POSES = { celebrate: 'ガッツポーズ', race: '追う（前�
 export const SILK_PATTERNS = ['無地', '縦縞', '縦縞細', '輪', '一本輪', 'たすき', '十字襷', '山形', '玉', '玉霰', '元禄', '肩章', '吊り'];
 export const SILK_SLEEVES = { body: '胴と同じ', plain: '無地', hoops: '輪', stripes: '縦縞', band: '一本輪', cuffs: '袖口', dots: '玉' };
 export const LEG_KEYS = ['lf', 'rf', 'lh', 'rh'];
+/**
+ * リグ（カードエディットで部位を回す・動かす）。馬は部位ごとの回転のずれ（ラジアン、x 縦・y 横・z ひねり。axes が動かせる軸）、
+ * 騎手は姿勢の点のずれ（m、騎手の組の座標。肘と膝は IK で付いてくる）。描くのは render3d/photostage.js（rigObject・riderPointPos）。
+ */
+const LEG_JP = { lf: '左前', rf: '右前', lh: '左後', rh: '右後' };
+export const RIG_HORSE = {
+  body: { name: '胴', axes: 'xyz' }, neck: { name: '首', axes: 'xyz' }, head: { name: '頭', axes: 'xyz' },
+  earL: { name: '耳（左）', axes: 'xy' }, earR: { name: '耳（右）', axes: 'xy' }, tail: { name: '尾', axes: 'xz' }, tailFlow: { name: '尾の先', axes: 'xz' },
+  ...Object.fromEntries(LEG_KEYS.flatMap((l) => [
+    [`${l}.hip`, { name: `${LEG_JP[l]} 付け根`, axes: 'xz', leg: l }], [`${l}.knee`, { name: `${LEG_JP[l]} ${l[1] === 'f' ? '膝' : '飛節'}`, axes: 'x', leg: l }],
+    [`${l}.fetlock`, { name: `${LEG_JP[l]} 球節`, axes: 'x', leg: l }],
+  ])),
+};
+export const RIG_RIDER = { pelvis: '腰', neck: '肩', head: '頭', handL: '左手', handR: '右手', ankleL: '左足', ankleR: '右足' };
 const COLOR_RE = /^#[0-9a-f]{6}$/i;
 const num = (x, lo, hi, d = null) => (typeof x === 'number' && Number.isFinite(x) ? Math.min(hi, Math.max(lo, x)) : d);
 /** カードの撮り方の値を整える（範囲の外・知らない値は落とす。保存する JSON を小さく保つ）。 */
@@ -91,6 +105,23 @@ export function cleanArt(a) {
     o.silks = sk;
   }
   if (typeof a.epithet === 'string' && a.epithet.trim()) o.epithet = a.epithet.trim().slice(0, 16);
+  // リグ：動かせる軸だけ、回転は ±2 rad・騎手の点は ±0.6 m。0 だけの部位は持たない
+  if (a.rig && typeof a.rig === 'object') {
+    const pick = (src, keys, lim, axesOf) => {
+      const out = {};
+      for (const k of keys) {
+        const d = src?.[k];
+        if (!Array.isArray(d)) continue;
+        const ax = axesOf(k);
+        const v = ['x', 'y', 'z'].map((n, i) => (ax.includes(n) ? r3(num(d[i], -lim, lim, 0)) : 0));
+        if (v.some((x) => x !== 0)) out[k] = v;
+      }
+      return Object.keys(out).length ? out : null;
+    };
+    const horse = pick(a.rig.horse, Object.keys(RIG_HORSE), 2, (k) => RIG_HORSE[k].axes);
+    const rider = pick(a.rig.rider, Object.keys(RIG_RIDER), 0.6, () => 'xyz');
+    if (horse || rider) o.rig = { ...(horse ? { horse } : {}), ...(rider ? { rider } : {}) };
+  }
   return o;
 }
 /** 完成馬をカードにする（撮り方を決める）。何度でも撮り直せる。 */
@@ -433,7 +464,7 @@ export function traineeCard(run) {
 
 /** 撮り方（h.art）をカードの絵の値に。silks は値があるときだけ（無ければ元のカードの服か、馬 id の服）。 */
 const artFields = (a) => (a ? Object.fromEntries(Object.entries({ shot: a.shot, facing: a.facing, phase: a.phase, pose: a.pose, backdrop: a.backdrop, gate: a.gate,
-  legPose: a.legPose, wind: a.wind, camera: a.camera, silks: a.silks, surface: a.surface, desert: a.backdrop ? a.backdrop === 'desert' : undefined,
+  legPose: a.legPose, wind: a.wind, camera: a.camera, silks: a.silks, surface: a.surface, rig: a.rig, desert: a.backdrop ? a.backdrop === 'desert' : undefined,
   // 自分のカードは主役 1 頭だけ（元のカードに写っていた相手の馬は連れてこない）
   rivals: [] }).filter(([, v]) => v !== undefined)) : {});
 

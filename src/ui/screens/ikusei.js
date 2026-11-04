@@ -56,6 +56,8 @@ export function ikuseiScreen(app) {
   if (app.ikStage) { app.ikStage.dispose(); app.ikStage = null; }
   if (view !== 'cardedit') app.ikEdit = null;
   if (view === 'watch') return watchView(app);
+  // カード編集は全画面の別ページ（下のボタン列を出さず、絵を大きく）
+  if (view === 'cardedit') return cardEditView(app, go);
   // 背景（空・網点・街）は画面の外に固定して敷く。中身だけが流れる（background-attachment: fixed はスマホで効かない）。
   const sky = el('div.ik-sky', [el('b.ik-water', { text: 'WINNING ROAD' })]);
   if (view === 'home') return el('div.ikh-wrap', [sky, homeView(app, go)]);
@@ -1300,61 +1302,109 @@ function swatches(list, cur, pick) {
   return el('div.gear-colors', list.map((c) => el(`button.gear-c${cur === c ? '.on' : ''}`, { style: `background:${c}`, title: c, onclick: () => pick(c) })));
 }
 const SILK_COLORS = ['#f4f2ec', '#1c1c1c', '#c8202a', '#1f3f9e', '#e8b21a', '#2f8f4a', '#e86aa0', '#7a4fc0', '#f07a28', '#5fb6e0', '#7a3b1e', '#8d949c'];
-const LEG_NAMES = { lf: '左前', rf: '右前', lh: '左後', rh: '右後' };
-const JOINT_NAMES = { hip: '付け根', knee: '膝・飛節', fetlock: '球節' };
 const deg = (r) => `${Math.round((r * 180) / Math.PI)}°`;
+const AXIS_NAMES = { x: '縦', y: '横', z: 'ひねり' };
+const RIDER_AXES = { x: '左右', y: '上下', z: '前後' };
+// 画面の上の骨の線（リグの点を結ぶ）。騎手の点は 'rider.' を付けた名前
+// （馬の部位の骨は、支点から先端へ stage.handles が返す piv → pts で引く）
+const RIG_BONES = [
+  ['rider.pelvis', 'rider.neck'], ['rider.neck', 'rider.head'], ['rider.neck', 'rider.handL'], ['rider.neck', 'rider.handR'],
+  ['rider.pelvis', 'rider.ankleL'], ['rider.pelvis', 'rider.ankleR'],
+];
 
 /**
- * カードエディット。完成馬の一枚絵の撮り方を、生の 3D（撮影の舞台をそのまま動かす）を見ながら決める：
- * 構図（構え・向き・背景・馬場・カメラをドラッグで回す）、ポーズ（脚の運び・脚ごとの角度・騎手の姿勢）、馬具、勝負服とゼッケン、二つ名。
+ * カードエディット（全画面の別ページ）。完成馬の一枚絵の撮り方を、生の 3D（撮影の舞台をそのまま動かす）を見ながら決める：
+ * 構図（構え・向き・背景・馬場・カメラをドラッグで回す）、ポーズ（脚の運び・騎手の姿勢・リグ）、馬具、勝負服とゼッケン、二つ名。
+ * リグは絵の上の点（関節）を掴んで動かす：馬の部位は支点の周りに回し（縦・横・ひねりの軸を選ぶ）、騎手の点（腰・肩・頭・手・足）は
+ * 画面の面の中で動かす（肘と膝は IK で付いてくる）。点の無い所をドラッグするとカメラが回る。
  * 決めると h.art に残り、カードの絵（cardArt）はその撮り方で撮る。描画器はカードの絵と同じ 1 つ（artRenderer。落とし穴 23）。
- * スライダーやドラッグは舞台を組み直さずに馬とカメラだけ動かす。形の変わる値（馬具・騎手・服・構え・背景）は組み直す。
+ * スライダーやドラッグは舞台を組み直さずに馬とカメラだけ動かす。形の変わる値（馬具・騎手の姿勢・服・構え・背景）は組み直す。
  */
 function cardEditView(app, go) {
   const p = app.ik;
   const h = p.finished.find((x) => x.id === app.params.id);
-  if (!h) return stableView(app, go);
+  if (!h) { queueMicrotask(() => go('stable')); return el('div'); }
   if (app.ikEdit?.id !== h.id) {
     const art = JSON.parse(JSON.stringify(h.art ?? I.defaultArt(h)));
-    app.ikEdit = { id: h.id, art, gear: { ...I.finishedSpec(h).gear }, tab: 'shot', leg: 'lf', customSilks: !!art.silks };
+    art.rig ??= {};
+    art.rig.horse ??= {};
+    art.rig.rider ??= {};
+    app.ikEdit = { id: h.id, art, gear: { ...I.finishedSpec(h).gear }, tab: 'pose', part: 'neck', axis: 'x', handles: true, customSilks: !!art.silks };
   }
   const E = app.ikEdit;
   const A = E.art;
   const base = I.horseCard(h);
+  const isRider = (k) => k.startsWith('rider.');
 
   // ---- 生の舞台
   const canvas = el('canvas.ikce-cv', { width: ART_SIZE.w, height: ART_SIZE.h });
   let stage = null;
   let queued = false;
+  let rigDirty = false;
+  let hs = null;   // 最後に描いた点（画素）
+  const showHandles = () => E.handles && E.tab === 'pose';
   const draw = () => {
     if (queued) return;
     queued = true;
     requestAnimationFrame(() => {
       queued = false;
       if (!stage || !canvas.isConnected) return;
+      // 騎手の点のドラッグは騎手を作り直すので、動かした分をまとめて 1 コマに 1 回だけ当てる
+      if (rigDirty) { rigDirty = false; stage.setRig(A.rig); }
       stage.render(artRenderer(), canvas, 3);
+      hs = null;
+      if (showHandles()) drawHandles();
     });
+  };
+  const drawHandles = () => {
+    const g = canvas.getContext('2d');
+    const hd = stage.handles(Object.keys(I.RIG_HORSE), Object.keys(I.RIG_RIDER), canvas.width, canvas.height);
+    hs = hd.pts;
+    canvas.rigPoints = hs;   // 確かめ用（Playwright で点の位置を拾う）
+    g.save();
+    g.lineWidth = 2;
+    for (const [k, a] of Object.entries(hd.piv)) {
+      if (k === 'body') continue;   // 胴の支点は地面の高さ（線を引くと鞍から地面へ棒が出る）
+      const b = hs[k];
+      g.strokeStyle = k === E.part ? '#ff5a3cdd' : '#7fe8ffaa';
+      g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); g.stroke();
+    }
+    for (const [a, b] of RIG_BONES) {
+      const pa = hs[a], pb = hs[b];
+      if (!pa || !pb) continue;
+      g.strokeStyle = isRider(a) ? '#ffd54acc' : '#7fe8ffcc';
+      g.beginPath(); g.moveTo(pa.x, pa.y); g.lineTo(pb.x, pb.y); g.stroke();
+    }
+    for (const [k, q] of Object.entries(hs)) {
+      const sel = k === E.part;
+      const moved = isRider(k) ? A.rig.rider[k.slice(6)]?.some((x) => x) : A.rig.horse[k]?.some((x) => x);
+      g.beginPath();
+      g.arc(q.x, q.y, sel ? 8 : 5.5, 0, Math.PI * 2);
+      g.fillStyle = sel ? '#ff5a3c' : moved ? '#f3a332' : isRider(k) ? '#ffd54a' : '#7fe8ff';
+      g.fill();
+      g.lineWidth = 2; g.strokeStyle = '#102326'; g.stroke();
+    }
+    g.restore();
   };
   const cam = () => A.camera ?? shotCamera({ shot: A.shot ?? 'profile' });
   const build = () => {
     stage?.dispose();
     stage = createPoseStage({
       hero: { id: base.hid ?? 1, coat: base.artCoat ?? base.coat, gate: A.gate ?? 1, frame: 1, marks: base.marks ?? null,
-        silks: (E.customSilks ? A.silks : null) ?? base.silks ?? null, legPose: A.legPose ?? null, gear: E.gear },
+        silks: (E.customSilks ? A.silks : null) ?? base.silks ?? null, legPose: A.legPose ?? null, gear: E.gear, rig: A.rig },
       surface: A.surface ?? '芝', shot: A.shot ?? 'profile', phase: A.phase ?? 0.25, facing: A.facing ?? 'left', riderPose: A.pose ?? 'celebrate',
       wind: A.wind !== false, backdrop: A.backdrop ?? 'sunset', camera: A.camera ?? null,
     });
     // 画面を離れる・描き直すときに捨てる係（捨てたあとに待っていた描画が走らないよう、ここで null にする）
     app.ikStage = { dispose: () => { stage?.dispose(); stage = null; } };
     draw();
-    refreshLeg();
   };
-  // ドラッグでカメラを回す（見る点の周り）。ホイール・ピンチの代わりにスライダーでも寄れる
+  // カメラを見る点の周りに回す（ドラッグ・ホイール・スライダー）
   const orbit = (dAz, dEl, zoom = 1) => {
     const c = cam();
     const off = c.pos.map((x, i) => x - c.look[i]);
     const r = Math.hypot(...off);
-    let az = Math.atan2(off[0], off[2]) + dAz;
+    const az = Math.atan2(off[0], off[2]) + dAz;
     let elv = Math.asin(Math.max(-1, Math.min(1, off[1] / r))) + dEl;
     elv = Math.max(-0.12, Math.min(1.25, elv));
     const pos = [c.look[0] + r * Math.cos(elv) * Math.sin(az), c.look[1] + r * Math.sin(elv), c.look[2] + r * Math.cos(elv) * Math.cos(az)];
@@ -1364,13 +1414,55 @@ function cardEditView(app, go) {
     draw();
     syncCamSliders();
   };
+
+  // ---- 絵の上のドラッグ：点を掴めばリグ、点の無い所はカメラ
+  const at = (e) => {
+    const r = canvas.getBoundingClientRect();
+    return { x: (e.clientX - r.left) * canvas.width / r.width, y: (e.clientY - r.top) * canvas.height / r.height, s: canvas.width / r.width };
+  };
+  const pickHandle = (q) => {
+    if (!hs) return null;
+    let best = null, bd = 18 * q.s;
+    for (const [k, v] of Object.entries(hs)) {
+      const d = Math.hypot(v.x - q.x, v.y - q.y) - (k === E.part ? 4 * q.s : 0);   // 選んでいる点を優先
+      if (d < bd) { bd = d; best = k; }
+    }
+    return best;
+  };
   let drag = null;
-  canvas.addEventListener('pointerdown', (e) => { drag = { x: e.clientX, y: e.clientY }; canvas.setPointerCapture(e.pointerId); });
+  canvas.addEventListener('pointerdown', (e) => {
+    const q = at(e);
+    const k = showHandles() ? pickHandle(q) : null;
+    if (k && k !== E.part) selectPart(k);
+    drag = { q, k };
+    canvas.setPointerCapture(e.pointerId);
+  });
   canvas.addEventListener('pointermove', (e) => {
-    if (!drag) return;
-    const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
-    drag = { x: e.clientX, y: e.clientY };
-    orbit(-dx * 0.008, dy * 0.006);
+    if (!drag || !stage) return;
+    const q = at(e);
+    if (drag.k) {
+      if (isRider(drag.k)) {
+        const key = drag.k.slice(6);
+        const d = stage.dragRider(key, drag.q, q, canvas.width, canvas.height);
+        const cur = A.rig.rider[key] ?? [0, 0, 0];
+        A.rig.rider[key] = cur.map((x, i) => Math.max(-0.6, Math.min(0.6, x + d[i])));
+        rigDirty = true;
+      } else {
+        const info = I.RIG_HORSE[drag.k];
+        const axis = info.axes.includes(E.axis) ? E.axis : info.axes[0];
+        const da = stage.dragAngle(drag.k, axis, drag.q, q, canvas.width, canvas.height);
+        const cur = A.rig.horse[drag.k] ?? [0, 0, 0];
+        const i = 'xyz'.indexOf(axis);
+        cur[i] = Math.max(-2, Math.min(2, cur[i] + da));
+        A.rig.horse[drag.k] = cur;
+        stage.setRig(A.rig);
+      }
+      draw();
+      syncPartSliders();
+    } else {
+      orbit(-(q.x - drag.q.x) / q.s * 0.008, (q.y - drag.q.y) / q.s * 0.006);
+    }
+    drag.q = q;
   });
   const end = () => { drag = null; };
   canvas.addEventListener('pointerup', end);
@@ -1387,112 +1479,143 @@ function cardEditView(app, go) {
     return node;
   };
   const row = (label, ctl) => el('div.ikce-row', [el('small', { text: label }), ctl]);
-  const chips = (opts, cur, pick) => el('div.ikce-chips', Object.entries(opts).map(([k, v]) => el(`button.ikce-chip${cur === k ? '.on' : ''}`, { text: v, onclick: () => pick(k) })));
+  const chips = (opts, cur, pick, mark = () => false) => el('div.ikce-chips', Object.entries(opts).map(([k, v]) => el(`button.ikce-chip${cur === k ? '.on' : ''}${mark(k) ? '.set' : ''}`, { text: v, onclick: () => pick(k) })));
   const panel = el('div.ikce-panel');
   const tabsBar = el('nav.tabs.ikce-tabs');
-  const TABS = { shot: '構図', pose: 'ポーズ', gear: '馬具', silks: '勝負服', name: '二つ名' };
+  const TABS = { pose: 'ポーズ', shot: '構図', gear: '馬具', silks: '勝負服', name: '二つ名' };
   const showTab = (t) => {
     E.tab = t;
     tabsBar.replaceChildren(...Object.entries(TABS).map(([id, n]) => el('button.tab', { text: n, class: id === t ? 'on' : null, onclick: () => showTab(id) })));
     panel.replaceChildren(...tabBody(t));
+    hint.textContent = showHandles() ? '点を掴んで動かす・点の無い所はカメラ' : 'ドラッグでカメラを回す';
+    draw();
   };
+  const hint = el('span.ikce-hint');
   let camSl = null;
   const syncCamSliders = () => {
     if (!camSl) return;
     const c = cam();
     const off = c.pos.map((x, i) => x - c.look[i]);
-    const r = Math.hypot(...off);
     camSl.az.set(Math.atan2(off[0], off[2]));
-    camSl.el.set(Math.asin(off[1] / r));
+    camSl.el.set(Math.asin(off[1] / Math.hypot(...off)));
     camSl.fov.set(c.fov);
   };
-  let legSl = null;
-  const refreshLeg = () => {
-    if (!legSl || !stage) return;
-    const q = stage.legAngles()[E.leg];
-    for (const j of ['hip', 'knee', 'fetlock']) legSl[j].set(q[j]);
+  let partSl = null;
+  const syncPartSliders = () => {
+    if (!partSl) return;
+    const k = E.part;
+    const v = isRider(k) ? A.rig.rider[k.slice(6)] ?? [0, 0, 0] : A.rig.horse[k] ?? [0, 0, 0];
+    for (const [i, s] of Object.entries(partSl)) s.set(v[i]);
   };
+  const selectPart = (k) => {
+    E.part = k;
+    if (!isRider(k) && !I.RIG_HORSE[k].axes.includes(E.axis)) E.axis = I.RIG_HORSE[k].axes[0];
+    if (E.tab === 'pose') showTab('pose');
+  };
+  const partLabel = (k) => (isRider(k) ? `騎手の${I.RIG_RIDER[k.slice(6)]}` : I.RIG_HORSE[k].name);
   const tabBody = (t) => {
-    camSl = null; legSl = null;
+    camSl = null; partSl = null;
+    if (t === 'pose') {
+      const k = E.part;
+      const hk = Object.fromEntries(Object.entries(I.RIG_HORSE).filter(([, v]) => !v.leg).map(([key, v]) => [key, v.name]));
+      const legs = Object.fromEntries(Object.entries(I.RIG_HORSE).filter(([, v]) => v.leg).map(([key, v]) => [key, v.name]));
+      const rk = Object.fromEntries(Object.entries(I.RIG_RIDER).map(([key, v]) => [`rider.${key}`, v]));
+      const movedH = (key) => A.rig.horse[key]?.some((x) => x);
+      const movedR = (key) => A.rig.rider[key.slice(6)]?.some((x) => x);
+      let ctl;
+      if (isRider(k)) {
+        const v = A.rig.rider[k.slice(6)] ?? [0, 0, 0];
+        partSl = Object.fromEntries([0, 1, 2].map((i) => [i, slider(-0.6, 0.6, 0.005, v[i], (x) => {
+          const cur = A.rig.rider[k.slice(6)] ?? [0, 0, 0];
+          cur[i] = x; A.rig.rider[k.slice(6)] = cur; rigDirty = true; draw();
+        }, (x) => `${Math.round(x * 100)}cm`)]));
+        ctl = [row('左右', partSl[0]), row('上下', partSl[1]), row('前後', partSl[2])];
+      } else {
+        const info = I.RIG_HORSE[k];
+        const v = A.rig.horse[k] ?? [0, 0, 0];
+        partSl = Object.fromEntries([...info.axes].map((a) => {
+          const i = 'xyz'.indexOf(a);
+          return [i, slider(-2, 2, 0.01, v[i], (x) => {
+            const cur = A.rig.horse[k] ?? [0, 0, 0];
+            cur[i] = x; A.rig.horse[k] = cur; stage?.setRig(A.rig); draw();
+          }, deg)];
+        }));
+        ctl = [
+          row('ドラッグの軸', chips(Object.fromEntries([...info.axes].map((a) => [a, AXIS_NAMES[a]])), E.axis, (a) => { E.axis = a; showTab('pose'); })),
+          ...[...info.axes].map((a) => row(AXIS_NAMES[a], partSl['xyz'.indexOf(a)])),
+        ];
+      }
+      return [
+        row('脚の運び', slider(0, 1, 0.005, A.phase ?? 0.25, (v) => { A.phase = v; stage?.pose(v, A.legPose ?? null); draw(); })),
+        row('騎手の姿勢', chips(I.ART_POSES, A.pose ?? 'celebrate', (key) => { A.pose = key; build(); showTab('pose'); })),
+        row('点', chips({ on: '表示', off: '隠す' }, E.handles ? 'on' : 'off', (v) => { E.handles = v === 'on'; showTab('pose'); })),
+        el('h4', { text: '部位（絵の点を押しても選べる）' }),
+        row('馬', chips(hk, k, selectPart, movedH)),
+        row('脚', chips(legs, k, selectPart, movedH)),
+        row('騎手', chips(rk, k, selectPart, movedR)),
+        el('div.ikce-part', [el('b', { text: partLabel(k) }), ...ctl]),
+        el('div.ik-gbtns', [
+          button('この部位を戻す', () => { if (isRider(k)) { delete A.rig.rider[k.slice(6)]; rigDirty = true; } else { delete A.rig.horse[k]; stage?.setRig(A.rig); } draw(); showTab('pose'); }, { cls: 'sm' }),
+          button('全部戻す', () => { A.rig = { horse: {}, rider: {} }; A.legPose = undefined; stage?.pose(A.phase ?? 0.25, null); rigDirty = true; draw(); showTab('pose'); }, { cls: 'sm ghost' }),
+        ]),
+        el('p.note', { text: '馬の部位は支点の周りに回す（縦・横・ひねりはドラッグの軸で選ぶ）。騎手の点は画面に沿って動かす（肘と膝は付いてくる）。橙の点は動かした部位。' }),
+      ];
+    }
     if (t === 'shot') {
-      const shots = Object.fromEntries(I.ART_SHOTS.map((k) => [k, SHOTS[k]?.name ?? k]));
+      const shots = Object.fromEntries(I.ART_SHOTS.map((key) => [key, SHOTS[key]?.name ?? key]));
       const c = cam();
       const off = c.pos.map((x, i) => x - c.look[i]);
       const r = Math.hypot(...off);
+      const aim = () => { const c2 = cam(); return c2.pos.map((x, i) => x - c2.look[i]); };
       camSl = {
-        az: slider(-Math.PI, Math.PI, 0.01, Math.atan2(off[0], off[2]), (v) => { const c2 = cam(); const o2 = c2.pos.map((x, i) => x - c2.look[i]); orbit(v - Math.atan2(o2[0], o2[2]), 0); }, deg),
-        el: slider(-0.12, 1.25, 0.01, Math.asin(off[1] / r), (v) => { const c2 = cam(); const o2 = c2.pos.map((x, i) => x - c2.look[i]); orbit(0, v - Math.asin(o2[1] / Math.hypot(...o2))); }, deg),
+        az: slider(-Math.PI, Math.PI, 0.01, Math.atan2(off[0], off[2]), (v) => { const o2 = aim(); orbit(v - Math.atan2(o2[0], o2[2]), 0); }, deg),
+        el: slider(-0.12, 1.25, 0.01, Math.asin(off[1] / r), (v) => { const o2 = aim(); orbit(0, v - Math.asin(o2[1] / Math.hypot(...o2))); }, deg),
         fov: slider(8, 70, 0.5, c.fov, (v) => orbit(0, 0, v / cam().fov), (v) => `${v.toFixed(0)}°`),
       };
       return [
-        row('構え', chips(shots, A.shot ?? 'profile', (k) => { A.shot = k; A.camera = null; build(); showTab('shot'); })),
-        row('向き', chips({ left: '左へ走る', right: '右へ走る' }, A.facing ?? 'left', (k) => { A.facing = k; build(); showTab('shot'); })),
-        row('背景', chips(I.ART_BACKDROPS, A.backdrop ?? 'sunset', (k) => { A.backdrop = k; build(); showTab('shot'); })),
-        row('馬場', chips({ 芝: '芝', ダート: 'ダート' }, A.surface ?? '芝', (k) => { A.surface = k; build(); showTab('shot'); })),
-        row('風の筋', chips({ on: 'あり', off: 'なし' }, A.wind === false ? 'off' : 'on', (k) => { A.wind = k === 'on' ? undefined : false; build(); showTab('shot'); })),
+        row('構え', chips(shots, A.shot ?? 'profile', (key) => { A.shot = key; A.camera = null; build(); showTab('shot'); })),
+        row('向き', chips({ left: '左へ走る', right: '右へ走る' }, A.facing ?? 'left', (key) => { A.facing = key; build(); showTab('shot'); })),
+        row('背景', chips(I.ART_BACKDROPS, A.backdrop ?? 'sunset', (key) => { A.backdrop = key; build(); showTab('shot'); })),
+        row('馬場', chips({ 芝: '芝', ダート: 'ダート' }, A.surface ?? '芝', (key) => { A.surface = key; build(); showTab('shot'); })),
+        row('風の筋', chips({ on: 'あり', off: 'なし' }, A.wind === false ? 'off' : 'on', (key) => { A.wind = key === 'on' ? undefined : false; build(); showTab('shot'); })),
         el('p.note', { text: 'カメラは絵をドラッグで回し、ホイールで寄る。' }),
         row('回り込み', camSl.az), row('高さ', camSl.el), row('画角', camSl.fov),
         el('div.ik-gbtns', [button('カメラを構えに戻す', () => { A.camera = null; stage?.setCamera(cam()); draw(); syncCamSliders(); }, { cls: 'sm' })]),
       ];
     }
-    if (t === 'pose') {
-      legSl = Object.fromEntries(['hip', 'knee', 'fetlock'].map((j) => [j, slider(-2, 2, 0.01, 0, (v) => {
-        // 動かした脚は 3 つの関節とも今の角度で固める（脚の運びを変えても、決めた脚はそのまま）
-        A.legPose ??= {};
-        A.legPose[E.leg] ??= { ...stage.legAngles()[E.leg] };
-        A.legPose[E.leg][j] = v;
-        stage.pose(A.phase ?? 0.25, A.legPose);
-        draw();
-      }, deg)]));
-      const legChips = el('div.ikce-chips', Object.entries(LEG_NAMES).map(([k, n]) => el(`button.ikce-chip${E.leg === k ? '.on' : ''}${A.legPose?.[k] ? '.set' : ''}`, { text: n, onclick: () => { E.leg = k; showTab('pose'); } })));
-      const body = [
-        row('脚の運び', slider(0, 1, 0.005, A.phase ?? 0.25, (v) => { A.phase = v; stage.pose(v, A.legPose ?? null); draw(); refreshLeg(); })),
-        row('騎手', chips(I.ART_POSES, A.pose ?? 'celebrate', (k) => { A.pose = k; build(); showTab('pose'); })),
-        el('h4', { text: '脚ごとの角度' }),
-        legChips,
-        ...['hip', 'knee', 'fetlock'].map((j) => row(JOINT_NAMES[j], legSl[j])),
-        el('p.note', { text: '動かした脚（印の付いた脚）は脚の運びを変えてもそのまま。戻すと脚の運びに合わせる。' }),
-        el('div.ik-gbtns', [
-          button('この脚を戻す', () => { if (A.legPose) { delete A.legPose[E.leg]; if (!Object.keys(A.legPose).length) A.legPose = undefined; } stage.pose(A.phase ?? 0.25, A.legPose ?? null); draw(); showTab('pose'); }, { cls: 'sm' }),
-          button('全部の脚を戻す', () => { A.legPose = undefined; stage.pose(A.phase ?? 0.25, null); draw(); showTab('pose'); }, { cls: 'sm ghost' }),
-        ]),
-      ];
-      queueMicrotask(refreshLeg);
-      return body;
-    }
     if (t === 'gear') {
       return [
         el('p.note', { text: '馬具はカードの絵とレース（対戦）の両方に効く。' }),
-        ...I.GEAR_KEYS.map((k) => {
-          const on = !!E.gear[k];
-          const colored = k === 'menko' || k === 'shadowRoll';
+        ...I.GEAR_KEYS.map((key) => {
+          const on = !!E.gear[key];
+          const colored = key === 'menko' || key === 'shadowRoll';
           return el(`div.gear-row${on ? '.on' : ''}`, [
             el('button.gear-tog', {
               onclick: () => {
-                if (on) delete E.gear[k];
+                if (on) delete E.gear[key];
                 else {
-                  E.gear[k] = colored ? I.GEAR_COLORS[0] : true;
-                  if (k === 'blinker') delete E.gear.cheek;
-                  if (k === 'cheek') delete E.gear.blinker;
+                  E.gear[key] = colored ? I.GEAR_COLORS[0] : true;
+                  if (key === 'blinker') delete E.gear.cheek;
+                  if (key === 'cheek') delete E.gear.blinker;
                 }
                 build(); showTab('gear');
               },
-            }, [el('b', { text: I.GEAR[k].name }), el('small', { text: I.GEAR[k].desc })]),
-            colored && on ? swatches(I.GEAR_COLORS, E.gear[k], (c) => { E.gear[k] = c; build(); showTab('gear'); }) : null,
+            }, [el('b', { text: I.GEAR[key].name }), el('small', { text: I.GEAR[key].desc })]),
+            colored && on ? swatches(I.GEAR_COLORS, E.gear[key], (c) => { E.gear[key] = c; build(); showTab('gear'); }) : null,
           ]);
         }),
       ];
     }
     if (t === 'silks') {
       const S = (A.silks ??= { body: '#c8202a', accent: '#f4f2ec', pattern: '輪', sleeve: 'plain' });
-      const set = (k, v) => { S[k] = v; E.customSilks = true; build(); showTab('silks'); };
+      const set = (key, v) => { S[key] = v; E.customSilks = true; build(); showTab('silks'); };
       return [
-        row('勝負服', chips({ orig: base.silks ? '元の服' : 'おまかせ', custom: '自分で決める' }, E.customSilks ? 'custom' : 'orig', (k) => { E.customSilks = k === 'custom'; build(); showTab('silks'); })),
+        row('勝負服', chips({ orig: base.silks ? '元の服' : 'おまかせ', custom: '自分で決める' }, E.customSilks ? 'custom' : 'orig', (key) => { E.customSilks = key === 'custom'; build(); showTab('silks'); })),
         ...(E.customSilks ? [
           row('胴の色', swatches(SILK_COLORS, S.body, (c) => set('body', c))),
           row('柄の色', swatches(SILK_COLORS, S.accent, (c) => set('accent', c))),
-          row('柄', chips(Object.fromEntries(I.SILK_PATTERNS.map((x) => [x, x])), S.pattern, (k) => set('pattern', k))),
-          row('袖', chips(I.SILK_SLEEVES, S.sleeve, (k) => set('sleeve', k))),
+          row('柄', chips(Object.fromEntries(I.SILK_PATTERNS.map((x) => [x, x])), S.pattern, (key) => set('pattern', key))),
+          row('袖', chips(I.SILK_SLEEVES, S.sleeve, (key) => set('sleeve', key))),
           row('帽子', swatches(SILK_COLORS, typeof S.cap === 'number' ? `#${S.cap.toString(16).padStart(6, '0')}` : null, (c) => set('cap', parseInt(c.slice(1), 16)))),
         ] : []),
         row('ゼッケン', slider(1, 18, 1, A.gate ?? 1, (v) => { A.gate = v; clearTimeout(E.gt); E.gt = setTimeout(build, 200); }, (v) => String(v))),
@@ -1515,20 +1638,25 @@ function cardEditView(app, go) {
     go('horse', { id: h.id });
     showMyCard(app, h);
   };
+  const leave = async () => {
+    if (!await ask('編集をやめて完成馬の画面へ戻る？（決めた撮り方は残らない）', { ok: 'やめる', cancel: '続ける' })) return;
+    app.ikEdit = null;
+    go('horse', { id: h.id });
+  };
   build();
   showTab(E.tab);
-  return [
-    el('div.ikce', [
-      el('div.ikce-view', [
-        el('div.ikce-frame', [canvas, el('span.ikce-hint', { text: 'ドラッグでカメラを回す' })]),
-        el('div.ik-gbtns', [
-          button(h.art ? 'この撮り方でカードを作り直す' : 'この撮り方でカードにする', save1, { cls: 'primary' }),
-          button('やめる', () => { app.ikEdit = null; go('horse', { id: h.id }); }, { cls: 'ghost' }),
-        ]),
-      ]),
-      el('div.card.ikce-ctl', [el('div.card-b', [el('div.ikce-who', [el(`span.rb.r-${h.rar}`, { text: h.rar }), el('b', { text: h.name })]), tabsBar, panel])]),
+  // 別のページ（全画面）。下のボタン列や上の帯を出さず、絵と操作だけにする
+  return el('div.ikce-full', [
+    el('header.ikce-top', [
+      el('button.ikp-back', { onclick: leave, title: '戻る' }, icon('back', { size: 24 })),
+      el('div.ikce-ttl', [el('b', { text: 'カード編集' }), el('small', { text: `${h.rar}　${h.name}` })]),
+      button(h.art ? '作り直す' : 'カードにする', save1, { cls: 'primary' }),
     ]),
-  ];
+    el('div.ikce-main', [
+      el('div.ikce-stagebox', [el('div.ikce-frame', [canvas, hint])]),
+      el('div.ikce-side', [tabsBar, panel]),
+    ]),
+  ]);
 }
 
 // ---------------------------------------------------------------- 対戦

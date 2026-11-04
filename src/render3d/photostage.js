@@ -12,6 +12,7 @@
 import * as THREE from '../../vendor/three/three.module.min.js';
 import { makeHorse, makeShadowPatch, disposeHorse, STRIDE } from './horse3d.js';
 import { makeWind } from './wind.js';
+import { riderPointPos } from './jockey3d.js';
 
 const INNER_X = 3.4;      // 内ラチ（馬の左手）
 const OUTER_X = -24;      // 外ラチ
@@ -277,7 +278,43 @@ export function shootFinish(renderer, o) {
  * 脚の運び（完歩の位相 ph）と脚ごとの角度（legPose）を馬に当て、いちばん低い蹄を地面に着ける。
  * 撮影の舞台と、カードエディットの生の舞台（createPoseStage）で同じ当て方をする。
  */
-function poseModel(m, ph, legPose, dx = 0, dz = 0) {
+/** リグの部位（馬）。脚は 'lf.hip' の形（lf 左前・rf 右前・lh 左後・rh 右後 × hip・knee・fetlock）。 */
+const LEG_IDX = { lf: 0, rf: 1, lh: 2, rh: 3 };
+function rigObject(m, key) {
+  const [a, b] = key.split('.');
+  if (b) return m.legs[LEG_IDX[a]]?.[b] ?? null;
+  return m.parts?.[key] ?? null;
+}
+
+/**
+ * 部位の先端（部位の座標）。リグの点はここに置き、支点（部位の原点）の周りに回す。点を支点に置くと、掴んだ瞬間の
+ * 角度が決まらず逆へ回った。子の関節があればその位置（首 → 項、付け根 → 膝…）、無ければ部位の形でいちばん遠い頂点（鼻先・耳の先・尾の先・蹄）。
+ */
+const TIP_CHILD = { neck: (m) => m.parts.head, tail: (m) => m.parts.tailFlow };
+const tipCache = new WeakMap();
+function tipLocal(m, key, ob) {
+  const [l, j] = key.split('.');
+  if (j === 'hip') return m.legs[LEG_IDX[l]].knee.position.clone();
+  if (j === 'knee') return m.legs[LEG_IDX[l]].fetlock.position.clone();
+  if (TIP_CHILD[key]) return TIP_CHILD[key](m).position.clone();
+  if (key === 'body') return new THREE.Vector3(0, 1.25, 0.15);
+  if (tipCache.has(ob)) return tipCache.get(ob).clone();
+  let best = new THREE.Vector3(), bd = -1;
+  const v = new THREE.Vector3();
+  for (const c of ob.children) {
+    if (!c.isMesh || !c.geometry?.attributes?.position) continue;
+    const pos = c.geometry.attributes.position;
+    for (let i = 0; i < pos.count; i += 3) {
+      v.fromBufferAttribute(pos, i).applyMatrix4(c.matrix);
+      const d = v.lengthSq();
+      if (d > bd) { bd = d; best = v.clone(); }
+    }
+  }
+  tipCache.set(ob, best);
+  return best.clone();
+}
+
+function poseModel(m, ph, legPose, dx = 0, dz = 0, rig = null) {
   m.update(((ph % 1) + 1) % 1 * STRIDE, 17, 0);
   // 写真に合わせて脚ごとの角度を上書きする（legPose：lf 左前・rf 右前・lh 左後・rh 右後 → { hip, knee, fetlock } のラジアン）。
   // 股は正で後ろ、前脚の膝は正で蹄を後ろへ畳む。位相だけでは「左前を伸ばし、右前は畳む」の組み合わせが作れなかった。
@@ -288,11 +325,23 @@ function poseModel(m, ph, legPose, dx = 0, dz = 0) {
       for (const j of ['hip', 'knee', 'fetlock']) if (q[j] != null) m.legs[i][j].rotation.x = q[j];
     });
   }
+  // カードエディットのリグ：位相と脚の角度で決めた姿に、部位ごとの回転のずれ（ラジアン、x 縦・y 横・z ひねり）を足す。
+  // ずれで持つので、脚の運びを変えても「首をもう少し下げた」が残る。
+  if (rig) {
+    for (const [key, d] of Object.entries(rig)) {
+      const o = rigObject(m, key);
+      if (!o || !Array.isArray(d)) continue;
+      o.rotation.x += d[0] || 0; o.rotation.y += d[1] || 0; o.rotation.z += d[2] || 0;
+    }
+  }
   m.group.position.set(dx, 0, dz);
   // 脚を伸ばした位相では 4 本とも宙に浮き、影から離れて飛んでいるように見えた。いちばん低い蹄を地面に着ける。
   m.group.updateMatrixWorld(true);
   const low = new THREE.Box3().setFromObject(m.group).min.y;
   if (low > 0) m.group.position.y -= low;
+  m.group.updateMatrixWorld(true);
+  // 首や頭を動かしたら手綱を張り直す（銜の位置が変わる）
+  m.refreshReins?.();
   m.group.updateMatrixWorld(true);
 }
 
@@ -390,8 +439,9 @@ function buildStage(o) {
   // 馬：主役と相手。脚の位相は update に「進んだ距離」で渡す（1 完歩 = STRIDE m）。
   const models = [];
   const place = (h, dx, dz, ph, detail) => {
-    const m = makeHorse({ id: h.id, gate: h.gate ?? 1, frame: h.frame ?? 1, coat: h.coat, marks: h.marks ?? null, silks: h.silks ?? null, gear: h.gear ?? null, detail, riderPose: h === hero ? riderPose : 'race' });
-    poseModel(m, ph, h.legPose, dx, dz);
+    const m = makeHorse({ id: h.id, gate: h.gate ?? 1, frame: h.frame ?? 1, coat: h.coat, marks: h.marks ?? null, silks: h.silks ?? null, gear: h.gear ?? null, detail,
+      riderPose: h === hero ? riderPose : 'race', riderRig: h.rig?.rider ?? null });
+    poseModel(m, ph, h.legPose, dx, dz, h.rig?.horse ?? null);
     subject.add(m.group);
     const sh = makeShadowPatch();
     sh.position.set(dx, 0.02, dz);
@@ -452,13 +502,77 @@ export function createPoseStage(o) {
   const hero = st.models[0];
   let ph = o.phase ?? 0.25;
   let lp = o.hero?.legPose ?? null;
+  let rig = o.hero?.rig ?? null;
+  let riderKey = JSON.stringify(rig?.rider ?? null);
+  const riderPoseName = o.riderPose ?? 'celebrate';
   const camera = st.camera;
+  const v = new THREE.Vector3();
+  const toCanvas = (p, w, h) => { v.copy(p).project(camera); return { x: (v.x + 1) / 2 * w, y: (1 - v.y) / 2 * h, z: v.z }; };
+  const riderPoint = (key) => hero.rider?.localToWorld(new THREE.Vector3(...riderPointPos(riderPoseName, rig?.rider, key))) ?? null;
   return {
     /** 脚の運びと脚ごとの角度を当て直す。 */
     pose(phase, legPose) {
       ph = phase ?? ph;
       lp = legPose;
-      poseModel(hero, ph, lp, 0, 0);
+      poseModel(hero, ph, lp, 0, 0, rig?.horse ?? null);
+    },
+    /** リグ（{ horse: { 部位: [x,y,z] }, rider: { 点: [x,y,z] } }）を当て直す。騎手の点が変わったときだけ騎手を作り直す。 */
+    setRig(r) {
+      rig = r ?? null;
+      const k = JSON.stringify(rig?.rider ?? null);
+      if (k !== riderKey) { riderKey = k; hero.setRiderRig(rig?.rider ?? null); }
+      poseModel(hero, ph, lp, 0, 0, rig?.horse ?? null);
+    },
+    /**
+     * 画面の点（canvas の画素）。pts は部位の先端と騎手の点、piv は馬の部位の支点（骨の線の元）。
+     * @returns {{ pts: Object<string,{x:number,y:number,z:number}>, piv: Object<string,{x:number,y:number,z:number}> }}
+     */
+    handles(keys, riderKeys, w, h) {
+      const pts = {}, piv = {};
+      for (const k of keys) {
+        const ob = rigObject(hero, k);
+        if (!ob) continue;
+        // 点は部位の先端、線は支点から先端へ（骨）
+        pts[k] = toCanvas(ob.localToWorld(tipLocal(hero, k, ob)), w, h);
+        piv[k] = toCanvas(ob.getWorldPosition(new THREE.Vector3()), w, h);
+      }
+      for (const k of riderKeys) {
+        const p = riderPoint(k);
+        if (p) pts[`rider.${k}`] = toCanvas(p, w, h);
+      }
+      // 蹄と鼻先（動かさない、骨の線の先だけ）
+      return { pts, piv };
+    },
+    /**
+     * 部位を画面の上でドラッグしたぶん回す。軸（'x' 縦・'y' 横・'z' ひねり）の向きがカメラに向いていれば、
+     * 支点の周りの画面の角度の変化をそのまま回転に（右手の法則で、軸が手前を向くと画面で反時計回りが正）。
+     * 軸が画面に沿っている（真横から y を回すなど）ときは、上下のドラッグの量で回す。
+     * @returns {number} 回転のずれ（ラジアン）
+     */
+    dragAngle(key, axis, from, to, w, h) {
+      const ob = rigObject(hero, key);
+      if (!ob) return 0;
+      const pivot = ob.getWorldPosition(new THREE.Vector3());
+      const c = toCanvas(pivot, w, h);
+      const basis = new THREE.Matrix4().extractRotation((ob.parent ?? ob).matrixWorld);
+      const ax = new THREE.Vector3(axis === 'x' ? 1 : 0, axis === 'y' ? 1 : 0, axis === 'z' ? 1 : 0).applyMatrix4(basis).normalize();
+      const toCam = camera.position.clone().sub(pivot).normalize();
+      const facing = ax.dot(toCam);
+      if (Math.abs(facing) < 0.35) return (to.y - from.y) * 0.012 * (facing < 0 ? -1 : 1);
+      let d = Math.atan2(to.y - c.y, to.x - c.x) - Math.atan2(from.y - c.y, from.x - c.x);
+      if (d > Math.PI) d -= Math.PI * 2;
+      if (d < -Math.PI) d += Math.PI * 2;
+      // canvas の y は下向きなので、画面の角度の増加は時計回り
+      return -d * Math.sign(facing);
+    },
+    /** 騎手の点を画面の上でドラッグしたぶん動かす（カメラの面の中で）。騎手の組の座標のずれ [x,y,z] を返す。 */
+    dragRider(key, from, to, w, h) {
+      const p = riderPoint(key);
+      if (!p || !hero.rider) return [0, 0, 0];
+      const n = p.clone().project(camera);
+      const n2 = new THREE.Vector3(n.x + (to.x - from.x) / w * 2, n.y - (to.y - from.y) / h * 2, n.z).unproject(camera);
+      const a = hero.rider.worldToLocal(p.clone()), b = hero.rider.worldToLocal(n2);
+      return [b.x - a.x, b.y - a.y, b.z - a.z];
     },
     /** 今の脚の角度（位相で決まる値に上書きを重ねたもの）。スライダーの初めの値に使う。 */
     legAngles() {

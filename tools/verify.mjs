@@ -1164,13 +1164,16 @@ section('カード育成モード');
   {
     const art = I.setFinishedArt(big, h.id, { shot: 'finish', facing: 'right', phase: 1.7, pose: 'race', backdrop: 'day', gate: 30, surface: 'ダート',
       legPose: { lf: { hip: 0.4, knee: 9 }, zz: { hip: 1 } }, camera: { pos: [5, 1.2, 6], look: [0, 1.3, 0], fov: 22 },
-      silks: { body: '#c8202a', accent: 'red', pattern: '玉', sleeve: 'stripes' }, epithet: '  夕陽を裂く翼  ', junk: 1 });
+      silks: { body: '#c8202a', accent: 'red', pattern: '玉', sleeve: 'stripes' }, epithet: '  夕陽を裂く翼  ', junk: 1,
+      rig: { horse: { neck: [0.3, 5, 0], 'lf.knee': [0.5, 0.4, 0], tail: [0, 0, 0], bogus: [1, 1, 1] }, rider: { handL: [0, 0.9, -0.1], elbow: [1, 1, 1] } } });
     const mc = I.finishedCard(h);
     const hc = I.horseCard(h);
-    check(`カードエディット：撮り方を範囲に収めて持ち（${JSON.stringify(art.legPose)}）、完成馬のカードとホームの絵が同じ撮り方になる`,
+    check(`カードエディット：撮り方とリグを範囲に収めて持ち（${JSON.stringify(art.legPose)}）、完成馬のカードとホームの絵が同じ撮り方になる`,
       art.phase === 1 && art.gate === 18 && art.legPose.lf.knee === 2 && !art.legPose.zz && art.silks.accent === '#c8202a' && art.epithet === '夕陽を裂く翼' && !('junk' in art)
       && mc.myCard && mc.name === h.name && mc.epithet === '夕陽を裂く翼' && mc.shot === 'finish' && mc.camera.fov === 22 && mc.surface === 'ダート' && mc.race?.name
-      && I.STATS.every((k) => Math.abs(mc.v[k] - I.abilityOf(h.stats[k])) < 1e-9) && hc.shot === 'finish' && hc.id === mc.id && hc.rivals.length === 0);
+      && I.STATS.every((k) => Math.abs(mc.v[k] - I.abilityOf(h.stats[k])) < 1e-9) && hc.shot === 'finish' && hc.id === mc.id && hc.rivals.length === 0
+      // リグ：動かせる軸だけ・範囲に収め、0 の部位と知らない部位は落とす。カードの絵の値に渡る
+      && JSON.stringify(art.rig) === JSON.stringify({ horse: { neck: [0.3, 2, 0], 'lf.knee': [0.5, 0, 0] }, rider: { handL: [0, 0.6, -0.1] } }) && hc.rig === art.rig);
     big.finished.find((x) => x.id === h.id).art = undefined;
   }
   check('2 歳のレースは 2000m まで', h.races.filter((r) => I.SLOTS[r.slot].age === 2).every((r) => r.distance <= 2000));
