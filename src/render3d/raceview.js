@@ -6,7 +6,7 @@
 
 import * as THREE from '../../vendor/three/three.module.min.js';
 import { buildTrackMesh, trackPoint, buildGate } from './track.js';
-import { createDirector, trackingFrame, trackingFov, TRACK_CAM } from './broadcast.js';
+import { createDirector, createTvDirector, trackingFrame, trackShot } from './broadcast.js';
 import { makeHorse, makeShadowPatch, FRAME_COLORS } from './horse3d.js';
 import { makeWind } from './wind.js';
 import { buildTrack, posToWorld, elevationAt, curvatureAt, trackBounds } from '../sim/course.js';
@@ -240,6 +240,7 @@ export function createRaceView(canvas, race, opts = {}) {
     return { id, name: log.names[k], gate: log.gates[k], frame: log.frameNos ? log.frameNos[k] : 1, order: r.order ?? 99, time: r.time ?? 0, tFin: finishOf[k].tFin };
   }), stateAt, at);
   let snapCam = true;
+  const tvDir = createTvDirector(track, race);
 
   function placeHorses(st) {
     // 騎手視点のときは、自分が乗っている騎手を消す。
@@ -267,6 +268,8 @@ export function createRaceView(canvas, race, opts = {}) {
   }
 
   let tvFov = null;
+  const tvLook = new THREE.Vector3();
+  let tvT = 0;
 
   function setFov(f) {
     if (camera.fov === f) return;
@@ -305,21 +308,21 @@ export function createRaceView(canvas, race, opts = {}) {
       camera.position.lerp(camPos, 0.3);
       camera.lookAt(t.point);
     } else if (mode === 'tv') {
-      // 中継の追い（JRA の中継のトラッキングのように）：外ラチの外の少し高い所から、先頭の集団を望遠で真横に近い角度で追う。
-      // 以前は内馬場の高い所から先頭と 3 番手の間を広角（48°）で見下ろしていたので、逃げ馬が離すと馬群ごと遠景になった。
-      const f = trackingFrame(st.ranked);
-      const d = track.width + TRACK_CAM.out - f.off;               // カメラから馬までの横の距離
-      const w = posToWorld(track, track.start + f.mid + TRACK_CAM.ahead, track.width + TRACK_CAM.out);
-      camPos.set(w.x, elevationAt(track, track.start + f.mid) + TRACK_CAM.height, w.z);
-      const t = trackPoint(track, track.start + f.mid, f.off, look);
-      t.point.y += 1.3;
-      if (snapCam || !tvFov) { camera.position.copy(camPos); tvFov = null; } else camera.position.lerp(camPos, 0.25);
+      // 中継：JRA の中継のように先頭の集団を追うカットを場面で割る（broadcast.js の createTvDirector・trackShot）。
+      // コーナーは前から正面で迎え、直線は外・斜め前・内・高い所を回す。同じ横からの追いだけでは代わり映えしなかった。
+      const fr = trackingFrame(st.ranked);
+      const p = tvDir.pick(time, st.ranked);
+      const c = trackShot(p.shot, track, at, fr, camera.aspect);
+      camPos.set(c.e.x, c.e.y, c.e.z);
+      look.set(c.l.x, c.l.y, c.l.z);
+      // 寄せる割合はレースの時間の進みで決める（コマ毎の決まった割合だと、コマが遅い端末や速い再生で集団に置いていかれ、画面が空になった）
+      const dtc = Math.min(1, Math.abs(time - tvT)); tvT = time;
+      const kp = 1 - Math.exp(-dtc * 7), kf = 1 - Math.exp(-dtc * 2.5);
+      if (snapCam || p.cut || tvFov == null) { camera.position.copy(camPos); tvLook.copy(look); tvFov = c.fov; }
+      else { camera.position.lerp(camPos, kp); tvLook.lerp(look, kp); tvFov += (c.fov - tvFov) * kf; }
       snapCam = false;
-      // 収めたい長さ（集団の前後）は横の画角で測り、縦の画角に直す（three.js の fov は縦）
-      const want = trackingFov(f.span, Math.hypot(d, TRACK_CAM.height), camera.aspect);
-      tvFov = tvFov == null ? want : tvFov + (want - tvFov) * 0.07;
       setFov(tvFov);
-      camera.lookAt(t.point);
+      camera.lookAt(tvLook);
     } else if (mode === 'side') {
       // 真横から。脚の動きがいちばん見える。
       const w = posToWorld(track, targetP + 3, track.width + 9);
@@ -395,7 +398,7 @@ export function createRaceView(canvas, race, opts = {}) {
     pause() { playing = false; cancelAnimationFrame(raf); },
     toggle() { playing ? api.pause() : api.play(); },
     setSpeed(x) { speed = clamp(x, 0.25, 8); },
-    setCamera(m) { mode = m; snapCam = true; director.reset(); },
+    setCamera(m) { mode = m; snapCam = true; director.reset(); tvDir.reset(); },
     /** 中継の字幕の予定・1000m 通過・勝ち馬のゴールの時刻（画面の表示が使う。ui/racehud.js） */
     get broadcast() { return director; },
     setFocus(id) { focusId = id; },
@@ -407,7 +410,7 @@ export function createRaceView(canvas, race, opts = {}) {
     seek(t) {
       time = clamp(t, 0, duration);
       snapCam = true;
-      director.reset();
+      director.reset(); tvDir.reset();
       draw();
     },
     resize,

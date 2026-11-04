@@ -58,6 +58,8 @@ func setup() -> void:
 func reset_shot() -> void:
 	shot = ""
 	shot_t = 0.0
+	arc_n = -1
+	tv_reset()
 
 
 # ------------------------------------------------------------------ 走行ログから：先頭の通過時刻・字幕の予定
@@ -178,6 +180,7 @@ func _pack_s() -> float:
 
 ## 先頭の集団（ゲームの trackingFrame。JRA の中継の追いが収める範囲）：先頭からつながっている馬（前の馬との間が 12m 以内、
 ## 先頭から 30m 以内、5 頭まで）。大逃げのときは逃げ馬だけになる（後ろの集団まで入れようと引くと、逃げ馬が豆粒になった）。
+var arc_n := -1   # コーナーのカットの通し番号（正面と高い所を交互に）
 const TRACK_OUT := 24.0     # 追いのカメラ：外ラチの外 24m・低め 3.6m・集団の 5m 先
 const TRACK_AHEAD := 5.0
 const TRACK_HEIGHT := 3.6
@@ -190,17 +193,92 @@ func tracking_frame() -> Dictionary:
 	var lead: Dictionary = list[0]
 	var tail: Dictionary = lead
 	var off_sum: float = lead.get("off_now", w * 0.3)
+	var lo := off_sum
+	var hi := off_sum
 	var n := 1
 	for i in range(1, mini(5, list.size())):
 		var x: Dictionary = list[i]
 		if float(tail.s) - float(x.s) > 12.0 or float(lead.s) - float(x.s) > 30.0:
 			break
 		tail = x
-		off_sum += float(x.get("off_now", w * 0.3))
+		var xo := float(x.get("off_now", w * 0.3))
+		off_sum += xo
+		lo = minf(lo, xo)
+		hi = maxf(hi, xo)
 		n += 1
 	var front := float(lead.s) + 3.0
 	var back := float(tail.s) - 3.5
-	return {mid = (front + back) / 2.0, span = maxf(13.0, front - back), off = off_sum / n}
+	# width は集団の横の広がり（正面から撮るときに収める幅）
+	return {mid = (front + back) / 2.0, span = maxf(13.0, front - back), off = off_sum / n, width = maxf(10.0, hi - lo + 6.0)}
+
+
+## 追いのカットの置き場所（ゲームの trackShot）。[目, 見る点, 縦の画角]
+##   trackOut 外ラチの外の低い所から真横に近く・trackIn 内馬場の側から・front3q 集団の 28m 先の外ラチ際から斜め前で迎える・
+##   curveFront 集団の 55m 先の走路の上から真正面で迎える（コーナーを回ってくる馬群を正面から）・high 外の後ろの高い所から隊列を見下ろす
+func track_shot(name: String, fr: Dictionary) -> Array:
+	var w: float = rc.track.width
+	var gm: float = float(rc.race.start) + float(fr.mid)
+	var off := float(fr.off)
+	var span := float(fr.span)
+	var e: Vector3
+	var l: Vector3
+	match name:
+		"trackIn":
+			e = rc.at_p(gm + TRACK_AHEAD, -TRACK_OUT, TRACK_HEIGHT)
+			l = rc.at_p(gm, off, 1.3)
+		"front3q":
+			e = rc.at_p(gm + float(fr.span) / 2.0 + 28.0, w + 9.0, 2.6)
+			l = rc.at_p(gm + 2.0, off, 1.3)
+			span = maxf(float(fr.width) + 4.0, float(fr.span) * 0.5)
+		"curveFront":
+			e = rc.at_p(gm + float(fr.span) / 2.0 + 55.0, off + 5.0, 4.5)   # 弦が内へ入るぶん外へ寄せる（内ラチが手前を横切った）
+			l = rc.at_p(gm + 2.0, off, 1.2)
+			span = float(fr.width) + 4.0
+		"high":
+			e = rc.at_p(gm - 22.0, w + 30.0, 16.0)
+			l = rc.at_p(gm + 4.0, off, 1.0)
+			span = float(fr.span) * 1.5
+		_:
+			e = rc.at_p(gm + TRACK_AHEAD, w + TRACK_OUT, TRACK_HEIGHT)
+			l = rc.at_p(gm, off, 1.3)
+	return [e, l, tracking_fov(span, e.distance_to(l))]
+
+
+## 「中継」のカメラ（ゲームの createTvDirector）：追いのカットを場面で割る。コーナーは正面 → 高い所 → 外から、
+## 直線は外から → 斜め前 → 内から → 高い所 を順に回す。7 秒で替え、場面が変わったらすぐ替える（3.5 秒より短くしない）。ゴール前 150m は外から。
+const TV_ROT := {curve = ["curveFront", "high", "trackOut"], straight = ["trackOut", "front3q", "trackIn", "high"]}
+var tv_shot := ""
+var tv_t := 0.0
+var tv_kind := ""
+var tv_n := 0
+
+
+func tv_reset() -> void:
+	tv_shot = ""
+	tv_t = 0.0
+	tv_kind = ""
+	tv_n = 0
+
+
+## 返り値 [目, 見る点, 縦の画角, カット頭か]
+func tv_camera(delta: float) -> Array:
+	tv_t += delta
+	var L := _leader()
+	var k := "post" if float(rc.race.distance) - float(L.s) <= 150.0 else ("curve" if rc.curvature_at(float(rc.race.start) + float(L.s)) > 0.0 else "straight")
+	var cut := false
+	if k != tv_kind and (tv_shot == "" or tv_t > MIN_SHOT or k == "post"):
+		tv_kind = k
+		tv_n = 0
+		cut = true
+	elif k != "post" and tv_t > 7.0:
+		tv_n += 1
+		cut = true
+	if cut:
+		tv_shot = "trackOut" if k == "post" else String(TV_ROT[tv_kind][tv_n % TV_ROT[tv_kind].size()])
+		tv_t = 0.0
+	var r := track_shot(tv_shot, tracking_frame())
+	r.append(cut)
+	return r
 
 
 ## 集団の前後の長さ span を横に収める縦の画角（Godot の fov は縦）。馬の高さが切れない狭さで頭打ち
@@ -252,6 +330,8 @@ func update_camera(delta: float, snap: bool) -> void:
 		shot = want
 		shot_t = 0.0
 		cut = true
+		if shot == "aerial":
+			arc_n += 1
 		_place_anchor()
 	var w: float = rc.track.width
 	var start: float = rc.race.start
@@ -272,17 +352,12 @@ func update_camera(delta: float, snap: bool) -> void:
 			e = rc.at_p(start + 30.0, mid + 7.0, 3.2)
 			l = rc.at_p(start + 1.0, mid, 1.3)
 			fov = 38.0
-		"side", "infield":
-			# JRA の中継の追い：低い所から先頭の集団を望遠で真横に近く追う（向正面は内馬場の側から）
-			var side: float = w + TRACK_OUT if shot == "side" else -TRACK_OUT
-			e = rc.at_p(gm + TRACK_AHEAD, side, TRACK_HEIGHT)
-			l = rc.at_p(gm, float(fr.off), 1.3)
-			fov = tracking_fov(float(fr.span), e.distance_to(l))
-		"aerial":
-			# コーナーは外の少し高い所から先頭の集団を追う（上空 30m・画角 40° の引きでは馬が豆粒になった）
-			e = rc.at_p(gm - 6.0, w + 34.0, 9.0)
-			l = rc.at_p(gm + 2.0, float(fr.off), 1.2)
-			fov = tracking_fov(float(fr.span), e.distance_to(l))
+		"side", "infield", "aerial":
+			# 直線は JRA の中継の追い（外から・向正面は内馬場から）。コーナーは前から正面で迎えるカットと外の高い所を交互に
+			var r := track_shot("trackOut" if shot == "side" else ("trackIn" if shot == "infield" else ("high" if arc_n % 2 == 1 else "curveFront")), fr)
+			e = r[0]
+			l = r[1]
+			fov = r[2]
 		"stand", "turn4", "post":
 			e = anchor
 			l = rc.at_p((pl if shot == "post" else gm) + 2.0, offL if shot == "post" else float(fr.off), 1.2)

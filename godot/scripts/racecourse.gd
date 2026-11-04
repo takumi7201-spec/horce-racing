@@ -908,7 +908,7 @@ func set_camera(mode: String) -> void:
 			pass
 	camera.free_look = mode == "free"
 	camera.fov = 30.0 if mode == "tv" else 50.0
-	if bc and mode == "auto":
+	if bc and mode in ["auto", "tv"]:
 		bc.reset_shot()
 	if ui:
 		for c in ui.get_node("Bar/Cams").get_children():
@@ -1163,13 +1163,14 @@ func _update_race_camera(delta: float, snap: bool) -> void:
 	var eye: Vector3
 	var look: Vector3
 	if cam_mode == "tv":
-		# 中継：JRA の中継の追い（トラッキング）。外ラチの外の低い所から、先頭の集団を望遠で真横に近く追う。
-		# 先頭から 3 番手の間を固定の画角で見ていたので、逃げ馬が離すと遠目の絵になった。画角は集団の前後の長さで決める
-		var fr: Dictionary = bc.tracking_frame()
-		look = at_p(start + float(fr.mid), float(fr.off), 1.3)
-		eye = at_p(start + float(fr.mid) + bc.TRACK_AHEAD, w + bc.TRACK_OUT, bc.TRACK_HEIGHT)
-		var fv: float = bc.tracking_fov(float(fr.span), eye.distance_to(look))
-		camera.fov = fv if (snap or cam_eye == Vector3.ZERO) else lerpf(camera.fov, fv, clampf(delta * 3.0, 0.0, 1.0))
+		# 中継：JRA の中継のように先頭の集団を追うカットを場面で割る（broadcast.gd の tv_camera・track_shot）。
+		# コーナーは前から正面で迎え、直線は外・斜め前・内・高い所を回す（同じ横からの追いだけでは代わり映えしなかった）
+		var r: Array = bc.tv_camera(delta)
+		if r[3]:
+			snap = true
+		eye = r[0]
+		look = r[1]
+		camera.fov = r[2] if (snap or cam_eye == Vector3.ZERO) else lerpf(camera.fov, r[2], clampf(delta * 2.5, 0.0, 1.0))
 	elif cam_mode == "front":
 		# 正面：先頭の馬の少し前の斜めから、向かってくる顔を撮る（手綱と首まわりが見える）
 		var off := _off(lead.off, race_t)
