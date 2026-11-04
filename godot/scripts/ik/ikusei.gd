@@ -1014,7 +1014,7 @@ static func event_race(p: Dictionary, horse_id, event_id: String, star: int) -> 
 			ab[s] = clampf_(float(m.ab[s]) + sd + rng.normal(0, 0.008), 0.4, 0.95)
 		var c = card(m.cardId) if m.get("cardId") != null else null
 		var spec := {id = 200 + i, name = m.name, sex = m.sex, coat = m.coat, marks = c.marks if c != null else null, ab = ab, dist = m.dist, range = m.range,
-			turf = 0.9, dirt = 0.4, firm = 0.8, soft = m.soft, style = m.style, cardId = c.id if c != null else null, gear = clean_gear(c.get("gear") if c != null else null)}
+			turf = float(m.get("turf", 0.9)), dirt = float(m.get("dirt", 0.4)), firm = 0.8, soft = m.soft, style = m.style, cardId = c.id if c != null else null, gear = clean_gear(c.get("gear") if c != null else null)}
 		var x := _with_skills(spec, skills_of(c).race, c.id, race, true) if c != null else {spec = spec, fired = []}
 		field.append(x.spec)
 		fired[200 + i] = x.fired

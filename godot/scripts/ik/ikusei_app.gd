@@ -93,7 +93,10 @@ func _ready() -> void:
 		go("deck")
 		_omakase()
 	else:
-		go(args.get("screen", "home"), {id = int(args.id)} if args.has("id") else {})
+		var o0 := {id = int(args.id)} if args.has("id") else {}
+		if args.has("evid"):
+			o0.ev = String(args.evid)
+		go(args.get("screen", "home"), o0)
 	if args.has("toturn"):
 		while int(p.run.turn) < int(args.toturn):
 			if IK.is_race_turn(p.run):
@@ -110,8 +113,8 @@ func _ready() -> void:
 	if args.has("gearpick") and p.run != null:
 		_gear_picker(IK.run_gear(p.run), String(IK.trainee_card(p.run).name), func(g: Dictionary) -> void: IK.set_run_gear(p.run, g))
 	if args.has("event"):
-		# 確かめ用：イベント（凱旋門賞 1999）を走って観戦の時刻（--event=秒）で止める
-		var r := IK.event_race(p, p.finished[0].id, "arc1999", 1)
+		# 確かめ用：イベント（既定は凱旋門賞 1999、--evid=bc1989 で BC クラシック）を走って観戦の時刻（--event=秒）で止める
+		var r := IK.event_race(p, p.finished[0].id, String(args.get("evid", "arc1999")), 1)
 		_watch(r.result, [100], r.fired, func() -> void: pass)
 		watching.race_t = float(args.event)
 		watching.playing = false
@@ -735,11 +738,12 @@ func _home() -> Control:
 	layer.add_child(plate)
 
 	# 左の列：イベント・ガチャ・遊びかた（丸い顔と帯）
-	var ev: Dictionary = IK.data().events[0]
+	# 開催中のイベントは新しいものから（ほかのイベントは対戦の画面のバナーから入れる）
+	var ev: Dictionary = IK.data().events.back()
 	var left := UI.vbox(6)
 	left.position = Vector2(4, 12)
 	var ev_left: int = 5 - IK.event_state(p, ev.id).cleared.size()
-	left.add_child(_round_entry(_face_tex(ev.reward), LEAF2, "イベント 開催中", TEAL2, str(ev_left) if ev_left > 0 else "", go.bind("event")))
+	left.add_child(_round_entry(_face_tex(ev.reward), LEAF2, "イベント 開催中", TEAL2, str(ev_left) if ev_left > 0 else "", go.bind("event", {ev = ev.id})))
 	left.add_child(_round_entry(_face_tex("P4-01"), SUN2, "ガチャ NEW", Color("#c97f22"), "!", go.bind("gacha")))
 	left.add_child(_round_entry(null, Color("#eee6c8"), "遊びかた", LEAF, "", _howto, "book"))
 	layer.add_child(left)
@@ -2084,7 +2088,7 @@ func _horse() -> Control:
 	ab.add_child(_gear_row(IK.horse_gear(h), String(h.name), func(g: Dictionary) -> void: IK.set_finished_gear(h, g)))
 	var acts := UI.hbox(10)
 	acts.add_child(UI.button("ランク戦へ", go.bind("battle", {id = h.id}), "primary", 15, "sword"))
-	acts.add_child(UI.button("イベントへ", go.bind("event", {id = h.id}), "sun", 15, "trophy"))
+	acts.add_child(UI.button("イベントへ", go.bind("event", {id = h.id, ev = IK.data().events.back().id}), "sun", 15, "trophy"))
 	ab.add_child(acts)
 	var s1 := UI.section("能力", ab)
 	s1.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -2141,7 +2145,8 @@ func _horse_head(h: Dictionary, c: Dictionary) -> Control:
 
 func _battle() -> Control:
 	var page := UI.vbox(18)
-	page.add_child(_event_banner())
+	for ev in IK.data().events:
+		page.add_child(_event_banner(ev))
 	if p.finished.is_empty():
 		var v0 := UI.vbox(10)
 		v0.add_child(UI.label("対戦には完成馬が要る。", 14, INK))
@@ -2196,8 +2201,15 @@ func _battle() -> Control:
 # ------------------------------------------------------------------ イベント
 
 ## イベントのバナー（ゲームの eventBanner）：報酬のカードの一枚絵と切り抜きに題と進み（★）
-func _event_banner() -> Control:
-	var ev: Dictionary = IK.data().events[0]
+## 開いているイベント（opts.ev。無ければいちばん新しいもの）
+func _ev_of(id) -> Dictionary:
+	for e in IK.data().events:
+		if e.id == id:
+			return e
+	return IK.data().events.back()
+
+
+func _event_banner(ev: Dictionary) -> Control:
 	var st := IK.event_state(p, ev.id)
 	var cleared: Array = st.cleared.map(func(x): return int(x))
 	var lay := Control.new()
@@ -2207,7 +2219,7 @@ func _event_banner() -> Control:
 		lay.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 		lay.gui_input.connect(func(e: InputEvent) -> void:
 			if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
-				go("event"))
+				go("event", {ev = ev.id}))
 	var bg := _img(_bg_tex(ev.reward), true)
 	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
 	lay.add_child(bg)
@@ -2224,17 +2236,17 @@ func _event_banner() -> Control:
 	chip.rotation = -0.04
 	v.add_child(chip)
 	v.add_child(UI.outlined(ev.name, 36, Color("#fff4dc"), "title", Color("#0d2a2e"), 6))
-	v.add_child(UI.outlined("「%s」　ロンシャン 芝 2400m・不良" % ev.title, 14, Color.WHITE, "black", Color("#0d2a2e"), 4))
+	v.add_child(UI.outlined("「%s」　%s" % [ev.title, String(ev.stage).get_slice("（", 0)], 14, Color.WHITE, "black", Color("#0d2a2e"), 4))
 	v.add_child(UI.outlined(" ".join(range(1, 6).map(func(x): return ("★" if cleared.has(x) else "☆") + str(x))) + "　報酬 %s（LM）" % IK.card(ev.reward).name, 15, Color("#ffd36a"), "black", Color("#0d2a2e"), 4))
 	lay.add_child(v)
 	return _framed(lay)
 
 
 func _event() -> Control:
-	var ev: Dictionary = IK.data().events[0]
+	var ev := _ev_of(opts.get("ev", ""))
 	var st := IK.event_state(p, ev.id)
 	var page := UI.vbox(18)
-	page.add_child(_event_banner())
+	page.add_child(_event_banner(ev))
 	var cols := UI.hbox(16)
 	var rw = IK.card(ev.reward)
 	cols.add_child(_card_view(rw, 230))
@@ -2251,7 +2263,7 @@ func _event() -> Control:
 		var hf := HFlowContainer.new()
 		hf.add_theme_constant_override("h_separation", 6)
 		for h in p.finished:
-			hf.add_child(_tile(IK.horse_card(h), h.name, "%s %d" % [h.rank, int(h.rating)], go.bind("event", {id = h.id}), {sel = int(h.id) == int(hid), badge = h.rank}))
+			hf.add_child(_tile(IK.horse_card(h), h.name, "%s %d" % [h.rank, int(h.rating)], go.bind("event", {id = h.id, ev = ev.id}), {sel = int(h.id) == int(hid), badge = h.rank}))
 		v.add_child(hf)
 		var stars := HFlowContainer.new()
 		stars.add_theme_constant_override("h_separation", 10)

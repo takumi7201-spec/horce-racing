@@ -68,8 +68,9 @@ func scenario(seed: int) -> Dictionary:
 	var h := IK.finish_run(p)
 	var b := IK.battle_npc(p, h.id, "japan-cup", "normal")
 	var e := IK.event_race(p, h.id, "arc1999", 1)
+	var e2 := IK.event_race(p, h.id, "bc1989", 3)
 	return {pulls = pulls, steps = steps, stats = h.stats, rating = h.rating, skills = h.skills, name = h.name, sex = h.sex, coat = h.coat,
-		battle = orders(b.result), event = orders(e.result)}
+		battle = orders(b.result), event = orders(e.result), event2 = orders(e2.result)}
 
 
 func race_check(r: Dictionary) -> Array:

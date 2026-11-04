@@ -1074,9 +1074,9 @@ section('カード育成モード');
   const I = await import('../src/sim/ikusei.js');
   const { peekHorseId } = await import('../src/sim/horse.js');
   const ids = new Set(I.CARDS.map((c) => c.id));
-  check(`カード ${I.CARDS.length} 枚（第 1 弾 40・第 2 弾 40・第 3 弾 3・第 4 弾 40・イベント 1、id が重ならない）`,
-    I.CARDS.length === 124 && ids.size === 124 && I.CARDS.filter((c) => c.pack === 'P4').length === 40 && I.CARDS.filter((c) => c.pack === 'P1').length === 40 && I.CARDS.filter((c) => c.pack === 'P2').length === 40
-    && I.CARDS.filter((c) => c.pack === 'P3').length === 3 && I.CARDS.filter((c) => c.pack === 'EV').length === 1);
+  check(`カード ${I.CARDS.length} 枚（第 1 弾 40・第 2 弾 40・第 3 弾 3・第 4 弾 40・イベント 2、id が重ならない）`,
+    I.CARDS.length === 125 && ids.size === 125 && I.CARDS.filter((c) => c.pack === 'P4').length === 40 && I.CARDS.filter((c) => c.pack === 'P1').length === 40 && I.CARDS.filter((c) => c.pack === 'P2').length === 40
+    && I.CARDS.filter((c) => c.pack === 'P3').length === 3 && I.CARDS.filter((c) => c.pack === 'EV').length === 2);
   // 第 4 弾は牝馬だけ。配分は過去の弾と同じ（LM 10・SSR 6・SR 6・R 8・N 10）、全カードに二つ名、LM と SSR の看板は牡馬混合の GI
   const p4 = I.CARDS.filter((c) => c.pack === 'P4');
   const nr = (r) => p4.filter((c) => c.rar === r).length;
@@ -1241,6 +1241,21 @@ section('カード育成モード');
     ev.field.length === 14 && last.result.results.length === 15 && last.race.courseId === 'longchamp' && last.race.ground === '不良'
     && ep.cards[mj.id] === 5 && I.eventState(ep, 'arc1999').cleared.join() === '1,2,3,4,5'
     && tried.filter((x) => x.reward).length === 5 && peekHorseId() === idBefore);
+  // イベント第 2 弾：1989 年の BC クラシック。報酬のサンデーサイレンス（LM）、出走馬は史実の 8 頭（イージーゴアはカードのスキルで走る）
+  const ss = I.cardById('EV-02');
+  const bc = I.EVENTS.find((e) => e.id === 'bc1989');
+  const bp = I.newProfile(8);
+  bp.finished.push({ ...h, id: 998, battles: 0, battleWins: 0, turf: 0.5, dirt: 0.9, soft: 0.7, dist: 2000, stats: Object.fromEntries(I.STATS.map((k) => [k, 1200])) });
+  const bcTried = [];
+  for (let star = 1; star <= 5; star++) for (let t = 0; t < 12 && !I.eventState(bp, 'bc1989').cleared.includes(star); t++) bcTried.push(I.eventRace(bp, 998, 'bc1989', star));
+  const bl = bcTried.at(-1);
+  const egRow = bl.field.find((f) => f.name === 'イージーゴア');
+  check(`イベント：1989 年の BC クラシック（ガルフストリーム ダ2000m・良、史実の 8 頭）。☆1〜☆5 の初勝利でサンデーサイレンス（LM「後世まで届け、至極の遺伝子」）5 枚（挑戦 ${bcTried.length} 回）`,
+    ss?.rar === 'LM' && ss.name === 'サンデーサイレンス' && ss.epithet === '後世まで届け、至極の遺伝子' && I.isEventCard(ss) && bc.reward === ss.id
+    && noEv && !I.pull(I.newProfile(9), 3000).some((g) => g.card.id === ss.id)
+    && bc.field.length === 8 && bl.result.results.length === 9 && bl.race.courseId === 'gulfstream' && bl.race.surface === 'ダート' && bl.race.distance === 2000
+    && egRow?.cardId === 'P1-40' && egRow.dirt === 0.9 && bp.cards[ss.id] === 5 && I.eventState(bp, 'bc1989').cleared.join() === '1,2,3,4,5'
+    && I.eventState(bp, 'arc1999').tries === 0 && peekHorseId() === idBefore);
   const js = JSON.stringify(big);
   check(`プロフィールは JSON で往復できる（${(js.length / 1024).toFixed(1)}KB）`, JSON.stringify(JSON.parse(js)) === js && js.length < 64 * 1024);
 }

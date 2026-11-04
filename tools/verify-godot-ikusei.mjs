@@ -46,7 +46,8 @@ function scenario(seed) {
   const h = IK.finishRun(p);
   const b = IK.battleNpc(p, h.id, 'japan-cup', 'normal');
   const e = IK.eventRace(p, h.id, 'arc1999', 1);
-  return { pulls, steps, stats: h.stats, rating: h.rating, skills: h.skills, name: h.name, sex: h.sex, coat: h.coat, battle: orders(b.result), event: orders(e.result) };
+  const e2 = IK.eventRace(p, h.id, 'bc1989', 3);
+  return { pulls, steps, stats: h.stats, rating: h.rating, skills: h.skills, name: h.name, sex: h.sex, coat: h.coat, battle: orders(b.result), event: orders(e.result), event2: orders(e2.result) };
 }
 
 function raceCheck(r) {
@@ -89,8 +90,8 @@ js.scenarios.forEach((s, k) => {
   if (!same(s.stats, g.stats)) { bad++; console.log(`✗ 種 ${k}：完成の能力 ${JSON.stringify(s.stats)} / ${JSON.stringify(g.stats)}`); }
   if (s.name !== g.name || s.sex !== g.sex || s.coat !== g.coat) { bad++; console.log(`✗ 種 ${k}：育成馬 ${s.name}・${s.sex}・${s.coat} / ${g.name}・${g.sex}・${g.coat}`); }
   if (!same(s.skills, g.skills)) { bad++; console.log(`✗ 種 ${k}：スキル ${s.skills} / ${g.skills}`); }
-  maxDt = Math.max(maxDt, cmpOrder(`種 ${k} ランク戦`, s.battle, g.battle), cmpOrder(`種 ${k} イベント`, s.event, g.event));
-  nRace += 2;
+  maxDt = Math.max(maxDt, cmpOrder(`種 ${k} ランク戦`, s.battle, g.battle), cmpOrder(`種 ${k} イベント`, s.event, g.event), cmpOrder(`種 ${k} イベント（BC）`, s.event2, g.event2));
+  nRace += 3;
 });
 js.races.forEach((r, i) => { nRace++; maxDt = Math.max(maxDt, cmpOrder(`舞台 ${IK.BATTLE_RACES[i].id}`, r, gd.races[i])); });
 console.log(`${bad ? '✗' : '✓'} 不一致 ${bad} 件（レース ${nRace} 戦、時計の差の最大 ${maxDt.toFixed(3)} 秒）　Godot ${gd.ms}ms`);

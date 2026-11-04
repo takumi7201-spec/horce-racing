@@ -206,7 +206,8 @@ function homeView(app, go) {
     return el(`button.ikh-ev.${cls}`, { onclick }, [face, el('span.ikh-ev-l', { text: label }), badge ? el('i.ik-badge', { text: badge }) : null]);
   };
   const gc = I.CARDS.find((c) => c.name === 'アーモンドアイ') ?? I.CARDS[0];
-  const evNow = I.EVENTS[0];
+  // 開催中のイベントは新しいものから（ほかのイベントは対戦の画面のバナーから入れる）
+  const evNow = I.EVENTS.at(-1);
   const evCard = I.cardById(evNow.reward);
   const evLeft = 5 - I.eventState(p, evNow.id).cleared.length;
   const left = el('nav.ikh-left', [
@@ -1719,7 +1720,7 @@ function eventBanner(app, ev, onclick = null) {
     bg, el('span.ikev-shade'), hero,
     el('div.ikev-tx', [
       el('span.ikev-tag', { text: 'EVENT' }),
-      el('small.ikev-en', { text: `${ev.year} PRIX DE L'ARC DE TRIOMPHE` }),
+      el('small.ikev-en', { text: ev.en ?? String(ev.year) }),
       el('b.ikev-ttl', { text: ev.race.name }),
       el('span.ikev-sub', { text: `― ${c.epithet} ―` }),
       el('span.ikev-rw', [el('i', { text: c.rar }), el('span', { text: `${c.name} を手に入れよう` })]),
@@ -1731,11 +1732,12 @@ function eventBanner(app, ev, onclick = null) {
 /** イベントの画面：バナー・難易度（☆1〜☆5）・出る馬・出走馬（史実の 14 頭）・報酬。 */
 function eventView(app, go) {
   const p = app.ik;
-  const ev = I.EVENTS.find((e) => e.id === app.params.ev) ?? I.EVENTS[0];
+  const ev = I.EVENTS.find((e) => e.id === app.params.ev) ?? I.EVENTS.at(-1);
   const st = I.eventState(p, ev.id);
   const c = I.cardById(ev.reward);
+  // 難易度と出る馬はイベントごとに覚える（凱旋門賞で選んだ☆を BC クラシックへ持ち越さない）
   app.ikEvent ??= {};
-  const E = app.ikEvent;
+  const E = app.ikEvent[ev.id] ??= {};
   E.star ??= Math.min(5, (st.cleared.length ? Math.max(...st.cleared) : 0) + 1);
   const turfs = [...p.finished].sort((a, b) => b.rating - a.rating);
   if (turfs.length) E.horse = p.finished.some((h) => h.id === E.horse) ? E.horse : turfs[0].id;
@@ -1745,9 +1747,13 @@ function eventView(app, go) {
   const horseSel = el('select.inp', { onchange: (e) => { E.horse = Number(e.target.value); go('event', { ev: ev.id }); } },
     turfs.map((h) => el('option', { value: String(h.id), text: `${h.rank} ${h.name}（${h.rating}）`, selected: h.id === E.horse })));
   const me = p.finished.find((h) => h.id === E.horse);
+  const R = ev.race;
+  const D = R.distance;
   const fitTxt = me ? [
-    `芝 ${MARK(me.turf)}`, `重い馬場 ${MARK(me.soft)}`, `2400m ${Math.abs(me.dist - 2400) <= (me.range ?? 400) ? '○' : Math.abs(me.dist - 2400) <= 800 ? '△' : '×'}`,
-  ].join('　') : '';
+    R.surface === '芝' ? `芝 ${MARK(me.turf)}` : `ダート ${MARK(me.dirt)}`,
+    R.ground !== '良' ? `重い馬場 ${MARK(me.soft)}` : null,
+    `${D}m ${Math.abs(me.dist - D) <= (me.range ?? 400) ? '○' : Math.abs(me.dist - D) <= 800 ? '△' : '×'}`,
+  ].filter(Boolean).join('　') : '';
   const run = () => {
     const out = I.eventRace(p, E.horse, ev.id, E.star);
     save(app);
@@ -1770,10 +1776,10 @@ function eventView(app, go) {
     ]),
     card('出る馬', turfs.length ? [
       el('div.form', [el('label', ['完成馬', horseSel])]),
-      el('p.note', { text: `ロンシャン 芝2400m・不良（右回り、直線 533m、高低差 10m）。${me ? `${me.name}：${fitTxt}` : ''}` }),
+      el('p.note', { text: `${ev.stage}。${me ? `${me.name}：${fitTxt}` : ''}` }),
       el('div.ik-gbtns', [button(`${'☆'.repeat(E.star)} で出走する`, run, { cls: 'primary big' })]),
     ] : [el('p', { text: 'イベントには完成馬が要る。' }), button('育成へ', () => go('run'), { cls: 'primary' })]),
-    card(`出走馬（${ev.year} 年 10 月 3 日・${ev.field.length} 頭）`, [
+    card(`出走馬（${ev.year} 年 ${ev.date}・${ev.field.length} 頭）`, [
       table(['史実', '馬名', '', '脚質', `強さ（${'☆'.repeat(E.star)}）`], ev.field.map((m) => [
         `${m.pos}着`, el(m.cardId === c.id ? 'b.mine' : 'span', { text: m.name }), `${m.sex}${m.age}`,
         { 0.05: '逃げ', 0.3: '先行', 0.62: '差し', 0.88: '追込' }[m.style] ?? '', el('span.ikev-lv', { text: lvl(m) }),
@@ -1784,7 +1790,7 @@ function eventView(app, go) {
         cardView(c, { scale: fit(0.3), count: p.cards[c.id] ?? 0, dim: !p.cards[c.id], onClick: p.cards[c.id] ? (x) => showCard(app, x) : null }),
         el('div', [
           el('b', { text: `${c.rar} ${c.epithet} ${c.name}` }),
-          el('p.note', { text: `イベントの報酬でだけ手に入る（ガチャに出ない・かけらで交換できない）。モンジューも出走馬として走り、最後の直線で固有スキル「${c.epithet}」を使う。` }),
+          el('p.note', { text: `イベントの報酬でだけ手に入る（ガチャに出ない・かけらで交換できない）。${c.name}も出走馬として走り、最後の直線で固有スキル「${c.epithet}」を使う。` }),
           el('p', { text: `所持 ${p.cards[c.id] ?? 0} 枚　${(p.cards[c.id] ?? 0) >= 5 ? '覚醒 MAX' : `覚醒 ${Math.max(0, (p.cards[c.id] ?? 0) - 1)}`}` }),
         ]),
       ]),

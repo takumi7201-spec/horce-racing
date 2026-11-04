@@ -900,7 +900,7 @@ export function eventRace(profile, horseId, eventId, star) {
     const ab = Object.fromEntries(STATS.map((k) => [k, clamp(m.ab[k] + STAR_D[star] + rng.normal(0, 0.008), 0.4, 0.95)]));
     const c = m.cardId ? cardById(m.cardId) : null;
     const spec = { id: 200 + i, name: m.name, sex: m.sex, coat: m.coat, marks: c?.marks ?? null, ab, dist: m.dist, range: m.range,
-      turf: 0.9, dirt: 0.4, firm: 0.8, soft: m.soft, style: m.style, cardId: c?.id ?? null, gear: cleanGear(c?.gear) };
+      turf: m.turf ?? 0.9, dirt: m.dirt ?? 0.4, firm: 0.8, soft: m.soft, style: m.style, cardId: c?.id ?? null, gear: cleanGear(c?.gear) };
     // カードのある馬（モンジュー・ファンタスティックライト）はカードのスキルを使う。モンジューの固有「聳え立つ巨城」はこの舞台で発動する
     const x = c ? withSkills(spec, skillsOf(c).race, c.id, race, true) : { spec, fired: [] };
     field.push(x.spec);
