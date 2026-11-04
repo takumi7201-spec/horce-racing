@@ -120,16 +120,25 @@ function bakeBlur(url) {
  * @returns {Promise<{bg:string, fg:string, ring:string|null, sun:{x:number,y:number,visible:boolean}, sticker:{url:string,w:number,h:number,focus:{x:number,y:number}}|null}>}
  */
 export function cardArt(card) {
-  if (cache.has(card.id)) return cache.get(card.id);
+  // 覚えるのは絵の鍵（id と撮り方の値）で。id だけで覚えると、完成馬の馬具やカードエディットで撮り方を変えても古い絵が出た
   const key = artKey(card);
+  if (cache.has(key)) return cache.get(key);
   const p = loadSaved(key).then((saved) => saved ?? shoot(card).then((v) => { save(key, v); return v; }));
-  cache.set(card.id, p);
+  cache.set(key, p);
   return p;
 }
 
+/** カードの絵を撮る描画器（カードエディットの生の舞台もこれで描く。WebGL を増やさない：落とし穴 23）。 */
+export function artRenderer() {
+  renderer ??= new THREE.WebGLRenderer({ canvas: document.createElement('canvas'), antialias: true, alpha: true, preserveDrawingBuffer: false });
+  renderer.setPixelRatio(1);
+  return renderer;
+}
+export const ART_SIZE = { w: W, h: H };
+
 /** 撮ってある絵だけを返す（無ければ null）。レース観戦の途中で撮ると、観戦の WebGL の横にもう 1 つ作ることになる（落とし穴 23）。 */
 export function cardArtIfReady(card) {
-  if (cache.has(card.id)) return cache.get(card.id).catch(() => null);
+  if (cache.has(artKey(card))) return cache.get(artKey(card)).catch(() => null);
   return loadSaved(artKey(card)).catch(() => null);
 }
 
@@ -137,7 +146,7 @@ export function cardArtIfReady(card) {
 // 1 枚撮るのに WebGL で舞台を組んで描くので、79 枚の一覧を開くたびに撮り直すと重い。ブラウザの IndexedDB に残す。
 // 鍵は絵に効くカードの値（構え・毛色・白斑・勝負服など）と ART_VER。撮影の舞台（photostage.js）を変えたら ART_VER を上げる。
 const ART_VER = 2;   // 2: ステッカー（sticker）を足した（相手の馬・背景は鍵の値に入るので、足しても上げなくてよい）
-const artKey = (c) => `${ART_VER}:${c.id}:${JSON.stringify([c.hid, c.artCoat ?? c.coat, c.marks, c.surface, c.shot, c.desert, c.silks ?? null, c.facing ?? null, c.pose ?? null, c.gate ?? null, c.phase ?? null, c.legPose ?? null, c.rivals ?? null, c.backdrop ?? null, c.wind ?? null, c.gear ?? null])}`;
+const artKey = (c) => `${ART_VER}:${c.id}:${JSON.stringify([c.hid, c.artCoat ?? c.coat, c.marks, c.surface, c.shot, c.desert, c.silks ?? null, c.facing ?? null, c.pose ?? null, c.gate ?? null, c.phase ?? null, c.legPose ?? null, c.rivals ?? null, c.backdrop ?? null, c.wind ?? null, c.gear ?? null, ...(c.camera ? [c.camera] : [])])}`;
 let dbp = null;
 function db() {
   if (typeof indexedDB === 'undefined') return Promise.resolve(null);
@@ -172,14 +181,13 @@ function shoot(card) {
   const p = chain.then(async () => {
     // 1 枚ごとに手を離す（続けて撮ると、その間クリックもスクロールも効かない）
     await new Promise((r) => setTimeout(r, 0));
-    renderer ??= new THREE.WebGLRenderer({ canvas: document.createElement('canvas'), antialias: true, alpha: true, preserveDrawingBuffer: false });
-    renderer.setPixelRatio(1);
+    artRenderer();
     const shot = card.shot ?? 'profile';
     const v = shootFinish(renderer, {
       width: W, height: H,
       hero: { id: card.hid ?? 1, coat: card.artCoat ?? card.coat, gate: card.gate ?? 1, frame: 1, marks: card.marks, silks: card.silks ?? null, legPose: card.legPose ?? null, gear: card.gear ?? null },
       surface: card.surface ?? '芝', shot, phase: card.phase ?? (shot === 'charge' ? 0.3 : 0.25), facing: card.facing ?? 'left',
-      riderPose: card.pose ?? (shot === 'charge' || shot === 'arc' ? 'race' : 'celebrate'), wind: card.wind ?? true, backdrop: card.backdrop ?? (card.desert ? 'desert' : 'sunset'), mask: true,
+      riderPose: card.pose ?? (shot === 'charge' || shot === 'arc' ? 'race' : 'celebrate'), wind: card.wind ?? true, camera: card.camera ?? null, backdrop: card.backdrop ?? (card.desert ? 'desert' : 'sunset'), mask: true,
       // 写真に写っている相手（モンジューのカードのエルコンドルパサー）。dx は横（負で奥）、dz は前後（負で後ろ）
       rivals: (card.rivals ?? []).map((r, i) => ({ id: r.hid ?? (card.hid ?? 1) + 101 + i, coat: r.coat, gate: r.gate ?? 2, frame: 1, marks: r.marks ?? null, silks: r.silks ?? null, dx: r.dx, dz: r.dz, phase: r.phase })),
     });

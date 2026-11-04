@@ -45,6 +45,93 @@ export function setFinishedGear(profile, horseId, gear) {
   h.gear = cleanGear(gear);
   return h.gear;
 }
+// ---------------------------------------------------------------- カードエディット（完成馬をカードにする）
+// 完成馬の一枚絵の撮り方（構図・向き・脚の運び・脚ごとの角度・騎手の姿勢・背景・ゼッケン・勝負服・カメラ・二つ名）を h.art に持つ。
+// 絵を撮るのは画面の側（render3d/photostage.js）。ここは値を整えて持つだけ（レースには効かない。Godot の一致にも関わらない）。
+export const ART_SHOTS = ['profile', 'finish', 'charge', 'front', 'face', 'low', 'side', 'duel'];
+export const ART_BACKDROPS = { sunset: '夕日', day: '晴れた昼', cloudy: '曇り', paris: '秋の曇天', desert: '砂漠' };
+export const ART_POSES = { celebrate: 'ガッツポーズ', race: '追う（前傾）', canter: '返し馬（起こす）' };
+export const SILK_PATTERNS = ['無地', '縦縞', '縦縞細', '輪', '一本輪', 'たすき', '十字襷', '山形', '玉', '玉霰', '元禄', '肩章', '吊り'];
+export const SILK_SLEEVES = { body: '胴と同じ', plain: '無地', hoops: '輪', stripes: '縦縞', band: '一本輪', cuffs: '袖口', dots: '玉' };
+export const LEG_KEYS = ['lf', 'rf', 'lh', 'rh'];
+const COLOR_RE = /^#[0-9a-f]{6}$/i;
+const num = (x, lo, hi, d = null) => (typeof x === 'number' && Number.isFinite(x) ? Math.min(hi, Math.max(lo, x)) : d);
+/** カードの撮り方の値を整える（範囲の外・知らない値は落とす。保存する JSON を小さく保つ）。 */
+export function cleanArt(a) {
+  const o = {};
+  if (!a || typeof a !== 'object') return o;
+  if (ART_SHOTS.includes(a.shot)) o.shot = a.shot;
+  if (a.facing === 'right') o.facing = 'right';
+  if (num(a.phase, 0, 1) != null) o.phase = r3(num(a.phase, 0, 1));
+  if (a.pose in ART_POSES) o.pose = a.pose;
+  if (a.backdrop in ART_BACKDROPS) o.backdrop = a.backdrop;
+  if (num(a.gate, 1, 18) != null) o.gate = Math.round(num(a.gate, 1, 18));
+  if (a.wind === false) o.wind = false;
+  if (a.surface === '芝' || a.surface === 'ダート') o.surface = a.surface;
+  if (a.legPose && typeof a.legPose === 'object') {
+    const lp = {};
+    for (const k of LEG_KEYS) {
+      const q = a.legPose[k];
+      if (!q) continue;
+      const j = {};
+      for (const n of ['hip', 'knee', 'fetlock']) if (num(q[n], -2, 2) != null) j[n] = r3(num(q[n], -2, 2));
+      if (Object.keys(j).length) lp[k] = j;
+    }
+    if (Object.keys(lp).length) o.legPose = lp;
+  }
+  const cam = a.camera;
+  if (cam && [...(cam.pos ?? []), ...(cam.look ?? [])].length === 6 && [...cam.pos, ...cam.look].every((x) => num(x, -60, 60) != null) && num(cam.fov, 8, 70) != null) {
+    o.camera = { pos: cam.pos.map(r3), look: cam.look.map(r3), fov: r3(cam.fov) };
+  }
+  if (a.silks && COLOR_RE.test(a.silks.body ?? '')) {
+    const sk = { body: a.silks.body, accent: COLOR_RE.test(a.silks.accent ?? '') ? a.silks.accent : a.silks.body,
+      pattern: SILK_PATTERNS.includes(a.silks.pattern) ? a.silks.pattern : '無地', sleeve: a.silks.sleeve in SILK_SLEEVES ? a.silks.sleeve : 'plain' };
+    if (COLOR_RE.test(a.silks.cap ?? '')) sk.cap = parseInt(a.silks.cap.slice(1), 16);
+    else if (Number.isInteger(a.silks.cap)) sk.cap = a.silks.cap;
+    o.silks = sk;
+  }
+  if (typeof a.epithet === 'string' && a.epithet.trim()) o.epithet = a.epithet.trim().slice(0, 16);
+  return o;
+}
+/** 完成馬をカードにする（撮り方を決める）。何度でも撮り直せる。 */
+export function setFinishedArt(profile, horseId, art) {
+  const h = profile.finished.find((x) => x.id === horseId);
+  if (!h) throw new Error('完成馬が無い');
+  h.art = cleanArt(art);
+  return h.art;
+}
+/** 完成馬の撮り方の既定（カードの馬は元のカードの撮り方、配合の馬は真横のガッツポーズ）。 */
+export function defaultArt(h) {
+  const c = h.cardId ? cardById(h.cardId) : null;
+  return cleanArt({ shot: c?.shot ?? 'profile', facing: c?.facing, phase: c?.phase ?? 0.25, pose: c?.pose ?? 'celebrate', backdrop: c?.backdrop ?? (c?.desert ? 'desert' : 'sunset'),
+    gate: c?.gate ?? 1, legPose: c?.legPose, wind: c?.wind, surface: signatureRace(h)?.surface ?? c?.surface ?? (h.turf >= h.dirt ? '芝' : 'ダート') });
+}
+/** 完成馬の看板のレース（いちばん格の高い勝ち鞍。勝っていなければ最後のレース）。 */
+function signatureRace(h) {
+  const rk = (g) => ({ GI: 5, GII: 4, GIII: 3, OP: 2 }[g] ?? 1);
+  const rs = h.races ?? [];
+  const wins = rs.filter((r) => r.order === 1);
+  const pool = wins.length ? wins : rs;
+  return pool.reduce((b, r) => (!b || rk(r.grade) > rk(b.grade) || (rk(r.grade) === rk(b.grade) && r.slot > b.slot) ? r : b), null);
+}
+/**
+ * 完成馬のカード（カードの表で見せる形）。能力は育てた点、+値は元のカードか両親、看板は勝ち鞍、二つ名は決めたもの。
+ * id は horseCard と同じ（絵の鍵が同じになり、ホームの馬・アイコンと 1 度の撮影で済む）。
+ */
+export function finishedCard(h) {
+  const base = horseCard(h);
+  const sr = signatureRace(h);
+  const won = sr?.order === 1;
+  const v = Object.fromEntries(STATS.map((k) => [k, abilityOf(h.stats[k])]));
+  return {
+    ...base, pack: 'MY', name: h.name, sex: h.sex, coat: h.coat, rar: h.rar, age: 4, v, plus: plusOf(base),
+    gi: h.giWins ?? 0, graded: h.gradedWins ?? 0, travel: null, record: `${h.starts}戦${h.wins}勝`,
+    race: sr ? { name: sr.name, info: `${sr.grade || '条件'}　${sr.surface}${sr.distance}m　${SLOTS[sr.slot]?.label ?? ''}${won ? '' : `　${sr.order}着`}`, year: SLOTS[sr.slot]?.label ?? '', venue: sr.surface === 'ダート' ? '砂' : '芝', won }
+      : { name: h.name, info: '育成馬', year: '', venue: '芝', won: false },
+    epithet: h.art?.epithet ?? base.epithet ?? null, myCard: true,
+  };
+}
+
 /** 弾の名前（ガチャの弾とイベント）。 */
 export const PACK_NAMES = { ...PACKS, ...EVENT_PACKS };
 /** イベントの報酬だけで手に入るカード。 */
@@ -344,10 +431,17 @@ export function traineeCard(run) {
   return bredCard({ id: run.id, sire: run.sire, dam: run.dam, name: run.name, style: run.style, sex: run.sex, coat: run.coat, aw: run.awaken?.ps });
 }
 
+/** 撮り方（h.art）をカードの絵の値に。silks は値があるときだけ（無ければ元のカードの服か、馬 id の服）。 */
+const artFields = (a) => (a ? Object.fromEntries(Object.entries({ shot: a.shot, facing: a.facing, phase: a.phase, pose: a.pose, backdrop: a.backdrop, gate: a.gate,
+  legPose: a.legPose, wind: a.wind, camera: a.camera, silks: a.silks, surface: a.surface, desert: a.backdrop ? a.backdrop === 'desert' : undefined,
+  // 自分のカードは主役 1 頭だけ（元のカードに写っていた相手の馬は連れてこない）
+  rivals: [] }).filter(([, v]) => v !== undefined)) : {});
+
 /** 完成馬の姿（カードの形。絵を撮るのに使う）。配合の馬は保存した値から。 */
 export function horseCard(h) {
   // 馬具を付け替えた完成馬は、絵もその馬具で撮る（絵の鍵に gear が入るので撮り直しになる）
-  if (h.cardId) { const c = cardById(h.cardId); return h.gear && c ? { ...c, gear: h.gear } : c; }
+  // カードにした完成馬（h.art）は、その撮り方で撮る（ホームの馬・アイコンも同じ姿になる）
+  if (h.cardId) { const c = cardById(h.cardId); return c && (h.gear || h.art) ? { ...c, ...(h.gear ? { gear: h.gear } : {}), ...artFields(h.art) } : c; }
   const s = cardById(h.sire), d = cardById(h.dam);
   return {
     id: `B${h.id}`, pack: 'BRED', bred: true, rar: h.rar, name: h.name, sex: h.sex, coat: h.coat, marks: null, hid: 900000 + h.id,
@@ -355,7 +449,7 @@ export function horseCard(h) {
     plus: s && d ? Object.fromEntries(STATS.map((k) => [k, Math.max(plusOf(s)[k], plusOf(d)[k])])) : undefined,
     v: Object.fromEntries(STATS.map((k) => [k, abilityOf(h.stats[k])])), turf: h.turf, dirt: h.dirt, firm: h.firm, soft: h.soft,
     dist: h.dist, range: h.range, style: h.style, surface: h.turf >= h.dirt ? '芝' : 'ダート', shot: 'profile', desert: false, unique: h.unique ?? null,
-    gear: h.gear ?? {},
+    gear: h.gear ?? {}, ...artFields(h.art),
   };
 }
 

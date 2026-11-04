@@ -233,6 +233,78 @@ export const SHOTS = {
  * @returns {{background:string, subject:string, mask:string|null, sun:{x:number,y:number,visible:boolean}}} 画像（dataURL。mask は o.mask のときだけ、馬と騎手だけの形）と太陽の画面位置（0..1）
  */
 export function shootFinish(renderer, o) {
+  const st = buildStage(o);
+  const { width, height } = o;
+  const { scene, camera, bg, subject, models, sunDir } = st;
+  renderer.setSize(width, height, false);
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 0.92;
+
+  // 背景だけ → 馬だけ（透明の地）の順に描いて、その場で読み出す（描いた直後なら preserveDrawingBuffer は要らない）。
+  subject.visible = false;
+  renderer.setClearColor(0x000000, 1);
+  renderer.render(scene, camera);
+  const background = renderer.domElement.toDataURL('image/png');
+  subject.visible = true;
+  bg.visible = false;
+  renderer.setClearColor(0x000000, 0);
+  // 馬だけでも地面の影は要るので、影の板は subject に入れてある。空は bg なので透明になる。
+  renderer.render(scene, camera);
+  const subjectUrl = renderer.domElement.toDataURL('image/png');
+  // 馬と騎手だけの形（カードの箔押しの輪郭に使う）。影・芝の塊・風の筋まで含めると、輪郭がそれらも縁取ってしまう。
+  let maskUrl = null;
+  if (o.mask) {
+    const keep = new Set(models.map((m) => m.group));
+    const hidden = subject.children.filter((c) => !keep.has(c) && c.visible);
+    for (const c of hidden) c.visible = false;
+    renderer.render(scene, camera);
+    maskUrl = renderer.domElement.toDataURL('image/png');
+    for (const c of hidden) c.visible = true;
+  }
+
+  const sp = sunDir.clone().multiplyScalar(800).project(camera);
+  const sun = { x: (sp.x + 1) / 2, y: (1 - sp.y) / 2, visible: sp.z < 1 && Math.abs(sp.x) < 1.4 && Math.abs(sp.y) < 1.4 };
+  // 主役の頭の画面の位置（0..1）。アイコンで顔のあたりを丸く切り取るのに使う（構えと向きで頭の位置が違う）。
+  const hp = new THREE.Vector3();
+  models[0].head.getWorldPosition(hp);
+  hp.project(camera);
+  const head = { x: (hp.x + 1) / 2, y: (1 - hp.y) / 2 };
+  st.dispose();
+  return { background, subject: subjectUrl, mask: maskUrl, sun, head };
+}
+
+/**
+ * 脚の運び（完歩の位相 ph）と脚ごとの角度（legPose）を馬に当て、いちばん低い蹄を地面に着ける。
+ * 撮影の舞台と、カードエディットの生の舞台（createPoseStage）で同じ当て方をする。
+ */
+function poseModel(m, ph, legPose, dx = 0, dz = 0) {
+  m.update(((ph % 1) + 1) % 1 * STRIDE, 17, 0);
+  // 写真に合わせて脚ごとの角度を上書きする（legPose：lf 左前・rf 右前・lh 左後・rh 右後 → { hip, knee, fetlock } のラジアン）。
+  // 股は正で後ろ、前脚の膝は正で蹄を後ろへ畳む。位相だけでは「左前を伸ばし、右前は畳む」の組み合わせが作れなかった。
+  if (legPose) {
+    ['lf', 'rf', 'lh', 'rh'].forEach((k, i) => {
+      const q = legPose[k];
+      if (!q) return;
+      for (const j of ['hip', 'knee', 'fetlock']) if (q[j] != null) m.legs[i][j].rotation.x = q[j];
+    });
+  }
+  m.group.position.set(dx, 0, dz);
+  // 脚を伸ばした位相では 4 本とも宙に浮き、影から離れて飛んでいるように見えた。いちばん低い蹄を地面に着ける。
+  m.group.updateMatrixWorld(true);
+  const low = new THREE.Box3().setFromObject(m.group).min.y;
+  if (low > 0) m.group.position.y -= low;
+  m.group.updateMatrixWorld(true);
+}
+
+/** カメラの構え（o.camera があればそれ。カードエディットで動かしたカメラ）。 */
+export function shotCamera(o) {
+  const S = SHOTS[o.shot ?? 'profile'] ?? SHOTS.profile;
+  const c = o.camera;
+  return { pos: c?.pos ?? S.pos, look: c?.look ?? S.look, fov: c?.fov ?? S.fov };
+}
+
+/** 撮影の舞台を組む（描かない）。shootFinish と createPoseStage が使う。 */
+function buildStage(o) {
   const { width, height, hero, rivals = [], shot = 'profile', phase = 0.25, surface = '芝', riderPose = 'celebrate' } = o;
   const S = SHOTS[shot] ?? SHOTS.profile;
   const scene = new THREE.Scene();
@@ -246,7 +318,7 @@ export function shootFinish(renderer, o) {
   // 光：馬の毛色が読めるよう主光はカメラ側から（落とし穴 24）。夕日は後ろから縁を光らせる。
   scene.add(new THREE.HemisphereLight(0xfff1dc, 0x4a6a30, 0.62 * Math.PI));
   const key = new THREE.DirectionalLight(0xfff0dc, 0.45 * Math.PI);
-  key.position.set(...S.pos).add(new THREE.Vector3(0, 6, 0));
+  key.position.set(...shotCamera(o).pos).add(new THREE.Vector3(0, 6, 0));
   scene.add(key);
   // 低い日差し。前から当てれば毛艶が金色に光り、後ろからなら縁が光る。
   const rim = new THREE.DirectionalLight(0xffcf8a, 1.9 * Math.PI);
@@ -319,21 +391,7 @@ export function shootFinish(renderer, o) {
   const models = [];
   const place = (h, dx, dz, ph, detail) => {
     const m = makeHorse({ id: h.id, gate: h.gate ?? 1, frame: h.frame ?? 1, coat: h.coat, marks: h.marks ?? null, silks: h.silks ?? null, gear: h.gear ?? null, detail, riderPose: h === hero ? riderPose : 'race' });
-    m.update(((ph % 1) + 1) % 1 * STRIDE, 17, 0);
-    // 写真に合わせて脚ごとの角度を上書きする（legPose：lf 左前・rf 右前・lh 左後・rh 右後 → { hip, knee, fetlock } のラジアン）。
-    // 股は正で後ろ、前脚の膝は正で蹄を後ろへ畳む。位相だけでは「左前を伸ばし、右前は畳む」の組み合わせが作れなかった。
-    if (h.legPose) {
-      ['lf', 'rf', 'lh', 'rh'].forEach((k, i) => {
-        const q = h.legPose[k];
-        if (!q) return;
-        for (const j of ['hip', 'knee', 'fetlock']) if (q[j] != null) m.legs[i][j].rotation.x = q[j];
-      });
-    }
-    m.group.position.set(dx, 0, dz);
-    // 脚を伸ばした位相では 4 本とも宙に浮き、影から離れて飛んでいるように見えた。いちばん低い蹄を地面に着ける。
-    m.group.updateMatrixWorld(true);
-    const low = new THREE.Box3().setFromObject(m.group).min.y;
-    if (low > 0) m.group.position.y -= low;
+    poseModel(m, ph, h.legPose, dx, dz);
     subject.add(m.group);
     const sh = makeShadowPatch();
     sh.position.set(dx, 0.02, dz);
@@ -350,14 +408,16 @@ export function shootFinish(renderer, o) {
   // 首を伸ばす位相（0.2 前後）では鼻先が画面の右端に寄るので、右向きのカードは脚の運び（phase）で合わせる。
   if (flip) subject.rotation.y = Math.PI;
   subject.updateMatrixWorld(true);
-  const camera = new THREE.PerspectiveCamera(S.fov, width / height, 0.1, 2000);
-  camera.position.set(...S.pos);
-  camera.lookAt(new THREE.Vector3(...S.look));
+  const cam0 = shotCamera(o);
+  const camera = new THREE.PerspectiveCamera(cam0.fov, width / height, 0.1, 2000);
+  camera.position.set(...cam0.pos);
+  camera.lookAt(new THREE.Vector3(...cam0.look));
   camera.updateMatrixWorld();
   // 風の筋（駆け抜ける速さ）。主役の馬の周りに、カメラへ向けて置く。止めた 1 コマなので流さない（dt 0）。
   // 画角に入る前後 6m に寄せる（レースの 10m のままだと大半が画面の外）。透明の地に描くので普通の合成。
+  let wind = null;
   if (o.wind !== false) {
-    const wind = makeWind({
+    wind = makeWind({
       count: 40, seed: (hero.id ?? 1) * 7 + 3, zRange: [-3.8, 2.2], width: 2,
       opacity: o.windOpacity ?? 0.85, blending: 'normal', color: 0xfff6e2,
     });
@@ -365,50 +425,82 @@ export function shootFinish(renderer, o) {
     wind.update(0, 17, camera);
   }
 
-  renderer.setSize(width, height, false);
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 0.92;
+  const dispose = () => {
+    // 馬は disposeHorse で（顔の布は使い回すので捨てない）。舞台は全部捨てる。
+    for (const m of models) disposeHorse(m.group);
+    const horseGroups = new Set(models.map((m) => m.group));
+    for (const c of subject.children) {
+      if (horseGroups.has(c)) continue;
+      c.traverse((x) => { x.geometry?.dispose(); x.material?.dispose?.(); });
+    }
+    bg.traverse((x) => {
+      if (x.geometry && !x.geometry.userData?.shared) x.geometry.dispose();
+      for (const mt of [x.material].flat()) { if (!mt) continue; mt.map?.dispose(); mt.dispose(); }
+    });
+  };
+  return { scene, camera, bg, subject, models, sunDir, wind, dispose };
+}
 
-  // 背景だけ → 馬だけ（透明の地）の順に描いて、その場で読み出す（描いた直後なら preserveDrawingBuffer は要らない）。
-  subject.visible = false;
-  renderer.setClearColor(0x000000, 1);
-  renderer.render(scene, camera);
-  const background = renderer.domElement.toDataURL('image/png');
-  subject.visible = true;
-  bg.visible = false;
-  renderer.setClearColor(0x000000, 0);
-  // 馬だけでも地面の影は要るので、影の板は subject に入れてある。空は bg なので透明になる。
-  renderer.render(scene, camera);
-  const subjectUrl = renderer.domElement.toDataURL('image/png');
-  // 馬と騎手だけの形（カードの箔押しの輪郭に使う）。影・芝の塊・風の筋まで含めると、輪郭がそれらも縁取ってしまう。
-  let maskUrl = null;
-  if (o.mask) {
-    const keep = new Set(models.map((m) => m.group));
-    const hidden = subject.children.filter((c) => !keep.has(c) && c.visible);
-    for (const c of hidden) c.visible = false;
-    renderer.render(scene, camera);
-    maskUrl = renderer.domElement.toDataURL('image/png');
-    for (const c of hidden) c.visible = true;
-  }
-
-  const sp = sunDir.clone().multiplyScalar(800).project(camera);
-  const sun = { x: (sp.x + 1) / 2, y: (1 - sp.y) / 2, visible: sp.z < 1 && Math.abs(sp.x) < 1.4 && Math.abs(sp.y) < 1.4 };
-  // 主役の頭の画面の位置（0..1）。アイコンで顔のあたりを丸く切り取るのに使う（構えと向きで頭の位置が違う）。
-  const hp = new THREE.Vector3();
-  models[0].head.getWorldPosition(hp);
-  hp.project(camera);
-  const head = { x: (hp.x + 1) / 2, y: (1 - hp.y) / 2 };
-
-  // 馬は disposeHorse で（顔の布は使い回すので捨てない）。舞台は全部捨てる。
-  for (const m of models) disposeHorse(m.group);
-  const horseGroups = new Set(models.map((m) => m.group));
-  for (const c of subject.children) {
-    if (horseGroups.has(c)) continue;
-    c.traverse((x) => { x.geometry?.dispose(); x.material?.dispose?.(); });
-  }
-  bg.traverse((x) => {
-    if (x.geometry && !x.geometry.userData?.shared) x.geometry.dispose();
-    for (const mt of [x.material].flat()) { if (!mt) continue; mt.map?.dispose(); mt.dispose(); }
-  });
-  return { background, subject: subjectUrl, mask: maskUrl, sun, head };
+/**
+ * カードエディットの生の舞台。撮影の舞台を 1 度組み、脚の運び・脚の角度・カメラは組み直さずに動かす（スライダーを動かすたびに
+ * 舞台を作り直すと、芝や観客の布を毎回描いて重い）。馬具・騎手の姿勢・勝負服・構え・背景など形の変わる値は呼び出し側が作り直す。
+ * 描画器は呼び出し側が渡す（カードの絵を撮るのと同じ 1 つを使い回す。WebGL を増やさない：落とし穴 23）。
+ * 描いた絵は 2D の canvas に写す（背景だけ少しぼかして、カードの絵に近づける）。
+ */
+export function createPoseStage(o) {
+  const st = buildStage({ ...o, width: o.width ?? 606, height: o.height ?? 626 });
+  const hero = st.models[0];
+  let ph = o.phase ?? 0.25;
+  let lp = o.hero?.legPose ?? null;
+  const camera = st.camera;
+  return {
+    /** 脚の運びと脚ごとの角度を当て直す。 */
+    pose(phase, legPose) {
+      ph = phase ?? ph;
+      lp = legPose;
+      poseModel(hero, ph, lp, 0, 0);
+    },
+    /** 今の脚の角度（位相で決まる値に上書きを重ねたもの）。スライダーの初めの値に使う。 */
+    legAngles() {
+      const out = {};
+      ['lf', 'rf', 'lh', 'rh'].forEach((k, i) => {
+        const L = hero.legs[i];
+        out[k] = { hip: L.hip.rotation.x, knee: L.knee.rotation.x, fetlock: L.fetlock.rotation.x };
+      });
+      return out;
+    },
+    /** カメラ（{ pos, look, fov }）。 */
+    setCamera(c) {
+      camera.position.set(...c.pos);
+      camera.fov = c.fov;
+      camera.lookAt(new THREE.Vector3(...c.look));
+      camera.updateProjectionMatrix();
+      camera.updateMatrixWorld();
+      st.wind?.update(0, 17, camera);
+    },
+    /** canvas（2D）へ描く。blur は背景のぼかし（px）。 */
+    render(renderer, canvas, blur = 3) {
+      const w = canvas.width, h = canvas.height;
+      const g = canvas.getContext('2d');
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+      renderer.setSize(w, h, false);
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 0.92;
+      st.subject.visible = false;
+      renderer.setClearColor(0x000000, 1);
+      renderer.render(st.scene, camera);
+      g.save();
+      if (blur && typeof g.filter === 'string') g.filter = `blur(${blur}px)`;
+      g.drawImage(renderer.domElement, -blur * 2, -blur * 2, w + blur * 4, h + blur * 4);
+      g.restore();
+      st.subject.visible = true;
+      st.bg.visible = false;
+      renderer.setClearColor(0x000000, 0);
+      renderer.render(st.scene, camera);
+      g.drawImage(renderer.domElement, 0, 0, w, h);
+      st.bg.visible = true;
+    },
+    dispose: st.dispose,
+  };
 }

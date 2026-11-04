@@ -7,7 +7,7 @@ import { cardArt } from '../render3d/cardart.js';
 import { plusOf, cardPower, distCat, STATS, STAT_SHORT, PACKS, CARDS } from '../sim/ikusei.js';
 
 /** 弾の見出し（イベントの報酬は弾ではないので「イベント報酬」）。 */
-const packLine = (c) => (c.pack in PACKS ? `第${c.pack.slice(1)}弾【${PACKS[c.pack]}】` : 'イベント報酬');
+const packLine = (c) => (c.myCard ? 'マイカード' : c.pack in PACKS ? `第${c.pack.slice(1)}弾【${PACKS[c.pack]}】` : 'イベント報酬');
 
 const THEME = {
   N: { frame: 'linear-gradient(135deg,#d9f5c8 0%,#5fae4a 20%,#c8eeb0 38%,#3f8a34 56%,#a6dc8a 74%,#2f6e28 90%,#9fd682 100%)', line: '#9fdc84', glow: '#7fd06a33', ink: '#e8ffd8', sparks: 0, rays: 0, sun: 0.25, badge: 'linear-gradient(#e6ffd6,#5cae48)', badgeInk: '#103a10' },
@@ -134,8 +134,12 @@ export function cardView(c, { scale = 0.4, onClick = null, count = 0, dim = fals
     const m = mark(a);
     return el(`span.gd.g${m === '◎' ? 'best' : m === '○' ? 'good' : m === '△' ? 'mid' : 'bad'}`, [el('i', { text: m }), g]);
   });
-  const tot = c.rar === 'N' && !c.travel ? 'オープン級' : c.rar === 'R' || c.rar === 'N' ? `重賞 ${c.graded}勝` : `通算 GI ${c.gi}勝`;
+  // 自分のカード（完成馬、sim/ikusei.js の finishedCard）は育成の戦績を出す。id は 'B12' や元のカードの id なので番号は持たない
+  const tot = c.myCard ? `${c.record}（重賞 ${c.graded}・GI ${c.gi}）` : c.rar === 'N' && !c.travel ? 'オープン級' : c.rar === 'R' || c.rar === 'N' ? `重賞 ${c.graded}勝` : `通算 GI ${c.gi}勝`;
   const no = Number(c.id.split('-')[1]);
+  const foot = c.myCard
+    ? [el('span', { text: `${packLine(c)}　${c.race.year} ${c.race.name}${c.race.won ? ' 優勝' : ''}` }), el('span', { text: 'ORIGINAL' })]
+    : [el('span', { text: `${packLine(c)}　${c.race.year} ${c.race.name} 優勝` }), el('span', { text: `No.${String(no).padStart(2, '0')}/${PACK_SIZE[c.pack]}` })];
   const card = el(`div.tc.r-${c.rar}${foil ? '.foiled' : ''}`, { style: Object.entries(vars).map(([k, v]) => `${k}:${v}`).join(';') }, [
     el('div.tc-in', [
       art, el('div.tc-warm'), el('div.tc-vig'), glow, sparks,
@@ -159,7 +163,7 @@ export function cardView(c, { scale = 0.4, onClick = null, count = 0, dim = fals
           el('div.tc-ped', [el('span', ['父 ', el('b', { text: c.sire }), '　母 ', el('b', { text: c.dam })]), el('br'), `母父 ${c.damSire}　${c.line}`, el('br'), el('span.tot', { text: tot })]),
           el('div.cp', [el('small', { text: 'カードパワー' }), el(`b${foil ? '.foil' : ''}`, { text: String(cardPower(c)) })]),
         ]),
-        el('div.foot', [el('span', { text: `${packLine(c)}　${c.race.year} ${c.race.name} 優勝` }), el('span', { text: `No.${String(no).padStart(2, '0')}/${PACK_SIZE[c.pack]}` })]),
+        el('div.foot', foot),
       ]),
     ]),
   ]);

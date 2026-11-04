@@ -1160,6 +1160,19 @@ section('カード育成モード');
   I.setFinishedGear(big, h.id, { bandage: true, menko: '#e8b21a' });
   check('完成馬の馬具を決められ、対戦と絵（horseCard）に残る', I.finishedSpec(h).gear.bandage === true && I.horseCard(h).gear.menko === '#e8b21a');
   I.setFinishedGear(big, h.id, {});
+  // カードエディット：完成馬をカードにする。撮り方は範囲に収めて持ち、カードの形（finishedCard）とホームの馬の絵（horseCard）に効く
+  {
+    const art = I.setFinishedArt(big, h.id, { shot: 'finish', facing: 'right', phase: 1.7, pose: 'race', backdrop: 'day', gate: 30, surface: 'ダート',
+      legPose: { lf: { hip: 0.4, knee: 9 }, zz: { hip: 1 } }, camera: { pos: [5, 1.2, 6], look: [0, 1.3, 0], fov: 22 },
+      silks: { body: '#c8202a', accent: 'red', pattern: '玉', sleeve: 'stripes' }, epithet: '  夕陽を裂く翼  ', junk: 1 });
+    const mc = I.finishedCard(h);
+    const hc = I.horseCard(h);
+    check(`カードエディット：撮り方を範囲に収めて持ち（${JSON.stringify(art.legPose)}）、完成馬のカードとホームの絵が同じ撮り方になる`,
+      art.phase === 1 && art.gate === 18 && art.legPose.lf.knee === 2 && !art.legPose.zz && art.silks.accent === '#c8202a' && art.epithet === '夕陽を裂く翼' && !('junk' in art)
+      && mc.myCard && mc.name === h.name && mc.epithet === '夕陽を裂く翼' && mc.shot === 'finish' && mc.camera.fov === 22 && mc.surface === 'ダート' && mc.race?.name
+      && I.STATS.every((k) => Math.abs(mc.v[k] - I.abilityOf(h.stats[k])) < 1e-9) && hc.shot === 'finish' && hc.id === mc.id && hc.rivals.length === 0);
+    big.finished.find((x) => x.id === h.id).art = undefined;
+  }
   check('2 歳のレースは 2000m まで', h.races.filter((r) => I.SLOTS[r.slot].age === 2).every((r) => r.distance <= 2000));
   const bt = I.battleNpc(big, h.id, 'japan-cup', 'normal');
   check(`NPC とのランク戦が走る（${bt.order}着/${bt.result.results.length}）`, bt.result.results.length === 12 && bt.result.log != null);

@@ -2142,3 +2142,34 @@ button.ikev-banner:active { transform: translateY(3px); box-shadow: 0 3px 0 var(
 .gear-c { width: 24px; height: 24px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 1px #0005; cursor: pointer; }
 .gear-c.on { box-shadow: 0 0 0 3px #e6a800; }
 .gear-acts { display: flex; gap: 8px; justify-content: flex-end; }
+
+/* ---- カードエディット（完成馬をカードにする。ikusei.js の cardEditView） ---- */
+.ikce { display: grid; grid-template-columns: minmax(0, 460px) minmax(0, 1fr); gap: 16px; align-items: start; }
+@media (max-width: 820px) { .ikce { grid-template-columns: minmax(0, 1fr); } }
+.ikce-view { position: sticky; top: 8px; }
+/* 狭い画面は絵を上に貼り付けて小さく（操作の下に絵が流れて、動かした結果が見えなくなった） */
+@media (max-width: 820px) {
+  .ikce-view { top: 0; z-index: 3; padding: 4px 6px 2px; margin: 0 -6px; background: #113035ee; border-radius: 0 0 14px 14px; }
+  .ikce-frame { display: flex; justify-content: center; }
+  .ikce-cv { width: auto; max-width: 100%; max-height: 36vh; }
+  .ikce-view .ik-gbtns { margin: 6px 0 2px; }
+}
+.ikce-frame { position: relative; border-radius: 14px; overflow: hidden; border: 3px solid var(--ink, #113035); box-shadow: 0 5px 0 #0d2a2e55; background: #0d1a10; }
+.ikce-cv { display: block; width: 100%; height: auto; aspect-ratio: 606 / 626; touch-action: none; cursor: grab; }
+.ikce-cv:active { cursor: grabbing; }
+.ikce-hint { position: absolute; left: 8px; bottom: 8px; font-size: 11px; color: #fff; background: #0008; padding: 2px 8px; border-radius: 999px; pointer-events: none; }
+.ikce-who { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 18px; }
+.ikce-tabs { margin-bottom: 8px; }
+.ikce-panel { display: flex; flex-direction: column; gap: 8px; }
+.ikce-panel h4 { margin: 6px 0 0; font-size: 14px; }
+.ikce-row { display: grid; grid-template-columns: 6.5em minmax(0, 1fr); gap: 8px; align-items: center; }
+.ikce-row > small { font-weight: 700; color: #4a5b58; }
+.ikce-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.ikce-chip { font: inherit; font-size: 13px; font-weight: 700; padding: 4px 11px; border-radius: 999px; border: 2px solid var(--ink, #113035); background: var(--paper, #fffaf0); color: var(--ink, #113035); cursor: pointer; }
+.ikce-chip.on { background: var(--leaf, #a7cb0e); }
+.ikce-chip.set { box-shadow: inset 0 -3px 0 var(--sun, #f3a332); }
+.ikce-sl { display: flex; align-items: center; gap: 8px; }
+.ikce-sl input { flex: 1; min-width: 0; accent-color: var(--teal, #1f6f6a); }
+.ikce-sl em { font-style: normal; font-weight: 700; min-width: 3.2em; text-align: right; font-variant-numeric: tabular-nums; }
+.ikce-name { font: inherit; font-size: 16px; padding: 6px 10px; border-radius: 10px; border: 2px solid var(--ink, #113035); background: #fff; min-width: 0; }
+.ik-mycards { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
