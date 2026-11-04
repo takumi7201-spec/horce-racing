@@ -2178,3 +2178,65 @@ button.ikev-banner:active { transform: translateY(3px); box-shadow: 0 3px 0 var(
 .ikce-sl em { font-style: normal; font-weight: 700; min-width: 3.2em; text-align: right; font-variant-numeric: tabular-nums; }
 .ikce-name { font: inherit; font-size: 16px; padding: 6px 10px; border-radius: 10px; border: 2px solid var(--ink, #113035); background: #fff; min-width: 0; }
 .ik-mycards { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
+
+/* ---- 育成の画面（trainView）：練習まで 1 画面に収める。馬と能力を 1 段、スキルは 1 行（「詳しく」で開く） ---- */
+.ik-run2 { display: flex; flex-direction: column; gap: 10px; }
+.ik-top { display: grid; grid-template-columns: minmax(0, 400px) minmax(0, 1fr); gap: 10px; }
+.ik-who { display: flex; gap: 10px; align-items: center; background: var(--paper, #fffaf0); border: 3px solid var(--ink, #113035); border-radius: 18px; box-shadow: 0 5px 0 var(--ink, #113035); padding: 6px 10px 6px 6px; min-width: 0; }
+.ik-who-art { flex: none; width: 104px; height: 84px; padding: 0; border: 0; background: radial-gradient(ellipse at 50% 70%, #e8f2d6, transparent 70%); cursor: pointer; border-radius: 12px; }
+.ik-who-img { width: 100%; height: 100%; object-fit: contain; opacity: 0; transition: opacity .3s; }
+.ik-who-img.ready { opacity: 1; }
+.ik-who-meta { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
+.ik-who-n { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.ik-who-n b { font-size: 16px; font-weight: 900; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ik-who-n small { font-size: 11px; font-weight: 700; color: var(--fg2); white-space: nowrap; }
+.ik-who-n .rb { font: 900 11px/1 serif; padding: 3px 5px; border-radius: 6px; border: 2px solid #113035; color: #113035; background: #e8e8f0; flex: none; }
+.ik-who-n .rb.r-LM { background: conic-gradient(from 30deg, #ff8fb0, #ffd36a, #fff59a, #9bffc0, #8fe6ff, #b0a2ff, #ff8fb0); }
+.ik-who-n .rb.r-SSR { background: linear-gradient(#fff6c8, #f2c84a); }
+.ik-who-n .rb.r-SR { background: linear-gradient(#fff, #c4cad6); }
+.ik-who-n .rb.r-R { background: linear-gradient(#ffe2c4, #d69a5c); }
+.ik-who-st { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.ik-who-st small { font-weight: 800; color: var(--fg2); font-size: 11px; }
+.ik-who-st .bar.en { flex: 1; max-width: 120px; }
+.ik-who-rec { font-size: 11px; font-weight: 700; color: #3c5552; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ik-who .ik-gear small { font-weight: 800; color: var(--fg2); font-size: 11px; }
+.ik-who .gearline i { font-size: 11px; padding: 0 6px; }
+.ik-st5 { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; background: var(--paper, #fffaf0); border: 3px solid var(--ink, #113035); border-radius: 18px; box-shadow: 0 5px 0 var(--ink, #113035); padding: 8px 10px; align-items: center; }
+.ik-st { display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto auto; column-gap: 4px; align-items: baseline; min-width: 0; }
+.ik-st small { grid-column: 1 / 3; font-size: 11px; font-weight: 800; color: #3c5552; }
+.ik-st .g { font-size: 20px; font-weight: 900; line-height: 1.1; }
+.ik-st .n { font-size: 12px; font-weight: 700; color: var(--fg2); font-variant-numeric: tabular-nums; text-align: right; }
+.ik-st .bar { grid-column: 1 / 3; margin-top: 3px; }
+.ik-skbar { display: flex; align-items: center; gap: 8px; background: var(--paper, #fffaf0); border: 2.5px solid var(--ink, #113035); border-radius: 14px; padding: 5px 6px 5px 10px; min-width: 0; }
+.ik-skl { font-weight: 900; font-size: 12px; color: #3c5552; flex: none; }
+/* 1 行に収める。溢れたら横へ流す（縦に伸ばさない） */
+.ik-skline { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; overflow-x: auto; white-space: nowrap; scrollbar-width: none; }
+.ik-skline::-webkit-scrollbar { display: none; }
+.ik-skline .ik-sks { display: inline-flex; gap: 4px; flex-wrap: nowrap; }
+.ik-bonds.sm { display: inline-flex; gap: 4px; flex-wrap: nowrap; }
+.ik-bond.sm { font-size: 11px; padding: 1px 6px; border-radius: 7px; }
+.ik-skx { flex: none; font: 800 12px system-ui, sans-serif; padding: 4px 10px; border-radius: 999px; border: 2px solid var(--ink, #113035); background: #fff; color: var(--ink, #113035); cursor: pointer; }
+.ik-skmore { display: flex; flex-direction: column; gap: 6px; background: var(--paper, #fffaf0); border: 2.5px solid var(--ink, #113035); border-radius: 14px; padding: 8px 10px; }
+.ik-skmore > div { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ik-skmore small { font-size: 12px; color: #3c5552; }
+.ik-run2 .card-b { padding: 8px 10px; }
+.ik-run2 .ik-trains { gap: 6px; }
+.ik-run2 .ik-train { padding: 7px 8px; gap: 3px; min-height: 0; }
+.ik-run2 .ik-train .sup span { font-size: 10px; }
+.ik-run2 .ik-rest { margin: 6px 0 0; }
+.ik-hist { background: var(--paper, #fffaf0); border: 2.5px solid var(--ink, #113035); border-radius: 14px; padding: 6px 10px; }
+.ik-hist summary { cursor: pointer; font-weight: 800; font-size: 13px; }
+.ik-hist[open] summary { margin-bottom: 6px; }
+@media (max-width: 760px) {
+  .ik-top { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .ik-who-art { width: 86px; height: 70px; }
+  .ik-st5 { padding: 6px 8px; gap: 4px; }
+  .ik-st .g { font-size: 17px; }
+  .ik-run2 .ik-trains { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; }
+  .ik-run2 .ik-train { padding: 6px 4px; }
+  .ik-run2 .ik-train > b { font-size: 12px; }
+  .ik-run2 .ik-train .gains span { font-size: 10px; padding: 0 3px; }
+  .ik-run2 .ik-train .fr { top: -8px; right: -2px; font-size: 9px; }
+  .ik-run2 .ik-train small { font-size: 10px; line-height: 1.25; }
+  .ik-run2 .ik-train .sks i { font-size: 9px; }
+}

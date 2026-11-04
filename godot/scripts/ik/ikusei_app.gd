@@ -1542,14 +1542,16 @@ func _foal_plate(c: Dictionary) -> Control:
 
 # ------------------------------------------------------------------ 育成
 
+## 育成の画面。練習（またはレース）を 1 画面に収める（ゲームの trainView と同じ並び）：
+## 進み → 馬（小さな切り抜きと体力・気分・戦績・馬具）と能力（5 つを 1 段）→ スキル（1 行。「詳しく」で開く）→ 練習 → 記録（畳む）
 func _train() -> Control:
 	if p.run == null:
 		return _deck()
 	var run: Dictionary = p.run
 	var c = IK.trainee_card(run)
-	var page := UI.vbox(16)
+	var page := UI.vbox(10)
 	# 上：時期と進み
-	var tb := UI.box({c = [PAPER], radius = 14.0, border = 3.0, shadow = Vector2(0, 5), pad = Vector4(16, 8, 16, 9)})
+	var tb := UI.box({c = [PAPER], radius = 14.0, border = 3.0, shadow = Vector2(0, 5), pad = Vector4(16, 6, 16, 7)})
 	var th := UI.hbox(16)
 	th.add_child(UI.label(IK.turn_label(run), 19, INK, "title"))
 	var pb := Bar.new()
@@ -1562,72 +1564,91 @@ func _train() -> Control:
 	th.add_child(UI.label("%d / %d ターン" % [int(run.turn), IK.TOTAL_TURNS], 12, Color("#4a5b58")))
 	tb.add_child(th)
 	page.add_child(tb)
-	var cols := UI.hbox(16)
-	# 左：カードと状態
-	var left := UI.vbox(12)
-	left.add_child(_foal_plate(c) if c.get("bred", false) else _card_view(c, 200))
-	var st := UI.vbox(7)
+
+	# 馬と能力を 1 段に
+	var topr := UI.hbox(10)
+	var wb := UI.box({c = [PAPER], radius = 16.0, border = 3.0, shadow = Vector2(0, 5), pad = Vector4(6, 6, 12, 6)})
+	wb.custom_minimum_size.x = 470
+	var wh := UI.hbox(10)
+	var st := _img(_sticker_tex(_aid(c)))
+	st.custom_minimum_size = Vector2(120, 92)
+	st.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	wh.add_child(st)
+	var wm := UI.vbox(3)
+	wm.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var nh := UI.hbox(6)
+	nh.add_child(_rar_badge(c.rar, 11))
+	nh.add_child(UI.label(c.name, 17, INK, "title"))
+	nh.add_child(UI.label("%s・%s・%s" % [c.sex, c.coat, IK.style_name(float(c.style))], 11, Color("#4a5b58"), "black"))
+	wm.add_child(nh)
 	var er := UI.hbox(8)
-	var el := UI.label("体力", 12, Color("#4a5b58"), "black")
-	el.custom_minimum_size.x = 38
-	er.add_child(el)
+	er.add_child(UI.label("体力", 11, Color("#4a5b58"), "black"))
 	var ebar := Bar.new()
 	ebar.value = float(int(run.energy)) / 100.0
 	ebar.cols = [Color("#f6b25a"), SUN]
-	ebar.custom_minimum_size = Vector2(100, 10)
-	ebar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	ebar.custom_minimum_size = Vector2(120, 10)
 	ebar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	er.add_child(ebar)
-	er.add_child(UI.label(str(int(run.energy)), 15, INK, "black"))
-	st.add_child(er)
-	st.add_child(_kv("気分", IK.data().moods[int(run.mood)]))
-	st.add_child(_kv("覚醒", "◆".repeat(IK.aw_t(run)) + "◇".repeat(4 - IK.aw_t(run))))
-	st.add_child(_kv("戦績", "%d戦%d勝（重賞 %d・GI %d）" % [int(run.starts), int(run.wins), int(run.gradedWins), int(run.giWins)]))
-	st.add_child(_kv("ファン", "%s人" % _comma(int(run.fans))))
-	st.add_child(_gear_row(IK.run_gear(run), c.name, (func(g: Dictionary) -> void: IK.set_run_gear(run, g)) if not IK.run_done(run) else Callable()))
-	var stb := UI.box({c = [PAPER], radius = 14.0, border = 3.0, shadow = Vector2(0, 5), pad = Vector4(12, 10, 12, 10)})
-	stb.custom_minimum_size.x = 200
-	stb.add_child(st)
-	left.add_child(stb)
-	cols.add_child(left)
-	# 右：能力・スキル・練習（レース）
-	var right := UI.vbox(16)
-	right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	var ab := UI.vbox(8)
+	er.add_child(UI.label(str(int(run.energy)), 14, INK, "black"))
+	er.add_child(UI.label(IK.data().moods[int(run.mood)], 14, Color("#d6336c"), "black"))
+	if IK.aw_t(run) > 0:
+		er.add_child(UI.label("◆".repeat(IK.aw_t(run)), 12, Color("#7a4fc0"), "black"))
+	wm.add_child(er)
+	wm.add_child(UI.label("%d戦%d勝（重賞 %d・GI %d）　ファン %s人" % [int(run.starts), int(run.wins), int(run.gradedWins), int(run.giWins), _comma(int(run.fans))], 11, Color("#3c5552"), "black"))
+	wm.add_child(_gear_row(IK.run_gear(run), c.name, (func(g: Dictionary) -> void: IK.set_run_gear(run, g)) if not IK.run_done(run) else Callable()))
+	wh.add_child(wm)
+	wb.add_child(wh)
+	topr.add_child(wb)
+	var sb := UI.box({c = [PAPER], radius = 16.0, border = 3.0, shadow = Vector2(0, 5), pad = Vector4(12, 8, 12, 8)})
+	sb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var sh := UI.hbox(10)
+	sh.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	for k in IK.STATS:
-		ab.add_child(_stat_row(IK.STAT_LABEL[k], int(run.stats[k]), IK.cap_of(int(c.plus[k]), IK.aw_t(run))))
-	ab.add_child(UI.label("黄色の線は伸びしろの上限（%s）" % ("両親の +値の高いほう" if c.get("bred", false) else "カードの +値"), 11, Color("#4a5b58")))
-	right.add_child(UI.section("能力", ab))
-	var sk := UI.vbox(8)
-	var r1 := HFlowContainer.new()
-	r1.add_theme_constant_override("h_separation", 6)
-	var l1 := UI.label("レースで使う", 11, Color("#4a5b58"), "black")
-	l1.custom_minimum_size = Vector2(150, 24)
-	l1.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	r1.add_child(l1)
+		sh.add_child(_stat_cell(IK.STAT_SHORT[k], int(run.stats[k]), IK.cap_of(int(c.plus[k]), IK.aw_t(run))))
+	sb.add_child(sh)
+	topr.add_child(sb)
+	page.add_child(topr)
+
+	# スキル：1 行（レースで使うスキルと、サポートとの絆）。「詳しく」で説明つきに開く
+	var kb := UI.box({c = [PAPER], radius = 12.0, border = 2.5, shadow = Vector2.ZERO, pad = Vector4(10, 4, 6, 4)})
+	var kh := UI.hbox(6)
+	kh.add_child(UI.label("スキル", 12, Color("#3c5552"), "black"))
 	var uc = IK.unique_card_of(c)
 	if uc != null:
-		r1.add_child(_pill(IK.skills_of(uc).unique.name, Color("#ffe9a8")))
+		kh.add_child(_pill(IK.skills_of(uc).unique.name, Color("#ffe9a8")))
 	for id in IK.run_skills(run):
-		r1.add_child(_pill(IK.skill_info(id).name, Color("#dcecff")))
-	sk.add_child(r1)
-	var r2 := HFlowContainer.new()
-	r2.add_theme_constant_override("h_separation", 6)
-	r2.add_theme_constant_override("v_separation", 6)
-	var l2 := UI.label("サポートとの絆（友情練習でスキルを覚える）", 11, Color("#4a5b58"), "black")
-	l2.custom_minimum_size.y = 24
-	l2.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	r2.add_child(l2)
+		kh.add_child(_pill(IK.skill_info(id).name, Color("#dcecff")))
 	for i in run.supports.size():
 		var sc = IK.card(run.supports[i])
-		var bb := UI.box({c = [PAPER], radius = 8.0, border = 2.0, shadow = Vector2.ZERO, pad = Vector4(8, 1, 8, 2)})
-		var bh := UI.hbox(6)
-		bh.add_child(UI.label(sc.name, 12, Color(RAR_TEXT[sc.rar]), "black"))
-		bh.add_child(UI.label("%d/%d" % [mini(int(run.bonds[i]), IK.bond_need(run, i)), IK.bond_need(run, i)], 12, Color("#d6336c"), "black"))
+		var need := IK.bond_need(run, i)
+		var bdone := int(run.bonds[i]) >= need
+		var bb := UI.box({c = [Color("#fff2b0") if bdone else Color.WHITE], radius = 7.0, border = 2.0, shadow = Vector2.ZERO, pad = Vector4(6, 0, 6, 1)})
+		var bh := UI.hbox(4)
+		var nm: String = sc.name
+		bh.add_child(UI.label(nm if nm.length() <= 6 else nm.substr(0, 5) + "…", 11, Color(RAR_TEXT[sc.rar]), "black"))
+		bh.add_child(UI.label("習得" if bdone else "%d/%d" % [int(run.bonds[i]), need], 11, Color("#d6336c"), "black"))
 		bb.add_child(bh)
-		r2.add_child(bb)
-	sk.add_child(r2)
-	right.add_child(UI.section("スキル", sk))
+		kh.add_child(bb)
+	var gap := Control.new()
+	gap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	kh.add_child(gap)
+	kh.add_child(UI.chip("閉じる" if opts.get("sk", false) else "詳しく", false, func() -> void:
+		opts.sk = not opts.get("sk", false)
+		render(false), 12))
+	kb.add_child(kh)
+	page.add_child(kb)
+	if opts.get("sk", false):
+		var mb := UI.box({c = [PAPER], radius = 12.0, border = 2.5, shadow = Vector2.ZERO, pad = Vector4(12, 8, 12, 8)})
+		var mv := UI.vbox(5)
+		if uc != null:
+			mv.add_child(_skill_row("固有", IK.skills_of(uc).unique.name, IK.skills_of(uc).unique.desc, SUN))
+		for id in IK.run_skills(run):
+			var si := IK.skill_info(id)
+			mv.add_child(_skill_row("レース", si.name, si.desc, Color("#9cc8f0")))
+		mv.add_child(UI.label("サポートと友情練習を重ねると、そのサポートのレーススキルを覚える（完成馬に残る）。", 12, Color("#4a5b58")))
+		mb.add_child(mv)
+		page.add_child(mb)
+
 	if IK.run_done(run):
 		var dv := UI.vbox(10)
 		dv.add_child(UI.label("育成が終わった（%d 戦 %d 勝、うち重賞 %d 勝）" % [int(run.starts), int(run.wins), int(run.gradedWins)], 17, INK, "black"))
@@ -1637,14 +1658,14 @@ func _train() -> Control:
 			go("horse", {id = h.id}), "primary", 20)
 		fb.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 		dv.add_child(fb)
-		right.add_child(UI.section("完成", dv))
+		page.add_child(UI.section("完成", dv))
 	elif IK.is_race_turn(run):
-		var rv := UI.vbox(10)
+		var rv := UI.vbox(8)
 		for o in IK.race_options(run):
 			rv.add_child(_race_tile(o))
-		right.add_child(UI.section("レース（%s）" % IK.data().slots[int(run.slot)].label, rv))
+		page.add_child(UI.section("レース（%s）" % IK.data().slots[int(run.slot)].label, rv))
 	else:
-		var tv := UI.vbox(12)
+		var tv := UI.vbox(8)
 		var row := UI.hbox(8)
 		for k in IK.STATS:
 			row.add_child(_train_tile(run, k))
@@ -1655,18 +1676,45 @@ func _train() -> Control:
 			render(false), "paper", 15)
 		rb.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		tv.add_child(rb)
-		right.add_child(UI.section("練習", tv))
-	# 最近の出来事（紺の帯）
+		page.add_child(UI.section("練習", tv))
+	# 最近の出来事（畳んでおく。開くと紺の帯）
 	var lg: Array = run.log
-	var logb := UI.box({c = [INK], radius = 10.0, border = 0.0, shadow = Vector2.ZERO, pad = Vector4(12, 6, 12, 7)})
-	var lv := UI.vbox(2)
-	for i in range(maxi(0, lg.size() - 3), lg.size()):
-		lv.add_child(UI.label(String(lg[i]), 12 if i < lg.size() - 1 else 13, Color("#f6e7b8") if i == lg.size() - 1 else Color("#9fb5ad"), "black"))
-	logb.add_child(lv)
-	right.add_child(logb)
-	cols.add_child(right)
-	page.add_child(cols)
+	if lg.size() > 0:
+		var hc := UI.chip(("記録を閉じる" if opts.get("hist", false) else "これまでの記録（%d 戦）" % int(run.starts)), false, func() -> void:
+			opts.hist = not opts.get("hist", false)
+			render(false), 12)
+		hc.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+		page.add_child(hc)
+		if opts.get("hist", false):
+			var logb := UI.box({c = [INK], radius = 10.0, border = 0.0, shadow = Vector2.ZERO, pad = Vector4(12, 6, 12, 7)})
+			var lv := UI.vbox(2)
+			for i in range(maxi(0, lg.size() - 6), lg.size()):
+				lv.add_child(UI.label(String(lg[i]), 12 if i < lg.size() - 1 else 13, Color("#f6e7b8") if i == lg.size() - 1 else Color("#9fb5ad"), "black"))
+			logb.add_child(lv)
+			page.add_child(logb)
 	return page
+
+
+## 能力の 1 枡（略称・評価・点・伸びしろの線）。5 つを 1 段に並べる
+func _stat_cell(name: String, pts: int, cap: int) -> Control:
+	var v := UI.vbox(2)
+	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	v.add_child(UI.label(name, 11, Color("#3c5552"), "black"))
+	var h := UI.hbox(4)
+	var g := IK.grade_of_pts(pts)
+	var gc := Color("#e0a020") if (g.begins_with("S") or g.begins_with("A") or g.begins_with("B")) else Color("#5d9a22")
+	var gl := UI.label(g, 20, gc, "title")
+	gl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	h.add_child(gl)
+	h.add_child(UI.label(str(pts), 12, Color("#4a5b58")))
+	v.add_child(h)
+	var bar := Bar.new()
+	bar.value = pts / 1200.0
+	bar.cap = cap / 1200.0
+	bar.cols = [TEAL2, LEAF]
+	bar.custom_minimum_size = Vector2(60, 10)
+	v.add_child(bar)
+	return v
 
 
 func _kv(k: String, v: String) -> Control:
@@ -1799,9 +1847,9 @@ func _train_tile(run: Dictionary, k: String) -> Control:
 	var hot: bool = pv.friendship > 0
 	var b := UI.box({c = [Color("#fff6e6"), SUN2] if hot else [Color.WHITE], angle = 180.0, radius = 12.0, border = 3.0, border_color = Color("#e08a2a") if hot else INK,
 		shadow = Vector2(0, 4), pad = Vector4(8, 6, 8, 8)})
-	b.custom_minimum_size = Vector2(120, 190)
+	b.custom_minimum_size = Vector2(120, 150)
 	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	var v := UI.vbox(4)
+	var v := UI.vbox(3)
 	var hh := UI.hbox(4)
 	var t := UI.label(IK.STAT_LABEL[k], 17, INK, "black")
 	t.size_flags_horizontal = Control.SIZE_EXPAND_FILL

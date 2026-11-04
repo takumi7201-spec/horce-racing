@@ -790,37 +790,80 @@ function gearPicker(name, gear, onSave, note = '') {
   m = modal(`${name}の馬具`, [body]);
 }
 
+/**
+ * 育成の画面。練習（またはレース）を 1 画面に収める（「スクロールしないと練習できない」）。
+ * 上から：進み → 馬（小さな切り抜きと体力・気分・戦績・馬具）と能力（5 つを 1 段）→ スキル（1 行。「詳しく」で開く）→ 練習 →
+ * これまでのレース（畳んである）。カードの絵は切り抜きを押すと大きく見られる。
+ */
 function trainView(app, go) {
   const p = app.ik;
   const run = p.run;
   const c = I.traineeCard(run);
   const plus = I.plusOf(c);
   const cap = (k) => I.capOf(plus[k], run.awaken?.t ?? 0);
-  const statRows = I.STATS.map((k) => el('div.ik-stat', [
-    el('span.l', { text: I.STAT_LABEL[k] }),
-    el(`b.g.g-${I.gradeOfPts(run.stats[k]).replace('+', 'p')}`, { text: I.gradeOfPts(run.stats[k]) }),
-    el('span.n', { text: String(run.stats[k]) }),
-    el('span.bar', [el('i', { style: `width:${(run.stats[k] / 1200) * 100}%` }), el('em', { style: `left:${(cap(k) / 1200) * 100}%`, title: `上限 ${cap(k)}` })]),
-  ]));
-  const side = el('div.ik-side', [
-    c.bred ? foalPlate(c) : cardView(c, { scale: 0.32, onClick: (x) => showCard(app, x) }),
-    el('div.ik-meta', [
-      el('div', [el('small', { text: '体力' }), el('span.bar.en', [el('i', { style: `width:${run.energy}%` })]), el('b', { text: String(run.energy) })]),
-      el('div', [el('small', { text: '気分' }), el(`b.mood.m${run.mood}`, { text: I.MOODS[run.mood] })]),
-      run.awaken?.t ? el('div', [el('small', { text: '覚醒' }), el('b.ik-awk', { text: `${'◆'.repeat(run.awaken.t)} ${run.awaken.t >= I.AWAKEN.max ? 'MAX' : run.awaken.t}` })]) : null,
-      el('div', [el('small', { text: '戦績' }), el('b', { text: `${run.starts}戦${run.wins}勝（重賞 ${run.gradedWins}・GI ${run.giWins}）` })]),
-      el('div', [el('small', { text: 'ファン' }), el('b', { text: `${run.fans.toLocaleString()}人` })]),
+  const done = I.runDone(run);
+
+  // 馬：切り抜き（押すとカード）と状態
+  const thumb = el('img.ik-who-img', { alt: c.name, draggable: false });
+  stickerInto(thumb, c);
+  const who = el('div.ik-who', [
+    el('button.ik-who-art', { title: c.bred ? c.name : 'カードを見る', onclick: () => (c.bred ? null : showCard(app, c)) }, thumb),
+    el('div.ik-who-meta', [
+      el('div.ik-who-n', [el(`span.rb.r-${c.rar}`, { text: c.rar }), el('b', { text: c.name }),
+        el('small', { text: `${c.sex}・${c.coat}・${I.STYLE_NAMES[c.style < 0.25 ? 0 : c.style < 0.5 ? 1 : c.style < 0.75 ? 2 : 3]}` })]),
+      el('div.ik-who-st', [
+        el('small', { text: '体力' }), el('span.bar.en', [el('i', { style: `width:${run.energy}%` })]), el('b', { text: String(run.energy) }),
+        el(`b.mood.m${run.mood}`, { text: I.MOODS[run.mood] }),
+        run.awaken?.t ? el('b.ik-awk', { text: `${'◆'.repeat(run.awaken.t)}` }) : null,
+      ]),
+      el('div.ik-who-rec', { text: `${run.starts}戦${run.wins}勝（重賞 ${run.gradedWins}・GI ${run.giWins}）　ファン ${run.fans.toLocaleString()}人` }),
       el('div.ik-gear', [el('small', { text: '馬具' }), el('span.gearline', gearChips(I.runGear(run))),
-        I.runDone(run) ? null : el('button.gchange', { text: '変更', onclick: () => gearPicker(c.name, I.runGear(run), (g) => { const r = I.setRunGear(run, g); save(app); go('run'); return r; }) })]),
+        done ? null : el('button.gchange', { text: '変更', onclick: () => gearPicker(c.name, I.runGear(run), (g) => { const r = I.setRunGear(run, g); save(app); go('run'); return r; }) })]),
     ]),
   ]);
+  // 能力：5 つを 1 段（評価・点・伸びしろの上限の線）
+  const stats = el('div.ik-st5', { title: `黄色の線は伸びしろの上限（${c.bred ? '両親の +値の高いほう' : 'カードの +値'}）` }, I.STATS.map((k) => {
+    const g = I.gradeOfPts(run.stats[k]);
+    return el('div.ik-st', [
+      el('small', { text: I.STAT_SHORT[k] }),
+      el(`b.g.g-${g.replace('+', 'p')}`, { text: g }),
+      el('span.n', { text: String(run.stats[k]) }),
+      el('span.bar', [el('i', { style: `width:${(run.stats[k] / 1200) * 100}%` }), el('em', { style: `left:${(cap(k) / 1200) * 100}%`, title: `上限 ${cap(k)}` })]),
+    ]);
+  }));
+
+  // スキル：1 行（レースで使うスキルと、サポートとの絆の進み）。「詳しく」で説明つきに開く（開いたかは覚えておく）
+  const bonds = run.supports.map((id, i) => {
+    const sc = I.cardById(id);
+    const b = (run.bonds ?? [])[i] ?? 0;
+    const need = I.bondNeed(run, i);
+    return { sc, b, need, done: b >= need };
+  });
+  const open = !!app.ikSkillOpen;
+  const skillBar = el('div.ik-skbar', [
+    el('small.ik-skl', { text: 'スキル' }),
+    el('div.ik-skline', [
+      skillTags(I.runSkills(run), I.uniqueOf(c), { small: true }),
+      el('span.ik-bonds.sm', bonds.map((x) => el(`span.ik-bond.sm${x.done ? '.done' : ''}`, { title: `${x.sc.name}：友情練習 ${x.b}/${x.need}` }, [
+        el(`b.${RCLS(x.sc.rar)}`, { text: x.sc.name.length > 5 ? `${x.sc.name.slice(0, 4)}…` : x.sc.name }), el('i', { text: x.done ? '習得' : `${x.b}/${x.need}` }),
+      ]))),
+    ]),
+    el('button.ik-skx', { text: open ? '閉じる' : '詳しく', onclick: () => { app.ikSkillOpen = !open; go('run'); } }),
+  ]);
+  const skillMore = open ? el('div.ik-skmore', [
+    ...[...(I.uniqueOf(c) ? [{ ...I.uniqueOf(c), type: 'uniq' }] : []), ...I.runSkills(run).map((id) => I.skillInfo(id)).filter(Boolean)]
+      .map((x) => el('div', [el(`span.ik-sk.sm.${x.type}`, { text: x.name }), el('small', { text: x.desc })])),
+    el('div', [el('small', { text: 'サポートと友情練習を重ねると、そのサポートのレーススキルを覚える（完成馬に残る）。' })]),
+    el('div.ik-bonds', bonds.map((x) => el(`span.ik-bond${x.done ? '.done' : ''}`, [el(`b.${RCLS(x.sc.rar)}`, { text: x.sc.name }), el('i', { text: x.done ? '習得' : `${x.b}/${x.need}` })]))),
+  ]) : null;
+
   const progress = el('div.ik-prog', [
-    el('b', { text: I.runDone(run) ? '育成完了' : I.turnLabel(run) }),
+    el('b', { text: done ? '育成完了' : I.turnLabel(run) }),
     el('span.bar', [el('i', { style: `width:${(run.turn / I.TOTAL_TURNS) * 100}%` })]),
     el('small', { text: `${run.turn} / ${I.TOTAL_TURNS} ターン` }),
   ]);
   let action;
-  if (I.runDone(run)) {
+  if (done) {
     action = card('育成完了', [
       el('p', { text: `${c.name}の 2 年が終わった。${run.starts}戦${run.wins}勝（GI ${run.giWins}勝）。` }),
       button('完成馬として登録する', () => {
@@ -862,40 +905,33 @@ function trainView(app, go) {
           el('div.sup', board[k].map((i) => el(`span.${RCLS(I.cardById(run.supports[i]).rar)}`, { text: I.cardById(run.supports[i]).name }))),
           pv.friendship ? el('em.fr', { text: '友情' }) : null,
           pv.skills.length ? el('div.sks', pv.skills.map((n) => el('i', { text: n }))) : null,
-          el('small', { text: `${k === 'wit' ? '体力+5' : `体力−${pv.cost}`}${pv.fail ? `　失敗 ${Math.round(pv.fail * 100)}%` : ''}` }),
+          el('small', { text: `${k === 'wit' ? '体力+5' : `体力−${pv.cost}`}${pv.fail ? `　失敗${Math.round(pv.fail * 100)}%` : ''}` }),
         ]);
       })),
-      el('div.ik-gbtns', [button('休む（体力を戻す）', () => { toast(I.rest(run)); save(app); go('run'); }, { cls: run.energy < 50 ? 'primary' : '' })]),
+      el('div.ik-gbtns.ik-rest', [button('休む（体力を戻す）', () => { toast(I.rest(run)); save(app); go('run'); }, { cls: run.energy < 50 ? 'primary' : '' })]),
     ]);
   }
+  // これまでのレースと記録は畳んでおく（練習を押すのに下までスクロールしなくて済むように）
+  const history = run.races.length || run.log.length ? el('details.ik-hist', [
+    el('summary', { text: `これまでのレース（${run.races.length} 戦）と記録` }),
+    run.races.length ? table(['時期', 'レース', '', '着順', '発動スキル'], run.races.map((r) => [
+      I.SLOTS[r.slot].label, r.name, `${r.surface}${r.distance}m${r.ground ? `・${r.ground}` : ''}`, el(`b${r.order === 1 ? '.win' : ''}`, { text: `${r.order}着/${r.field}` }),
+      el('small', { text: (r.skills ?? []).join('・') || '—' }),
+    ])) : null,
+    el('div.ik-log', run.log.slice(-5).reverse().map((l) => el('div', { text: l }))),
+  ]) : null;
   return [
     progress,
-    el('div.ik-run', [
-      side,
-      el('div.ik-main', [
-        card('能力', [el('div.ik-stats', statRows), el('p.note', { text: `黄色の線は伸びしろの上限（${c.bred ? '両親の +値の高いほう' : 'カードの +値'}）` })]),
-        card('スキル', [
-          el('div.ik-deckskills', [
-            el('div', [el('small', { text: 'レースで使う' }), skillTags(I.runSkills(run), I.uniqueOf(c))]),
-            el('div', [el('small', { text: 'サポートとの絆（友情練習でスキルを覚える）' }), el('span.ik-bonds', run.supports.map((id, i) => {
-              const sc = I.cardById(id);
-              const b = (run.bonds ?? [])[i] ?? 0;
-              const need = I.bondNeed(run, i);
-              return el(`span.ik-bond${b >= need ? '.done' : ''}`, [el(`b.${RCLS(sc.rar)}`, { text: sc.name }), el('i', { text: b >= need ? '習得' : `${b}/${need}` })]);
-            }))]),
-          ]),
-        ]),
-        action,
-        run.races.length ? card('レース', [table(['時期', 'レース', '', '着順', '発動スキル'], run.races.map((r) => [
-          I.SLOTS[r.slot].label, r.name, `${r.surface}${r.distance}m${r.ground ? `・${r.ground}` : ''}`, el(`b${r.order === 1 ? '.win' : ''}`, { text: `${r.order}着/${r.field}` }),
-          el('small', { text: (r.skills ?? []).join('・') || '—' }),
-        ]))]) : null,
-        el('div.ik-log', run.log.slice(-5).reverse().map((l) => el('div', { text: l }))),
-        el('div.ik-gbtns', [button('育成をやめる', async () => {
-          if (!await ask('この育成をやめる？（育てた馬は残らない）', { ok: 'やめる', cancel: '続ける' })) return;
-          p.run = null; save(app); go('run');
-        }, { cls: 'sm ghost' })]),
-      ]),
+    el('div.ik-run2', [
+      el('div.ik-top', [who, stats]),
+      skillBar,
+      skillMore,
+      action,
+      history,
+      el('div.ik-gbtns', [button('育成をやめる', async () => {
+        if (!await ask('この育成をやめる？（育てた馬は残らない）', { ok: 'やめる', cancel: '続ける' })) return;
+        p.run = null; save(app); go('run');
+      }, { cls: 'sm ghost' })]),
     ]),
   ];
 }
