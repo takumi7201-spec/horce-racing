@@ -2129,6 +2129,9 @@ button.ikev-banner:active { transform: translateY(3px); box-shadow: 0 3px 0 var(
 .gearline i.gearchip { display: inline-flex; align-items: center; gap: 4px; }
 .gdot { width: 9px; height: 9px; border-radius: 50%; border: 1px solid #0006; display: inline-block; }
 .gchange { font-size: 12px; padding: 1px 8px; border-radius: 999px; border: 1px solid #2f8f4a; background: #fff; color: #2f8f4a; cursor: pointer; font-weight: 700; }
+.ik-gear { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.ik-meta .ik-gear small { min-width: 3em; }
+.gearline i.gearchip.none { opacity: .6; }
 .gearm { display: flex; flex-direction: column; gap: 8px; min-width: min(420px, 82vw); }
 .gear-row { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line2, #0002); }
 .gear-row.on { border-color: #e6a800; background: #fff7d8; }

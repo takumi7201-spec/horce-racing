@@ -459,6 +459,7 @@ function showCard(app, c) {
   m = modal(`${epithetOf(c)} ${c.name}`, [
     el('div.ik-big', cardView(c, { scale: Math.min(0.7, (window.innerHeight - 170) / 880, (window.innerWidth - 60) / 630), tilt: 'full' })),
     c.record ? el('p.ik-record', { text: `戦績　${c.record}` }) : null,
+    I.GEAR_KEYS.some((k) => c.gear?.[k]) ? el('p.ik-record', ['実際の馬具　', el('span.gearline', gearChips(c.gear))]) : null,
     p.cards[c.id] ? awakenPanel(c, p.cards[c.id]) : null,
     p.cards[c.id] ? shardActions(app, c, () => m.close()) : null,
     el('h4.ik-skh', { text: 'スキル' }),
@@ -723,6 +724,60 @@ function traineeNote(c) {
 }
 
 /** 育成の 1 ターン。 */
+/** 付けている馬具の札（メンコとシャドーロールは色の点つき）。無ければ「なし」。 */
+function gearChips(gear) {
+  const ks = I.GEAR_KEYS.filter((k) => gear?.[k]);
+  if (!ks.length) return [el('i.gearchip.none', { text: 'なし' })];
+  return ks.map((k) => el('i.gearchip', { title: I.GEAR[k].desc }, [
+    typeof gear[k] === 'string' ? el('span.gdot', { style: `background:${gear[k]}` }) : null, I.GEAR[k].name,
+  ]));
+}
+
+/**
+ * 馬具を決める（育成中の馬・完成馬）。育成モードの馬は気性を持たないので、効き目は気性 0.35 の馬として小さく効く
+ * （sim/gear.js・ikusei.js の GEAR_TEMPER）。onSave(gear) が保存する。
+ */
+function gearPicker(name, gear, onSave, note = '') {
+  const cur = { ...(gear ?? {}) };
+  let m = null;
+  const body = el('div.gearm');
+  const draw = () => {
+    body.replaceChildren(
+      el('p.note', { text: note || '効き目は小さい（出遅れ・掛かり・追ってからの集中）。付けた馬具はレースの 3D にも出る。' }),
+      ...I.GEAR_KEYS.map((k) => {
+        const on = !!cur[k];
+        const colored = k === 'menko' || k === 'shadowRoll';
+        return el(`div.gear-row${on ? '.on' : ''}`, [
+          el('button.gear-tog', {
+            onclick: () => {
+              if (on) delete cur[k];
+              else {
+                cur[k] = colored ? I.GEAR_COLORS[0] : true;
+                if (k === 'blinker') delete cur.cheek;
+                if (k === 'cheek') delete cur.blinker;
+              }
+              draw();
+            },
+          }, [el('b', { text: I.GEAR[k].name }), el('small', { text: I.GEAR[k].desc })]),
+          colored && on ? el('div.gear-colors', I.GEAR_COLORS.map((c) => el(`button.gear-c${cur[k] === c ? '.on' : ''}`, {
+            style: `background:${c}`, title: c, onclick: () => { cur[k] = c; draw(); },
+          }))) : null,
+        ]);
+      }),
+      el('div.gear-acts', [
+        button('決める', () => {
+          const g = onSave(cur);
+          toast(`${name}の馬具：${I.gearNames(g).join('・') || 'なし'}`);
+          m?.close();
+        }, { cls: 'primary' }),
+        button('やめる', () => m?.close()),
+      ]),
+    );
+  };
+  draw();
+  m = modal(`${name}の馬具`, [body]);
+}
+
 function trainView(app, go) {
   const p = app.ik;
   const run = p.run;
@@ -743,6 +798,8 @@ function trainView(app, go) {
       run.awaken?.t ? el('div', [el('small', { text: '覚醒' }), el('b.ik-awk', { text: `${'◆'.repeat(run.awaken.t)} ${run.awaken.t >= I.AWAKEN.max ? 'MAX' : run.awaken.t}` })]) : null,
       el('div', [el('small', { text: '戦績' }), el('b', { text: `${run.starts}戦${run.wins}勝（重賞 ${run.gradedWins}・GI ${run.giWins}）` })]),
       el('div', [el('small', { text: 'ファン' }), el('b', { text: `${run.fans.toLocaleString()}人` })]),
+      el('div.ik-gear', [el('small', { text: '馬具' }), el('span.gearline', gearChips(I.runGear(run))),
+        I.runDone(run) ? null : el('button.gchange', { text: '変更', onclick: () => gearPicker(c.name, I.runGear(run), (g) => { const r = I.setRunGear(run, g); save(app); go('run'); return r; }) })]),
     ]),
   ]);
   const progress = el('div.ik-prog', [
@@ -838,7 +895,7 @@ function looksOf(field) {
   const m = new Map();
   for (const f of field) {
     const c = f.cardId ? I.cardById(f.cardId) : null;
-    m.set(f.id, { coat: f.coat ?? c?.coat ?? '鹿毛', marks: f.marks ?? c?.marks ?? null, cardId: c?.id ?? null });
+    m.set(f.id, { coat: f.coat ?? c?.coat ?? '鹿毛', marks: f.marks ?? c?.marks ?? null, cardId: c?.id ?? null, gear: f.gear ?? null });
   }
   return m;
 }
@@ -1176,6 +1233,9 @@ function horseView(app, go) {
           : el('p.note', { text: '重賞の勝ち鞍はまだ無い。' }),
         el('h4', { text: 'スキル' }),
         skillTags(I.finishedSkills(h), I.uniqueOf(c)),
+        el('h4', { text: '馬具' }),
+        el('div.ik-gear', [el('span.gearline', gearChips(I.finishedSpec(h).gear)),
+          el('button.gchange', { text: '変更', onclick: () => gearPicker(h.name, I.finishedSpec(h).gear, (g) => { const r = I.setFinishedGear(p, h.id, g); save(app); app.render(); return r; }) })]),
         el('h4', { text: '育てたカード' }),
         el('div.ikx-sups', [
           ...(c?.bred ? [I.cardById(h.sire), I.cardById(h.dam)].filter(Boolean).map((x, i) => el(`span.${RCLS(x.rar)}`, { text: `${i ? '母' : '父'} ${x.rar} ${x.name}` }))

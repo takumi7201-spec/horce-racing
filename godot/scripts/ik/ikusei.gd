@@ -31,6 +31,55 @@ const NPC_NAMES := ["ミラクル", "サンダー", "ブレイブ", "グロー�
 const NPC_HEAD := ["エイシン", "マイネル", "サクラ", "メイショウ", "タガノ", "ダイワ", "ゴールド", "シルバー", "トウカイ", "ニシノ", "アドマイヤ", "ヤマニン"]
 const NPC_COATS := ["鹿毛", "黒鹿毛", "栗毛", "青鹿毛", "芦毛", "栃栗毛"]
 const SAVE_PATH := "user://ikusei.json"
+## 馬具（src/sim/ikusei.js と同じ）。育成モードの馬は気性を持たないので、効き目は気性 0.35 の馬として測る
+const GEAR_TEMPER := 0.35
+const GEAR_KEYS := ["menko", "shadowRoll", "blinker", "cheek", "bandage"]
+const GEAR_NAMES := {menko = "メンコ", shadowRoll = "シャドーロール", blinker = "ブリンカー", cheek = "チークピーシーズ", bandage = "バンテージ"}
+const GEAR_COLORS := ["#f4f2ec", "#1f3f9e", "#c8202a", "#1c1c1c", "#e8b21a", "#2f8f4a", "#e86aa0", "#7a4fc0", "#f07a28", "#5fb6e0"]
+
+
+static func clean_gear(gear) -> Dictionary:
+	var g := {}
+	if not (gear is Dictionary):
+		return g
+	for k in GEAR_KEYS:
+		var v = gear.get(k)
+		# 色（文字列）か true だけ。String と bool を != で比べると Godot はエラーで止まる
+		if (v is String and v != "") or (v is bool and v):
+			g[k] = v
+	if g.has("blinker") and g.has("cheek"):
+		g.erase("cheek")
+	return g
+
+
+static func run_gear(run: Dictionary) -> Dictionary:
+	if run.get("gear") is Dictionary:
+		return run.gear
+	if run.get("sire") != null:
+		return {}
+	var c = card(run.get("trainee"))
+	return clean_gear(c.get("gear") if c != null else null)
+
+
+static func set_run_gear(run: Dictionary, gear: Dictionary) -> Dictionary:
+	run.gear = clean_gear(gear)
+	return run.gear
+
+
+static func horse_gear(h: Dictionary) -> Dictionary:
+	if h.get("gear") is Dictionary:
+		return h.gear
+	var c = card(h.get("cardId")) if h.get("cardId") != null else null
+	return clean_gear(c.get("gear") if c != null else null)
+
+
+static func set_finished_gear(h: Dictionary, gear: Dictionary) -> Dictionary:
+	h.gear = clean_gear(gear)
+	return h.gear
+
+
+static func gear_names(gear: Dictionary) -> Array:
+	return GEAR_KEYS.filter(func(k): return gear.has(k)).map(func(k): return GEAR_NAMES[k])
 
 static var D: Dictionary = {}
 static var BY_ID: Dictionary = {}
@@ -716,7 +765,7 @@ static func _runner_horse(f: Dictionary, year: int, rng) -> Dictionary:
 		turf = float(f.turf), dirt = float(f.dirt), firm = float(f.get("firm", 0.8)) if f.get("firm") != null else 0.8,
 		soft = float(f.get("soft")) if f.get("soft") != null else 0.5, style = float(f.get("style")) if f.get("style") != null else 0.5,
 		temper = 0.6, spirit = 0.6, fit = 1.0, cond = 0.7, fatigue = 0.0,
-	}
+	}.merged({raceGear = f.gear, gearTemper = GEAR_TEMPER} if (f.get("gear") is Dictionary and not (f.gear as Dictionary).is_empty()) else {})
 
 
 static func _npc_horse(rng, i: int, level: float, race: Dictionary) -> Dictionary:
@@ -762,7 +811,7 @@ static func trainee_spec(run: Dictionary) -> Dictionary:
 	for k in STATS:
 		ab[k] = ability_of(float(run.stats[k]))
 	return {id = 1, name = c.name, sex = c.sex, coat = c.coat, ab = ab, dist = c.dist, range = c.range, turf = c.turf, dirt = c.dirt,
-		firm = c.firm, soft = c.soft, style = c.style, cardId = null if c.get("bred", false) else c.id}
+		firm = c.firm, soft = c.soft, style = c.style, cardId = null if c.get("bred", false) else c.id, gear = run_gear(run)}
 
 
 ## src はカード id か、{rar, unique}（配合の馬：レア度と固有を受け継いだ LM の親）。
@@ -849,7 +898,7 @@ static func finish_run(p: Dictionary) -> Dictionary:
 		id = int(run.id), cardId = null if bred else c.id, name = c.name, sex = c.sex, coat = c.coat, rar = c.rar, stats = (run.stats as Dictionary).duplicate(),
 		dist = c.dist, range = c.range, turf = c.turf, dirt = c.dirt, firm = c.firm, soft = c.soft, style = c.style,
 		starts = run.starts, wins = run.wins, gradedWins = run.gradedWins, giWins = run.giWins, fans = run.fans,
-		races = run.races, supports = run.supports, battles = 0, battleWins = 0, skills = run_skills(run), awaken = aw_t(run),
+		races = run.races, supports = run.supports, battles = 0, battleWins = 0, skills = run_skills(run), awaken = aw_t(run), gear = run_gear(run),
 	}
 	if bred:
 		h.sire = c.sireId
@@ -874,7 +923,7 @@ static func finished_spec(h: Dictionary, i := 0) -> Dictionary:
 	for k in STATS:
 		ab[k] = ability_of(float(h.stats[k]))
 	return {id = 100 + i, name = h.name, sex = h.sex, coat = h.coat, ab = ab, dist = h.dist, range = h.range, turf = h.turf, dirt = h.dirt,
-		firm = h.firm, soft = h.soft, style = h.style, fid = h.id, cardId = h.cardId}
+		firm = h.firm, soft = h.soft, style = h.style, fid = h.id, cardId = h.cardId, gear = horse_gear(h)}
 
 
 static func find_finished(p: Dictionary, id) -> Variant:
@@ -925,7 +974,7 @@ static func battle_npc(p: Dictionary, horse_id, race_id: String, diff := "normal
 		for k in STATS:
 			ab[k] = clampf_(level + (float(c.v[k]) - avg) + rng.normal(0, 0.015), 0.4, 0.95)
 		var npc := _with_skills({id = 200 + i, name = c.name, sex = c.sex, coat = c.coat, marks = c.marks, ab = ab, dist = c.dist, range = c.range,
-			turf = c.turf, dirt = c.dirt, firm = c.firm, soft = c.soft, style = c.style, cardId = c.id}, skills_of(c).race, c.id, race, true)
+			turf = c.turf, dirt = c.dirt, firm = c.firm, soft = c.soft, style = c.style, cardId = c.id, gear = clean_gear(c.get("gear"))}, skills_of(c).race, c.id, race, true)
 		field.append(npc.spec)
 		fired[200 + i] = npc.fired
 	var res := run_race(race, field, key(["battle", p.seed, p.battles]))
@@ -965,7 +1014,7 @@ static func event_race(p: Dictionary, horse_id, event_id: String, star: int) -> 
 			ab[s] = clampf_(float(m.ab[s]) + sd + rng.normal(0, 0.008), 0.4, 0.95)
 		var c = card(m.cardId) if m.get("cardId") != null else null
 		var spec := {id = 200 + i, name = m.name, sex = m.sex, coat = m.coat, marks = c.marks if c != null else null, ab = ab, dist = m.dist, range = m.range,
-			turf = 0.9, dirt = 0.4, firm = 0.8, soft = m.soft, style = m.style, cardId = c.id if c != null else null}
+			turf = 0.9, dirt = 0.4, firm = 0.8, soft = m.soft, style = m.style, cardId = c.id if c != null else null, gear = clean_gear(c.get("gear") if c != null else null)}
 		var x := _with_skills(spec, skills_of(c).race, c.id, race, true) if c != null else {spec = spec, fired = []}
 		field.append(x.spec)
 		fired[200 + i] = x.fired

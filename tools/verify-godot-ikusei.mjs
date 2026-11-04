@@ -22,6 +22,8 @@ function scenario(seed) {
   const sup = own.filter((c) => c !== sire && c !== dam).slice(0, 4).map((c) => c.id);
   const styles = IK.foalStyles(sire, dam);
   IK.startRun(p, { sire: sire.id, dam: dam.id, name: IK.foalNameIdea(sire, dam), style: styles[styles.length - 1] }, sup);
+  // 馬具を付けて走らせる（race.js の馬具の効き目も Godot と比べる）
+  IK.setRunGear(p.run, { menko: '#c8202a', blinker: true, shadowRoll: '#f4f2ec' });
   const run = p.run;
   const steps = [];
   while (!IK.runDone(run)) {

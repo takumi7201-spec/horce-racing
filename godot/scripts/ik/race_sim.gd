@@ -203,11 +203,13 @@ static func simulate(spec: Dictionary, rng, P: Dictionary, course: Dictionary, r
 		var want: float = h.style
 		var wisdom: float = eff.wit * 0.6 + jk_skill * 0.4
 		var spurt := clampf_(lerpf_(430.0, 700.0, want) + rng.normal(0, lerpf_(100.0, 25.0, wisdom)), 240.0, minf(1000.0, dist - 180.0))
-		var gate_delay := maxf(0.0, float(PH.GATE_BASE) + rng.normal(0, 0.17) * (1.6 - float(h.temper)) - (jk_skill - 0.5) * 0.12)
+		# 馬具（src/sim/gear.js の gearEffect と同じ式・同じ足し算の順）。馬具の無い馬は何も変わらない
+		var gx := gear_effect(h.get("raceGear", {}), float(h.get("gearTemper", h.temper)))
+		var gate_delay := maxf(0.0, float(PH.GATE_BASE) + rng.normal(0, 0.17) * (1.6 - (float(h.temper) + gx.start)) - (jk_skill - 0.5) * 0.12)
 		R.append({
 			id = h.id, horse = h, name = h.name, gate = e.gate, frame = e.frame, weight = e.weight, eff = eff,
 			vMax = vmax, hp0 = hp, want = want, spurt = spurt, gateDelay = gate_delay,
-			pull = clamp01_((0.52 - float(h.temper)) * 2.4 - jk_skill * 0.4), guts = eff.guts, spirit = float(h.spirit),
+			pull = clamp01_((0.52 - (float(h.temper) + gx.pull)) * 2.4 - jk_skill * 0.4), guts = eff.guts, spirit = float(h.spirit), focus = gx.focus,
 			accMax = float(PH.ACC_MAX_BASE) + float(PH.ACC_MAX_GAIN) * eff.power, jkSkill = jk_skill, jkAgg = 0.5,
 			styleLabel = style_label(want),
 		})
@@ -312,6 +314,8 @@ static func simulate(spec: Dictionary, rng, P: Dictionary, course: Dictionary, r
 			var vcap: float = r.vMax * fade * (1.0 - k * float(PH.CORNER_SLOW)) * (1.0 - grade * float(PH.GRADE_SLOW))
 			if rem < 400:
 				vcap *= 1.0 + float(PH.GUTS_GAIN) * (r.guts * 0.7 + r.spirit * 0.3) * (1.0 - rem / 400.0)
+				if r.focus != 0.0:
+					vcap *= 1.0 + r.focus * (1.0 - rem / 400.0)
 
 			var vdes: float
 			if rem <= r.spurt:
@@ -536,3 +540,23 @@ static func _comment(r: Dictionary, busted: bool, left: float, pulled: float, bl
 	if c.is_empty():
 		c.append("力は出した" if idx < field / 2.0 else "見せ場なし")
 	return "・".join(c)
+
+
+## 馬具の効き目（src/sim/gear.js の gearEffect）。気性が悪いほど効く
+static func gear_effect(gear: Dictionary, temper: float) -> Dictionary:
+	var need := clamp01_((0.6 - temper) * 2.0)
+	var start := 0.0
+	var pull := 0.0
+	var focus := 0.0
+	if gear.get("menko"):
+		start += 0.08 * need + 0.02
+	if gear.get("shadowRoll"):
+		start += 0.03 * need
+		pull += 0.05 * need
+	if gear.get("blinker"):
+		pull += 0.10 * need
+		focus += 0.012 * need
+	elif gear.get("cheek"):
+		pull += 0.05 * need
+		focus += 0.005 * need
+	return {start = start, pull = pull, focus = focus}

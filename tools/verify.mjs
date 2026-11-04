@@ -1126,6 +1126,26 @@ section('カード育成モード');
     && I.foalStyles({ style: 0.1 }, { style: 0.8 }).join() === '逃げ,先行,差し,追込');
   const run = I.startRun(big, { sire: lmCard.id, dam: damCard.id, name: '  テストホース ', style: st[st.length - 1] }, sup0);
   const tc0 = I.traineeCard(run);
+  // 馬具：実際に着けていた馬のカードは馬具を持つ。育成中の馬は自分で決め、レースの結果が変わり、完成馬に残る
+  {
+    const gc = I.CARDS.filter((c) => c.gear && Object.keys(c.gear).length);
+    const dsc = I.CARDS.find((c) => c.name === 'ダイワスカーレット'), mky = I.CARDS.find((c) => c.name === 'メイケイエール');
+    const g0 = JSON.stringify(I.runGear(run));
+    const spec = I.traineeSpec(run);
+    const race = { id: 'gt', name: '馬具', grade: 'GI', courseId: 'nakayama', surface: '芝', distance: 2000, ground: '不良' };
+    const field = (gear) => [{ ...spec, gear }, ...Array.from({ length: 11 }, (_, i) => ({ ...spec, id: 10 + i, name: `相手${i}` }))];
+    let diff = 0;
+    for (let i = 0; i < 12; i++) {
+      const a0 = I.runRace(race, field({}), `gear:${i}`).results.find((r) => r.horseId === 1);
+      const a1 = I.runRace(race, field({ menko: '#c8202a', blinker: true, shadowRoll: '#f4f2ec' }), `gear:${i}`).results.find((r) => r.horseId === 1);
+      if (Math.abs(a0.time - a1.time) > 1e-9) diff++;
+    }
+    const set = I.setRunGear(run, { blinker: true, cheek: true, menko: '#1f3f9e' });
+    check(`カード育成の馬具：実際に着けていた ${gc.length} 頭（${gc.map((c) => c.name).join('・')}）、育成中に決められ、レースが変わる（12 戦中 ${diff} 戦）`,
+      gc.length >= 5 && dsc.gear.menko && mky.gear.menko && mky.gear.blinker && g0 === '{}' && set.blinker && !set.cheek
+      && I.traineeSpec(run).gear.menko === '#1f3f9e' && diff >= 3);
+    I.setRunGear(run, {});
+  }
   check(`配合：名前・脚質が決めたとおりで、脚質に合わないスキルは受け継がない（${run.name}・${run.style}・${tc0.raceSkills.join(',')}）`,
     run.name === 'テストホース' && run.style === st[st.length - 1] && tc0.name === 'テストホース'
     && !(run.style !== '逃げ' && tc0.raceSkills.includes('front')) && !(['逃げ', '先行'].includes(run.style) && tc0.raceSkills.includes('closer')));
@@ -1137,6 +1157,9 @@ section('カード育成モード');
   }
   const h = I.finishRun(big);
   check(`育成は 10 戦で終わり、完成馬になる（${h.name} ${h.starts}戦${h.wins}勝・評価 ${h.rank}）`, h.starts === 10 && big.finished.length === 1 && big.run === null);
+  I.setFinishedGear(big, h.id, { bandage: true, menko: '#e8b21a' });
+  check('完成馬の馬具を決められ、対戦と絵（horseCard）に残る', I.finishedSpec(h).gear.bandage === true && I.horseCard(h).gear.menko === '#e8b21a');
+  I.setFinishedGear(big, h.id, {});
   check('2 歳のレースは 2000m まで', h.races.filter((r) => I.SLOTS[r.slot].age === 2).every((r) => r.distance <= 2000));
   const bt = I.battleNpc(big, h.id, 'japan-cup', 'normal');
   check(`NPC とのランク戦が走る（${bt.order}着/${bt.result.results.length}）`, bt.result.results.length === 12 && bt.result.log != null);

@@ -43,6 +43,7 @@ func scenario(seed: int) -> Dictionary:
 	var styles := IK.foal_styles(sire, dam)
 	var err := IK.start_run(p, {sire = sire.id, dam = dam.id, name = IK.foal_name_idea(sire, dam), style = styles[styles.size() - 1]}, sup)
 	assert(err == "", err)
+	IK.set_run_gear(p.run, {menko = "#c8202a", blinker = true, shadowRoll = "#f4f2ec"})
 	var run: Dictionary = p.run
 	var steps := []
 	while not IK.run_done(run):

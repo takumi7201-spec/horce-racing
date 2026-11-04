@@ -88,9 +88,10 @@ function prepareRunner(entry, spec, rng) {
     240, Math.min(1000, spec.distance - 180),
   );
 
-  // 馬具（世界のレースだけ entry.gear を持つ。持たない馬は何も変わらない：育成モードと Godot の一致を保つ）。
-  // 効き目は気性に足す量で、気性の悪い馬ほど効く（gear.js）。
-  const gx = gearEffect(entry.gear, horse.temper);
+  // 馬具（世界のレースは entry.gear、育成モードは馬の raceGear。持たない馬は何も変わらない）。
+  // 効き目は気性に足す量で、気性の悪い馬ほど効く（gear.js）。育成モードの馬は気性を持たない（一律 0.6）ので、
+  // 馬具の効き目だけ気性 gearTemper（0.35）の馬として測る。
+  const gx = gearEffect(entry.gear ?? horse.raceGear, horse.gearTemper ?? horse.temper);
 
   // ゲート。気性と騎手で出遅れる（メンコ・シャドーロールで音や影に驚かない）。
   const gateDelay = Math.max(0, PHYS.GATE_BASE

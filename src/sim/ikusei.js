@@ -7,6 +7,7 @@
 
 import { CARDS, PACKS, EVENT_PACKS } from './data/cards.js';
 import { EVENTS, STAR_D } from './data/events.js';
+import { GEAR, GEAR_KEYS, GEAR_COLORS, gearNames } from './gear.js';
 import { makeRng, hashSeed } from '../core/rng.js';
 import { simulateRace } from './race.js';
 import { GRADED } from './schedule.js';
@@ -20,7 +21,30 @@ export { skillsOf, skillInfo, AWAKEN };
 export const awakenOfCard = (profile, id) => awakenOf(profile.cards[id]);
 export { skillCue } from './ikusei-skills.js';
 
-export { CARDS, PACKS, EVENTS, STAR_D };
+export { CARDS, PACKS, EVENTS, STAR_D, GEAR, GEAR_KEYS, GEAR_COLORS, gearNames };
+
+// ---------------------------------------------------------------- 馬具（sim/gear.js）
+// 実在馬のカードは、実際に付けていた馬具を `gear` に持つ（ランク戦・イベントの相手もそれで走る）。
+// 育成中の馬と完成馬の馬具は自分で決める（run.gear・horse.gear）。カードの馬を育てる古い育成はカードの馬具が既定。
+// 育成モードの馬は気性を持たないので、効き目は気性 0.35 の馬として測る（GEAR_TEMPER、race.js）。
+export const GEAR_TEMPER = 0.35;
+const cleanGear = (gear) => {
+  const g = {};
+  for (const k of GEAR_KEYS) if (gear?.[k]) g[k] = gear[k];
+  if (g.blinker && g.cheek) delete g.cheek;
+  return g;
+};
+/** 育成中の馬の馬具。 */
+export const runGear = (run) => run.gear ?? (run.sire ? {} : cleanGear(cardById(run.trainee)?.gear));
+/** 育成中の馬の馬具を決める（レースの前ならいつでも）。 */
+export function setRunGear(run, gear) { run.gear = cleanGear(gear); return run.gear; }
+/** 完成馬の馬具を決める。 */
+export function setFinishedGear(profile, horseId, gear) {
+  const h = profile.finished.find((x) => x.id === horseId);
+  if (!h) throw new Error('完成馬が無い');
+  h.gear = cleanGear(gear);
+  return h.gear;
+}
 /** 弾の名前（ガチャの弾とイベント）。 */
 export const PACK_NAMES = { ...PACKS, ...EVENT_PACKS };
 /** イベントの報酬だけで手に入るカード。 */
@@ -322,7 +346,8 @@ export function traineeCard(run) {
 
 /** 完成馬の姿（カードの形。絵を撮るのに使う）。配合の馬は保存した値から。 */
 export function horseCard(h) {
-  if (h.cardId) return cardById(h.cardId);
+  // 馬具を付け替えた完成馬は、絵もその馬具で撮る（絵の鍵に gear が入るので撮り直しになる）
+  if (h.cardId) { const c = cardById(h.cardId); return h.gear && c ? { ...c, gear: h.gear } : c; }
   const s = cardById(h.sire), d = cardById(h.dam);
   return {
     id: `B${h.id}`, pack: 'BRED', bred: true, rar: h.rar, name: h.name, sex: h.sex, coat: h.coat, marks: null, hid: 900000 + h.id,
@@ -330,6 +355,7 @@ export function horseCard(h) {
     plus: s && d ? Object.fromEntries(STATS.map((k) => [k, Math.max(plusOf(s)[k], plusOf(d)[k])])) : undefined,
     v: Object.fromEntries(STATS.map((k) => [k, abilityOf(h.stats[k])])), turf: h.turf, dirt: h.dirt, firm: h.firm, soft: h.soft,
     dist: h.dist, range: h.range, style: h.style, surface: h.turf >= h.dirt ? '芝' : 'ダート', shot: 'profile', desert: false, unique: h.unique ?? null,
+    gear: h.gear ?? {},
   };
 }
 
@@ -510,7 +536,7 @@ export function rest(run) {
 // ---------------------------------------------------------------- レース
 
 /** 育成中・完成馬・NPC をレースの計算に渡す馬にする。birthYear はレースの年で 4 歳にそろえる（成長曲線を 1 に近づける）。 */
-function runnerHorse({ id, name, sex, coat, ab, dist, range, turf, dirt, firm, soft, style }, year, rng) {
+function runnerHorse({ id, name, sex, coat, ab, dist, range, turf, dirt, firm, soft, style, gear }, year, rng) {
   const h = createHorse(rng, { name, sex, birthYear: year - 4 });
   h.id = id;
   h.coat = coat ?? h.coat;
@@ -521,6 +547,8 @@ function runnerHorse({ id, name, sex, coat, ab, dist, range, turf, dirt, firm, s
   h.turf = turf; h.dirt = dirt; h.firm = firm ?? 0.8; h.soft = soft ?? 0.5;
   h.style = style ?? 0.5; h.styleFlex = 0.5; h.temper = 0.6; h.spirit = 0.6;
   h.fit = 1; h.cond = 0.7; h.fatigue = 0;
+  // 馬具（gear.js）。育成モードの馬は気性を持たないので、馬具の効き目は気性 0.35 の馬として測る（race.js）
+  if (gear && Object.keys(gear).length) { h.raceGear = gear; h.gearTemper = GEAR_TEMPER; }
   return h;
 }
 
@@ -545,6 +573,7 @@ export function traineeSpec(run) {
   return {
     id: 1, name: c.name, sex: c.sex, coat: c.coat, ab: Object.fromEntries(STATS.map((k) => [k, abilityOf(run.stats[k])])),
     dist: c.dist, range: c.range, turf: c.turf, dirt: c.dirt, firm: c.firm, soft: c.soft, style: c.style, cardId: c.bred ? null : c.id,
+    gear: runGear(run),
   };
 }
 
@@ -650,7 +679,7 @@ export function finishRun(profile) {
     dist: c.dist, range: c.range, turf: c.turf, dirt: c.dirt, firm: c.firm, soft: c.soft, style: c.style,
     starts: run.starts, wins: run.wins, gradedWins: run.gradedWins, giWins: run.giWins, fans: run.fans,
     races: run.races, supports: run.supports, battles: 0, battleWins: 0,
-    skills: runSkills(run), awaken: awT(run),
+    skills: runSkills(run), awaken: awT(run), gear: runGear(run),
   };
   horse.rating = ratingOf(horse);
   horse.rank = rankOf(horse.rating);
@@ -667,6 +696,7 @@ export function finishedSpec(h, i = 0) {
   return {
     id: 100 + i, name: h.name, sex: h.sex, coat: h.coat, ab: Object.fromEntries(STATS.map((k) => [k, abilityOf(h.stats[k])])),
     dist: h.dist, range: h.range, turf: h.turf, dirt: h.dirt, firm: h.firm, soft: h.soft, style: h.style, fid: h.id, cardId: h.cardId,
+    gear: h.gear ?? (h.cardId ? cleanGear(cardById(h.cardId)?.gear) : {}),
   };
 }
 
@@ -704,7 +734,7 @@ export function battleNpc(profile, horseId, raceId, diff = 'normal') {
     const avg = STATS.reduce((s, k) => s + c.v[k], 0) / 5;
     const ab = Object.fromEntries(STATS.map((k) => [k, clamp(level + (c.v[k] - avg) + rng.normal(0, 0.015), 0.4, 0.95)]));
     // 相手もカードのレーススキルを使う（自分だけ使えると難しさの帯が崩れる）
-    const npc = withSkills({ id: 200 + i, name: c.name, sex: c.sex, coat: c.coat, marks: c.marks, ab, dist: c.dist, range: c.range, turf: c.turf, dirt: c.dirt, firm: c.firm, soft: c.soft, style: c.style, cardId: c.id },
+    const npc = withSkills({ id: 200 + i, name: c.name, sex: c.sex, coat: c.coat, marks: c.marks, ab, dist: c.dist, range: c.range, turf: c.turf, dirt: c.dirt, firm: c.firm, soft: c.soft, style: c.style, cardId: c.id, gear: cleanGear(c.gear) },
       skillsOf(c).race, c.id, race, true);
     field.push(npc.spec);
     fired[200 + i] = npc.fired;
@@ -745,7 +775,7 @@ export function eventRace(profile, horseId, eventId, star) {
     const ab = Object.fromEntries(STATS.map((k) => [k, clamp(m.ab[k] + STAR_D[star] + rng.normal(0, 0.008), 0.4, 0.95)]));
     const c = m.cardId ? cardById(m.cardId) : null;
     const spec = { id: 200 + i, name: m.name, sex: m.sex, coat: m.coat, marks: c?.marks ?? null, ab, dist: m.dist, range: m.range,
-      turf: 0.9, dirt: 0.4, firm: 0.8, soft: m.soft, style: m.style, cardId: c?.id ?? null };
+      turf: 0.9, dirt: 0.4, firm: 0.8, soft: m.soft, style: m.style, cardId: c?.id ?? null, gear: cleanGear(c?.gear) };
     // カードのある馬（モンジュー・ファンタスティックライト）はカードのスキルを使う。モンジューの固有「聳え立つ巨城」はこの舞台で発動する
     const x = c ? withSkills(spec, skillsOf(c).race, c.id, race, true) : { spec, fired: [] };
     field.push(x.spec);

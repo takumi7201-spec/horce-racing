@@ -84,6 +84,9 @@ func _ready() -> void:
 			args[kv[0]] = kv[1]
 	if args.has("demo"):
 		_demo(int(args.demo))
+	if args.has("gear") and p.run != null:
+		# 確かめ用：育成中の馬に馬具を着ける（--gear=1。メンコ赤・ブリンカー・シャドーロール白）。--gearpick=1 で馬具を選ぶ板を開く
+		IK.set_run_gear(p.run, {menko = "#c8202a", blinker = true, shadowRoll = "#f4f2ec"})
 	if args.has("deck"):
 		# 確かめ用：育成をやめて、おまかせの編成（父・母・サポート）を開く
 		p.run = null
@@ -104,6 +107,8 @@ func _ready() -> void:
 		_show_card(IK.card(args.card))
 	if args.has("menu"):
 		_toggle_menu()
+	if args.has("gearpick") and p.run != null:
+		_gear_picker(IK.run_gear(p.run), String(IK.trainee_card(p.run).name), func(g: Dictionary) -> void: IK.set_run_gear(p.run, g))
 	if args.has("event"):
 		# 確かめ用：イベント（凱旋門賞 1999）を走って観戦の時刻（--event=秒）で止める
 		var r := IK.event_race(p, p.finished[0].id, "arc1999", 1)
@@ -1259,6 +1264,9 @@ func _show_card(c: Dictionary) -> void:
 		var si := IK.skill_info(id)
 		sv.add_child(_skill_row("サポート", si.name, si.desc, LEAF2))
 	info.add_child(sv)
+	var cg := IK.clean_gear(c.get("gear"))
+	if not cg.is_empty():
+		info.add_child(UI.label("実際の馬具　" + "・".join(IK.gear_names(cg)), 13, INK, "black"))
 	var acts := UI.hbox(8)
 	var w: Control
 	if IK.spare_of(p, c.id) > 0:
@@ -1576,6 +1584,7 @@ func _train() -> Control:
 	st.add_child(_kv("覚醒", "◆".repeat(IK.aw_t(run)) + "◇".repeat(4 - IK.aw_t(run))))
 	st.add_child(_kv("戦績", "%d戦%d勝（重賞 %d・GI %d）" % [int(run.starts), int(run.wins), int(run.gradedWins), int(run.giWins)]))
 	st.add_child(_kv("ファン", "%s人" % _comma(int(run.fans))))
+	st.add_child(_gear_row(IK.run_gear(run), c.name, (func(g: Dictionary) -> void: IK.set_run_gear(run, g)) if not IK.run_done(run) else Callable()))
 	var stb := UI.box({c = [PAPER], radius = 14.0, border = 3.0, shadow = Vector2(0, 5), pad = Vector4(12, 10, 12, 10)})
 	stb.custom_minimum_size.x = 200
 	stb.add_child(st)
@@ -1667,6 +1676,90 @@ func _kv(k: String, v: String) -> Control:
 	h.add_child(l)
 	h.add_child(UI.label(v, 14, INK, "black"))
 	return h
+
+
+## 馬具の行（育成中の馬・完成馬）。on_save が空なら変えられない（育成の終わった後）
+func _gear_row(gear: Dictionary, name: String, on_save: Callable) -> Control:
+	var h := UI.hbox(8)
+	var l := UI.label("馬具", 12, Color("#4a5b58"), "black")
+	l.custom_minimum_size.x = 38
+	h.add_child(l)
+	var f := HFlowContainer.new()
+	f.add_theme_constant_override("h_separation", 4)
+	f.add_theme_constant_override("v_separation", 4)
+	f.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var names := IK.gear_names(gear)
+	for k in IK.GEAR_KEYS.filter(func(x): return gear.has(x)):
+		# 色の付く馬具（メンコ・シャドーロール）は色の点を添える（地を馬具の色にすると黒いメンコで字が読めない）
+		var b := UI.box({c = [Color("#eef3e6")], radius = 999.0, border = 2.0, shadow = Vector2.ZERO, pad = Vector4(8, 1, 10, 2)})
+		var bh := UI.hbox(4)
+		if gear[k] is String:
+			var dot := UI.box({c = [Color(String(gear[k]))], radius = 999.0, border = 1.5, shadow = Vector2.ZERO, pad = Vector4(5, 5, 5, 5)})
+			dot.custom_minimum_size = Vector2(11, 11)
+			dot.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+			bh.add_child(dot)
+		bh.add_child(UI.label(IK.GEAR_NAMES[k], 13, INK, "black"))
+		b.add_child(bh)
+		f.add_child(b)
+	if names.is_empty():
+		f.add_child(UI.label("なし", 13, Color("#7b8a88"), "black"))
+	h.add_child(f)
+	if on_save.is_valid():
+		var ch := UI.chip("変更", false, _gear_picker.bind(gear, name, on_save), 12)
+		ch.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		h.add_child(ch)
+	return h
+
+
+## 馬具を決める。育成モードの馬は気性を持たないので、効き目は気性 0.35 の馬として小さく効く（ikusei.gd の GEAR_TEMPER）
+func _gear_picker(gear: Dictionary, name: String, on_save: Callable) -> void:
+	var cur := gear.duplicate()
+	var v := UI.vbox(8)
+	v.custom_minimum_size.x = 520
+	v.add_child(UI.label("%sの馬具" % name, 22, INK, "title"))
+	v.add_child(UI.label("効き目は小さい（出遅れ・掛かり・追ってからの集中）。付けた馬具はレースの 3D にも出る。", 12, Color("#4a5b58")))
+	var wh := [null]  # 閉じる板は modal() が返してから決まる（ラムダは作った時の値を写すので、配列で受け渡す）
+	var rows := UI.vbox(8)
+	v.add_child(rows)
+	var draw := func(self_ref: Callable) -> void:
+		for ch in rows.get_children():
+			ch.queue_free()
+		for k in IK.GEAR_KEYS:
+			var on := cur.has(k)
+			var colored: bool = k == "menko" or k == "shadowRoll"
+			var r := UI.hbox(8)
+			r.custom_minimum_size.y = 36
+			r.add_child(UI.chip(IK.GEAR_NAMES[k], on, func() -> void:
+				if on:
+					cur.erase(k)
+				else:
+					cur[k] = IK.GEAR_COLORS[0] if colored else true
+					if k == "blinker":
+						cur.erase("cheek")
+					if k == "cheek":
+						cur.erase("blinker")
+				self_ref.call(self_ref), 14))
+			if colored and on:
+				for col in IK.GEAR_COLORS:
+					var sw := UI.box({c = [Color(col)], radius = 999.0, border = 4.0 if cur[k] == col else 2.0, shadow = Vector2.ZERO, pad = Vector4(0, 0, 0, 0)})
+					sw.custom_minimum_size = Vector2(28, 28)
+					sw.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+					sw.press(func() -> void:
+						cur[k] = col
+						self_ref.call(self_ref))
+					r.add_child(sw)
+			rows.add_child(r)
+	draw.call(draw)
+	var acts := UI.hbox(8)
+	acts.add_child(UI.button("決める", func() -> void:
+		on_save.call(cur)
+		save()
+		close_modal(wh[0])
+		toast("%sの馬具：%s" % [name, "・".join(IK.gear_names(IK.clean_gear(cur))) if not IK.clean_gear(cur).is_empty() else "なし"])
+		render(false), "primary", 15))
+	acts.add_child(UI.button("やめる", func() -> void: close_modal(wh[0]), "paper", 15))
+	v.add_child(acts)
+	wh[0] = modal(v, 600)
 
 
 func _pill(text: String, bg: Color) -> Control:
@@ -1812,7 +1905,7 @@ func _watch(res: Dictionary, mine: Array, fired: Dictionary, after: Callable) ->
 		var rr: Dictionary = by_id[id]
 		var fs: Dictionary = field_by_id.get(id, {})
 		horses.append({id = id, name = lg.names[k], gate = int(lg.gates[k]), frame = int(lg.frameNos[k]), order = int(rr.order), time = rr.time, pos = pos, off = off})
-		skins.append(Skins.for_runner({id = id, cardId = fs.get("cardId"), coat = fs.get("coat", "鹿毛"), gate = int(lg.gates[k]), frame = int(lg.frameNos[k])}))
+		skins.append(Skins.for_runner({id = id, cardId = fs.get("cardId"), coat = fs.get("coat", "鹿毛"), gate = int(lg.gates[k]), frame = int(lg.frameNos[k]), gear = fs.get("gear")}))
 		var names: Array = fired.get(id, fired.get(float(id), []))
 		for nm in names:
 			var cue := IK.skill_cue(nm, float(res.distance))
@@ -1911,6 +2004,7 @@ func _horse() -> Control:
 	for id in IK.finished_skills(h):
 		skf.add_child(_pill(IK.skill_info(id).get("name", id), Color("#dcecff")))
 	ab.add_child(skf)
+	ab.add_child(_gear_row(IK.horse_gear(h), String(h.name), func(g: Dictionary) -> void: IK.set_finished_gear(h, g)))
 	var acts := UI.hbox(10)
 	acts.add_child(UI.button("ランク戦へ", go.bind("battle", {id = h.id}), "primary", 15, "sword"))
 	acts.add_child(UI.button("イベントへ", go.bind("event", {id = h.id}), "sun", 15, "trophy"))

@@ -58,7 +58,22 @@ static func for_runner(r: Dictionary) -> Dictionary:
 	# 帽子は枠の色（実在の馬主の服を着るカードは服の帽子のまま）
 	if not own_silks and num.has("cap"):
 		mats.cap = num.cap
-	return {meta = {mats = mats, legs = legs}, tex = t}
+	# 馬具（horse_model.gd の _apply_gear が付けていない面を隠す）。色はゲームの makeHorse と同じ決め方
+	var gear := []
+	var g = r.get("gear")
+	if g is Dictionary:
+		for k in ["menko", "shadowRoll", "blinker", "cheek", "bandage"]:
+			var v = g.get(k)
+			if (v is String and v != "") or (v is bool and v):
+				gear.append(k)
+		if gear.has("menko"):
+			var mc := Color(String(g.menko))
+			mats.menko = String(g.menko)
+			mats.menkoTrim = "#1f3f9e" if (maxf(mc.r, maxf(mc.g, mc.b)) + minf(mc.r, minf(mc.g, mc.b))) / 2.0 > 0.7 else "#f4f2ec"  # HSL の明度（three.js の getHSL と同じ）
+		mats.blinker = String(g.menko) if gear.has("menko") else "#1c1c1c"
+		if gear.has("shadowRoll"):
+			mats.shadowRoll = String(g.shadowRoll)
+	return {meta = {mats = mats, legs = legs, gear = gear}, tex = t}
 
 
 static func _has_own_silks(cid) -> bool:
