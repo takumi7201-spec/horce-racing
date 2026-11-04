@@ -1269,6 +1269,13 @@ Playwright で操作するときは、週送りは左下の NEXT（`.nextb`、�
     - **スキルは 1 行で最小表示**（レースのスキルの札と、サポートとの絆の進みを略した名前で。溢れたら横へ流し、縦には伸ばさない）。
       「詳しく」で説明つきの一覧と絆の全部を開く（開いたかは `app.ikSkillOpen`、Godot は `opts.sk` に覚える）。
     - スマホでも練習の札は 5 列のまま（字を詰める）。3 列にすると 2 段になって下へはみ出した。
+    - **「詳しく」は描き直さずに開け閉めし、高さをイージングで滑らかに変える。** ブラウザは grid の行を 0fr → 1fr（`height: auto` へは遷移できない）、
+      0.34 秒の `--ease-move`。切り抜く箱（`.ik-skclip`）には余白も枠も持たせない（持たせると高さ 0 の間も余白と枠が先に出て、開く途中で段が付いた）。
+      Godot は切り抜く Control の `custom_minimum_size.y` を Tween（TRANS_CUBIC・EASE_IN_OUT）で 0 ↔ 中身の高さへ。帯と開く箱は 1 つの組に入れる
+      （ページの段の間隔が閉じた箱のぶんまで空かない）。確かめ用の引数 `--skx=1`。
+    - **開くと「少し小さくなる」のは、ページがスクロールできるようになった瞬間にスクロールバーの幅だけ本文が狭くなったから。**
+      ブラウザは `.ikm { scrollbar-gutter: stable both-edges }`、Godot は `_scrolled` の ScrollContainer を `SCROLL_MODE_RESERVE` にして、幅をいつも取っておく。
+      Playwright（ヘッドレス）はスクロールバーの出方が違い幅が変わらないので、この不具合は撮っても見えない（スクロールする要素の clientWidth で見る）。
 
 104. **字体は「コーポレート・ロゴ ver3」（ロゴたいぷ工房、SIL OFL 1.1）。ブラウザは `assets/fonts` の WOFF2、Godot は元の OTF。**
     - ブラウザ：styles.css の `@font-face` と `--font`（後ろに今までの字体を並べる）。すべての `font:` と `font-family` はこの変数を通す

@@ -2225,6 +2225,15 @@ button.ikev-banner:active { transform: translateY(3px); box-shadow: 0 3px 0 var(
 .ik-bonds.sm { display: inline-flex; gap: 4px; flex-wrap: nowrap; }
 .ik-bond.sm { font-size: 11px; padding: 1px 6px; border-radius: 7px; }
 .ik-skx { flex: none; font: 800 12px var(--font); padding: 4px 10px; border-radius: 999px; border: 2px solid var(--ink, #113035); background: #fff; color: var(--ink, #113035); cursor: pointer; }
+/* 「詳しく」：描き直さずに開け閉めする。高さは grid の行を 0fr → 1fr にして中身の高さまで滑らかに（height: auto へは遷移できない） */
+.ik-skgroup { display: flex; flex-direction: column; }
+.ik-skwrap { display: grid; grid-template-rows: 0fr; opacity: 0; margin-top: 0; transition: grid-template-rows .34s var(--ease-move, ease), opacity .26s var(--ease-in, ease), margin-top .34s var(--ease-move, ease); }
+/* 切り抜く箱（.ik-skclip）は余白も枠も持たない。持たせると、高さが 0 の間も余白と枠のぶんが先に出て、開く途中で段が付いた */
+.ik-skclip { min-height: 0; overflow: hidden; }
+.ik-skclip > .ik-skmore { transform: translateY(-8px); transition: transform .34s var(--ease-move, ease); }
+.ik-skgroup.open .ik-skwrap { grid-template-rows: 1fr; opacity: 1; margin-top: 8px; }
+.ik-skgroup.open .ik-skclip > .ik-skmore { transform: none; }
+@media (prefers-reduced-motion: reduce) { .ik-skwrap, .ik-skclip > .ik-skmore { transition: none; } }
 .ik-skmore { display: flex; flex-direction: column; gap: 6px; background: var(--paper, #fffaf0); border: 2.5px solid var(--ink, #113035); border-radius: 14px; padding: 8px 10px; }
 .ik-skmore > div { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .ik-skmore small { font-size: 12px; color: #3c5552; }
@@ -2249,3 +2258,7 @@ button.ikev-banner:active { transform: translateY(3px); box-shadow: 0 3px 0 var(
   .ik-run2 .ik-train small { font-size: 10px; line-height: 1.25; }
   .ik-run2 .ik-train .sks i { font-size: 9px; }
 }
+
+/* 育成モードの本文はスクロールバーの幅をいつも取っておく。中身が伸びてスクロールできるようになった瞬間に、
+   スクロールバーのぶん本文が狭くなって「少し小さくなった」（Windows・Mac の常時表示のスクロールバー）。両側に取って中央をずらさない */
+.ikm { scrollbar-gutter: stable both-edges; }

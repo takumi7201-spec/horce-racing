@@ -848,14 +848,20 @@ function trainView(app, go) {
         el(`b.${RCLS(x.sc.rar)}`, { text: x.sc.name.length > 5 ? `${x.sc.name.slice(0, 4)}…` : x.sc.name }), el('i', { text: x.done ? '習得' : `${x.b}/${x.need}` }),
       ]))),
     ]),
-    el('button.ik-skx', { text: open ? '閉じる' : '詳しく', onclick: () => { app.ikSkillOpen = !open; go('run'); } }),
+    el('button.ik-skx', { text: open ? '閉じる' : '詳しく', onclick: (e) => {
+      // 画面を描き直さずに開け閉めする（描き直すと一瞬で伸び縮みした）。高さは grid の 0fr → 1fr で滑らかに
+      app.ikSkillOpen = !app.ikSkillOpen;
+      skillGroup.classList.toggle('open', app.ikSkillOpen);
+      e.currentTarget.textContent = app.ikSkillOpen ? '閉じる' : '詳しく';
+    } }),
   ]);
-  const skillMore = open ? el('div.ik-skmore', [
+  const skillMore = el('div.ik-skwrap', el('div.ik-skclip', el('div.ik-skmore', [
     ...[...(I.uniqueOf(c) ? [{ ...I.uniqueOf(c), type: 'uniq' }] : []), ...I.runSkills(run).map((id) => I.skillInfo(id)).filter(Boolean)]
       .map((x) => el('div', [el(`span.ik-sk.sm.${x.type}`, { text: x.name }), el('small', { text: x.desc })])),
     el('div', [el('small', { text: 'サポートと友情練習を重ねると、そのサポートのレーススキルを覚える（完成馬に残る）。' })]),
     el('div.ik-bonds', bonds.map((x) => el(`span.ik-bond${x.done ? '.done' : ''}`, [el(`b.${RCLS(x.sc.rar)}`, { text: x.sc.name }), el('i', { text: x.done ? '習得' : `${x.b}/${x.need}` })]))),
-  ]) : null;
+  ])));
+  const skillGroup = el(`div.ik-skgroup${open ? '.open' : ''}`, [skillBar, skillMore]);
 
   const progress = el('div.ik-prog', [
     el('b', { text: done ? '育成完了' : I.turnLabel(run) }),
@@ -924,8 +930,7 @@ function trainView(app, go) {
     progress,
     el('div.ik-run2', [
       el('div.ik-top', [who, stats]),
-      skillBar,
-      skillMore,
+      skillGroup,
       action,
       history,
       el('div.ik-gbtns', [button('育成をやめる', async () => {

@@ -126,6 +126,14 @@ func _ready() -> void:
 			watching.set_camera(args.cam)
 		if args.has("result"):
 			watching.finished.emit()
+	if args.has("skx"):
+		# 確かめ用：育成の画面の「詳しく」を押す（--skx=1。--wait で開く途中・開いた後を撮る）
+		await get_tree().process_frame
+		await get_tree().process_frame
+		for l in find_children("*", "Label", true, false):
+			if (l as Label).text == "詳しく":
+				l.get_parent().emit_signal("pressed")
+				break
 	if args.has("shot"):
 		_shoot(args.shot, float(args.get("wait", "1.5")))
 
@@ -363,6 +371,8 @@ func _scrolled(content: Control) -> Control:
 	sc.set_anchors_preset(Control.PRESET_FULL_RECT)
 	sc.offset_top = 70
 	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	# スクロールバーの幅をいつも取っておく。中身が伸びてスクロールできるようになった瞬間に、本文が狭くなった（「詳しく」を開くと少し小さくなる）
+	sc.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_RESERVE
 	var m := MarginContainer.new()
 	m.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var side := int((size.x - W()) / 2.0)
@@ -1632,22 +1642,41 @@ func _train() -> Control:
 	var gap := Control.new()
 	gap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	kh.add_child(gap)
-	kh.add_child(UI.chip("閉じる" if opts.get("sk", false) else "詳しく", false, func() -> void:
+	# 「詳しく」は描き直さずに開け閉めする（描き直すと一瞬で伸び縮みした）。切り抜く箱の高さを Tween で 0 ↔ 中身の高さへ
+	var mb := UI.box({c = [PAPER], radius = 12.0, border = 2.5, shadow = Vector2.ZERO, pad = Vector4(12, 8, 12, 8)})
+	var mv := UI.vbox(5)
+	if uc != null:
+		mv.add_child(_skill_row("固有", IK.skills_of(uc).unique.name, IK.skills_of(uc).unique.desc, SUN))
+	for id in IK.run_skills(run):
+		var si := IK.skill_info(id)
+		mv.add_child(_skill_row("レース", si.name, si.desc, Color("#9cc8f0")))
+	mv.add_child(UI.label("サポートと友情練習を重ねると、そのサポートのレーススキルを覚える（完成馬に残る）。", 12, Color("#4a5b58")))
+	mb.add_child(mv)
+	var clip := Control.new()
+	clip.clip_contents = true
+	clip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	clip.add_child(mb)
+	var full := mb.get_combined_minimum_size().y + 8.0   # 上の 8 は帯との間（開いたときだけ空ける）
+	mb.position = Vector2(0, 8)
+	clip.resized.connect(func() -> void: mb.size = Vector2(clip.size.x, full - 8.0))
+	var open: bool = opts.get("sk", false)
+	clip.custom_minimum_size.y = full if open else 0.0
+	mb.modulate.a = 1.0 if open else 0.0
+	var skx := UI.chip("閉じる" if open else "詳しく", false, func() -> void: pass, 12)
+	skx.pressed.connect(func() -> void:
 		opts.sk = not opts.get("sk", false)
-		render(false), 12))
+		var lb: Label = skx.find_children("*", "Label", true, false)[0]
+		lb.text = "閉じる" if opts.sk else "詳しく"
+		var tw := clip.create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN_OUT).set_parallel()
+		tw.tween_property(clip, "custom_minimum_size:y", full if opts.sk else 0.0, 0.34)
+		tw.tween_property(mb, "modulate:a", 1.0 if opts.sk else 0.0, 0.26))
+	kh.add_child(skx)
 	kb.add_child(kh)
-	page.add_child(kb)
-	if opts.get("sk", false):
-		var mb := UI.box({c = [PAPER], radius = 12.0, border = 2.5, shadow = Vector2.ZERO, pad = Vector4(12, 8, 12, 8)})
-		var mv := UI.vbox(5)
-		if uc != null:
-			mv.add_child(_skill_row("固有", IK.skills_of(uc).unique.name, IK.skills_of(uc).unique.desc, SUN))
-		for id in IK.run_skills(run):
-			var si := IK.skill_info(id)
-			mv.add_child(_skill_row("レース", si.name, si.desc, Color("#9cc8f0")))
-		mv.add_child(UI.label("サポートと友情練習を重ねると、そのサポートのレーススキルを覚える（完成馬に残る）。", 12, Color("#4a5b58")))
-		mb.add_child(mv)
-		page.add_child(mb)
+	# 帯と開く箱を 1 つの組に（ページの段の間隔が、閉じた箱のぶんまで空かないように）
+	var skg := UI.vbox(0)
+	skg.add_child(kb)
+	skg.add_child(clip)
+	page.add_child(skg)
 
 	if IK.run_done(run):
 		var dv := UI.vbox(10)
