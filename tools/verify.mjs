@@ -1256,6 +1256,30 @@ section('カード育成モード');
     && bc.field.length === 8 && bl.result.results.length === 9 && bl.race.courseId === 'gulfstream' && bl.race.surface === 'ダート' && bl.race.distance === 2000
     && egRow?.cardId === 'P1-40' && egRow.dirt === 0.9 && bp.cards[ss.id] === 5 && I.eventState(bp, 'bc1989').cleared.join() === '1,2,3,4,5'
     && I.eventState(bp, 'arc1999').tries === 0 && peekHorseId() === idBefore);
+  // 脚質はレースごとに選べる。先行で出した馬が、サポートから覚えた「逃げ切り」で逃げにならない（自分の馬だけ。相手のカードは今までどおり）
+  {
+    const { applyRaceSkills } = await import('../src/sim/ikusei-skills.js');
+    const rc = { surface: '芝', distance: 2000 };
+    const base = { ab: Object.fromEntries(I.STATS.map((k) => [k, 0.7])), style: 0.37, soft: 0.5 };
+    const sen = applyRaceSkills(base, ['front', 'closer'], rc, { lock: 0.37 });
+    const nige = applyRaceSkills({ ...base, style: 0.12 }, ['front', 'closer'], rc, { lock: 0.12 });
+    const npc = applyRaceSkills(base, ['front'], rc, {});
+    const rp = I.newProfile(21);
+    I.pull(rp, 60);
+    const own = I.owned(rp);
+    const sire = own.find((c) => c.sex === '牡'), dam = own.find((c) => c.sex === '牝');
+    let raced = null;
+    if (sire && dam) {
+      I.startRun(rp, { sire: sire.id, dam: dam.id, name: 'センコウ', style: null }, own.filter((c) => c !== sire && c !== dam).slice(0, 4).map((c) => c.id));
+      rp.run.learned = ['front'];
+      while (!I.isRaceTurn(rp.run)) I.train(rp.run, 'speed');
+      const r = I.raceTurn(rp.run, I.raceOptions(rp.run)[0].id, '差し');
+      raced = { style: rp.run.raceStyle, fired: r.fired, row: r.result.results.find((x) => x.horseId === 1) };
+    }
+    check(`脚質：選んだ脚質で走り、合わない脚質のスキルは使わない（先行で逃げ切り・末脚炸裂とも不発・脚質 ${sen.spec.style}、逃げなら逃げ切りだけ、相手のカードは逃げ切りで逃げる）`,
+      sen.spec.style === 0.37 && sen.fired.length === 0 && nige.fired.join() === '逃げ切り' && nige.spec.style === 0.12 && npc.spec.style < 0.25
+      && raced?.style === '差し' && !raced.fired.includes('逃げ切り') && I.runRaceStyle(rp.run) === '差し');
+  }
   const js = JSON.stringify(big);
   check(`プロフィールは JSON で往復できる（${(js.length / 1024).toFixed(1)}KB）`, JSON.stringify(JSON.parse(js)) === js && js.length < 64 * 1024);
 }

@@ -49,7 +49,7 @@ func scenario(seed: int) -> Dictionary:
 	while not IK.run_done(run):
 		if IK.is_race_turn(run):
 			var opts := IK.race_options(run)
-			var r := IK.race_turn(run, opts[0].id)
+			var r := IK.race_turn(run, opts[0].id, IK.STYLE_NAMES[int(run.slot) % 4] if int(run.slot) % 3 == 2 else null)
 			steps.append(["race", r.race.id, r.race.ground, r.order, orders(r.result)])
 		elif int(run.energy) < 45:
 			steps.append(["rest", IK.rest(run)])

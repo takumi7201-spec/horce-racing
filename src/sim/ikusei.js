@@ -697,7 +697,8 @@ export function traineeSpec(run) {
   const c = traineeCard(run);
   return {
     id: 1, name: c.name, sex: c.sex, coat: c.coat, ab: Object.fromEntries(STATS.map((k) => [k, abilityOf(run.stats[k])])),
-    dist: c.dist, range: c.range, turf: c.turf, dirt: c.dirt, firm: c.firm, soft: c.soft, style: c.style, cardId: c.bred ? null : c.id,
+    dist: c.dist, range: c.range, turf: c.turf, dirt: c.dirt, firm: c.firm, soft: c.soft,
+    style: STYLE_NAMES.includes(run.raceStyle) ? styleValueOf(run.raceStyle) : c.style, cardId: c.bred ? null : c.id,
     gear: runGear(run),
   };
 }
@@ -711,12 +712,26 @@ export function runSkills(run) {
 /**
  * レーススキルを効かせた馬の形と、発動したスキル。src はカード id か、{ rar, unique }（配合の馬：レア度と固有を受け継いだ LM の親）。
  */
-function withSkills(spec, skills, src, race, battle, awaken = 0) {
+function withSkills(spec, skills, src, race, battle, awaken = 0, lock = null) {
   const c = typeof src === 'object' && src ? null : cardById(src);
   const rar = c?.rar ?? src?.rar ?? 'N';
   const u = c ? (c.rar === 'LM' ? c : null) : src?.unique ? cardById(src.unique) : null;
-  return applyRaceSkills(spec, skills, race, { battle, rar, uniqueOf: u, awaken });
+  return applyRaceSkills(spec, skills, race, { battle, rar, uniqueOf: u, awaken, lock });
 }
+
+/**
+ * 自分の馬のレースの脚質（逃げ・先行・差し・追込）。レースの前に選べる。選んでいなければ育てた馬の脚質。
+ * 選んだ脚質は育成中の馬なら run.raceStyle、完成馬なら h.raceStyle に覚える（次のレースも同じ脚質で出る）。
+ */
+export const styleNameOf = (x) => STYLE_NAMES[styleIdx(x)];
+/** 育成中の馬のいまの脚質の名前。 */
+export const runRaceStyle = (run) => (STYLE_NAMES.includes(run.raceStyle) ? run.raceStyle : styleNameOf(traineeCard(run).style));
+/** 完成馬のいまの脚質の名前。 */
+export const horseRaceStyle = (h) => (STYLE_NAMES.includes(h.raceStyle) ? h.raceStyle : styleNameOf(h.style));
+const styleValueOf = (name) => STYLE_VALUE[Math.max(0, STYLE_NAMES.indexOf(name))];
+const setRaceStyle = (o, name) => { if (STYLE_NAMES.includes(name)) o.raceStyle = name; };
+/** 完成馬の脚質を決める（対戦・イベントで使う。育てた脚質から変えてよい）。 */
+export const setHorseRaceStyle = (h, name) => setRaceStyle(h, name);
 /** 育成中の馬のスキルの出どころ。 */
 const runSrc = (run) => { const c = traineeCard(run); return c.bred ? { rar: c.rar, unique: c.unique } : c.id; };
 /** 完成馬のスキルの出どころ。 */
@@ -749,13 +764,15 @@ export function runRace(race, field, seedKey, year = 2026) {
  * 今のターンのレースに出る。choice は raceOptions の 1 つ。
  * 結果（着順・走行ログ）を返し、育成を次のターンへ進める。
  */
-export function raceTurn(run, choice) {
+export function raceTurn(run, choice, style = null) {
   if (!isRaceTurn(run)) throw new Error('いまはレースの時期ではない');
+  setRaceStyle(run, style);
   const opts = raceOptions(run);
   const race = opts.find((o) => o.id === choice) ?? opts[opts.length - 1];
   const rng = makeRng(hashSeed(`field:${run.seed}:${run.slot}`));
   const n = race.grade === 'GI' ? 16 : 12;
-  const me0 = withSkills(traineeSpec(run), runSkills(run), runSrc(run), race, false, awT(run));
+  const sp = traineeSpec(run);
+  const me0 = withSkills(sp, runSkills(run), runSrc(run), race, false, awT(run), sp.style);
   const field = [me0.spec];
   for (let i = 1; i < n; i++) field.push(npcHorse(rng, i, race.level, race));
   // 体力と気分を能力に効かせる（体力が少ないと仕上がりが落ちる）
@@ -820,7 +837,8 @@ export const finishedSkills = (h) => h.skills ?? skillsOf(cardById(h.cardId) ?? 
 export function finishedSpec(h, i = 0) {
   return {
     id: 100 + i, name: h.name, sex: h.sex, coat: h.coat, ab: Object.fromEntries(STATS.map((k) => [k, abilityOf(h.stats[k])])),
-    dist: h.dist, range: h.range, turf: h.turf, dirt: h.dirt, firm: h.firm, soft: h.soft, style: h.style, fid: h.id, cardId: h.cardId,
+    dist: h.dist, range: h.range, turf: h.turf, dirt: h.dirt, firm: h.firm, soft: h.soft,
+    style: STYLE_NAMES.includes(h.raceStyle) ? styleValueOf(h.raceStyle) : h.style, fid: h.id, cardId: h.cardId,
     gear: h.gear ?? (h.cardId ? cleanGear(cardById(h.cardId)?.gear) : {}),
   };
 }
@@ -837,8 +855,9 @@ export const DIFFICULTY = { normal: { name: '普通', d: -0.10 }, hard: { name: 
 /**
  * NPC のランク戦。相手は全カードの名馬を「育て上げた姿」にした完成馬で、強さは自分の馬の能力の平均に難しさを足した帯。
  */
-export function battleNpc(profile, horseId, raceId, diff = 'normal') {
+export function battleNpc(profile, horseId, raceId, diff = 'normal', style = null) {
   const me = profile.finished.find((h) => h.id === horseId);
+  if (me) setRaceStyle(me, style);
   const race0x = BATTLE_RACES.find((r) => r.id === raceId) ?? BATTLE_RACES[0];
   const n = 12;
   const race0 = race0x;
@@ -847,7 +866,8 @@ export function battleNpc(profile, horseId, raceId, diff = 'normal') {
   const myAvg = STATS.reduce((s, k) => s + abilityOf(me.stats[k]), 0) / 5;
   const level = clamp(myAvg + DIFFICULTY[diff].d, 0.55, 0.92);
   const pool = CARDS.filter((c) => c.name !== me.name && ((race.surface === 'ダート') === (c.dirt > c.turf)));
-  const mine0 = withSkills(finishedSpec(me, 0), finishedSkills(me), horseSrc(me), race, true, me.awaken ?? 0);
+  const ms = finishedSpec(me, 0);
+  const mine0 = withSkills(ms, finishedSkills(me), horseSrc(me), race, true, me.awaken ?? 0, ms.style);
   const field = [mine0.spec];
   const fired = { 100: mine0.fired };
   const used = new Set();
@@ -883,17 +903,19 @@ export function eventState(profile, id) {
  * イベントレースを走る。相手は史実の出走馬（data/events.js）に難易度の差（STAR_D）を足した強さで、馬場もその日のまま。
  * 各難易度で初めて勝つと報酬のカードを 1 枚（☆1〜☆5 の 5 つで 5 枚＝完凸）。乱数は (シード, イベント, 挑んだ回数) から。
  */
-export function eventRace(profile, horseId, eventId, star) {
+export function eventRace(profile, horseId, eventId, star, style = null) {
   const ev = EVENTS.find((e) => e.id === eventId);
   const me = profile.finished.find((h) => h.id === horseId);
   if (!ev || !me) throw new Error('イベントか完成馬が無い');
+  setRaceStyle(me, style);
   star = Math.max(1, Math.min(5, star | 0));
   profile.events ??= {};
   const st = profile.events[eventId] ??= { cleared: [], tries: 0 };
   const race = { ...ev.race };
   const key = `event:${profile.seed}:${eventId}:${st.tries}`;
   const rng = makeRng(hashSeed(key));
-  const mine0 = withSkills(finishedSpec(me, 0), finishedSkills(me), horseSrc(me), race, true, me.awaken ?? 0);
+  const ms = finishedSpec(me, 0);
+  const mine0 = withSkills(ms, finishedSkills(me), horseSrc(me), race, true, me.awaken ?? 0, ms.style);
   const field = [mine0.spec];
   const fired = { 100: mine0.fired };
   ev.field.forEach((m, i) => {
@@ -932,7 +954,8 @@ export function battleOwn(profile, horseIds, raceId) {
   if (list.length < 2) throw new Error('2 頭以上を選ぶ');
   const fired = {};
   const field = list.map((h, i) => {
-    const x = withSkills(finishedSpec(h, i), finishedSkills(h), horseSrc(h), race, true, h.awaken ?? 0);
+    const hs = finishedSpec(h, i);
+    const x = withSkills(hs, finishedSkills(h), horseSrc(h), race, true, h.awaken ?? 0, hs.style);
     fired[100 + i] = x.fired;
     return x.spec;
   });

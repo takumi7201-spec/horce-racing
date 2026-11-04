@@ -1781,6 +1781,7 @@ func _train() -> Control:
 		page.add_child(UI.section("完成", dv))
 	elif IK.is_race_turn(run):
 		var rv := UI.vbox(8)
+		rv.add_child(_style_row(IK.run_race_style(run), IK.style_name_of(float(IK.trainee_card(run).style)), func(x: String) -> void: IK.set_race_style(run, x)))
 		for o in IK.race_options(run):
 			rv.add_child(_race_tile(o))
 		page.add_child(UI.section("レース（%s）" % IK.data().slots[int(run.slot)].label, rv))
@@ -2013,6 +2014,23 @@ func _train_tile(run: Dictionary, k: String) -> Control:
 		save()
 		render(false))
 	return b
+
+
+## レースの脚質の札（ゲームの styleSeg）。base は育てた脚質（「育成」の印）。押すと覚えて描き直す。
+func _style_row(cur: String, base: String, pick: Callable) -> Control:
+	var v := UI.vbox(4)
+	var r := UI.hbox(8)
+	var l := UI.label("脚質", 13, INK, "black")
+	l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	r.add_child(l)
+	for x in IK.STYLE_NAMES:
+		r.add_child(UI.chip(x + ("（育成）" if x == base else ""), x == cur, func() -> void:
+			pick.call(x)
+			save()
+			render(false), 14))
+	v.add_child(r)
+	v.add_child(UI.label("合わない脚質のスキル（逃げ切り・末脚炸裂）は使わない", 11, Color("#4a5b58")))
+	return v
 
 
 func _race_tile(o: Dictionary) -> Control:
@@ -2266,6 +2284,9 @@ func _battle() -> Control:
 	for k in diffs:
 		dr.add_child(UI.chip(diffs[k].name, k == diff, go.bind("battle", {id = hid, race = race_id, diff = k}), 14))
 	v.add_child(dr)
+	var hb = IK.find_finished(p, hid)
+	if hb != null:
+		v.add_child(_style_row(IK.horse_race_style(hb), IK.style_name_of(float(hb.style)), func(x: String) -> void: IK.set_race_style(hb, x)))
 	var row := UI.hbox(12)
 	row.add_child(UI.button("ランク戦を走る", func() -> void:
 		var r := IK.battle_npc(p, hid, race_id, diff)
@@ -2466,6 +2487,9 @@ func _event() -> Control:
 		for h in p.finished:
 			hf.add_child(_tile(IK.horse_card(h), h.name, "%s %d" % [h.rank, int(h.rating)], go.bind("event", {id = h.id, ev = ev.id}), {sel = int(h.id) == int(hid), badge = h.rank}))
 		v.add_child(hf)
+		var he = IK.find_finished(p, hid)
+		if he != null:
+			v.add_child(_style_row(IK.horse_race_style(he), IK.style_name_of(float(he.style)), func(x: String) -> void: IK.set_race_style(he, x)))
 		var stars := HFlowContainer.new()
 		stars.add_theme_constant_override("h_separation", 10)
 		stars.add_theme_constant_override("v_separation", 10)

@@ -151,6 +151,33 @@ static func style_idx(x: float) -> int:
 	return 0 if x < 0.25 else (1 if x < 0.5 else (2 if x < 0.75 else 3))
 
 
+## 自分の馬のレースの脚質（ゲームの runRaceStyle・horseRaceStyle）。選んだ脚質は raceStyle に覚える。
+static func style_name_of(x: float) -> String:
+	return STYLE_NAMES[style_idx(x)]
+
+
+static func run_race_style(run: Dictionary) -> String:
+	return String(run.raceStyle) if STYLE_NAMES.has(run.get("raceStyle")) else style_name_of(float(trainee_card(run).style))
+
+
+static func horse_race_style(h: Dictionary) -> String:
+	return String(h.raceStyle) if STYLE_NAMES.has(h.get("raceStyle")) else style_name_of(float(h.style))
+
+
+static func set_race_style(o: Dictionary, name) -> void:
+	if name is String and STYLE_NAMES.has(name):
+		o.raceStyle = name
+
+
+static func _style_value(o: Dictionary, fallback: float) -> float:
+	return float(STYLE_VALUE[STYLE_NAMES.find(o.raceStyle)]) if STYLE_NAMES.has(o.get("raceStyle")) else fallback
+
+
+## 脚質のスキルが選んだ脚質に合うか（逃げ切りは逃げ、末脚炸裂は差し・追込）。
+static func style_fits(skill_style: float, lock: float) -> bool:
+	return lock < 0.25 if skill_style < 0.25 else lock >= 0.5
+
+
 static func _r3(x: float) -> float:
 	return floor(x * 1000.0 + 0.5) / 1000.0
 
@@ -431,7 +458,7 @@ static func _skill_when(id: String, race: Dictionary, battle: bool) -> bool:
 
 
 ## レーススキルを馬の形に効かせる。発動したスキルの名前を返す。
-static func apply_race_skills(spec: Dictionary, skills: Array, race: Dictionary, battle: bool, rar: String, unique_of, aw: int) -> Dictionary:
+static func apply_race_skills(spec: Dictionary, skills: Array, race: Dictionary, battle: bool, rar: String, unique_of, aw: int, lock = null) -> Dictionary:
 	var s := spec.duplicate()
 	s.ab = (spec.ab as Dictionary).duplicate()
 	var fired := []
@@ -440,9 +467,12 @@ static func apply_race_skills(spec: Dictionary, skills: Array, race: Dictionary,
 		var d = data().raceSkills.get(id)
 		if d == null or not _skill_when(id, race, battle):
 			continue
+		# 脚質を決めた自分の馬は、合わない脚質のスキルを使わず、脚質も書き換えない
+		if lock != null and d.get("style") != null and not style_fits(float(d.style), float(lock)):
+			continue
 		for a in d.add:
 			s.ab[a] = minf(0.95, float(s.ab[a]) + float(d.add[a]) * k)
-		if d.get("style") != null:
+		if d.get("style") != null and lock == null:
 			s.style = float(d.style)
 		if d.get("soft") != null:
 			s.soft = maxf(float(s.get("soft", 0.5) if s.get("soft") != null else 0.5), float(d.soft))
@@ -811,16 +841,16 @@ static func trainee_spec(run: Dictionary) -> Dictionary:
 	for k in STATS:
 		ab[k] = ability_of(float(run.stats[k]))
 	return {id = 1, name = c.name, sex = c.sex, coat = c.coat, ab = ab, dist = c.dist, range = c.range, turf = c.turf, dirt = c.dirt,
-		firm = c.firm, soft = c.soft, style = c.style, cardId = null if c.get("bred", false) else c.id, gear = run_gear(run)}
+		firm = c.firm, soft = c.soft, style = _style_value(run, float(c.style)), cardId = null if c.get("bred", false) else c.id, gear = run_gear(run)}
 
 
 ## src はカード id か、{rar, unique}（配合の馬：レア度と固有を受け継いだ LM の親）。
-static func _with_skills(spec: Dictionary, skills: Array, src, race: Dictionary, battle: bool, aw := 0) -> Dictionary:
+static func _with_skills(spec: Dictionary, skills: Array, src, race: Dictionary, battle: bool, aw := 0, lock = null) -> Dictionary:
 	if src is Dictionary:
 		var u = card(src.unique) if src.get("unique") != null else null
-		return apply_race_skills(spec, skills, race, battle, src.rar, u, aw)
+		return apply_race_skills(spec, skills, race, battle, src.rar, u, aw, lock)
 	var c = card(src) if src != null else null
-	return apply_race_skills(spec, skills, race, battle, c.rar if c != null else "N", c if (c != null and c.rar == "LM") else null, aw)
+	return apply_race_skills(spec, skills, race, battle, c.rar if c != null else "N", c if (c != null and c.rar == "LM") else null, aw, lock)
 
 
 static func _run_src(run: Dictionary) -> Variant:
@@ -833,7 +863,8 @@ static func _horse_src(h: Dictionary) -> Variant:
 
 
 ## 今のターンのレースに出る。結果を返し、育成を次のターンへ進める。
-static func race_turn(run: Dictionary, choice: String) -> Dictionary:
+static func race_turn(run: Dictionary, choice: String, style = null) -> Dictionary:
+	set_race_style(run, style)
 	var opts := race_options(run)
 	var race: Dictionary = opts[opts.size() - 1]
 	for o in opts:
@@ -841,7 +872,8 @@ static func race_turn(run: Dictionary, choice: String) -> Dictionary:
 			race = o
 	var rng = rng_of(["field", run.seed, run.slot])
 	var n := 16 if race.grade == "GI" else 12
-	var me0 := _with_skills(trainee_spec(run), run_skills(run), _run_src(run), race, false, aw_t(run))
+	var sp := trainee_spec(run)
+	var me0 := _with_skills(sp, run_skills(run), _run_src(run), race, false, aw_t(run), sp.style)
 	var field := [me0.spec]
 	for i in range(1, n):
 		field.append(_npc_horse(rng, i, race.level, race))
@@ -923,7 +955,7 @@ static func finished_spec(h: Dictionary, i := 0) -> Dictionary:
 	for k in STATS:
 		ab[k] = ability_of(float(h.stats[k]))
 	return {id = 100 + i, name = h.name, sex = h.sex, coat = h.coat, ab = ab, dist = h.dist, range = h.range, turf = h.turf, dirt = h.dirt,
-		firm = h.firm, soft = h.soft, style = h.style, fid = h.id, cardId = h.cardId, gear = horse_gear(h)}
+		firm = h.firm, soft = h.soft, style = _style_value(h, float(h.style)), fid = h.id, cardId = h.cardId, gear = horse_gear(h)}
 
 
 static func find_finished(p: Dictionary, id) -> Variant:
@@ -940,8 +972,9 @@ static func battle_races() -> Array:
 
 
 ## NPC のランク戦。相手は全カードの名馬を、自分の馬の能力の平均に難しさを足した帯へ合わせた完成馬。
-static func battle_npc(p: Dictionary, horse_id, race_id: String, diff := "normal") -> Dictionary:
+static func battle_npc(p: Dictionary, horse_id, race_id: String, diff := "normal", style = null) -> Dictionary:
 	var me: Dictionary = find_finished(p, horse_id)
+	set_race_style(me, style)
 	var race0: Dictionary = battle_races()[0]
 	for r in battle_races():
 		if r.id == race_id:
@@ -955,7 +988,8 @@ static func battle_npc(p: Dictionary, horse_id, race_id: String, diff := "normal
 	my_avg /= 5.0
 	var level := clampf_(my_avg + float(data().difficulty[diff].d), 0.55, 0.92)
 	var pool := cards().filter(func(c): return c.name != me.name and ((race.surface == "ダート") == (c.dirt > c.turf)))
-	var mine0 := _with_skills(finished_spec(me, 0), finished_skills(me), _horse_src(me), race, true, int(me.get("awaken", 0)))
+	var ms := finished_spec(me, 0)
+	var mine0 := _with_skills(ms, finished_skills(me), _horse_src(me), race, true, int(me.get("awaken", 0)), ms.style)
 	var field := [mine0.spec]
 	var fired := {100: mine0.fired}
 	var used := {}
@@ -991,9 +1025,10 @@ static func event_state(p: Dictionary, id: String) -> Dictionary:
 
 
 ## イベントレース。相手は史実の出走馬に難易度の差を足した強さ。各難易度の初勝利で報酬のカードを 1 枚。
-static func event_race(p: Dictionary, horse_id, event_id: String, star: int) -> Dictionary:
+static func event_race(p: Dictionary, horse_id, event_id: String, star: int, style = null) -> Dictionary:
 	var ev: Dictionary = data().events.filter(func(e): return e.id == event_id)[0]
 	var me: Dictionary = find_finished(p, horse_id)
+	set_race_style(me, style)
 	star = clampi(star, 1, 5)
 	if not p.has("events"):
 		p.events = {}
@@ -1003,7 +1038,8 @@ static func event_race(p: Dictionary, horse_id, event_id: String, star: int) -> 
 	var race: Dictionary = (ev.race as Dictionary).duplicate()
 	var k := key(["event", p.seed, event_id, st.tries])
 	var rng = Rng.make(Rng.hash_seed(k))
-	var mine0 := _with_skills(finished_spec(me, 0), finished_skills(me), _horse_src(me), race, true, int(me.get("awaken", 0)))
+	var ms := finished_spec(me, 0)
+	var mine0 := _with_skills(ms, finished_skills(me), _horse_src(me), race, true, int(me.get("awaken", 0)), ms.style)
 	var field := [mine0.spec]
 	var fired := {100: mine0.fired}
 	var sd: float = data().starD[str(star)]
@@ -1052,7 +1088,8 @@ static func battle_own(p: Dictionary, horse_ids: Array, race_id: String) -> Dict
 	var fired := {}
 	var field := []
 	for i in list.size():
-		var x := _with_skills(finished_spec(list[i], i), finished_skills(list[i]), _horse_src(list[i]), race, true, int(list[i].get("awaken", 0)))
+		var hs := finished_spec(list[i], i)
+		var x := _with_skills(hs, finished_skills(list[i]), _horse_src(list[i]), race, true, int(list[i].get("awaken", 0)), hs.style)
 		fired[100 + i] = x.fired
 		field.append(x.spec)
 	var res := run_race(race, field, key(["own", p.seed, p.battles]))

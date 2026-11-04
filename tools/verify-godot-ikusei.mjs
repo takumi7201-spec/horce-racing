@@ -29,7 +29,7 @@ function scenario(seed) {
   while (!IK.runDone(run)) {
     if (IK.isRaceTurn(run)) {
       const opts = IK.raceOptions(run);
-      const r = IK.raceTurn(run, opts[0].id);
+      const r = IK.raceTurn(run, opts[0].id, run.slot % 3 === 2 ? IK.STYLE_NAMES[run.slot % 4] : null);  // 3 戦に 1 戦は脚質を選んで出る
       steps.push(['race', r.race.id, r.race.ground, r.order, orders(r.result)]);
     } else if (run.energy < 45) {
       steps.push(['rest', IK.rest(run)]);

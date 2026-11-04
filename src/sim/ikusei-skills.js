@@ -121,11 +121,14 @@ export function skillCue(name, distance) {
 }
 export const supportSkillDefs = SUPPORT;
 
+/** 脚質のスキルが選んだ脚質に合うか（逃げ切りは逃げ、末脚炸裂は差し・追込）。 */
+export const styleFits = (skillStyle, lock) => (skillStyle < 0.25 ? lock < 0.25 : lock >= 0.5);
+
 /**
  * レーススキルを馬（runRace に渡す形）に効かせる。発動したスキルの名前を返す。
  * skills はレーススキルの id の並び。uniqueOf は固有を持つカード（LM）か null。
  */
-export function applyRaceSkills(spec, skills, race, { battle = false, rar = 'N', uniqueOf = null, awaken = 0 } = {}) {
+export function applyRaceSkills(spec, skills, race, { battle = false, rar = 'N', uniqueOf = null, awaken = 0, lock = null } = {}) {
   const s = { ...spec, ab: { ...spec.ab } };
   const fired = [];
   // 覚醒 1 段ごとに効き目 8% 増し
@@ -133,8 +136,11 @@ export function applyRaceSkills(spec, skills, race, { battle = false, rar = 'N',
   for (const id of skills) {
     const d = RACE[id];
     if (!d || !d.when(race, { battle })) continue;
+    // 脚質を決めた馬（自分の馬。lock は選んだ脚質の値）は、合わない脚質のスキル（逃げ切り・末脚炸裂）を使わず、脚質も書き換えない。
+    // 書き換えると、先行で出したのに覚えた「逃げ切り」で逃げになった。
+    if (lock != null && d.style != null && !styleFits(d.style, lock)) continue;
     for (const [a, v] of Object.entries(d.add)) s.ab[a] = Math.min(0.95, s.ab[a] + v * k);
-    if (d.style != null) s.style = d.style;
+    if (d.style != null && lock == null) s.style = d.style;
     if (d.soft != null) s.soft = Math.max(s.soft ?? 0.5, d.soft);
     fired.push(d.name);
   }

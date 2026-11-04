@@ -713,6 +713,19 @@ function deckView(app, go) {
   ];
 }
 
+/**
+ * レースの脚質を選ぶ札（逃げ・先行・差し・追込）。base は育てた脚質（印を付ける）。押すと描き直さずに札だけ切り替える。
+ * 合わない脚質のスキル（逃げ切り・末脚炸裂）はそのレースでは使わない。
+ */
+function styleSeg(cur, base, onPick) {
+  const SKILL = { 逃げ: '逃げ切り', 差し: '末脚炸裂', 追込: '末脚炸裂' };
+  const btns = I.STYLE_NAMES.map((x) => el(`button.ik-stseg-b${x === cur ? '.on' : ''}`, {
+    onclick: () => { for (const b of btns) b.classList.toggle('on', b === btns[I.STYLE_NAMES.indexOf(x)]); onPick(x); },
+  }, [el('b', { text: x }), x === base ? el('small', { text: '育成' }) : null]));
+  return el('div.ik-stseg', [el('span.ik-stseg-l', { text: '脚質' }), el('div.ik-stseg-bs', btns),
+    el('small.ik-stseg-n', { text: `合わない脚質のスキル（${[...new Set(Object.values(SKILL))].join('・')}）は使わない` })]);
+}
+
 // 編成の絞り込み（レア度・馬場・距離・脚質・スキル）。条件は app.ikDeckOpt に覚え、一覧だけを描き直す
 // （画面ごと描き直すとスクロールが先頭へ戻る。落とし穴 77 と同じ）。
 const DECK_OPT0 = { rar: 'ALL', surf: 'ALL', dist: 'ALL', style: 'ALL', skill: 'ALL' };
@@ -938,10 +951,12 @@ function trainView(app, go) {
     ]);
   } else if (I.isRaceTurn(run)) {
     const opts = I.raceOptions(run);
+    let style = I.runRaceStyle(run);
     action = card(`${I.SLOTS[run.slot].label}のレース`, [
+      styleSeg(style, I.styleNameOf(I.traineeCard(run).style), (x) => { style = x; run.raceStyle = x; save(app); }),
       el('div.ik-races', opts.map((o) => el('button.ik-race', {
         onclick: () => {
-          const out = I.raceTurn(run, o.id);
+          const out = I.raceTurn(run, o.id, style);
           save(app);
           app.ikRace = { race: out.result, looks: looksOf([I.traineeSpec(run)]), mine: [1], order: out.order, back: 'run', title: o.name, fired: { 1: out.fired } };
           sound.play(out.order === 1 ? 'bell' : out.order <= 3 ? 'win' : 'ok');
@@ -1876,6 +1891,7 @@ function eventView(app, go) {
     ]),
     card('出る馬', turfs.length ? [
       el('div.form', [el('label', ['完成馬', horseSel])]),
+      me ? styleSeg(I.horseRaceStyle(me), I.styleNameOf(me.style), (x) => { I.setHorseRaceStyle(me, x); save(app); }) : null,
       el('p.note', { text: `${ev.stage}。${me ? `${me.name}：${fitTxt}` : ''}` }),
       el('div.ik-gbtns', [button(`${'☆'.repeat(E.star)} で出走する`, run, { cls: 'primary big' })]),
     ] : [el('p', { text: 'イベントには完成馬が要る。' }), button('育成へ', () => go('run'), { cls: 'primary' })]),
@@ -1909,7 +1925,10 @@ function battleView(app, go) {
   B.own = B.own.filter((id) => p.finished.some((h) => h.id === id));
   const raceSel = el('select.inp', { onchange: (e) => { B.race = e.target.value; } },
     I.BATTLE_RACES.map((r) => el('option', { value: r.id, text: `${r.name}（${r.surface}${r.distance}m）`, selected: r.id === B.race })));
-  const horseSel = el('select.inp', { onchange: (e) => { B.horse = Number(e.target.value); } },
+  // 脚質の札は出る馬に合わせて差し替える（馬を選び直しても画面は描き直さない）
+  const segOf = (id) => { const h = p.finished.find((x) => x.id === id); return styleSeg(I.horseRaceStyle(h), I.styleNameOf(h.style), (x) => { I.setHorseRaceStyle(h, x); save(app); }); };
+  let seg = segOf(B.horse);
+  const horseSel = el('select.inp', { onchange: (e) => { B.horse = Number(e.target.value); const n = segOf(B.horse); seg.replaceWith(n); seg = n; } },
     [...p.finished].sort((a, b) => b.rating - a.rating).map((h) => el('option', { value: String(h.id), text: `${h.rank} ${h.name}（${h.rating}）`, selected: h.id === B.horse })));
   const diffTabs = tabs(Object.entries(I.DIFFICULTY).map(([id, d]) => ({ id, name: d.name })), B.diff, (id) => { B.diff = id; go('battle'); });
   const runNpc = () => {
@@ -1934,6 +1953,7 @@ function battleView(app, go) {
       card('NPC とのランク戦', [
         el('p.note', { text: '相手は全カードの名馬を育て上げた姿（12 頭立て）。強さは自分の馬に合わせて難しさで変わる。' }),
         el('div.form', [el('label', ['出る馬', horseSel])]),
+        seg,
         diffTabs,
         button('出走する', runNpc, { cls: 'primary big' }),
       ]),
