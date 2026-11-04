@@ -2,13 +2,13 @@
 
 importer="font_data_dynamic"
 type="FontFile"
-uid="uid://cbeadc6oyd2wx"
-path="res://.godot/imported/MPLUS1p-Black.ttf-430504c760686e20988fa07e8c0a04e8.fontdata"
+uid="uid://dmolkcambivq4"
+path="res://.godot/imported/Corporate-Logo-Medium-ver3.otf-8de18165456837df29fda46ceda3d1c9.fontdata"
 
 [deps]
 
-source_file="res://assets/fonts/MPLUS1p-Black.ttf"
-dest_files=["res://.godot/imported/MPLUS1p-Black.ttf-430504c760686e20988fa07e8c0a04e8.fontdata"]
+source_file="res://assets/fonts/Corporate-Logo-Medium-ver3.otf"
+dest_files=["res://.godot/imported/Corporate-Logo-Medium-ver3.otf-8de18165456837df29fda46ceda3d1c9.fontdata"]
 
 [params]
 

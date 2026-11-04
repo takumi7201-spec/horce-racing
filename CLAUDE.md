@@ -101,8 +101,9 @@ Godot の競馬場（`godot/scenes/racecourse.tscn`・`godot/scripts/racecourse.
     アイコン（ゲームの `icons.js` と `ikusei.js` の SVG を `npm run godot-ikusei` が `assets/ui/icons` に書く）。画面はゲームの CSS の並び
     （上の帯・傾いた下のボタン列と菱形のガチャ・縦長のホームの舞台・チケット・バナー）を写した。カードの背景だけの絵（`assets/cards/bg`、
     `npm run godot-ikusei -- --bg`）をバナー・チケット・完成馬の見出しに敷く。競馬場の画面の札と順位表（枠の色の馬番）も同じ字体と配色。
-  - **字体は同梱（M PLUS 1p の Medium・Bold・Black、`assets/fonts`、OFL）。** SystemFont はクラウドの Linux に IPAGothic 1 本しか無く、
-    見出しが細い等幅になった（持ち主の Windows とも絵が変わる）。M PLUS に無い字（聳）は SystemFont を fallbacks に入れて出す。
+  - **字体は同梱（「コーポレート・ロゴ ver3」の Medium・Bold、`assets/fonts`、OFL。ゲームと同じ。落とし穴 104）。** SystemFont はクラウドの Linux に
+    IPAGothic 1 本しか無く、見出しが細い等幅になった（持ち主の Windows とも絵が変わる）。無い字（✓・✕）は M PLUS 1p の Bold、それにも無い字は
+    SystemFont を fallbacks に入れて出す。
     斜体は FontVariation の `variation_transform`（y に 0.22 の x を混ぜて上ほど右へ）。
   - **シェーダの箱で踏んだもの：** 位置は UV ではなく頂点の位置（`VERTEX` を varying で渡す）で測る（draw_rect の UV が 0..1 にならず、
     大きな箱が縮んでぼやけた）。大きさは `_draw` のたびに渡す（木に入る前に size を決めた箱は RESIZED が来ず、既定の 100×40 で描かれた）。
@@ -1268,6 +1269,18 @@ Playwright で操作するときは、週送りは左下の NEXT（`.nextb`、�
     - **スキルは 1 行で最小表示**（レースのスキルの札と、サポートとの絆の進みを略した名前で。溢れたら横へ流し、縦には伸ばさない）。
       「詳しく」で説明つきの一覧と絆の全部を開く（開いたかは `app.ikSkillOpen`、Godot は `opts.sk` に覚える）。
     - スマホでも練習の札は 5 列のまま（字を詰める）。3 列にすると 2 段になって下へはみ出した。
+
+104. **字体は「コーポレート・ロゴ ver3」（ロゴたいぷ工房、SIL OFL 1.1）。ブラウザは `assets/fonts` の WOFF2、Godot は元の OTF。**
+    - ブラウザ：styles.css の `@font-face` と `--font`（後ろに今までの字体を並べる）。すべての `font:` と `font-family` はこの変数を通す
+      （ボタンと入力欄は既定で端末の字体になるので `font-family: inherit`）。レアリティの札（serif）だけはそのまま。観戦の帯（canvas）も同じ字体。
+      3D の布に描く字（ゼッケン・勝負服の M・距離の札）は描くのが字体の読み込みより先になるので変えていない。
+    - 太さは Medium と Bold の 2 つだけ：400〜600 → Medium、700〜900 → Bold（Godot は body → Medium、bold・black・title → Bold）。
+    - **元の OTF は Chrome で読めない。** 異体字の表（cmap format 14）の並びが崩れていて（2F7B <= 9038）、字体の検査（OTS）が字体ごと断り、
+      `document.fonts` は error のまま端末の字体に落ちた（見た目では気づきにくい）。その表だけ外して WOFF2 にした（fontTools。OFL の Modified Version。
+      予約フォント名の宣言は無いので名前はそのまま。`assets/fonts/README.md` に変えたところを書いた）。Godot は検査が無いので元の OTF。
+    - 字体を差し替えたら `document.fonts.check('900 16px "Corporate Logo"')` が true になるかを見る（読み込めないと黙って別の字体になる）。
+    - 開発用の配信（`tools/serve.mjs`）に font/otf・font/woff2 の型を足した。
+    - ゲームで使う 1,063 字のうち、この字体に無いのは ✓ と ✕ だけ。
 
 ## 健全性の目安（`npm test` が見ている）
 

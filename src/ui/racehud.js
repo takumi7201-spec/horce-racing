@@ -78,13 +78,13 @@ export function createRaceHud(view, race, opts = {}) {
     const x0 = 62, x1 = W - 26, y = H / 2;
     // 揃え（textAlign）は前のコマの値が残る（START が中央揃えで左へはみ出して切れた）。毎回決める
     g.textAlign = 'left';
-    g.font = '900 11px system-ui, sans-serif';
+    g.font = '900 11px "Corporate Logo", system-ui, sans-serif';
     g.fillStyle = '#d3e27f';
     g.textBaseline = 'middle';
     g.fillText('START', 10, y);
     g.strokeStyle = 'rgba(255,255,255,.35)'; g.lineWidth = 3;
     g.beginPath(); g.moveTo(x0, y); g.lineTo(x1, y); g.stroke();
-    g.lineWidth = 2; g.font = '800 9px system-ui, sans-serif'; g.textAlign = 'center';
+    g.lineWidth = 2; g.font = '800 9px "Corporate Logo", system-ui, sans-serif'; g.textAlign = 'center';
     for (let m = 200; m < dist; m += 200) {
       const x = x0 + ((x1 - x0) * (dist - m)) / dist;
       const big = m % 1000 === 0 || m === 200 || m === 600;
@@ -94,11 +94,11 @@ export function createRaceHud(view, race, opts = {}) {
     }
     g.strokeStyle = '#f3a332'; g.lineWidth = 3;
     g.beginPath(); g.moveTo(x1, 5); g.lineTo(x1, H - 5); g.stroke();
-    g.fillStyle = '#f3a332'; g.textAlign = 'left'; g.font = '900 12px system-ui, sans-serif'; g.fillText('G', x1 + 5, y);
+    g.fillStyle = '#f3a332'; g.textAlign = 'left'; g.font = '900 12px "Corporate Logo", system-ui, sans-serif'; g.fillText('G', x1 + 5, y);
     // 後ろから描く（前の馬が上に重なる）。近い馬は上下の段に振り分ける
     const list = st.ranked.slice().sort((a, b) => a.s - b.s);
     let lastX = -99, lane = 0;
-    g.textAlign = 'center'; g.font = '900 9px system-ui, sans-serif';
+    g.textAlign = 'center'; g.font = '900 9px "Corporate Logo", system-ui, sans-serif';
     for (const r of list) {
       const x = x0 + (x1 - x0) * Math.min(1, Math.max(0, r.s / dist));   // ゴールの後に走り抜けた馬も G で止める
       lane = x - lastX < 15 ? (lane + 1) % 2 : 0;

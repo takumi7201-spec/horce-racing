@@ -23,21 +23,23 @@ static var _fonts := {}
 
 
 ## 字体。kind：body・bold・black・title（斜体の極太）。
-## 字体は同梱の M PLUS 1p（assets/fonts、OFL）。ゲームの見出しは system-ui の 900 だが、Godot の SystemFont は端末で太さがばらつき
-## （クラウドの Linux は IPAGothic の 1 本だけで、見出しが細い等幅になった）、持ち主の Windows とも絵が変わる。同梱して揃える。
+## 字体は同梱の「コーポレート・ロゴ ver3」（assets/fonts、OFL。ゲームの styles.css と同じ）。本文は Medium、太字・極太・見出しは Bold
+## （この字体は 2 つの太さしか無い）。SystemFont は端末で太さがばらつき（クラウドの Linux は IPAGothic の 1 本だけで、見出しが細い等幅になった）、
+## 持ち主の Windows とも絵が変わるので、同梱して揃える。
 static func font(kind := "body") -> Font:
 	if _fonts.has(kind):
 		return _fonts[kind]
-	var file: String = {body = "Medium", bold = "Bold", black = "Black", title = "Black"}[kind]
-	var path := "res://assets/fonts/MPLUS1p-%s.ttf" % file
+	var file: String = {body = "Medium", bold = "Bold", black = "Bold", title = "Bold"}[kind]
+	var path := "res://assets/fonts/Corporate-Logo-%s-ver3.otf" % file
 	var base: Font
 	if ResourceLoader.exists(path):
 		base = load(path)
-		# M PLUS 1p に無い字（聳）は端末の字体で出す。無いと豆腐になる（落とし穴 16 と同じ型）
+		# コーポレート・ロゴに無い字（✓・✕ など）は M PLUS 1p、それにも無い字は端末の字体で出す。無いと豆腐になる（落とし穴 16 と同じ型）
 		if base.fallbacks.is_empty():
 			var sys := SystemFont.new()
 			sys.font_names = PackedStringArray(NAMES)
-			base.fallbacks = [sys]
+			var mp = load("res://assets/fonts/MPLUS1p-Bold.ttf") if ResourceLoader.exists("res://assets/fonts/MPLUS1p-Bold.ttf") else null
+			base.fallbacks = [mp, sys] if mp != null else [sys]
 	else:
 		var f := SystemFont.new()
 		f.font_names = PackedStringArray(NAMES)
