@@ -43,6 +43,8 @@ var overlay: Control
 var watching: Node = null
 var card_menu: Control
 var book_opt := {pack = "", rar = "", sort = "rar"}
+var deck_f := {rar = "", surf = "", dist = "", style = "", skill = ""}
+var ev_slide := ""
 
 
 func _ready() -> void:
@@ -96,6 +98,16 @@ func _ready() -> void:
 		var o0 := {id = int(args.id)} if args.has("id") else {}
 		if args.has("evid"):
 			o0.ev = String(args.evid)
+		# 確かめ用：対戦のバナーの何枚目（--evslide=arc1999）、編成で父だけ決めた状態（--sire=P1-40）、絞り込み（--df=dist:中距離）
+		if args.has("evslide"):
+			ev_slide = String(args.evslide)
+		if args.has("sire") or args.has("df"):
+			p.run = null
+		if args.has("sire"):
+			o0.f = String(args.sire)
+		if args.has("df"):
+			var kv := String(args.df).split(":")
+			deck_f[kv[0]] = kv[1]
 		go(args.get("screen", "home"), o0)
 	if args.has("toturn"):
 		while int(p.run.turn) < int(args.toturn):
@@ -138,11 +150,16 @@ func _ready() -> void:
 				l.get_parent().emit_signal("pressed")
 				break
 	if args.has("shot"):
-		_shoot(args.shot, float(args.get("wait", "1.5")))
+		_shoot(args.shot, float(args.get("wait", "1.5")), int(args.get("scrolly", "0")))
 
 
-func _shoot(path: String, wait: float) -> void:
+func _shoot(path: String, wait: float, scrolly := 0) -> void:
 	await get_tree().create_timer(wait).timeout
+	if scrolly > 0:
+		# 確かめ用：本文を下へ送ってから撮る（--scrolly=600）
+		for sc in body.find_children("*", "ScrollContainer", true, false):
+			sc.scroll_vertical = scrolly
+		await get_tree().create_timer(0.3).timeout
 	await RenderingServer.frame_post_draw
 	get_viewport().get_texture().get_image().save_png(path)
 	print("saved ", path)
@@ -1406,13 +1423,83 @@ func _deck() -> Control:
 	bh.add_child(om)
 	v.add_child(bh)
 	page.add_child(UI.section("編成（父 × 母の配合で育成馬を作る＋サポート %d 枚）" % IK.SUPPORT_SLOTS, v))
+	# 片親だけ決まっているあいだは相方の性のカードだけ（父を決めたら牝、母を決めたら牡）。絞り込みはレア度・馬場・距離・脚質・スキル
+	var want := "牝" if sire != null and dam == null else ("牡" if dam != null and sire == null else "")
+	var pool := own.filter(func(c): return want == "" or c.sex == want)
+	var shown := pool.filter(_deck_pass)
+	var gv := UI.vbox(10)
+	gv.add_child(_deck_filter(own, "%d / %d 種" % [shown.size(), pool.size()]))
 	var g := _grid(_cols(W() - 30, 120), 6, 14)
-	for c in own:
+	for c in shown:
 		var badge := "父" if sire == c.id else ("母" if dam == c.id else ("サ" if sup.has(c.id) else ""))
 		g.add_child(_tile(c, c.name, "%s %d　%s・%s・%s" % [c.rar, int(c.power), c.sex, "芝" if c.turf >= c.dirt else "ダ", c.distCat], _deck_toggle.bind(c.id),
 			{badge = badge, sel = badge != ""}))
-	page.add_child(UI.section("持っているカード", g))
+	gv.add_child(g if not shown.is_empty() else UI.label("この条件のカードは持っていない。", 13, Color("#4a5b58"), "black"))
+	page.add_child(UI.section("持っているカード" + ("（%sのカードだけ）" % ("母にする牝" if want == "牝" else "父にする牡") if want != "" else ""), gv))
 	return page
+
+
+## 編成の絞り込み（ゲームの filterBar と同じ条件）。条件は deck_f に覚え、編成（opts）はそのまま描き直す
+func _card_skill_ids(c: Dictionary) -> Array:
+	var sk: Dictionary = IK.skills_of(c, IK.awaken_of(IK.count_of(p, c.id)))
+	var out: Array = sk.race + sk.support
+	if sk.get("unique") != null:
+		out.append("uniq")
+	return out
+
+
+func _deck_pass(c: Dictionary) -> bool:
+	var f := deck_f
+	var st: String = IK.STYLE_NAMES[mini(3, int(floor(float(c.style) / 0.25)))]
+	return (f.rar == "" or c.rar == f.rar) and (f.surf == "" or ("芝" if c.turf >= c.dirt else "ダート") == f.surf) \
+		and (f.dist == "" or c.distCat == f.dist) and (f.style == "" or st == f.style) and (f.skill == "" or _card_skill_ids(c).has(f.skill))
+
+
+func _deck_filter(own: Array, count: String) -> Control:
+	var v := UI.vbox(6)
+	var setf := func(k: String, val: String) -> void:
+		deck_f[k] = val
+		render(false)
+	var row := func(label: String, key: String, items: Array) -> void:
+		var r := HFlowContainer.new()
+		r.add_theme_constant_override("h_separation", 6)
+		r.add_theme_constant_override("v_separation", 6)
+		var l := UI.label(label, 12, Color("#4a5b58"), "black")
+		l.custom_minimum_size.x = 52
+		l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		r.add_child(l)
+		r.add_child(UI.chip("すべて", deck_f[key] == "", setf.bind(key, "")))
+		for it in items:
+			r.add_child(UI.chip(it[1], deck_f[key] == it[0], setf.bind(key, it[0])))
+		v.add_child(r)
+	row.call("レア度", "rar", ["LM", "SSR", "SR", "R", "N"].map(func(x): return [x, x]))
+	row.call("馬場", "surf", [["芝", "芝"], ["ダート", "ダート"]])
+	row.call("距離", "dist", ["短距離", "マイル", "中距離", "長距離"].map(func(x): return [x, x]))
+	row.call("脚質", "style", IK.STYLE_NAMES.map(func(x): return [x, x]))
+	# スキルは持っているカードに付いているものだけ（固有・レース・サポートの順）
+	var ids := {}
+	for c in own:
+		for id in _card_skill_ids(c):
+			ids[id] = true
+	var sk := []
+	if ids.has("uniq"):
+		sk.append(["uniq", "固有（LM）"])
+	for t in ["race", "support"]:
+		for id in ids:
+			if id != "uniq":
+				var info := IK.skill_info(id)
+				if info.get("type") == t:
+					sk.append([id, info.name])
+	row.call("スキル", "skill", sk)
+	var foot := UI.hbox(10)
+	foot.add_child(UI.label(count, 12, Color("#4a5b58"), "black"))
+	if deck_f.values().any(func(x): return x != ""):
+		foot.add_child(UI.chip("条件を外す", false, func() -> void:
+			for k in deck_f:
+				deck_f[k] = ""
+			render(false)))
+	v.add_child(foot)
+	return v
 
 
 ## 生まれる仔：名前（自分で決める）・脚質（両親のあいだから選ぶ）・伸びしろ・初期値・適性・受け継ぐスキル
@@ -2145,8 +2232,7 @@ func _horse_head(h: Dictionary, c: Dictionary) -> Control:
 
 func _battle() -> Control:
 	var page := UI.vbox(18)
-	for ev in IK.data().events:
-		page.add_child(_event_banner(ev))
+	page.add_child(_event_carousel())
 	if p.finished.is_empty():
 		var v0 := UI.vbox(10)
 		v0.add_child(UI.label("対戦には完成馬が要る。", 14, INK))
@@ -2201,6 +2287,121 @@ func _battle() -> Control:
 # ------------------------------------------------------------------ イベント
 
 ## イベントのバナー（ゲームの eventBanner）：報酬のカードの一枚絵と切り抜きに題と進み（★）
+## 対戦の画面のイベント（ゲームの eventCarousel）：バナーを横に並べ、ドラッグ・スワイプか矢印・点で 1 枚ずつ送る。新しいイベントが先頭。
+## 入力はバナーの上に重ねた透明の板で受ける（バナーの中の箱が押下を止めて、ドラッグが親まで届かない）。動かさずに離したらそのイベントを開く。
+func _event_carousel() -> Control:
+	var evs: Array = IK.data().events.duplicate()
+	evs.reverse()
+	# GDScript のラムダは外のローカル変数を値で写すので、書き換える状態は辞書に持つ
+	var cur := {i = maxi(0, evs.map(func(e): return e.id).find(ev_slide))}
+	var root := Control.new()
+	var clip := Control.new()
+	clip.clip_contents = true
+	clip.set_anchors_preset(Control.PRESET_FULL_RECT)
+	clip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(clip)
+	var strip := HBoxContainer.new()
+	strip.add_theme_constant_override("separation", 0)
+	strip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	clip.add_child(strip)
+	var slides := []
+	for ev in evs:
+		var b := _event_banner(ev, false)
+		b.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		strip.add_child(b)
+		slides.append(b)
+	var h: float = slides[0].get_combined_minimum_size().y + 8.0   # 下にずらした影のぶん
+	root.custom_minimum_size.y = h
+	var dots := UI.hbox(7)
+	var arrows := []
+	var mark := func(i: int) -> void:
+		ev_slide = evs[i].id
+		for k in dots.get_child_count():
+			var d: Control = dots.get_child(k)
+			d.custom_minimum_size = Vector2(22 if k == i else 9, 9)
+			d.modulate = Color.WHITE if k == i else Color(1, 1, 1, 0.55)
+		if arrows.size() == 2:
+			arrows[0].visible = i > 0
+			arrows[1].visible = i < evs.size() - 1
+	var goto := func(i: int, anim := true) -> void:
+		cur.i = clampi(i, 0, evs.size() - 1)
+		var x: float = -int(cur.i) * root.size.x
+		if anim:
+			var tw := strip.create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+			tw.tween_property(strip, "position:x", x, 0.32)
+		else:
+			strip.position.x = x
+		mark.call(int(cur.i))
+	# 幅は木に入ってから決まる。1 枚を板の幅にそろえ、覚えていた 1 枚の位置へ
+	root.resized.connect(func() -> void:
+		for b in slides:
+			b.custom_minimum_size.x = root.size.x
+		strip.size = Vector2(root.size.x * slides.size(), h)
+		goto.call(int(cur.i), false))
+	var pad := Control.new()
+	pad.set_anchors_preset(Control.PRESET_FULL_RECT)
+	pad.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	root.add_child(pad)
+	var drag := {on = false, x0 = 0.0, s0 = 0.0, moved = false}
+	pad.gui_input.connect(func(e: InputEvent) -> void:
+		if e is InputEventMouseButton and e.button_index == MOUSE_BUTTON_LEFT:
+			if e.pressed:
+				drag.on = true
+				drag.moved = false
+				drag.x0 = e.position.x
+				drag.s0 = strip.position.x
+			elif drag.on:
+				drag.on = false
+				var dx: float = e.position.x - drag.x0
+				if not drag.moved:
+					go("event", {ev = evs[int(cur.i)].id})
+				else:
+					# 少し引いただけでも向きのほうへ 1 枚（半分まで引かないと戻るのは重い）
+					goto.call(int(cur.i) + (1 if dx < -40.0 else (-1 if dx > 40.0 else 0)))
+		elif e is InputEventMouseMotion and drag.on:
+			var dx2: float = e.position.x - drag.x0
+			if absf(dx2) > 8.0:
+				drag.moved = true
+			if drag.moved:
+				# 端では引いた量の 3 分の 1 だけ動かす（それ以上は無いと分かるように）
+				var x: float = drag.s0 + dx2
+				var lo := -(evs.size() - 1) * root.size.x
+				if x > 0.0:
+					x /= 3.0
+				elif x < lo:
+					x = lo + (x - lo) / 3.0
+				strip.position.x = x)
+	if evs.size() > 1:
+		for k in evs.size():
+			var d := UI.box({c = [SUN], radius = 5.0, border = 1.5, border_color = Color.WHITE, shadow = Vector2.ZERO, pad = Vector4.ZERO})
+			d.custom_minimum_size = Vector2(9, 9)
+			d.press(func() -> void: goto.call(k))
+			dots.add_child(d)
+		dots.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
+		dots.offset_top = -30
+		dots.offset_bottom = -20
+		dots.grow_horizontal = Control.GROW_DIRECTION_BOTH
+		root.add_child(dots)
+		for side in [-1, 1]:
+			var ab := UI.box({c = [Color("#fbf7ea")], radius = 999.0, border = 2.5, shadow = Vector2(0, 3), pad = Vector4(0, 0, 0, 3)})
+			ab.custom_minimum_size = Vector2(40, 40)
+			var al := UI.label("‹" if side < 0 else "›", 26, INK, "title")
+			al.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			al.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+			al.set_anchors_preset(Control.PRESET_FULL_RECT)
+			ab.add_child(al)
+			ab.press(func() -> void: goto.call(int(cur.i) + side))
+			ab.set_anchors_preset(Control.PRESET_CENTER_LEFT if side < 0 else Control.PRESET_CENTER_RIGHT)
+			ab.offset_top = -24
+			ab.offset_bottom = 16
+			ab.offset_left = -22 if side < 0 else -18
+			ab.offset_right = 18 if side < 0 else 22
+			root.add_child(ab)
+			arrows.append(ab)
+	mark.call(int(cur.i))
+	return root
+
+
 ## 開いているイベント（opts.ev。無ければいちばん新しいもの）
 func _ev_of(id) -> Dictionary:
 	for e in IK.data().events:
@@ -2209,13 +2410,13 @@ func _ev_of(id) -> Dictionary:
 	return IK.data().events.back()
 
 
-func _event_banner(ev: Dictionary) -> Control:
+func _event_banner(ev: Dictionary, nav := true) -> Control:
 	var st := IK.event_state(p, ev.id)
 	var cleared: Array = st.cleared.map(func(x): return int(x))
 	var lay := Control.new()
 	lay.custom_minimum_size.y = 190
-	lay.mouse_filter = Control.MOUSE_FILTER_STOP
-	if screen != "event":
+	lay.mouse_filter = Control.MOUSE_FILTER_STOP if nav else Control.MOUSE_FILTER_IGNORE
+	if screen != "event" and nav:
 		lay.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 		lay.gui_input.connect(func(e: InputEvent) -> void:
 			if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:

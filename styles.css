@@ -1347,6 +1347,14 @@ canvas.race3d { width: 100%; height: 100%; display: block; }
 .ik-body { display: flex; flex-direction: column; gap: 12px; }
 .ik-gbtns { display: flex; gap: 10px; align-items: center; justify-content: center; flex-wrap: wrap; margin: 10px 0 4px; }
 .ik-grid { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
+/* 編成の絞り込み：ラベル付きの選択を 1 段に並べ、狭い画面では折り返す */
+.ik-filter { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: flex-end; margin: 0 0 12px; }
+.ik-fsel { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ik-fsel small { font-size: 11px; font-weight: 700; color: var(--muted, #4a5b58); }
+.ik-fsel select { min-width: 86px; max-width: 190px; padding: 5px 6px; font-size: 13px; }
+.ik-filter .btn.small { padding: 5px 10px; font-size: 12px; }
+.ik-fcount { margin-left: auto; font-size: 12px; font-weight: 700; color: var(--muted, #4a5b58); align-self: center; }
+@media (max-width: 560px) { .ik-fsel { flex: 1 1 30%; } .ik-fsel select { min-width: 0; max-width: none; width: 100%; } }
 .ik-missing { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
   border-radius: 10px; background: #2a2e2a; color: #888; border: 2px dashed #555; }
 .ik-missing b { font-size: 20px; font-weight: 900; }
@@ -1914,6 +1922,22 @@ b.win { color: #e0207a; }
 .ikev-banner { position: relative; display: block; width: 100%; aspect-ratio: 16 / 6.2; min-height: 170px; margin: 0 0 14px; padding: 0; overflow: hidden; text-align: left;
   border-radius: 20px; border: 3px solid var(--ink); box-shadow: 0 6px 0 var(--ink); background: #1d4440; color: #fff; font: inherit; }
 button.ikev-banner { cursor: pointer; }
+/* 対戦の画面のイベント：横に並べてスワイプで送る（scroll-snap）。矢印と点は 2 つ以上のとき */
+.ikev-car { position: relative; margin: 0 0 14px; }
+.ikev-track { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none; overscroll-behavior-x: contain;
+  padding-bottom: 7px; /* バナーの下にずらした影を切らない */ }
+.ikev-track::-webkit-scrollbar { display: none; }
+.ikev-track.drag { scroll-snap-type: none; cursor: grabbing; user-select: none; }
+.ikev-slide { flex: 0 0 100%; scroll-snap-align: start; scroll-snap-stop: always; }
+.ikev-slide .ikev-banner { margin: 0; }
+.ikev-arrow { position: absolute; top: calc(50% - 22px); width: 38px; height: 38px; border-radius: 50%; border: 2.5px solid var(--ink); background: var(--paper, #fbf7ea);
+  color: var(--ink); font: 900 24px/1 var(--font); display: grid; place-items: center; box-shadow: 0 3px 0 var(--ink); cursor: pointer; z-index: 2; padding: 0 0 3px; }
+.ikev-arrow.prev { left: -10px; } .ikev-arrow.next { right: -10px; }
+.ikev-arrow:disabled { opacity: 0; pointer-events: none; }
+.ikev-dots { position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); display: flex; gap: 7px; z-index: 2; }
+.ikev-dots button { width: 9px; height: 9px; padding: 0; border-radius: 50%; border: 1.5px solid #fff; background: #ffffff55; cursor: pointer; transition: width .25s var(--ease-move, ease), background .25s; }
+.ikev-dots button.on { width: 22px; border-radius: 6px; background: var(--sun, #f3a332); }
+@media (prefers-reduced-motion: reduce) { .ikev-dots button { transition: none; } }
 button.ikev-banner:active { transform: translateY(3px); box-shadow: 0 3px 0 var(--ink); }
 .ikev-bg { position: absolute; inset: -6%; background: #1d4440 center 40% / cover no-repeat; filter: saturate(.85); }
 .ikev-shade { position: absolute; inset: 0; background: linear-gradient(90deg, #113035f2 0%, #113035d0 34%, #11303540 62%, transparent 80%),

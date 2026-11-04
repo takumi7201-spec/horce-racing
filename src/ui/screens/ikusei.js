@@ -692,13 +692,68 @@ function deckView(app, go) {
         }, { cls: 'ghost' }),
       ]),
     ]),
-    card('持っているカード', [
-      el('div.ik-grid', have.map((c) => cardView(c, {
-        scale: fit(0.24), count: p.cards[c.id], onClick: pick,
-        badge: c.id === d.sire ? '父' : c.id === d.dam ? '母' : d.supports.includes(c.id) ? `サポ${d.supports.indexOf(c.id) + 1}` : null,
-      }))),
-    ]),
+    (() => {
+      // 片親だけ決まっているあいだは相方の性のカードだけを出す（父を決めたら牝、母を決めたら牡）
+      const want = d.sire && !d.dam ? '牝' : d.dam && !d.sire ? '牡' : null;
+      const grid = el('div.ik-grid');
+      const draw = () => {
+        const xs = deckFilter(app, have, want);
+        grid.replaceChildren(...(xs.length ? xs.map((c) => cardView(c, {
+          scale: fit(0.24), count: p.cards[c.id], onClick: pick,
+          badge: c.id === d.sire ? '父' : c.id === d.dam ? '母' : d.supports.includes(c.id) ? `サポ${d.supports.indexOf(c.id) + 1}` : null,
+        })) : [el('p.note', { text: 'この条件のカードは持っていない。' })]));
+        count.textContent = `${xs.length} / ${have.filter((c) => !want || c.sex === want).length} 種`;
+      };
+      const count = el('span.ik-fcount');
+      const head = want ? `持っているカード（${want === '牝' ? '母にする牝' : '父にする牡'}のカードだけ）` : '持っているカード';
+      const body = [filterBar(app, have, () => draw(), count), grid];
+      draw();
+      return card(head, body);
+    })(),
   ];
+}
+
+// 編成の絞り込み（レア度・馬場・距離・脚質・スキル）。条件は app.ikDeckOpt に覚え、一覧だけを描き直す
+// （画面ごと描き直すとスクロールが先頭へ戻る。落とし穴 77 と同じ）。
+const DECK_OPT0 = { rar: 'ALL', surf: 'ALL', dist: 'ALL', style: 'ALL', skill: 'ALL' };
+const surfOf = (c) => (c.turf >= c.dirt ? '芝' : 'ダート');
+const cardSkillIds = (p, c) => {
+  const sk = I.skillsOf(c, I.awakenOfCard(p, c.id));
+  return [...sk.race, ...sk.support, ...(sk.unique ? ['uniq'] : [])];
+};
+function deckFilter(app, have, want) {
+  const f = app.ikDeckOpt ??= { ...DECK_OPT0 };
+  const p = app.ik;
+  return have.filter((c) => (!want || c.sex === want)
+    && (f.rar === 'ALL' || c.rar === f.rar) && (f.surf === 'ALL' || surfOf(c) === f.surf)
+    && (f.dist === 'ALL' || I.distCat(c.dist) === f.dist) && (f.style === 'ALL' || I.STYLE_NAMES[Math.min(3, Math.floor(c.style / 0.25))] === f.style)
+    && (f.skill === 'ALL' || cardSkillIds(p, c).includes(f.skill)));
+}
+function filterBar(app, have, redraw, count) {
+  const f = app.ikDeckOpt ??= { ...DECK_OPT0 };
+  const p = app.ik;
+  // スキルは持っているカードに付いているものだけを、レース・サポートに分けて並べる
+  const ids = new Set(have.flatMap((c) => cardSkillIds(p, c)));
+  const infos = [...ids].filter((id) => id !== 'uniq').map((id) => I.skillInfo(id)).filter(Boolean);
+  const sel = (key, label, opts) => el('label.ik-fsel', [el('small', { text: label }), el('select.inp', {
+    onchange: (e) => { f[key] = e.target.value; redraw(); reset.hidden = Object.keys(DECK_OPT0).every((k) => f[k] === 'ALL'); },
+  }, [['ALL', 'すべて'], ...opts].map(([v, t]) => (Array.isArray(t) ? el('optgroup', { label: v }, t.map(([v2, t2]) => el('option', { value: v2, text: t2, selected: f[key] === v2 })))
+    : el('option', { value: v, text: t, selected: f[key] === v }))))]);
+  const reset = button('条件を外す', () => { Object.assign(f, DECK_OPT0); bar.replaceWith(filterBar(app, have, redraw, count)); redraw(); }, { cls: 'ghost small' });
+  reset.hidden = Object.keys(DECK_OPT0).every((k) => f[k] === 'ALL');
+  const bar = el('div.ik-filter', [
+    sel('rar', 'レア度', I.RARITIES.map((r) => [r, r])),
+    sel('surf', '馬場', [['芝', '芝'], ['ダート', 'ダート']]),
+    sel('dist', '距離', ['短距離', 'マイル', '中距離', '長距離'].map((x) => [x, x])),
+    sel('style', '脚質', I.STYLE_NAMES.map((x) => [x, x])),
+    sel('skill', 'スキル', [
+      ['uniq', '固有スキル（LM）'],
+      ['レーススキル', infos.filter((x) => x.type === 'race').map((x) => [x.id, x.name])],
+      ['サポートスキル', infos.filter((x) => x.type === 'support').map((x) => [x.id, x.name])],
+    ]),
+    reset, count,
+  ]);
+  return bar;
 }
 
 /** 生まれる仔：名前（自分で決める）・脚質（両親のあいだから選ぶ）・伸びしろ・適性・受け継ぐスキル。 */
@@ -1729,6 +1784,51 @@ function eventBanner(app, ev, onclick = null) {
   ]);
 }
 
+/**
+ * 対戦の画面のイベント：バナーを横に並べ、スワイプ（指・トラックパッド・マウスのドラッグ）か矢印・点で切り替える。
+ * 新しいイベントを先頭に。並びは CSS の scroll-snap（指の慣性に任せる）。見ていた 1 枚は app.ikEvSlide に覚える。
+ */
+function eventCarousel(app, go) {
+  const evs = [...I.EVENTS].reverse();
+  const track = el('div.ikev-track', evs.map((ev) => el('div.ikev-slide', [eventBanner(app, ev, () => { if (!dragged) go('event', { ev: ev.id }); })])));
+  const dots = el('div.ikev-dots', evs.map((ev, i) => el('button', { 'aria-label': ev.name, onclick: () => to(i) })));
+  const idx = () => Math.round(track.scrollLeft / Math.max(1, track.clientWidth));
+  const mark = () => {
+    const i = idx();
+    app.ikEvSlide = evs[i]?.id;
+    [...dots.children].forEach((d, k) => d.classList.toggle('on', k === i));
+    prev.disabled = i <= 0; next.disabled = i >= evs.length - 1;
+  };
+  const to = (i) => track.scrollTo({ left: Math.max(0, Math.min(evs.length - 1, i)) * track.clientWidth, behavior: 'smooth' });
+  const prev = el('button.ikev-arrow.prev', { 'aria-label': '前のイベント', onclick: () => to(idx() - 1), text: '‹' });
+  const next = el('button.ikev-arrow.next', { 'aria-label': '次のイベント', onclick: () => to(idx() + 1), text: '›' });
+  let raf = 0;
+  track.addEventListener('scroll', () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(mark); }, { passive: true });
+  // マウスのドラッグでも送る（指とトラックパッドは scroll-snap がそのまま効く）。動かしたらバナーの押下にしない
+  let dragged = false, sx = 0, sl = 0, down = false, ddx = 0;
+  // 押さえた要素に捕まえておく（window に付けると画面を描き直すたびに係が増える）
+  // 押した瞬間の既定の動き（絵の掴み・文字の選択）を止める。止めないと 1 歩目で掴みが始まり、以降の pointermove が来なかった
+  track.addEventListener('pointerdown', (e) => { if (e.pointerType !== 'mouse' || evs.length < 2) return; e.preventDefault(); down = true; dragged = false; sx = e.clientX; sl = track.scrollLeft; });
+  track.addEventListener('pointermove', (e) => {
+    if (!down) return;
+    const dx = ddx = e.clientX - sx;
+    if (!dragged && Math.abs(dx) > 6) { dragged = true; track.setPointerCapture(e.pointerId); track.classList.add('drag'); }
+    if (dragged) track.scrollLeft = sl - dx;
+  });
+  const up = () => { if (!down) return; down = false; if (dragged) {
+    // 少し動かしただけでも向きのほうへ 1 枚送る（半分まで引かないと戻るのは重い）
+    track.classList.remove('drag');
+    to(Math.round(sl / Math.max(1, track.clientWidth)) + (ddx < -40 ? 1 : ddx > 40 ? -1 : 0));
+  } setTimeout(() => { dragged = false; }, 0); };
+  track.addEventListener('pointerup', up);
+  track.addEventListener('pointercancel', up);
+  const wrap = el('div.ikev-car', [track, evs.length > 1 ? prev : null, evs.length > 1 ? next : null, evs.length > 1 ? dots : null]);
+  // 覚えていた 1 枚から（描いた後に幅が決まるので次のフレームで）
+  const start = Math.max(0, evs.findIndex((e) => e.id === app.ikEvSlide));
+  requestAnimationFrame(() => { track.scrollLeft = start * track.clientWidth; mark(); });
+  return wrap;
+}
+
 /** イベントの画面：バナー・難易度（☆1〜☆5）・出る馬・出走馬（史実の 14 頭）・報酬。 */
 function eventView(app, go) {
   const p = app.ik;
@@ -1828,7 +1928,7 @@ function battleView(app, go) {
     go('result');
   };
   return [
-    ...I.EVENTS.map((ev) => eventBanner(app, ev, () => go('event', { ev: ev.id }))),
+    eventCarousel(app, go),
     card('舞台', [el('div.form', [el('label', ['レース', raceSel])])]),
     el('div.ik-cols', [
       card('NPC とのランク戦', [
