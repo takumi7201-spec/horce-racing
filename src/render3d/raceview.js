@@ -6,7 +6,7 @@
 
 import * as THREE from '../../vendor/three/three.module.min.js';
 import { buildTrackMesh, trackPoint, buildGate } from './track.js';
-import { createDirector } from './broadcast.js';
+import { createDirector, trackingFrame, trackingFov, TRACK_CAM } from './broadcast.js';
 import { makeHorse, makeShadowPatch, FRAME_COLORS } from './horse3d.js';
 import { makeWind } from './wind.js';
 import { buildTrack, posToWorld, elevationAt, curvatureAt, trackBounds } from '../sim/course.js';
@@ -266,6 +266,8 @@ export function createRaceView(canvas, race, opts = {}) {
     }
   }
 
+  let tvFov = null;
+
   function setFov(f) {
     if (camera.fov === f) return;
     camera.fov = f;
@@ -285,7 +287,7 @@ export function createRaceView(canvas, race, opts = {}) {
       autoSlow = c.slow;
       return;
     }
-    if (mode !== 'photo') setFov(48);
+    if (mode !== 'photo' && mode !== 'tv') { setFov(48); tvFov = null; }
     const lead = st.lead;
     const packS = (st.ranked[0].s + st.ranked[Math.min(2, st.ranked.length - 1)].s) / 2;
     const packP = track.start + packS;
@@ -303,13 +305,20 @@ export function createRaceView(canvas, race, opts = {}) {
       camera.position.lerp(camPos, 0.3);
       camera.lookAt(t.point);
     } else if (mode === 'tv') {
-      // 内馬場を走るカメラ車。馬群の少し前を、内側から見下ろす。
-      // 離しすぎると馬が豆粒になるので、走路幅ぶんの外に置く程度に留める。
-      const camP = packP + 26;
-      const w = posToWorld(track, camP, -26);
-      camPos.set(w.x, elevationAt(track, camP) + 13, w.z);
-      const t = trackPoint(track, packP, track.width * 0.35, look);
-      camera.position.lerp(camPos, 0.25);
+      // 中継の追い（JRA の中継のトラッキングのように）：外ラチの外の少し高い所から、先頭の集団を望遠で真横に近い角度で追う。
+      // 以前は内馬場の高い所から先頭と 3 番手の間を広角（48°）で見下ろしていたので、逃げ馬が離すと馬群ごと遠景になった。
+      const f = trackingFrame(st.ranked);
+      const d = track.width + TRACK_CAM.out - f.off;               // カメラから馬までの横の距離
+      const w = posToWorld(track, track.start + f.mid + TRACK_CAM.ahead, track.width + TRACK_CAM.out);
+      camPos.set(w.x, elevationAt(track, track.start + f.mid) + TRACK_CAM.height, w.z);
+      const t = trackPoint(track, track.start + f.mid, f.off, look);
+      t.point.y += 1.3;
+      if (snapCam || !tvFov) { camera.position.copy(camPos); tvFov = null; } else camera.position.lerp(camPos, 0.25);
+      snapCam = false;
+      // 収めたい長さ（集団の前後）は横の画角で測り、縦の画角に直す（three.js の fov は縦）
+      const want = trackingFov(f.span, Math.hypot(d, TRACK_CAM.height), camera.aspect);
+      tvFov = tvFov == null ? want : tvFov + (want - tvFov) * 0.07;
+      setFov(tvFov);
       camera.lookAt(t.point);
     } else if (mode === 'side') {
       // 真横から。脚の動きがいちばん見える。

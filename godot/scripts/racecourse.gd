@@ -845,7 +845,8 @@ func _build_trees() -> void:
 		var i := rng.randi() % n
 		var p := px[i]
 		var inside := rng.randf() < 0.3
-		var off := -rng.randf_range(60.0, 90.0) if inside else rng.randf_range(w + 18.0, w + 110.0)
+		# 外は 36m から（中継の追いのカメラが外ラチの外 24m を走る。18m から植えていたらカメラが樹冠の中に入って画面が緑一色になった）
+		var off := -rng.randf_range(60.0, 90.0) if inside else rng.randf_range(w + 36.0, w + 120.0)
 		if not inside and (p > stand_from or p < 120.0):
 			continue   # スタンドの前と後ろは空ける
 		var q := at(i, off)
@@ -1162,11 +1163,13 @@ func _update_race_camera(delta: float, snap: bool) -> void:
 	var eye: Vector3
 	var look: Vector3
 	if cam_mode == "tv":
-		# 中継：外ラチの外の高い所から、先頭から 3 番手あたりを横から追う（ホームではスタンドの側になる）
-		var k := mini(2, list.size() - 1)
-		var mid := (float(lead.s) + float(list[k].s)) / 2.0
-		look = at_p(start + mid - 4.0, w * 0.3, 1.0)
-		eye = at_p(start + mid - 20.0, w + 22.0, 9.0)   # 望遠（画角 30°）で寄る。遠いと馬が点になった
+		# 中継：JRA の中継の追い（トラッキング）。外ラチの外の低い所から、先頭の集団を望遠で真横に近く追う。
+		# 先頭から 3 番手の間を固定の画角で見ていたので、逃げ馬が離すと遠目の絵になった。画角は集団の前後の長さで決める
+		var fr: Dictionary = bc.tracking_frame()
+		look = at_p(start + float(fr.mid), float(fr.off), 1.3)
+		eye = at_p(start + float(fr.mid) + bc.TRACK_AHEAD, w + bc.TRACK_OUT, bc.TRACK_HEIGHT)
+		var fv: float = bc.tracking_fov(float(fr.span), eye.distance_to(look))
+		camera.fov = fv if (snap or cam_eye == Vector3.ZERO) else lerpf(camera.fov, fv, clampf(delta * 3.0, 0.0, 1.0))
 	elif cam_mode == "front":
 		# 正面：先頭の馬の少し前の斜めから、向かってくる顔を撮る（手綱と首まわりが見える）
 		var off := _off(lead.off, race_t)

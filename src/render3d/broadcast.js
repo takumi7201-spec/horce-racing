@@ -16,6 +16,33 @@ import { clamp, lerp } from '../core/util.js';
 const MIN_SHOT = 3.5;
 const deg = (r) => (r * 180) / Math.PI;
 
+/**
+ * 先頭の集団（JRA の中継の追いが収める範囲）。先頭からつながっている馬（前の馬との間が 12m 以内、先頭から 30m 以内、5 頭まで）。
+ * 大逃げのときは逃げ馬だけになる（後ろの集団まで入れようと引くと、逃げ馬が豆粒になった）。ranked は前から順の { s, off }。
+ * 返り値 { mid（集団の真ん中の走った距離）, span（前後の長さ m）, off（横の位置の平均）}。中継（raceview の tv）と自動のカメラで使う。
+ */
+export function trackingFrame(ranked) {
+  const lead = ranked[0];
+  let tail = lead, offSum = lead.off, n = 1;
+  for (const x of ranked.slice(1, 5)) {
+    if (tail.s - x.s > 12 || lead.s - x.s > 30) break;
+    tail = x; offSum += x.off; n++;
+  }
+  const front = lead.s + 3, back = tail.s - 3.5;
+  return { mid: (front + back) / 2, span: Math.max(13, front - back), off: offSum / n };
+}
+/** 追いのカメラの置き場所：外ラチの外 24m・低め 3.6m・集団の 5m 先（真横より少し前から）。低く構えないと望遠で見下ろして背景が地面だけになる。 */
+export const TRACK_CAM = { out: 24, ahead: 5, height: 3.6 };
+/**
+ * 集団の前後の長さ span を横に収める縦の画角（度）。three.js も Godot も画角は縦なので、横の幅は画面の縦横比 aspect で割って直す。
+ * 馬の高さ（3.2m の半分）が切れない狭さで頭打ち。
+ */
+export function trackingFov(span, d, aspect = 1.6) {
+  const h = Math.atan((span * 0.5 * 1.3) / Math.max(1, d));
+  const v = Math.max(2 * Math.atan(Math.tan(h) / aspect), 2 * Math.atan(3.2 / Math.max(1, d)));
+  return Math.min(34, Math.max(4, (v * 180) / Math.PI));
+}
+
 export function fmtRaceTime(t) {
   const m = Math.floor(t / 60);
   return m > 0 ? `${m}:${(t - m * 60).toFixed(1).padStart(4, '0')}` : t.toFixed(1);
@@ -150,6 +177,9 @@ export function createDirector(track, race, runners, stateAt, at) {
     const k6 = Math.min(6, ranked.length);
     const pm = start + ranked.slice(0, k6).reduce((a, x) => a + x.s, 0) / k6;
     const pl = start + lead.s;
+    // 直線の追い（並走・向正面）とスタンド・4 角は、先頭の集団を収める（6 頭の平均の位置を見ると、大逃げで逃げ馬が画面の外か豆粒になった）
+    const fr = trackingFrame(ranked);
+    const gm = start + fr.mid;
     let e, l, fov = 32;
     switch (shot) {
       case 'gate': {
@@ -157,15 +187,21 @@ export function createDirector(track, race, runners, stateAt, at) {
         e = at(start + 30, mid + 7, 3.2); l = at(start + 1, mid, 1.3); fov = 38;
         break;
       }
-      case 'side': e = at(pm - 6, w + 16, 6); l = at(pm + 4, w * 0.3, 1.2); fov = 30; break;
-      case 'aerial': e = at(pm - 28, w + 46, 30); l = at(pm + 10, w * 0.3, 0); fov = 40; break;
-      case 'stand': case 'turn4': case 'post': {
-        e = anchor;
-        l = shot === 'post' ? at(pl + 2, lead.off, 1.2) : at(pm + 2, w * 0.35, 1.2);
-        fov = fovFor(e, l, shot === 'post' ? 4.5 : 9, 2, 40);
+      case 'side': case 'infield': {
+        // JRA の中継の追い：低い所から先頭の集団を望遠で真横に近く追う（向正面は内馬場の側から）
+        const side = shot === 'side' ? w + TRACK_CAM.out : -TRACK_CAM.out;
+        e = at(gm + TRACK_CAM.ahead, side, TRACK_CAM.height); l = at(gm, fr.off, 1.3);
+        fov = trackingFov(fr.span, dist3(e, l));
         break;
       }
-      case 'infield': e = at(pm + 12, -28, 5); l = at(pm, w * 0.35, 1.3); fov = 28; break;
+      // コーナーは外の少し高い所から先頭の集団を追う（以前の上空 30m・画角 40° の引きでは、馬が豆粒になった）
+      case 'aerial': e = at(gm - 6, w + 34, 9); l = at(gm + 2, fr.off, 1.2); fov = trackingFov(fr.span, dist3(e, l)); break;
+      case 'stand': case 'turn4': case 'post': {
+        e = anchor;
+        l = shot === 'post' ? at(pl + 2, lead.off, 1.2) : at(gm + 2, fr.off, 1.2);
+        fov = fovFor(e, l, shot === 'post' ? 4.5 : Math.max(5, (fr.span * 0.65) / 1.6), 2, 40);
+        break;
+      }
       case 'head': e = anchor; l = at(pl - 6, lead.off, 1.5); fov = fovFor(e, l, 5, 1.5, 30); break;
       case 'after': {
         const wr = st.find((x) => x.id === winner?.id) ?? lead;

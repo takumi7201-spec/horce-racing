@@ -176,6 +176,42 @@ func _pack_s() -> float:
 	return sum / k
 
 
+## 先頭の集団（ゲームの trackingFrame。JRA の中継の追いが収める範囲）：先頭からつながっている馬（前の馬との間が 12m 以内、
+## 先頭から 30m 以内、5 頭まで）。大逃げのときは逃げ馬だけになる（後ろの集団まで入れようと引くと、逃げ馬が豆粒になった）。
+const TRACK_OUT := 24.0     # 追いのカメラ：外ラチの外 24m・低め 3.6m・集団の 5m 先
+const TRACK_AHEAD := 5.0
+const TRACK_HEIGHT := 3.6
+
+
+func tracking_frame() -> Dictionary:
+	var list: Array = rc.runners.duplicate()
+	list.sort_custom(func(a, b): return float(a.s) > float(b.s))
+	var w: float = rc.track.width
+	var lead: Dictionary = list[0]
+	var tail: Dictionary = lead
+	var off_sum: float = lead.get("off_now", w * 0.3)
+	var n := 1
+	for i in range(1, mini(5, list.size())):
+		var x: Dictionary = list[i]
+		if float(tail.s) - float(x.s) > 12.0 or float(lead.s) - float(x.s) > 30.0:
+			break
+		tail = x
+		off_sum += float(x.get("off_now", w * 0.3))
+		n += 1
+	var front := float(lead.s) + 3.0
+	var back := float(tail.s) - 3.5
+	return {mid = (front + back) / 2.0, span = maxf(13.0, front - back), off = off_sum / n}
+
+
+## 集団の前後の長さ span を横に収める縦の画角（Godot の fov は縦）。馬の高さが切れない狭さで頭打ち
+func tracking_fov(span: float, d: float) -> float:
+	var vp: Vector2 = rc.get_viewport().get_visible_rect().size
+	var aspect: float = vp.x / maxf(1.0, vp.y)
+	var h := atan(span * 0.5 * 1.3 / maxf(1.0, d))
+	var v := maxf(2.0 * atan(tan(h) / aspect), 2.0 * atan(3.2 / maxf(1.0, d)))
+	return clampf(rad_to_deg(v), 4.0, 34.0)
+
+
 func _pick() -> String:
 	var t: float = rc.race_t
 	var L := _leader()
@@ -223,6 +259,9 @@ func update_camera(delta: float, snap: bool) -> void:
 	var pl: float = start + float(L.s)
 	var pm: float = start + _pack_s()
 	var offL: float = L.get("off_now", w * 0.3)
+	# 直線の追い（並走・向正面）・コーナー・スタンド・4 角は先頭の集団を収める（6 頭の平均を見ると大逃げで逃げ馬が豆粒になった）
+	var fr := tracking_frame()
+	var gm: float = start + float(fr.mid)
 	var fov := 32.0
 	var e: Vector3
 	var l: Vector3
@@ -233,24 +272,23 @@ func update_camera(delta: float, snap: bool) -> void:
 			e = rc.at_p(start + 30.0, mid + 7.0, 3.2)
 			l = rc.at_p(start + 1.0, mid, 1.3)
 			fov = 38.0
-		"side":
-			e = rc.at_p(pm - 6.0, w + 16.0, 6.0)
-			l = rc.at_p(pm + 4.0, w * 0.3, 1.2)
-			fov = 30.0
+		"side", "infield":
+			# JRA の中継の追い：低い所から先頭の集団を望遠で真横に近く追う（向正面は内馬場の側から）
+			var side: float = w + TRACK_OUT if shot == "side" else -TRACK_OUT
+			e = rc.at_p(gm + TRACK_AHEAD, side, TRACK_HEIGHT)
+			l = rc.at_p(gm, float(fr.off), 1.3)
+			fov = tracking_fov(float(fr.span), e.distance_to(l))
 		"aerial":
-			e = rc.at_p(pm - 28.0, w + 46.0, 30.0)
-			l = rc.at_p(pm + 10.0, w * 0.3, 0.0)
-			fov = 40.0
+			# コーナーは外の少し高い所から先頭の集団を追う（上空 30m・画角 40° の引きでは馬が豆粒になった）
+			e = rc.at_p(gm - 6.0, w + 34.0, 9.0)
+			l = rc.at_p(gm + 2.0, float(fr.off), 1.2)
+			fov = tracking_fov(float(fr.span), e.distance_to(l))
 		"stand", "turn4", "post":
 			e = anchor
-			l = rc.at_p((pl if shot == "post" else pm) + 2.0, offL if shot == "post" else w * 0.35, 1.2)
+			l = rc.at_p((pl if shot == "post" else gm) + 2.0, offL if shot == "post" else float(fr.off), 1.2)
 			# Godot の画角は縦（KEEP_HEIGHT）。span は画面の高さの半分に入れる大きさ（m）
-			var span := 9.0 if shot != "post" else 4.5
+			var span: float = maxf(5.0, float(fr.span) * 0.65 / 1.6) if shot != "post" else 4.5
 			fov = clampf(rad_to_deg(2.0 * atan(span / maxf(1.0, e.distance_to(l)))), 2.0, 40.0)
-		"infield":
-			e = rc.at_p(pm + 12.0, -28.0, 5.0)
-			l = rc.at_p(pm, w * 0.35, 1.3)
-			fov = 28.0
 		"head":
 			# ゴールの先から望遠で迎える（馬群が手前へ来るほど画角を広げて、横の並びを収める）
 			e = anchor
