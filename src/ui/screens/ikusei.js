@@ -350,6 +350,18 @@ function pulledGrid(app, got) {
     cells.forEach((_, i) => flip(i));
   }, true);
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  // めくるカードへ画面を寄せる（追従）。10 連は狭い画面で 4 段になり、下の段はボタン列の陰か画面の外でめくれていた。
+  // 上の帯（72px）と下のボタン列の間に収まっていなければ、真ん中へ滑らかに寄せてからめくる。収まっていれば動かさない（毎回揺らさない）
+  const follow = async (c) => {
+    const r = c.getBoundingClientRect();
+    const dock = document.querySelector('.ikd')?.getBoundingClientRect();
+    const bottom = Math.min(window.innerHeight, dock && dock.top > 0 ? dock.top : window.innerHeight);
+    if (r.top >= 72 && r.bottom <= bottom) return;
+    c.style.scrollMarginTop = '72px';
+    c.style.scrollMarginBottom = `${window.innerHeight - bottom}px`;
+    c.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+    await wait(280);
+  };
   (async () => {
     await wait(30);
     cells.forEach((c) => c.classList.remove('out'));
@@ -364,12 +376,15 @@ function pulledGrid(app, got) {
       if (i === hold) continue;
       await Promise.race([arts[i], wait(1200)]);
       if (skipped) break;
+      await follow(cells[i]);
+      if (skipped) break;
       flip(i);
       sound.play('tick');
       await wait(140);
     }
     if (skipped || hold < 0) return;
     await Promise.race([arts[hold], wait(1200)]);
+    await follow(cells[hold]);
     await wait(320);
     cells[hold].classList.add('glow');
     await wait(rank(got[hold]) <= 1 ? 850 : 450);

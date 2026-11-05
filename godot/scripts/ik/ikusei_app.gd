@@ -1138,6 +1138,8 @@ func _play_reveal(cells: Array, best: int, w: float) -> void:
 		if not is_instance_valid(cells[i].back):
 			return
 		var x: Dictionary = cells[i]
+		if not skip[0]:
+			await _follow(x.cell)
 		if i == best and not skip[0]:
 			x.back.charge = RAR_COL[x.c.rar]
 			var tw0: Tween = x.back.create_tween()
@@ -1146,6 +1148,28 @@ func _play_reveal(cells: Array, best: int, w: float) -> void:
 		await _flip(x, 0.0 if skip[0] else 0.12)
 		if not skip[0]:
 			await get_tree().create_timer(0.08 if i != best else 0.0).timeout
+
+
+## めくるカードへ本文を寄せる（ゲームの follow）。スクロールの窓に収まっていなければ、真ん中へ Tween で寄せてからめくる。収まっていれば動かさない
+func _follow(cell: Control) -> void:
+	var sc: ScrollContainer = null
+	var n: Node = cell.get_parent()
+	while n != null:
+		if n is ScrollContainer:
+			sc = n
+			break
+		n = n.get_parent()
+	if sc == null or not is_instance_valid(cell):
+		return
+	var top := cell.global_position.y - sc.global_position.y
+	var bottom := top + cell.size.y
+	var view := sc.size.y - 116.0   # 下のボタン列の高さぶんは見えない
+	if top >= 0.0 and bottom <= view:
+		return
+	var target := int(sc.scroll_vertical + top + cell.size.y / 2.0 - view / 2.0)
+	var tw := sc.create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	tw.tween_property(sc, "scroll_vertical", maxi(0, target), 0.26)
+	await tw.finished
 
 
 func _flip(x: Dictionary, half: float) -> void:
