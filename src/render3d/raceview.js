@@ -279,12 +279,12 @@ export function createRaceView(canvas, race, opts = {}) {
 
   function updateCamera(st) {
     if (mode === 'auto') {
-      const c = director.camera(time, st.snap, snapCam);
+      const c = director.camera(time, st.snap, snapCam, camera.aspect);
       snapCam = false;
       camera.position.set(c.eye.x, c.eye.y, c.eye.z);
       // 中継の画角は横長（16:9 前後）の画面で決めてある。縦長のスマホでは横に写る幅が足りず、並走の馬群が画面の外へ出た。
-      // 横の写る幅を 16:10 の画面と同じにするよう、縦の画角を広げる（広げすぎない）
-      const k = camera.aspect < 1.6 ? 1.6 / camera.aspect : 1;
+      // 横の写る幅を 16:10 の画面と同じにするよう、縦の画角を広げる（広げすぎない）。追いのカット（fit）は縦横比で決めてあるのでそのまま
+      const k = !c.fit && camera.aspect < 1.6 ? 1.6 / camera.aspect : 1;
       setFov(Math.min(80, (2 * Math.atan(Math.tan((c.fov * Math.PI) / 360) * k) * 180) / Math.PI));
       camera.lookAt(c.look.x, c.look.y, c.look.z);
       autoSlow = c.slow;
@@ -310,7 +310,7 @@ export function createRaceView(canvas, race, opts = {}) {
     } else if (mode === 'tv') {
       // 中継：JRA の中継のように先頭の集団を追うカットを場面で割る（broadcast.js の createTvDirector・trackShot）。
       // コーナーは前から正面で迎え、直線は外・斜め前・内・高い所を回す。同じ横からの追いだけでは代わり映えしなかった。
-      const fr = trackingFrame(st.ranked);
+      const fr = trackingFrame(st.ranked, camera.aspect < 0.9);
       const p = tvDir.pick(time, st.ranked);
       const c = trackShot(p.shot, track, at, fr, camera.aspect);
       camPos.set(c.e.x, c.e.y, c.e.z);

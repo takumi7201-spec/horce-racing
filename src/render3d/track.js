@@ -382,6 +382,8 @@ function buildSurrounds(track, group, rng = Math.random, winter = false) {
   const trunkMat = new THREE.MeshLambertMaterial({ color: 0x4a3a28 });
   const crownMat = new THREE.MeshLambertMaterial({ color: 0x3f6e33 });
   const N = 160;
+  const rails = [];
+  for (let p = 0; p < track.lap; p += 12) rails.push(posToWorld(track, p, track.width));
   const trunks = new THREE.InstancedMesh(trunkGeo, trunkMat, N);
   const crowns = new THREE.InstancedMesh(crownGeo, crownMat, N);
   const m = new THREE.Matrix4();
@@ -394,6 +396,8 @@ function buildSurrounds(track, group, rng = Math.random, winter = false) {
     const dz = Math.abs(z - b.cz) / ((b.maxZ - b.minZ) / 2);
     const r = Math.hypot(dx, dz);
     if (r < 1.25) continue;
+    // 外ラチから 30m の内には植えない（中継の追いのカメラが外ラチの外 24m を走る。コーナーの外の木が手前に立って馬群を隠した）
+    if (rails.some((q) => Math.hypot(q.x - x, q.z - z) < 30)) continue;
     const s = 0.7 + rng() * 0.9;
     m.makeScale(s, s, s);
     m.setPosition(x, base + 1.5 * s, z);

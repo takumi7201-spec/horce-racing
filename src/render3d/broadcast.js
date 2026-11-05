@@ -21,17 +21,54 @@ const deg = (r) => (r * 180) / Math.PI;
  * 大逃げのときは逃げ馬だけになる（後ろの集団まで入れようと引くと、逃げ馬が豆粒になった）。ranked は前から順の { s, off }。
  * 返り値 { mid（集団の真ん中の走った距離）, span（前後の長さ m）, off（横の位置の平均）}。中継（raceview の tv）と自動のカメラで使う。
  */
-export function trackingFrame(ranked) {
+export function trackingFrame(ranked, tall = false) {
+  // 縦長の画面（スマホ）は横に写る幅が狭く、前後 30m の集団を収めると馬が豆粒になった。逃げ馬と先行馬の 2〜3 頭（間 8m・先頭から 14m）に絞る
+  const [gap, len, max] = tall ? [8, 14, 3] : [12, 30, 5];
   const lead = ranked[0];
   let tail = lead, offSum = lead.off, n = 1, lo = lead.off, hi = lead.off;
-  for (const x of ranked.slice(1, 5)) {
-    if (tail.s - x.s > 12 || lead.s - x.s > 30) break;
+  for (const x of ranked.slice(1, max)) {
+    if (tail.s - x.s > gap || lead.s - x.s > len) break;
     tail = x; offSum += x.off; n++; lo = Math.min(lo, x.off); hi = Math.max(hi, x.off);
   }
   const front = lead.s + 3, back = tail.s - 3.5;
-  // width は集団の横の広がり（正面から撮るときに収める幅）
-  return { mid: (front + back) / 2, span: Math.max(13, front - back), off: offSum / n, width: Math.max(10, hi - lo + 6) };
+  // width は集団の横の広がり（正面から撮るときに収める幅）。lo・hi は画角を決めるときに角の 4 点を画面へ投影するのに使う
+  // fs・bs は先頭の鼻先と最後尾の位置（縦長の画面は余白を削ってこの間だけを収める）
+  return { mid: (front + back) / 2, span: Math.max(13, front - back), off: offSum / n, width: Math.max(10, hi - lo + 6), lo: lo - 1.5, hi: hi + 1.5, fs: lead.s, bs: tail.s };
 }
+
+/**
+ * 集団（前後 span・横 lo〜hi）を画面の横に収める縦の画角（度）。角の 4 点をカメラの向きへ投影して、いちばん外の角度で決める。
+ * 前後の長さだけで測ると、斜めから撮るカットや縦長の画面で、逃げ馬と後ろの馬の両方が入らなかった（スマホの中継で逃げと先行が見にくい）。
+ * 縦長の画面は縦の画角を 34° より広げてよい（横が狭いぶん縦に余る）。馬の高さ（3.2m）が切れない狭さで頭打ち。
+ */
+function fitFov(track, at, e, l, fr, aspect, extra = 1) {
+  const dx = l.x - e.x, dy = l.y - e.y, dz = l.z - e.z;
+  const dl = Math.hypot(dx, dy, dz) || 1;
+  const fx = dx / dl, fy = dy / dl, fz = dz / dl;
+  let rx = -fz, rz = fx;   // 右向き（水平）
+  const rl = Math.hypot(rx, rz) || 1; rx /= rl; rz /= rl;
+  // 横長は前後を最低 13m 取る（1 頭だけでも周りの芝と前後の間合いが見える）。縦長は横に写る幅が狭いので、鼻先から最後尾の尾までだけ
+  const tall = aspect < 0.9;
+  const ends = tall && fr.fs != null ? [track.start + fr.fs + 1.5, track.start + fr.bs - 3] : [track.start + fr.mid - fr.span / 2, track.start + fr.mid + fr.span / 2];
+  let h = 0;
+  for (const ps of ends) {
+    for (const off of [fr.lo ?? fr.off - 3, fr.hi ?? fr.off + 3]) {
+      const p = at(ps, off, 1.2);
+      const vx = p.x - e.x, vy = p.y - e.y, vz = p.z - e.z;
+      const z = vx * fx + vy * fy + vz * fz;
+      if (z < 1) continue;
+      h = Math.max(h, Math.atan(Math.abs(vx * rx + vz * rz) / z));
+    }
+  }
+  h = Math.min(1.3, h * 1.12 * extra);
+  const v = Math.max(2 * Math.atan(Math.tan(h) / aspect), 2 * Math.atan(3.2 / dl));
+  return Math.min(aspect < 1 ? 62 : 34, Math.max(4, (v * 180) / Math.PI));
+}
+/** スタンドの前（前庭の立ち見がラチの外 7〜30m に居る）。外の低いカメラは観客の中に入るので高く構える。 */
+const atStand = (track, p) => {
+  const pm = ((p % track.lap) + track.lap) % track.lap;
+  return pm > track.lap - track.homeStraight * 0.85 || pm < 75;
+};
 
 /**
  * 追いのカットの置き場所（中継と自動のカメラで共用）。返り値 { e, l, fov }（fov は縦）。at は (周回位置, 横位置, 高さ) → 座標。
@@ -43,17 +80,25 @@ export function trackingFrame(ranked) {
  */
 export function trackShot(name, track, at, fr, aspect = 1.6) {
   const w = track.width, gm = track.start + fr.mid;
-  const d3 = (a, b) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
-  let e, l, span = fr.span;
+  // 縦長の画面（スマホ）は横に写る幅が狭いので、真横の追いを斜め前からにして、逃げ馬と後ろの馬の前後の間を奥行きに畳む
+  // （外ラチの外 14m・集団の 38m 先で、走る向きから約 32° の線になる。前後の長さは画面の横に半分ほどに縮む）
+  const tall = aspect < 0.9;
+  const side = tall ? fr.span / 2 + 38 : TRACK_CAM.ahead;
+  const out = tall ? 14 : TRACK_CAM.out;
+  let e, l;
   switch (name) {
-    case 'trackIn': e = at(gm + TRACK_CAM.ahead, -TRACK_CAM.out, TRACK_CAM.height); l = at(gm, fr.off, 1.3); break;
-    case 'front3q': e = at(gm + fr.span / 2 + 28, w + 9, 2.6); l = at(gm + 2, fr.off, 1.3); span = Math.max(fr.width + 4, fr.span * 0.5); break;
+    case 'trackIn': e = at(gm + side, -out, TRACK_CAM.height); l = at(gm, fr.off, 1.3); break;
+    case 'front3q': e = at(gm + fr.span / 2 + 28, w + 9, 2.6); l = at(gm + 2, fr.off, 1.3); break;
     // コーナーでは 55m 先から見る線（弦）が内へ 4m ほど入り、内ラチが手前を横切って馬群を隠したので、外へ 5m 寄せて少し高く構える
-    case 'curveFront': e = at(gm + fr.span / 2 + 55, fr.off + 5, 4.5); l = at(gm + 2, fr.off, 1.2); span = fr.width + 4; break;
-    case 'high': e = at(gm - 22, w + 30, 16); l = at(gm + 4, fr.off, 1); span = fr.span * 1.5; break;
-    default: e = at(gm + TRACK_CAM.ahead, w + TRACK_CAM.out, TRACK_CAM.height); l = at(gm, fr.off, 1.3);
+    case 'curveFront': e = at(gm + fr.span / 2 + 55, fr.off + 5, 4.5); l = at(gm + 2, fr.off, 1.2); break;
+    // 縦長は横が狭いので、後ろ寄りの高い所からでも引きすぎない（外 16m・10m の高さ）
+    case 'high': e = tall ? at(gm - 12, w + 16, 10) : at(gm - 22, w + 30, 16); l = at(gm + 4, fr.off, 1); break;
+    default: {
+      const stand = atStand(track, gm + side);
+      e = at(gm + side, w + out, stand ? 8 : TRACK_CAM.height); l = at(gm, fr.off, 1.3);
+    }
   }
-  return { e, l, fov: trackingFov(span, d3(e, l), aspect) };
+  return { e, l, fov: fitFov(track, at, e, l, fr, aspect, name === 'high' ? 1.25 : 1) };
 }
 
 /**
@@ -83,16 +128,6 @@ export function createTvDirector(track, race) {
 }
 /** 追いのカメラの置き場所：外ラチの外 24m・低め 3.6m・集団の 5m 先（真横より少し前から）。低く構えないと望遠で見下ろして背景が地面だけになる。 */
 export const TRACK_CAM = { out: 24, ahead: 5, height: 3.6 };
-/**
- * 集団の前後の長さ span を横に収める縦の画角（度）。three.js も Godot も画角は縦なので、横の幅は画面の縦横比 aspect で割って直す。
- * 馬の高さ（3.2m の半分）が切れない狭さで頭打ち。
- */
-export function trackingFov(span, d, aspect = 1.6) {
-  const h = Math.atan((span * 0.5 * 1.3) / Math.max(1, d));
-  const v = Math.max(2 * Math.atan(Math.tan(h) / aspect), 2 * Math.atan(3.2 / Math.max(1, d)));
-  return Math.min(34, Math.max(4, (v * 180) / Math.PI));
-}
-
 export function fmtRaceTime(t) {
   const m = Math.floor(t / 60);
   return m > 0 ? `${m}:${(t - m * 60).toFixed(1).padStart(4, '0')}` : t.toFixed(1);
@@ -211,7 +246,7 @@ export function createDirector(track, race, runners, stateAt, at) {
    * いまのカメラ。st は時刻 t の全馬の状態。返り値 { eye, look, fov, slow }（slow は再生の速さに掛ける）。
    * snap は寄せずに置く（止めた時刻へ飛んだとき）。
    */
-  function camera(t, st, snap = false) {
+  function camera(t, st, snap = false, aspect = 1.6) {
     const dt = clamp(Math.abs(t - lastT), 0, 0.25);
     lastT = t;
     shotT += dt;
@@ -230,7 +265,7 @@ export function createDirector(track, race, runners, stateAt, at) {
     const pm = start + ranked.slice(0, k6).reduce((a, x) => a + x.s, 0) / k6;
     const pl = start + lead.s;
     // 直線の追い（並走・向正面）とスタンド・4 角は、先頭の集団を収める（6 頭の平均の位置を見ると、大逃げで逃げ馬が画面の外か豆粒になった）
-    const fr = trackingFrame(ranked);
+    const fr = trackingFrame(ranked, aspect < 0.9);
     const gm = start + fr.mid;
     let e, l, fov = 32;
     switch (shot) {
@@ -241,15 +276,16 @@ export function createDirector(track, race, runners, stateAt, at) {
       }
       case 'side': case 'infield': {
         // JRA の中継の追い：低い所から先頭の集団を望遠で真横に近く追う（向正面は内馬場の側から）
-        ({ e, l, fov } = trackShot(shot === 'side' ? 'trackOut' : 'trackIn', track, at, fr));
+        ({ e, l, fov } = trackShot(shot === 'side' ? 'trackOut' : 'trackIn', track, at, fr, aspect));
         break;
       }
       // コーナーは前から馬群を正面で迎えるカットと、外の高い所から隊列を見るカットを交互に（上空 30m・40° の引きは馬が豆粒になった）
-      case 'aerial': ({ e, l, fov } = trackShot(arcN % 2 ? 'high' : 'curveFront', track, at, fr)); break;
+      case 'aerial': ({ e, l, fov } = trackShot(arcN % 2 ? 'high' : 'curveFront', track, at, fr, aspect)); break;
       case 'stand': case 'turn4': case 'post': {
         e = anchor;
         l = shot === 'post' ? at(pl + 2, lead.off, 1.2) : at(gm + 2, fr.off, 1.2);
-        fov = fovFor(e, l, shot === 'post' ? 4.5 : Math.max(5, (fr.span * 0.65) / 1.6), 2, 40);
+        // スタンド前・4 角も先頭の集団を画面に投影して収める（縦長の画面で 16:10 の画角を広げると、遠い置きカメラの馬が豆粒になった）
+        fov = shot === 'post' ? fovFor(e, l, 4.5, 2, 40) : fitFov(track, at, e, l, fr, aspect);
         break;
       }
       case 'head': e = anchor; l = at(pl - 6, lead.off, 1.5); fov = fovFor(e, l, 5, 1.5, 30); break;
@@ -273,7 +309,8 @@ export function createDirector(track, race, runners, stateAt, at) {
     // ゴール前だけ少しスロー（先頭が決勝線を過ぎて 1 秒で戻す）
     const wantSlow = shot === 'post' && t < tWin + 1 && t > tWin - 2.2 ? 0.55 : 1;
     slow = snap ? wantSlow : lerp(slow, wantSlow, clamp(dt * 5, 0, 1));
-    return { eye, look, fov: fovNow, slow, shot };
+    // 追いのカットの画角は画面の縦横比で決めてある（fit）。ほかのカットは 16:10 の値で、画面側が縦長に合わせて広げる
+    return { eye, look, fov: fovNow, slow, shot, fit: shot === 'side' || shot === 'infield' || shot === 'aerial' || shot === 'stand' || shot === 'turn4' };
   }
 
   return {
