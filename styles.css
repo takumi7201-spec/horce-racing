@@ -1248,7 +1248,7 @@ canvas.race3d { width: 100%; height: 100%; display: block; }
   background-size: 220% 220%; background-position: calc(50% + var(--px)) calc(50% + var(--py)); mix-blend-mode: overlay; }
 .tc-in { height: 100%; border-radius: 16px; overflow: hidden; position: relative; background: #0d1a10; box-shadow: inset 0 0 0 2px var(--line); isolation: isolate; }
 .tc-art { position: absolute; inset: 0 0 262px 0; overflow: hidden; background: radial-gradient(#2a3a26, #0d1a10); isolation: isolate; }
-.tc-art .b, .tc-art .f { position: absolute; inset: 0; background-position: center; background-size: cover; }
+.tc-art .b, .tc-art .f, .tc-art .xb, .tc-art .xf { position: absolute; inset: 0; background-position: center; background-size: cover; }
 .tc-art .b { filter: blur(6px) saturate(1.1) brightness(1.06); transform: scale(1.03); }
 /* 絵が届くまではホロと光を出さない（暗い地に模様だけが出て、崩れたカードに見えた） */
 .tc:not(.ready) .tc-art .hb, .tc:not(.ready) .tc-art .hbg, .tc:not(.ready) .tc-art .hb2, .tc:not(.ready) .tc-glow, .tc.tc:not(.ready) .tc-lowholo { opacity: 0; }
@@ -1787,6 +1787,20 @@ b.win { color: #e0207a; }
   animation: iklines 0.35s linear infinite;
 }
 .ik-ult img { position: relative; height: 175px; margin-top: -30px; transform: skewY(4deg); animation: ikultimg 2.6s cubic-bezier(.2, .9, .2, 1) both; filter: drop-shadow(0 6px 0 rgba(0, 0, 0, .35)); }
+/* 固有スキルのエフェクト（skillfx.js）：切り抜きの後ろと前に canvas を重ねる。色は --fxc（主）・--fxg（光）・--fxk（芯） */
+.ik-ult[class*="fx-"] { border-color: var(--fxc); background: linear-gradient(90deg, transparent 0%, color-mix(in srgb, var(--fxg) 30%, #0c0820 70%) 18%, color-mix(in srgb, var(--fxg) 30%, #0c0820 70%) 82%, transparent 100%); }
+.ik-ult[class*="fx-"]::before { background: radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--fxc) 70%, transparent), transparent 55%); }
+.ik-ult[class*="fx-"] .lines { background: repeating-linear-gradient(90deg, transparent 0 22px, color-mix(in srgb, var(--fxc) 60%, transparent) 22px 24px, transparent 24px 60px); }
+.ik-ult[class*="fx-"] .t small { color: var(--fxc); }
+.ik-ult[class*="fx-"] .t b { background: linear-gradient(180deg, #fff 30%, var(--fxc) 75%, var(--fxg)); -webkit-background-clip: text; background-clip: text; }
+.ik-ult.fx-thunder::before { animation: ikflashx 0.9s steps(1) both; }
+@keyframes ikflashx { 0% { opacity: 1; } 12% { opacity: .2; } 22% { opacity: .9; } 34% { opacity: .1; } 48% { opacity: .6; } 100% { opacity: 0; } }
+.ik-ultfx { position: relative; height: 175px; margin-top: -30px; transform: skewY(4deg); animation: ikultimg 2.6s cubic-bezier(.2, .9, .2, 1) both; }
+.ik-ultfx img { height: 100%; margin: 0; transform: none; animation: none; }
+.ik-ultfx canvas { position: absolute; left: 50%; top: 50%; height: 210%; transform: translate(-50%, -50%); pointer-events: none; }
+.ik-ultfx canvas.bk { z-index: -1; }
+.ik-ultfx canvas.fr { z-index: 1; }
+.ik-ultname { height: clamp(62px, 9vw, 104px); margin: -14px 0 -14px -20px; display: block; }
 .ik-ult .t { position: relative; display: flex; flex-direction: column; color: #fff; transform: skewY(4deg); }
 .ik-ult .t small { color: #ffd84a; font-weight: 900; letter-spacing: .2em; font-size: 12px; }
 .ik-ult .t b {
@@ -1807,6 +1821,8 @@ b.win { color: #e0207a; }
   .ik-cut b { font-size: 17px; }
   .ik-ult { height: 116px; margin-top: -58px; gap: 8px; }
   .ik-ult img { height: 128px; }
+  .ik-ultfx { height: 128px; }
+  .ik-ult .ik-ultfx img { height: 100%; }
 }
 
 /* ---- カードの覚醒（同じカードを重ねて持つ。ikusei.js の awakenPanel） ---- */
@@ -2217,6 +2233,8 @@ button.ikev-banner:active { transform: translateY(3px); box-shadow: 0 3px 0 var(
 .ikce-chip { font: inherit; font-size: 13px; font-weight: 700; padding: 4px 11px; border-radius: 999px; border: 2px solid var(--ink, #113035); background: var(--paper, #fffaf0); color: var(--ink, #113035); cursor: pointer; }
 .ikce-chip.on { background: var(--leaf, #a7cb0e); }
 .ikce-chip.set { box-shadow: inset 0 -3px 0 var(--sun, #f3a332); }
+.ikce-fx { display: inline-flex; align-items: center; gap: 6px; }
+.ikce-fx i { width: 12px; height: 12px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #fff 0 18%, var(--c) 45%); box-shadow: 0 0 6px var(--c); border: 1px solid #11303566; }
 .ikce-sl { display: flex; align-items: center; gap: 8px; }
 .ikce-sl input { flex: 1; min-width: 0; accent-color: var(--teal, #1f6f6a); }
 .ikce-sl em { font-style: normal; font-weight: 700; min-width: 3.2em; text-align: right; font-variant-numeric: tabular-nums; }

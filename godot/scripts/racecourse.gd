@@ -19,6 +19,7 @@ const TRACKS_PATH := "res://data/tracks.json"
 const OrbitCamera := preload("res://scripts/orbit_camera.gd")
 const HorseModel := preload("res://scripts/horse_model.gd")
 const UIK := preload("res://scripts/ik/ui.gd")   # 育成モードと同じ字体と配色（画面の札・順位表）
+const SKILL_FX := preload("res://scripts/skill_fx.gd")   # 固有スキルの発動のエフェクト
 const RACES_PATH := "res://data/races.json"
 const STRIDE := 7.0      # 襲歩の 1 完歩（m）
 const RUN_OUT := 14.0    # 最後の馬がゴールしてから再生を続ける秒数（ゴールの後の流し）
@@ -1097,15 +1098,24 @@ func _update_cues() -> void:
 		var past: bool = float(rr.s) >= float(c.at)
 		if past and not c.shown and race_t < float(rr.t_fin) + 0.5:
 			c.shown = true
-			_show_cue(c)
+			_show_cue(c, rr)
 		elif not past and c.shown:
 			c.shown = false
 
 
-func _show_cue(c: Dictionary) -> void:
+func _show_cue(c: Dictionary, rr = null) -> void:
+	# 固有スキルのエフェクト（skill_fx.gd）。札もその色にする
+	var fxd: Dictionary = c.get("fxd", {})
+	if rr != null and String(c.get("fx", "")) != "" and not fxd.is_empty():
+		var fx := Node3D.new()
+		fx.set_script(SKILL_FX)
+		fx.setup(String(c.fx), fxd, int(c.gate) * 977 + int(race_t * 1000.0))
+		rr.node.add_child(fx)
 	var pc := PanelContainer.new()
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = Color("#f3a332") if c.get("unique", false) else (Color("#a7cb0e") if c.mine else Color(0.07, 0.19, 0.21, 0.85))
+	if not fxd.is_empty():
+		sb.bg_color = Color(fxd.color)
 	sb.set_corner_radius_all(10)
 	sb.content_margin_left = 14
 	sb.content_margin_right = 14
@@ -1116,9 +1126,14 @@ func _show_cue(c: Dictionary) -> void:
 	sb.shadow_color = Color(0, 0, 0, 0.35)
 	sb.shadow_offset = Vector2(0, 4)
 	sb.shadow_size = 1
+	if not fxd.is_empty():
+		# 光の色の滲み（エフェクトの札）
+		sb.shadow_color = Color(Color(fxd.glow), 0.75)
+		sb.shadow_size = 12
+		sb.shadow_offset = Vector2.ZERO
 	pc.add_theme_stylebox_override("panel", sb)
 	var lb := UIK.label("", 16, Color.WHITE, "title")
-	lb.text = ("%d %s　「%s」" % [int(c.gate), c.name, c.text]) if not c.get("unique", false) else ("★ %s「%s」" % [c.name, c.text])
+	lb.text = ("%d %s　「%s」" % [int(c.gate), c.name, c.text]) if not c.get("unique", false) else ("★ %s「%s」%s" % [c.name, c.text, ("　" + String(fxd.name)) if not fxd.is_empty() else ""])
 	lb.add_theme_font_size_override("font_size", 26 if c.get("unique", false) else (22 if c.mine else 16))
 	lb.add_theme_color_override("font_color", Color("#113035") if (c.mine or c.get("unique", false)) else Color.WHITE)
 	pc.add_child(lb)

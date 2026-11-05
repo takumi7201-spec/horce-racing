@@ -13,7 +13,7 @@ import { simulateRace } from './race.js';
 import { GRADED } from './schedule.js';
 import { createHorse, peekHorseId, resetHorseIds } from './horse.js';
 import { clamp, clamp01 } from '../core/util.js';
-import { skillsOf, skillInfo, applyRaceSkills, RAR_SCALE, AWAKEN, awakenOf } from './ikusei-skills.js';
+import { skillsOf, skillInfo, applyRaceSkills, RAR_SCALE, AWAKEN, awakenOf, SKILL_FX, uniqueFxOf } from './ikusei-skills.js';
 import { distCatOf } from './ikusei-util.js';
 
 export { skillsOf, skillInfo, AWAKEN };
@@ -105,6 +105,8 @@ export function cleanArt(a) {
     o.silks = sk;
   }
   if (typeof a.epithet === 'string' && a.epithet.trim()) o.epithet = a.epithet.trim().slice(0, 16);
+  // 固有スキルのエフェクト（絵と観戦）。'none' は「付けない」と決めたもの（既定のエフェクトにも戻さない）
+  if (a.fx in SKILL_FX || a.fx === 'none') o.fx = a.fx;
   // リグ：動かせる軸だけ、回転は ±2 rad・騎手の点は ±0.6 m。0 だけの部位は持たない
   if (a.rig && typeof a.rig === 'object') {
     const pick = (src, keys, lim, axesOf) => {
@@ -455,6 +457,18 @@ export function bredCard(f) {
 export const uniqueCardOf = (c) => (!c ? null : c.bred ? (c.unique ? cardById(c.unique) : null) : c.rar === 'LM' ? c : null);
 /** 固有スキルの名前と説明（画面用）。 */
 export const uniqueOf = (c) => { const u = uniqueCardOf(c); return u ? skillsOf(u).unique : null; };
+/**
+ * 固有スキルの発動のエフェクト（観戦）。完成馬はカードエディットで決めたもの（h.art.fx。'none' は出さない）、
+ * 無ければ固有を持つカード（LM か、配合で固有を受け継いだ LM の親）の既定。固有を持たない馬は null。
+ */
+export function fxOfFinished(h) {
+  const u = h.cardId ? uniqueCardOf(cardById(h.cardId)) : h.unique ? cardById(h.unique) : null;
+  if (!u) return null;
+  const f = h.art?.fx;
+  return f === 'none' ? null : f in SKILL_FX ? f : uniqueFxOf(u);
+}
+export const fxOfCard = (c) => uniqueFxOf(uniqueCardOf(c));
+export { SKILL_FX, uniqueFxOf };
 
 /** 育成中の馬（カードの形）。配合で作った馬は両親から作り直す。古い育成（カード 1 枚を育てる）はそのカード。 */
 export function traineeCard(run) {
@@ -465,6 +479,8 @@ export function traineeCard(run) {
 /** 撮り方（h.art）をカードの絵の値に。silks は値があるときだけ（無ければ元のカードの服か、馬 id の服）。 */
 const artFields = (a) => (a ? Object.fromEntries(Object.entries({ shot: a.shot, facing: a.facing, phase: a.phase, pose: a.pose, backdrop: a.backdrop, gate: a.gate,
   legPose: a.legPose, wind: a.wind, camera: a.camera, silks: a.silks, surface: a.surface, rig: a.rig, desert: a.backdrop ? a.backdrop === 'desert' : undefined,
+  // エフェクトは絵に描くときだけ（fxArt）。カードの fx（固有の既定）とは別に持つ（LM の元の絵にはエフェクトを描かない）
+  fxArt: a.fx in SKILL_FX ? a.fx : undefined,
   // 自分のカードは主役 1 頭だけ（元のカードに写っていた相手の馬は連れてこない）
   rivals: [] }).filter(([, v]) => v !== undefined)) : {});
 
@@ -699,7 +715,7 @@ export function traineeSpec(run) {
     id: 1, name: c.name, sex: c.sex, coat: c.coat, ab: Object.fromEntries(STATS.map((k) => [k, abilityOf(run.stats[k])])),
     dist: c.dist, range: c.range, turf: c.turf, dirt: c.dirt, firm: c.firm, soft: c.soft,
     style: STYLE_NAMES.includes(run.raceStyle) ? styleValueOf(run.raceStyle) : c.style, cardId: c.bred ? null : c.id,
-    gear: runGear(run),
+    gear: runGear(run), fx: fxOfCard(c),
   };
 }
 
@@ -839,7 +855,7 @@ export function finishedSpec(h, i = 0) {
     id: 100 + i, name: h.name, sex: h.sex, coat: h.coat, ab: Object.fromEntries(STATS.map((k) => [k, abilityOf(h.stats[k])])),
     dist: h.dist, range: h.range, turf: h.turf, dirt: h.dirt, firm: h.firm, soft: h.soft,
     style: STYLE_NAMES.includes(h.raceStyle) ? styleValueOf(h.raceStyle) : h.style, fid: h.id, cardId: h.cardId,
-    gear: h.gear ?? (h.cardId ? cleanGear(cardById(h.cardId)?.gear) : {}),
+    gear: h.gear ?? (h.cardId ? cleanGear(cardById(h.cardId)?.gear) : {}), fx: fxOfFinished(h),
   };
 }
 

@@ -96,6 +96,34 @@ export function skillsOf(card, awaken = 0) {
   return { race, support, unique };
 }
 
+/**
+ * 固有スキルの発動のエフェクト（観戦の 3D とカットイン、カードエディットの絵）。見た目だけでレースには効かない。
+ * color は主の色、glow は光の色、core は芯の白。描き方は render3d/skillfx.js。並びを変えるとカードの既定が変わる（末尾に足す）。
+ */
+export const SKILL_FX = {
+  radiance: { name: '金色の光', color: '#ffd54a', glow: '#ffa318', core: '#fff7d0' },
+  thunder: { name: 'イナズマ', color: '#fff05a', glow: '#58b8ff', core: '#ffffff' },
+  flame: { name: '燃えるオーラ', color: '#ff8a1e', glow: '#ff3a12', core: '#fff0a0' },
+  frost: { name: '氷結', color: '#a8f2ff', glow: '#3aa8ff', core: '#ffffff' },
+  sakura: { name: '桜吹雪', color: '#ffb6d2', glow: '#ff5f9e', core: '#fff2f8' },
+  gale: { name: '疾風', color: '#a6f56c', glow: '#22c98a', core: '#f2ffe2' },
+  shadow: { name: '漆黒のオーラ', color: '#b45cff', glow: '#5b10b8', core: '#f0d8ff' },
+  star: { name: '星屑', color: '#d2c6ff', glow: '#5868ff', core: '#ffffff' },
+};
+export const SKILL_FX_KEYS = Object.keys(SKILL_FX);
+// 二つ名や毛色に合うものは手で決める（閃光はイナズマ、真夜中・南十字は星屑、黄金は金色の光…）。ほかは id から
+const FX_OF = {
+  'P4-03': 'thunder', 'P2-17': 'thunder', 'P4-06': 'star', 'P4-10': 'star', 'P4-09': 'radiance', 'P2-40': 'radiance',
+  'EV-02': 'shadow', 'P1-40': 'flame', 'P1-17': 'flame', 'P4-02': 'gale', 'P2-10': 'gale', 'P4-01': 'sakura', 'P1-15': 'sakura',
+  'EV-01': 'frost', 'P4-08': 'frost',
+};
+/** カード（LM）の固有スキルのエフェクト。カードの fx、手で決めた表、id のハッシュの順。LM でなければ null。 */
+export function uniqueFxOf(card) {
+  if (!card || card.rar !== 'LM') return null;
+  if (card.fx in SKILL_FX) return card.fx;
+  return FX_OF[card.id] ?? SKILL_FX_KEYS[hash(`${card.id}:fx`) % SKILL_FX_KEYS.length];
+}
+
 /** スキルの名前と説明（画面用）。'u:<カードid>' は固有。 */
 export function skillInfo(id) {
   if (RACE[id]) return { id, type: 'race', name: RACE[id].name, desc: RACE[id].desc };

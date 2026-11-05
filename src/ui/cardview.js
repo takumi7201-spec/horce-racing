@@ -123,7 +123,7 @@ export function cardView(c, { scale = 0.4, onClick = null, count = 0, dim = fals
     '--frame': T.frame, '--line': T.line, '--glow': T.glow, '--ink': T.ink, '--badge': T.badge, '--badge-ink': T.badgeInk,
     '--holo': holoBg, '--holo-size': holoSize, '--hop': H?.op ?? 0, '--foil': foil ?? 'none', '--sun': T.sun,
   };
-  const art = el('div.tc-art', [el('div.b'), el('div.hb'), el('div.hbg'), el('div.hb2'), el('div.f'), el('div.olr')]);
+  const art = el('div.tc-art', [el('div.b'), el('div.hb'), el('div.hbg'), el('div.hb2'), el('div.xb'), el('div.f'), el('div.xf'), el('div.olr')]);
   const glow = el('div.tc-glow');
   const sparks = el('div.tc-sparks', Array.from({ length: T.sparks }, (_, i) => {
     const x = (i * 37 + 11) % 100, y = (i * 53 + 7) % 62, s = 6 + ((i * 7) % 14), o = 0.5 + ((i * 13) % 5) / 10;
@@ -184,6 +184,12 @@ export function cardView(c, { scale = 0.4, onClick = null, count = 0, dim = fals
       bEl.style.backgroundImage = `url(${a.bg})`;
       if (a.bgBaked) bEl.classList.add('baked');
       art.querySelector('.f').style.backgroundImage = `url(${a.fg})`;
+      // 固有スキルのエフェクト（カードエディットで選んだ完成馬のカード）：形の後ろのオーラと前の稲妻・粒
+      if (a.fx) {
+        art.querySelector('.xb').style.backgroundImage = `url(${a.fx.back})`;
+        art.querySelector('.xf').style.backgroundImage = `url(${a.fx.front})`;
+        card.dataset.fx = c.fxArt;
+      }
       if (foil && a.ring) {
         const o = art.querySelector('.olr');
         o.style.webkitMaskImage = `url(${a.ring})`;

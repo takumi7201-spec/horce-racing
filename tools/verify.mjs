@@ -1176,6 +1176,24 @@ section('カード育成モード');
       && JSON.stringify(art.rig) === JSON.stringify({ horse: { neck: [0.3, 2, 0], 'lf.knee': [0.5, 0, 0] }, rider: { handL: [0, 0.6, -0.1] } }) && hc.rig === art.rig);
     big.finished.find((x) => x.id === h.id).art = undefined;
   }
+  // 固有スキルのエフェクト：LM は既定を持ち、完成馬はカードエディットで選べる（絵に描くのは選んだときだけ、なしは発動の演出も消す）
+  {
+    const lms = I.CARDS.filter((c) => c.rar === 'LM');
+    const kinds = new Set(lms.map((c) => I.uniqueFxOf(c)));
+    const def = I.fxOfFinished(h);
+    const a1 = I.setFinishedArt(big, h.id, { fx: 'thunder' });
+    const on = [I.fxOfFinished(h), I.finishedSpec(h).fx, I.horseCard(h).fxArt];
+    I.setFinishedArt(big, h.id, { fx: 'bogus' });
+    const bogus = big.finished.find((x) => x.id === h.id).art.fx;
+    I.setFinishedArt(big, h.id, { fx: 'none' });
+    const none = [I.fxOfFinished(h), I.horseCard(h).fxArt];
+    big.finished.find((x) => x.id === h.id).art = undefined;
+    check(`固有スキルのエフェクト：LM ${lms.length} 枚が ${kinds.size} 種を持ち、完成馬（固有 ${def}）は選んだエフェクトが発動と絵に効き、なしで消える`,
+      lms.every((c) => I.SKILL_FX[I.uniqueFxOf(c)]) && kinds.size >= 6 && I.uniqueFxOf(I.CARDS.find((c) => c.rar === 'SR')) === null
+      && I.uniqueFxOf(I.cardById('P4-03')) === 'thunder' && I.uniqueFxOf(I.cardById('EV-02')) === 'shadow'
+      && def === I.uniqueFxOf(I.cardById(h.unique)) && a1.fx === 'thunder' && on.every((x) => x === 'thunder') && bogus === undefined
+      && none[0] === null && none[1] === undefined && I.horseCard(h).fxArt === undefined);
+  }
   check('2 歳のレースは 2000m まで', h.races.filter((r) => I.SLOTS[r.slot].age === 2).every((r) => r.distance <= 2000));
   const bt = I.battleNpc(big, h.id, 'japan-cup', 'normal');
   check(`NPC とのランク戦が走る（${bt.order}着/${bt.result.results.length}）`, bt.result.results.length === 12 && bt.result.log != null);

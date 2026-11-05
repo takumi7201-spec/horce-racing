@@ -130,6 +130,8 @@ func _ready() -> void:
 		_watch(r.result, [100], r.fired, func() -> void: pass)
 		watching.race_t = float(args.event)
 		watching.playing = false
+		if args.has("cam"):
+			watching.set_camera(args.cam)
 	if args.has("race"):
 		# 確かめ用：レースの週まで練習を進めてレースを走り、観戦の時刻（--race=秒）で止める。--result=1 で結果の板
 		while not IK.is_race_turn(p.run):
@@ -2117,12 +2119,22 @@ func _watch(res: Dictionary, mine: Array, fired: Dictionary, after: Callable) ->
 		horses.append({id = id, name = lg.names[k], gate = int(lg.gates[k]), frame = int(lg.frameNos[k]), order = int(rr.order), time = rr.time, pos = pos, off = off})
 		skins.append(Skins.for_runner({id = id, cardId = fs.get("cardId"), coat = fs.get("coat", "鹿毛"), gate = int(lg.gates[k]), frame = int(lg.frameNos[k]), gear = fs.get("gear")}))
 		var names: Array = fired.get(id, fired.get(float(id), []))
+		# 固有スキルのエフェクト（完成馬は決めたもの、育成中の馬は受け継いだ固有、相手はカードの既定）
+		var fxk := ""
+		if fs.get("fid") != null:
+			var fh = IK.find_finished(p, int(fs.fid))
+			fxk = IK.fx_of_finished(fh) if fh != null else ""
+		elif id == 1 and p.get("run") != null:
+			fxk = IK.fx_of_card(IK.trainee_card(p.run))
+		elif fs.get("cardId") != null:
+			fxk = IK.fx_of_card(IK.card(fs.cardId))
 		for nm in names:
 			var cue := IK.skill_cue(nm, float(res.distance))
 			var is_mine := mine.has(id)
 			# 相手の札は固有だけ（全部出すと読めない）
 			if is_mine or cue.unique:
-				cues.append({at = cue.at, gate = int(lg.gates[k]), name = lg.names[k], text = nm, mine = is_mine, unique = cue.unique})
+				cues.append({at = cue.at, gate = int(lg.gates[k]), name = lg.names[k], text = nm, mine = is_mine, unique = cue.unique,
+					fx = fxk if cue.unique else "", fxd = IK.D.skillFx.get(fxk, {}) if cue.unique else {}})
 	var race := {id = "ik", name = res.name, course = res.courseId, surface = "dirt" if res.surface == "ダート" else "turf", distance = res.distance,
 		dt = lg.dt, frames = lg.frames, winnerTime = res.winnerTime, horses = horses}
 	var rc = RACECOURSE.instantiate()

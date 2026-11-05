@@ -9,6 +9,7 @@ import { buildTrackMesh, trackPoint, buildGate } from './track.js';
 import { createDirector, createTvDirector, trackingFrame, trackShot } from './broadcast.js';
 import { makeHorse, makeShadowPatch, FRAME_COLORS } from './horse3d.js';
 import { makeWind } from './wind.js';
+import { createFx3d, SKILL_FX } from './skillfx.js';
 import { buildTrack, posToWorld, elevationAt, curvatureAt, trackBounds } from '../sim/course.js';
 import { sampleLog, logDuration } from '../sim/race.js';
 import { yawForZForward } from './orient.js';
@@ -484,9 +485,12 @@ export function createRaceView(canvas, race, opts = {}) {
     columnTex = new THREE.CanvasTexture(c);
     return columnTex;
   }
-  function addFlare(id, { color = 0x5ec8ff, big = false } = {}) {
+  function addFlare(id, { color = 0x5ec8ff, big = false, fx = null } = {}) {
     const h = horses.find((x) => x.id === id);
     if (!h) return;
+    // 固有スキルのエフェクト（skillfx.js）。輪と光の柱もその色にし、粒が舞い終えるまで少し長く光らせる
+    const fx3 = fx ? createFx3d(fx, id * 977 + Math.round(performance.now())) : null;
+    if (fx3) color = new THREE.Color(SKILL_FX[fx].color).getHex();
     const mk = (geo, opts = {}) => new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
       color, transparent: true, opacity: 0, depthTest: false, depthWrite: false,
       blending: THREE.AdditiveBlending, side: THREE.DoubleSide, ...opts,
@@ -504,8 +508,9 @@ export function createRaceView(canvas, race, opts = {}) {
     const col = mk(new THREE.CylinderGeometry(1.25, 1.6, 1, 24, 1, true), { map: flareTexture() });
     col.renderOrder = 18;
     g.add(col);
+    if (fx3) g.add(fx3.group);
     h.group.add(g);
-    flares.push({ g, h, rings, col, t0: performance.now(), life: big ? 2.4 : 1.5, big });
+    flares.push({ g, h, rings, col, fx3, t0: performance.now(), life: fx3 ? 3.2 : big ? 2.4 : 1.5, big });
   }
   function updateFlares() {
     const now = performance.now();
@@ -515,6 +520,7 @@ export function createRaceView(canvas, race, opts = {}) {
       const k = age / f.life;
       if (k >= 1) {
         f.h.group.remove(f.g);
+        if (f.fx3) { f.g.remove(f.fx3.group); f.fx3.dispose(); }
         f.g.traverse((o) => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
         flares.splice(i, 1);
         continue;
@@ -532,7 +538,10 @@ export function createRaceView(canvas, race, opts = {}) {
       const hgt = (f.big ? 9 : 6) * up;
       f.col.scale.set(1 - k * 0.5, Math.max(0.01, hgt), 1 - k * 0.5);
       f.col.position.y = hgt / 2;
-      f.col.material.opacity = (k < 0.25 ? up : 1 - (k - 0.25) / 0.75) * (f.big ? 0.85 : 0.65);
+      // カメラが馬のすぐ近く（ゴール前の正面・マーク）だと柱の中から見ることになり、画面が白く覆われたので薄める
+      const nearK = clamp((d - 8) / 16, 0, 1);
+      f.col.material.opacity = (k < 0.25 ? up : 1 - (k - 0.25) / 0.75) * (f.big ? 0.85 : 0.65) * nearK;
+      if (f.fx3) f.fx3.update(age, f.life, camera);
     }
   }
 

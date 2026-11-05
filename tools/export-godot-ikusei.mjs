@@ -42,6 +42,8 @@ const cards = IK.CARDS.map((c) => ({
   plus: IK.plusOf(c), power: IK.cardPower(c), supportType: IK.supportType(c), distCat: IK.distCat(c.dist),
   // スキルは覚醒の段（0〜4）で数が変わる
   skills: [0, 1, 2, 3, 4].map((a) => IK.skillsOf(c, a)),
+  // 固有スキルの発動のエフェクト（LM だけ。見た目だけなので JS で決めて渡す。Godot にハッシュの表を二重に持たない）
+  fx: IK.uniqueFxOf(c),
 }));
 const combos = [...new Map(GRADED.filter((r) => !r.abroad).map((r) => [`${r.courseId}|${r.surface}|${r.distance}`, r])).values()]
   .map((r) => ({ courseId: r.courseId, surface: r.surface, distance: r.distance }));
@@ -63,7 +65,7 @@ const data = {
   graded, combos, battleRaces: IK.BATTLE_RACES, difficulty: IK.DIFFICULTY,
   rates: IK.RATES, shardValue: IK.SHARD_VALUE, shardCost: IK.SHARD_COST, awaken: IK.AWAKEN,
   slots: IK.SLOTS, moods: IK.MOODS,
-  raceSkills: strip(raceSkillDefs), supportSkills: strip(supportSkillDefs),
+  raceSkills: strip(raceSkillDefs), supportSkills: strip(supportSkillDefs), skillFx: IK.SKILL_FX,
   courses,
   params: { TICK, PHYS, GROUNDS, GROUND_EFFECT, GROWTH: GROWTH_CURVE['持続'], COATS, PRIZE_SHARE },
 };

@@ -10,6 +10,7 @@
 // 馬の右手が内（左回りの直線、ゴール板は内ラチ側）。馬は +z へ走る。スタンドは -x 側。
 
 import * as THREE from '../../vendor/three/three.module.min.js';
+import { fxPainter } from './skillfx.js';
 import { makeHorse, makeShadowPatch, disposeHorse, STRIDE } from './horse3d.js';
 import { makeWind } from './wind.js';
 import { riderPointPos } from './jockey3d.js';
@@ -593,7 +594,8 @@ export function createPoseStage(o) {
       st.wind?.update(0, 17, camera);
     },
     /** canvas（2D）へ描く。blur は背景のぼかし（px）。 */
-    render(renderer, canvas, blur = 3) {
+    // fx：固有スキルのエフェクトの種類（カードエディットの見本。焼き込むカードの絵と同じ描き方）
+    render(renderer, canvas, blur = 3, fx = null) {
       const w = canvas.width, h = canvas.height;
       const g = canvas.getContext('2d');
       camera.aspect = w / h;
@@ -611,8 +613,24 @@ export function createPoseStage(o) {
       st.subject.visible = true;
       st.bg.visible = false;
       renderer.setClearColor(0x000000, 0);
+      let pt = null, front = null;
+      if (fx) {
+        // 馬と騎手だけの形（影・芝の塊・風の筋を除く。shootFinish の mask と同じ）
+        const keep = new Set(st.models.map((m) => m.group));
+        const hidden = st.subject.children.filter((c) => !keep.has(c) && c.visible);
+        for (const c of hidden) c.visible = false;
+        renderer.render(st.scene, camera);
+        pt = fxPainter(fx, renderer.domElement, w, h, o.hero?.id ?? 1);
+        for (const c of hidden) c.visible = true;
+        if (pt) {
+          front = document.createElement('canvas');
+          front.width = w; front.height = h;
+          pt.draw(g, front.getContext('2d'), 1.2, { still: true });
+        }
+      }
       renderer.render(st.scene, camera);
       g.drawImage(renderer.domElement, 0, 0, w, h);
+      if (front) g.drawImage(front, 0, 0);
       st.bg.visible = true;
     },
     dispose: st.dispose,

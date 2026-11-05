@@ -246,6 +246,30 @@ static func unique_card_of(c) -> Variant:
 	return c if c.rar == "LM" else null
 
 
+## 固有スキルの発動のエフェクト（観戦の見た目。JS の fxOfCard・fxOfFinished）。カードの既定は data.json の fx（JS の uniqueFxOf）。
+## 固有を持たない馬は ""。
+static func fx_of_card(c) -> String:
+	var u = unique_card_of(c)
+	return String(u.fx) if u != null and u.get("fx") != null else ""
+
+
+static func fx_of_finished(h: Dictionary) -> String:
+	var u = null
+	if h.get("cardId") != null:
+		u = unique_card_of(card(h.cardId))
+	elif h.get("unique") != null:
+		u = card(h.unique)
+	if u == null:
+		return ""
+	var art = h.get("art")
+	var f = art.get("fx") if art is Dictionary else null
+	if f is String and f == "none":
+		return ""
+	if f is String and D.skillFx.has(f):
+		return f
+	return String(u.fx) if u.get("fx") != null else ""
+
+
 static func trainee_card(run: Dictionary) -> Dictionary:
 	if run.get("sire") == null:
 		return card(run.trainee)

@@ -8,6 +8,7 @@ import { el, card, table, button, toast, modal, ask, tabs, frameChip } from '../
 import { icon } from '../icons.js';
 import { cardArt, cardArtIfReady, artRenderer, ART_SIZE } from '../../render3d/cardart.js';
 import { createPoseStage, shotCamera, SHOTS } from '../../render3d/photostage.js';
+import { fxPainter } from '../../render3d/skillfx.js';
 import * as I from '../../sim/ikusei.js';
 import { cardView, epithetOf, holoOf, holoName, whenVisible } from '../cardview.js';
 import { createRaceView, CAMERAS } from '../../render3d/raceview.js';
@@ -1030,11 +1031,15 @@ function trainView(app, go) {
 const lvlLabel = (l) => (l >= 0.66 ? '★★★★★' : l >= 0.62 ? '★★★★' : l >= 0.58 ? '★★★' : l >= 0.52 ? '★★' : '★');
 
 /** 3D に渡す毛色と白斑（カードの馬は実在馬の白斑）。field は runRace に渡した馬。 */
-function looksOf(field) {
+function looksOf(field, p = null) {
   const m = new Map();
   for (const f of field) {
     const c = f.cardId ? I.cardById(f.cardId) : null;
-    m.set(f.id, { coat: f.coat ?? c?.coat ?? '鹿毛', marks: f.marks ?? c?.marks ?? null, cardId: c?.id ?? null, gear: f.gear ?? null });
+    // 完成馬はカードにした姿（撮った絵）を固有のカットインの切り抜きに使う
+    const fh = f.fid != null ? p?.finished.find((x) => x.id === f.fid) : null;
+    m.set(f.id, { coat: f.coat ?? c?.coat ?? '鹿毛', marks: f.marks ?? c?.marks ?? null, cardId: c?.id ?? null, gear: f.gear ?? null,
+      // 固有スキルのエフェクト（自分の馬は spec が持つ。相手のカードの馬はカードの既定）
+      fx: 'fx' in f ? f.fx : I.fxOfCard(c), artCard: fh ? I.horseCard(fh) : c });
   }
   return m;
 }
@@ -1161,11 +1166,16 @@ function skillEffects(R, race, fx, view) {
     for (const n of list ?? []) { const q = I.skillCue(n, race.distance); cues.push({ id, name: n, mine: mine.has(id), unique: q.unique, at: q.at, done: false }); }
   }
   cues.sort((a, b) => a.at - b.at);
-  // 固有スキルのカットインに馬の切り抜きを出す（撮ってある絵だけ）
+  // 固有スキルのカットインに馬の切り抜きを出す（撮ってある絵だけ）。エフェクトの形はここで読んでおく（prepHorseFx）
   for (const c of cues.filter((x) => x.unique)) {
-    const cid = R.looks?.get(c.id)?.cardId;
-    const card = cid ? I.cardById(cid) : null;
-    if (card) cardArtIfReady(card).then((a) => { c.img = a?.sticker?.url ?? null; });
+    c.kind = R.looks?.get(c.id)?.fx ?? null;
+    if (!c.mine) continue;
+    if (c.kind) c.nameFx = prepNameFx(c.name, c.kind);
+    const card = R.looks?.get(c.id)?.artCard ?? null;
+    if (card) cardArtIfReady(card).then((a) => {
+      c.img = a?.sticker?.url ?? null;
+      if (c.img && c.kind) prepHorseFx(c.img, c.kind).then((v) => { c.horseFx = v; });
+    });
   }
   let speed = 1, slowUntil = 0, slowTimer = 0, lastT = 0, lane = 0;
   const timers = new Set();
@@ -1179,16 +1189,18 @@ function skillEffects(R, race, fx, view) {
     view.setSpeed(speed);
   };
   const show = (c) => {
+    const kind = c.unique ? c.kind : null;
     if (c.unique && c.mine) {
-      const node = el('div.ik-ult', [
+      const F = kind ? I.SKILL_FX[kind] : null;
+      const node = el(`div.ik-ult${kind ? `.fx-${kind}` : ''}`, { style: F ? `--fxc:${F.color};--fxg:${F.glow};--fxk:${F.core}` : null }, [
         el('div.lines'),
-        c.img ? el('img', { src: c.img, alt: '' }) : null,
-        el('div.t', [el('small', { text: '固有スキル発動' }), el('b', { text: c.name }), el('span', { text: names.get(c.id) })]),
+        c.horseFx ? ultHorse(c.horseFx) : c.img ? el('img', { src: c.img, alt: '' }) : null,
+        el('div.t', [el('small', { text: F ? `固有スキル発動　${F.name}` : '固有スキル発動' }), !c.img && c.nameFx ? ultName(c.nameFx) : el('b', { text: c.name }), el('span', { text: names.get(c.id) })]),
       ]);
       fx.appendChild(node);
       later(() => node.remove(), 2600);
       sound.play('bell');
-      view.flare(c.id, { color: 0xffc83a, big: true });
+      view.flare(c.id, { color: 0xffc83a, big: true, fx: kind });
       // 一瞬だけ遅くして見せ場にする（利用者の再生速度は覚えて戻す）
       view.setSpeed(speed * 0.35);
       slowUntil = performance.now() + 1500;
@@ -1206,7 +1218,7 @@ function skillEffects(R, race, fx, view) {
     fx.appendChild(node);
     later(() => node.remove(), c.mine ? 1900 : 1500);
     if (c.mine) sound.play('win');
-    view.flare(c.id, { color: c.unique ? 0xffc83a : c.mine ? 0x5ec8ff : 0xff6a6a, big: c.unique });
+    view.flare(c.id, { color: c.unique ? 0xffc83a : c.mine ? 0x5ec8ff : 0xff6a6a, big: c.unique, fx: kind });
   };
   return {
     frame(st) {
@@ -1221,6 +1233,86 @@ function skillEffects(R, race, fx, view) {
     },
     setSpeed(x) { speed = x; if (!slowUntil) view.setSpeed(x); },
   };
+}
+
+/**
+ * 固有スキルのカットインのエフェクト（skillfx.js）。形の読み出し（getImageData）はレースが始まる前に済ませる：
+ * 発動の瞬間に読むと、レースの 3D の描画が終わるまで待たされ、主スレッドが止まってカットインが描かれないまま消えた。
+ * 読み出す canvas は willReadFrequently（CPU 側）に置く（GPU の canvas から読むと描画の待ち行列ごと待つ）。
+ */
+const cpuCanvas = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; c.getContext('2d', { willReadFrequently: true }); return c; };
+/** 馬の切り抜き（ステッカー）の形から。余白を付けた大きさで読む（エフェクトが切り抜きの外へはみ出す）。 */
+function prepHorseFx(src, kind) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const PAD = 0.55;
+      // 表示は高さ 175px（×2.1 の余白）。毎コマ描くので画素を増やし過ぎない（画素密度の 1.5 倍まで）
+      const H = Math.round(175 * Math.min(1.5, window.devicePixelRatio || 1)), s = H / img.naturalHeight;
+      const iw = img.naturalWidth * s, ih = H;
+      const W = Math.round(iw * (1 + PAD * 2)), HH = Math.round(ih * (1 + PAD * 2));
+      const m = cpuCanvas(W, HH);
+      m.getContext('2d').drawImage(img, iw * PAD, ih * PAD, iw, ih);
+      const pt = fxPainter(kind, m, W, HH, 7);
+      resolve(pt ? { pt, W, H: HH, src } : null);
+    };
+    img.onerror = () => resolve(null);
+    img.src = src;
+  });
+}
+/** 切り抜きが無い馬（配合の育成馬は撮った絵を持たない）は、スキル名の字の形から。 */
+function prepNameFx(name, kind) {
+  const W = 760, H = 260;
+  const m = cpuCanvas(W, H);
+  const mg = m.getContext('2d');
+  const size = Math.min(76, (W * 0.86) / Math.max(4, name.length));
+  mg.font = `italic 900 ${size}px ${getComputedStyle(document.body).getPropertyValue('--font') || 'sans-serif'}`;
+  mg.textAlign = 'center'; mg.textBaseline = 'middle';
+  mg.fillStyle = '#fff';
+  mg.fillText(name, W / 2, H / 2);
+  const pt = fxPainter(kind, m, W, H, 11, { unit: 0.7 });
+  if (!pt) return null;
+  // 字は CSS の見出しと同じ白 → 主の色のグラデーション
+  const F = I.SKILL_FX[kind];
+  const txt = document.createElement('canvas');
+  txt.width = W; txt.height = H;
+  const tg = txt.getContext('2d');
+  tg.font = mg.font; tg.textAlign = 'center'; tg.textBaseline = 'middle';
+  const gr = tg.createLinearGradient(0, H / 2 - size / 2, 0, H / 2 + size / 2);
+  gr.addColorStop(0.3, '#ffffff'); gr.addColorStop(0.8, F.color);
+  tg.fillStyle = 'rgba(30,10,0,.55)'; tg.fillText(name, W / 2, H / 2 + 4);
+  tg.fillStyle = gr; tg.fillText(name, W / 2, H / 2);
+  return { pt, W, H, txt };
+}
+/** 切り抜きを後ろ（オーラ）と前（稲妻・粒）の 2 枚の canvas で挟む。 */
+function ultHorse(v) {
+  const bk = el('canvas.bk', { width: v.W, height: v.H }), fr = el('canvas.fr', { width: v.W, height: v.H });
+  const box = el('div.ik-ultfx', [bk, el('img', { src: v.src, alt: '' }), fr]);
+  animateFx(box, v.pt, bk, fr);
+  return box;
+}
+function ultName(v) {
+  const cv = el('canvas.ik-ultname', { width: v.W, height: v.H });
+  const bk = document.createElement('canvas'), fr = document.createElement('canvas');
+  bk.width = fr.width = v.W; bk.height = fr.height = v.H;
+  const g = cv.getContext('2d');
+  animateFx(cv, v.pt, bk, fr, () => { g.clearRect(0, 0, v.W, v.H); g.drawImage(bk, 0, 0); g.drawImage(v.txt, 0, 0); g.drawImage(fr, 0, 0); });
+  return cv;
+}
+/** 2.6 秒のあいだ毎コマ描く（画面から外れたら止める）。 */
+function animateFx(node, pt, bk, fr, compose = null) {
+  const gb = bk.getContext('2d'), gf = fr.getContext('2d');
+  const t0 = performance.now();
+  const tick = () => {
+    const t = (performance.now() - t0) / 1000;
+    if (t > 2.7 || (t > 0.1 && !node.isConnected)) return;
+    gb.clearRect(0, 0, bk.width, bk.height);
+    gf.clearRect(0, 0, fr.width, fr.height);
+    pt.draw(gb, gf, t);
+    compose?.();
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
 }
 
 // ---------------------------------------------------------------- 完成馬
@@ -1478,7 +1570,7 @@ function cardEditView(app, go) {
       if (!stage || !canvas.isConnected) return;
       // 騎手の点のドラッグは騎手を作り直すので、動かした分をまとめて 1 コマに 1 回だけ当てる
       if (rigDirty) { rigDirty = false; stage.setRig(A.rig); }
-      stage.render(artRenderer(), canvas, 3);
+      stage.render(artRenderer(), canvas, 3, A.fx in I.SKILL_FX ? A.fx : null);
       hs = null;
       if (showHandles()) drawHandles();
     });
@@ -1609,7 +1701,7 @@ function cardEditView(app, go) {
   const chips = (opts, cur, pick, mark = () => false) => el('div.ikce-chips', Object.entries(opts).map(([k, v]) => el(`button.ikce-chip${cur === k ? '.on' : ''}${mark(k) ? '.set' : ''}`, { text: v, onclick: () => pick(k) })));
   const panel = el('div.ikce-panel');
   const tabsBar = el('nav.tabs.ikce-tabs');
-  const TABS = { pose: 'ポーズ', shot: '構図', gear: '馬具', silks: '勝負服', name: '二つ名' };
+  const TABS = { pose: 'ポーズ', shot: '構図', fx: 'エフェクト', gear: '馬具', silks: '勝負服', name: '二つ名' };
   const showTab = (t) => {
     E.tab = t;
     tabsBar.replaceChildren(...Object.entries(TABS).map(([id, n]) => el('button.tab', { text: n, class: id === t ? 'on' : null, onclick: () => showTab(id) })));
@@ -1708,6 +1800,24 @@ function cardEditView(app, go) {
         el('p.note', { text: 'カメラは絵をドラッグで回し、ホイールで寄る。' }),
         row('回り込み', camSl.az), row('高さ', camSl.el), row('画角', camSl.fov),
         el('div.ik-gbtns', [button('カメラを構えに戻す', () => { A.camera = null; stage?.setCamera(cam()); draw(); syncCamSliders(); }, { cls: 'sm' })]),
+      ];
+    }
+    if (t === 'fx') {
+      // 固有スキルのエフェクト。絵に描くのは選んだときだけ（おまかせは絵に付けず、観戦は固有のカードの既定）
+      const uc = h.cardId ? I.uniqueCardOf(I.cardById(h.cardId)) : h.unique ? I.cardById(h.unique) : null;
+      const uq = uc ? I.uniqueOf(uc) : null;
+      const auto = uc ? I.uniqueFxOf(uc) : null;
+      const cur = A.fx ?? 'auto';
+      const pick = (k) => { A.fx = k === 'auto' ? undefined : k; showTab('fx'); };
+      const chip = (k, name, color = null) => el(`button.ikce-chip.ikce-fx${cur === k ? '.on' : ''}`, { style: color ? `--c:${color}` : null, onclick: () => pick(k) }, [color ? el('i') : null, name]);
+      return [
+        row('エフェクト', el('div.ikce-chips', [
+          chip('auto', 'おまかせ'), chip('none', 'なし'),
+          ...Object.entries(I.SKILL_FX).map(([k, f]) => chip(k, f.name, f.color)),
+        ])),
+        el('p.note', { text: uq
+          ? `固有スキル「${uq.name}」の発動（観戦の 3D とカットイン）にも、このエフェクトが出る。おまかせは絵に描かず、発動は${I.SKILL_FX[auto].name}。なしは発動の演出もエフェクトなし。`
+          : 'この馬は固有スキルを持たないので、エフェクトはカードの絵だけに付く（LM の親から固有を受け継いだ馬は発動にも出る）。' }),
       ];
     }
     if (t === 'gear') {
@@ -1888,7 +1998,7 @@ function eventView(app, go) {
     const out = I.eventRace(p, E.horse, ev.id, E.star);
     save(app);
     if (out.reward?.isNew) app.ikNew = true;
-    app.ikRace = { race: out.result, looks: looksOf(out.field), mine: [100], order: out.order, back: 'event', backParams: { ev: ev.id },
+    app.ikRace = { race: out.result, looks: looksOf(out.field, p), mine: [100], order: out.order, back: 'event', backParams: { ev: ev.id },
       title: `${ev.name}（${'☆'.repeat(E.star)}）`, fired: out.fired, reward: out.reward };
     sound.play(out.order === 1 ? 'bell' : out.order <= 3 ? 'win' : 'ok');
     go('result');
@@ -1949,7 +2059,7 @@ function battleView(app, go) {
   const runNpc = () => {
     const out = I.battleNpc(p, B.horse, B.race, B.diff);
     save(app);
-    app.ikRace = { race: out.result, looks: looksOf(out.field), mine: [100], order: out.order, back: 'battle', title: `ランク戦 ${out.race.name}（${I.DIFFICULTY[B.diff].name}）`, fired: out.fired };
+    app.ikRace = { race: out.result, looks: looksOf(out.field, p), mine: [100], order: out.order, back: 'battle', title: `ランク戦 ${out.race.name}（${I.DIFFICULTY[B.diff].name}）`, fired: out.fired };
     sound.play(out.order === 1 ? 'bell' : out.order <= 3 ? 'win' : 'ok');
     go('result');
   };
@@ -1957,7 +2067,7 @@ function battleView(app, go) {
     if (B.own.length < 2) return toast('2 頭以上を選ぶ', { bad: true });
     const out = I.battleOwn(p, B.own, B.race);
     save(app);
-    app.ikRace = { race: out.result, looks: looksOf(out.field), mine: out.field.map((f) => f.id), back: 'battle', title: `完成馬対決 ${out.race.name}`, fired: out.fired };
+    app.ikRace = { race: out.result, looks: looksOf(out.field, p), mine: out.field.map((f) => f.id), back: 'battle', title: `完成馬対決 ${out.race.name}`, fired: out.fired };
     sound.play('bell');
     go('result');
   };
