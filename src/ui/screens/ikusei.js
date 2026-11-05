@@ -1174,7 +1174,8 @@ function skillEffects(R, race, fx, view) {
     const card = R.looks?.get(c.id)?.artCard ?? null;
     if (card) cardArtIfReady(card).then((a) => {
       c.img = a?.sticker?.url ?? null;
-      if (c.img && c.kind) prepHorseFx(c.img, c.kind).then((v) => { c.horseFx = v; });
+      // 馬の走る向きは切り抜きの頭の位置から（頭が左なら左へ走る。粒は後ろへ流す）
+      if (c.img && c.kind) prepHorseFx(c.img, c.kind, (a.sticker.focus?.x ?? 0.3) < 0.5 ? -1 : 1).then((v) => { c.horseFx = v; });
     });
   }
   let speed = 1, slowUntil = 0, slowTimer = 0, lastT = 0, lane = 0;
@@ -1242,7 +1243,7 @@ function skillEffects(R, race, fx, view) {
  */
 const cpuCanvas = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; c.getContext('2d', { willReadFrequently: true }); return c; };
 /** 馬の切り抜き（ステッカー）の形から。余白を付けた大きさで読む（エフェクトが切り抜きの外へはみ出す）。 */
-function prepHorseFx(src, kind) {
+function prepHorseFx(src, kind, dir = -1) {
   return new Promise((resolve) => {
     const img = new Image();
     img.onload = () => {
@@ -1253,7 +1254,7 @@ function prepHorseFx(src, kind) {
       const W = Math.round(iw * (1 + PAD * 2)), HH = Math.round(ih * (1 + PAD * 2));
       const m = cpuCanvas(W, HH);
       m.getContext('2d').drawImage(img, iw * PAD, ih * PAD, iw, ih);
-      const pt = fxPainter(kind, m, W, HH, 7);
+      const pt = fxPainter(kind, m, W, HH, 7, { dir });
       resolve(pt ? { pt, W, H: HH, src } : null);
     };
     img.onerror = () => resolve(null);
@@ -1270,7 +1271,8 @@ function prepNameFx(name, kind) {
   mg.textAlign = 'center'; mg.textBaseline = 'middle';
   mg.fillStyle = '#fff';
   mg.fillText(name, W / 2, H / 2);
-  const pt = fxPainter(kind, m, W, H, 11, { unit: 0.7 });
+  // 字の帯は右へ滑り込むので、粒は左へ流す
+  const pt = fxPainter(kind, m, W, H, 11, { unit: 0.7, dir: 1 });
   if (!pt) return null;
   // 字は CSS の見出しと同じ白 → 主の色のグラデーション
   const F = I.SKILL_FX[kind];
@@ -1570,7 +1572,7 @@ function cardEditView(app, go) {
       if (!stage || !canvas.isConnected) return;
       // 騎手の点のドラッグは騎手を作り直すので、動かした分をまとめて 1 コマに 1 回だけ当てる
       if (rigDirty) { rigDirty = false; stage.setRig(A.rig); }
-      stage.render(artRenderer(), canvas, 3, A.fx in I.SKILL_FX ? A.fx : null);
+      stage.render(artRenderer(), canvas, 3, A.fx in I.SKILL_FX ? { kind: A.fx, dir: A.facing === 'right' ? 1 : -1 } : null);
       hs = null;
       if (showHandles()) drawHandles();
     });

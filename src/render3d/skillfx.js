@@ -1,9 +1,13 @@
 // 固有スキルの発動のエフェクト（イナズマ・燃えるオーラ・氷結・桜吹雪・疾風・金色の光・漆黒のオーラ・星屑）。
 // 種類と色は sim/ikusei-skills.js の SKILL_FX。見た目だけで、走行ログ（結果）には触らない。
 //
-// - 2D（fxPainter）：馬と騎手の形（撮影の舞台の mask・切り抜きのステッカー）を受け取り、形の後ろ（オーラ）と前（稲妻・粒）を描く。
-//   カードの絵（cardart.js が焼き込む）・カードエディットの生の舞台・観戦のカットインで同じ描き方を使う。
-//   形の縁の点と外向きの向きを最初に一度だけ拾い、コマごとに時刻 t で描く（毎コマ形を読み直さない）。
+// オーラは粒（パーティクル）で作る。以前は形をぼかした光を明滅させ、炎は多角形の舌を伸び縮みさせていたので、
+// 止まった光の塊とぎくしゃくした炎に見えた。粒は形の縁（2D）・馬の体の表面（3D）から連続して湧き、上がる・外へ広がる・
+// 後ろへ流れる。粒ごとに寿命と位相をずらし、生まれと消えは滑らかに（smoothstep）、色は芯 → 主の色 → 光の色へ移す。
+// 稲妻・花びら・星・氷の棘などは、その上に重ねる飾り。
+//
+// - 2D（fxPainter）：カードの絵（cardart.js が焼き込む）・カードエディットの生の舞台・観戦のカットインで同じ描き方。
+//   形の縁の点と外向きを最初に一度だけ拾い、粒の位置は時刻 t から式で決める（状態を持たない。同じ t は同じ絵）。
 // - 3D（createFx3d）：観戦の馬の組に付ける粒（スプライト）と稲妻の帯。深度テストを切って馬群に埋もれない（目印と同じ）。
 //
 // 乱数は Math.random を使わない（同じ絵を撮り直すと同じ形になるように。カードの絵は鍵で覚えている）。
@@ -23,40 +27,105 @@ const rngOf = (seed) => {
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 };
+/** 整数の混ぜ合わせ（粒の生まれ直しごとに出どころの点を選ぶ。配列を作らずに毎コマ引ける）。 */
+const h32 = (x) => {
+  x = Math.imul(x ^ (x >>> 16), 0x7feb352d);
+  x = Math.imul(x ^ (x >>> 15), 0x846ca68b);
+  return (x ^ (x >>> 16)) >>> 0;
+};
 const canvasOf = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; };
 const rgba = (hex, a) => {
   const n = parseInt(hex.slice(1), 16);
   return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${Math.max(0, Math.min(1, a)).toFixed(3)})`;
 };
-const ease = (x) => 1 - (1 - Math.max(0, Math.min(1, x))) ** 3;
+const clamp01 = (x) => Math.max(0, Math.min(1, x));
+const ease = (x) => 1 - (1 - clamp01(x)) ** 3;
+const smooth = (a, b, x) => { const t = clamp01((x - a) / (b - a)); return t * t * (3 - 2 * t); };
+/** 粒の一生の濃さ：ふわっと現れ、半ばから溶けるように消える（直線で上げ下げすると点滅に見えた）。 */
+const lifeEnv = (k) => smooth(0, 0.2, k) * (1 - smooth(0.45, 1, k));
+// 漆黒の暗い粒の色。真っ黒だと汚れに見えたので、深い紫に寄せる
+const DARK = '#1c0838';
+const mixHex = (a, b, t) => {
+  const p = parseInt(a.slice(1), 16), q = parseInt(b.slice(1), 16);
+  const ch = (s) => Math.round(((p >> s) & 255) * (1 - t) + ((q >> s) & 255) * t);
+  return `#${((ch(16) << 16) | (ch(8) << 8) | ch(0)).toString(16).padStart(6, '0')}`;
+};
 
 // ---------------------------------------------------------------- 2D
 
 /**
+ * オーラの粒（2D）。速さ・大きさは形の高さ 300px あたりの px（単位 u を掛ける）。
+ * rise 上へ・out 縁の外へ・trail 走る向きの後ろへ（px/秒）、size 半径、grow 一生で大きくなる割合（負は縮む）、
+ * ramp 色の移り（core・color・glow・dark）、a 濃さ、front 馬の前に描く割合（体を包んで見せる。前は薄く）、
+ * stretch 縦横の伸び（炎は縦、風は横）、dark 暗い粒の割合（普通の合成で地を沈める。漆黒）。
+ */
+const AURA2 = {
+  radiance: { n: 280, life: [0.7, 1.3], rise: 70, out: 26, trail: 30, size: [9, 19], grow: 0.9, ramp: ['core', 'color', 'glow'], a: 0.5, front: 0.18 },
+  thunder: { n: 240, life: [0.25, 0.55], rise: 14, out: 60, trail: 70, size: [7, 14], grow: 0.6, ramp: ['core', 'glow', 'glow'], a: 0.55, front: 0.25, flicker: true },
+  flame: { n: 460, life: [0.4, 0.85], rise: 190, out: 22, trail: 90, size: [14, 28], grow: -0.6, ramp: ['core', 'color', 'glow'], a: 0.52, front: 0.16, stretch: [0.85, 1.35], up: 0.8 },
+  frost: { n: 260, life: [0.8, 1.5], rise: -14, out: 30, trail: 45, size: [8, 15], grow: 0.9, ramp: ['core', 'color', 'glow'], a: 0.42, front: 0.22 },
+  sakura: { n: 220, life: [0.9, 1.6], rise: 34, out: 28, trail: 55, size: [9, 17], grow: 0.8, ramp: ['core', 'color', 'glow'], a: 0.4, front: 0.2 },
+  gale: { n: 280, life: [0.35, 0.7], rise: 8, out: 14, trail: 360, size: [7, 13], grow: 0.4, ramp: ['core', 'color', 'glow'], a: 0.5, front: 0.3, stretch: [2.6, 0.5] },
+  shadow: { n: 380, life: [0.6, 1.2], rise: 125, out: 22, trail: 60, size: [14, 27], grow: 0.7, ramp: ['color', 'glow', 'dark'], a: 0.52, front: 0.12, dark: 0.45, up: 0.6 },
+  star: { n: 250, life: [0.8, 1.4], rise: 30, out: 26, trail: 40, size: [8, 15], grow: 0.8, ramp: ['core', 'color', 'glow'], a: 0.45, front: 0.25 },
+};
+
+// 粒の布：色ごとに 8 段（一生の進みで段を進める）。白い丸をぼかした絵を色で染めておく（毎コマ放射グラデーションを作らない）
+const spriteCache = new Map();
+function rampSprites(kind) {
+  if (spriteCache.has(kind)) return spriteCache.get(kind);
+  const F = SKILL_FX[kind];
+  const cols = AURA2[kind].ramp.map((k) => (k === 'dark' ? DARK : F[k]));
+  const S = 48, m = S / 2;
+  const make = (hex, core = 1) => {
+    const c = canvasOf(S, S);
+    const g = c.getContext('2d');
+    const gr = g.createRadialGradient(m, m, 0, m, m, m);
+    gr.addColorStop(0, rgba(hex, core));
+    gr.addColorStop(0.35, rgba(hex, 0.55 * core));
+    gr.addColorStop(0.7, rgba(hex, 0.14 * core));
+    gr.addColorStop(1, rgba(hex, 0));
+    g.fillStyle = gr;
+    g.fillRect(0, 0, S, S);
+    return c;
+  };
+  const steps = Array.from({ length: 8 }, (_, i) => {
+    const t = (i / 7) * (cols.length - 1);
+    const j = Math.min(cols.length - 2, Math.floor(t));
+    return make(mixHex(cols[j], cols[j + 1], t - j));
+  });
+  const out = { steps, dark: make(DARK) };
+  spriteCache.set(kind, out);
+  return out;
+}
+
+/**
  * 形からエフェクトを描く係を作る。mask は透明の地に形のある絵（Image・canvas）。w・h は描く大きさ。
  * draw(back, front, t, { still, alpha }) で、back（形の後ろに描く 2D の文脈）と front（形の前）に時刻 t 秒の絵を描く。
- * still はカードの絵（現れて消える動きを付けず、いちばん見栄えのする姿で止める）。
+ * still はカードの絵（現れて消える動きを付けず、粒が出そろった姿で止める）。
+ * dir は馬の走る向き（−1 で画面の左へ、+1 で右へ、0 は分からない）。粒は逆へ流れる。
  */
-export function fxPainter(kind, mask, w, h, seed = 1, { unit = null } = {}) {
+export function fxPainter(kind, mask, w, h, seed = 1, { unit = null, dir = -1 } = {}) {
   const F = SKILL_FX[kind];
-  if (!F || !mask) return null;
+  const A = AURA2[kind];
+  if (!F || !A || !mask) return null;
   const sc = canvasOf(w, h);
   const sg = sc.getContext('2d', { willReadFrequently: true });
   sg.drawImage(mask, 0, 0, w, h);
   const data = sg.getImageData(0, 0, w, h).data;
-  const A = (x, y) => (x < 0 || y < 0 || x >= w || y >= h ? 0 : data[(y * w + x) * 4 + 3]);
+  const AL = (x, y) => (x < 0 || y < 0 || x >= w || y >= h ? 0 : data[(y * w + x) * 4 + 3]);
   let x0 = w, y0 = h, x1 = -1, y1 = -1;
   const step = Math.max(2, Math.round(Math.min(w, h) / 150));
   const edges = [];
   for (let y = 0; y < h; y += step) {
     for (let x = 0; x < w; x += step) {
-      if (A(x, y) < 110) continue;
+      if (AL(x, y) < 110) continue;
       if (x < x0) x0 = x; if (x > x1) x1 = x;
       if (y < y0) y0 = y; if (y > y1) y1 = y;
-      if (A(x - step, y) >= 110 && A(x + step, y) >= 110 && A(x, y - step) >= 110 && A(x, y + step) >= 110) continue;
+      if (AL(x - step, y) >= 110 && AL(x + step, y) >= 110 && AL(x, y - step) >= 110 && AL(x, y + step) >= 110) continue;
       // 外向きの向きは、少し離れた所の濃さの差（形の外へ向く）
       const d = step * 3;
-      let nx = A(x - d, y) - A(x + d, y), ny = A(x, y - d) - A(x, y + d);
+      let nx = AL(x - d, y) - AL(x + d, y), ny = AL(x, y - d) - AL(x, y + d);
       const l = Math.hypot(nx, ny);
       if (l < 1) continue;
       nx /= l; ny /= l;
@@ -67,57 +136,114 @@ export function fxPainter(kind, mask, w, h, seed = 1, { unit = null } = {}) {
   const box = { x0, y0, x1, y1, w: x1 - x0, h: y1 - y0, cx: (x0 + x1) / 2, cy: (y0 + y1) / 2 };
   // 大きさの単位（形の高さ 300px で 1）。字の形（カットインのスキル名）は背が低いので呼ぶ側が決める
   const u = unit ?? Math.max(0.35, box.h / 300);
-  // 縁の点を種で選ぶ（コマが変わっても同じ点から出す）。上を向く縁（背・頭・騎手）を多めに
   const r0 = rngOf(seed);
-  const pick = (n, up = 0) => {
-    const out = [];
-    for (let i = 0; i < n * 6 && out.length < n; i++) {
-      const e = edges[Math.floor(r0() * edges.length)];
-      if (up && e.ny > 0.2 && r0() < up) continue;
-      out.push({ ...e, ph: r0() * Math.PI * 2, k: 0.6 + r0() * 0.6, r: r0() });
-    }
-    return out;
-  };
-  // 形の光（膨らませてぼかした形）。filter の無い環境はずらして重ねるだけ
-  const glow = (() => {
+  // オーラの出どころ：縁の点。上へ立ち上る種類（炎・漆黒）は上を向く縁（背・頭・騎手）を重く選ぶ
+  const pool = [];
+  for (const [i, e] of edges.entries()) {
+    pool.push(i);
+    if (A.up && e.ny < -0.25) for (let j = 0; j < 3 * A.up; j++) pool.push(i);
+  }
+  // 粒ごとの性質（寿命・位相・大きさ・揺れ・前か後ろか）。位置は時刻から式で出す
+  const parts = Array.from({ length: A.n }, (_, i) => ({
+    L: A.life[0] + r0() * (A.life[1] - A.life[0]),
+    ph: r0(),
+    s: A.size[0] + r0() * (A.size[1] - A.size[0]),
+    wob: 4 + r0() * 10, wf: 3 + r0() * 5, wp: r0() * 6.283,
+    jit: r0() - 0.3,
+    front: r0() < A.front,
+    dark: A.dark ? r0() < A.dark : false,
+    sp: 0.75 + r0() * 0.5,
+  }));
+  // 形のすぐ外の薄い光（粒のあいだを埋めて、オーラが形に沿って見えるように。主役は粒）
+  const rim = (() => {
     const c = canvasOf(w, h);
     const g = c.getContext('2d');
-    const R = 10 * u;
-    if (typeof g.filter === 'string') g.filter = `blur(${(9 * u).toFixed(1)}px)`;
-    for (let a = 0; a < 12; a++) {
-      const t = (a / 12) * Math.PI * 2;
+    const R = 5 * u;
+    if (typeof g.filter === 'string') g.filter = `blur(${(6 * u).toFixed(1)}px)`;
+    for (let a = 0; a < 10; a++) {
+      const t = (a / 10) * Math.PI * 2;
       g.drawImage(mask, Math.cos(t) * R, Math.sin(t) * R, w, h);
     }
     g.filter = 'none';
     g.globalCompositeOperation = 'source-in';
-    g.fillStyle = F.glow;
+    g.fillStyle = A.ramp[0] === 'color' ? F.color : F.glow;
     g.fillRect(0, 0, w, h);
     return c;
   })();
+  const r1 = rngOf(seed + 17);
   const P = {
-    flames: pick(70, 0.85), spikes: pick(46), bolts: pick(24, 0.6), motes: Array.from({ length: 60 }, () => ({ a: r0(), b: r0(), c: r0(), d: r0(), e: r0() })),
+    spikes: pickEdges(edges, r1, 30), bolts: pickEdges(edges, r1, 24, 0.6),
+    motes: Array.from({ length: 60 }, () => ({ a: r1(), b: r1(), c: r1(), d: r1(), e: r1() })),
   };
-  const ctx = { F, w, h, box, u, glow, P, edges, seed };
+  const ctx = { F, A, w, h, box, u, rim, P, edges, pool, parts, seed, trail: -Math.sign(dir || 0), spr: rampSprites(kind) };
   return {
     box,
     draw(back, front, t, { still = false, alpha = 1 } = {}) {
-      const env = still ? 1 : Math.min(ease(t / 0.22), 1 - ease((t - 2.1) / 0.5)) ;
+      const env = still ? 1 : Math.min(ease(t / 0.22), 1 - ease((t - 2.1) / 0.5));
       const k = Math.max(0, env) * alpha;
       if (k <= 0) return;
       for (const g of [back, front]) { g.save(); g.globalAlpha = 1; }
       SOFT = still;
+      drawAura(back, front, t, k, ctx, still);
       DRAW[kind](back, front, t, k, ctx, still);
       for (const g of [back, front]) g.restore();
     },
   };
 }
 
-/** 形の光を後ろに重ねる（どの種類も下地にする）。 */
-function aura(g, c, k, pulse = 1, comp = 'lighter') {
-  g.globalCompositeOperation = comp;
-  g.globalAlpha = Math.min(1, k * pulse);
-  g.drawImage(c.glow, 0, 0);
-  g.globalAlpha = 1;
+function pickEdges(edges, r, n, up = 0) {
+  const out = [];
+  for (let i = 0; i < n * 6 && out.length < n; i++) {
+    const e = edges[Math.floor(r() * edges.length)];
+    if (up && e.ny > 0.2 && r() < up) continue;
+    out.push({ ...e, ph: r() * Math.PI * 2, k: 0.6 + r() * 0.6, r: r() });
+  }
+  return out;
+}
+
+/**
+ * オーラの粒を描く。粒 i は寿命 L ごとに生まれ直し、生まれ直すたびに出どころの点を (i, 何度目か) から選ぶ。
+ * 発動の瞬間より前に生まれるはずの粒は描かない（オーラが湧き上がって育つ）。終わり際は新しく生まれない（溶けて消える）。
+ * カードの絵（still）は出そろった姿の 1 コマ。
+ */
+function drawAura(b, f, t, k, c, still) {
+  const { A, u, edges, pool, parts, spr, trail } = c;
+  // 形のすぐ外の薄い光
+  b.globalCompositeOperation = 'lighter';
+  b.globalAlpha = Math.min(1, k * 0.32);
+  b.drawImage(c.rim, 0, 0);
+  const T = still ? 2.2 : t;
+  const flick = A.flicker && !still ? 0.6 + 0.4 * ((h32(Math.floor(t / 0.05) + c.seed) % 1000) / 1000) : 1;
+  for (let i = 0; i < parts.length; i++) {
+    const q = parts[i];
+    const tt = T + q.ph * q.L;
+    const cyc = Math.floor(tt / q.L);
+    const age = tt - cyc * q.L;
+    const born = T - age;
+    if (!still && (born < 0 || born > 2.0)) continue;
+    const kk = age / q.L;
+    const e = edges[pool[h32(i * 7919 + cyc * 104729 + c.seed * 31) % pool.length]];
+    const v = q.sp;
+    const x = e.x + e.nx * (q.jit * 8 * u + A.out * v * u * age) + trail * A.trail * v * u * age
+      + Math.sin(age * q.wf + q.wp) * q.wob * u * kk;
+    const y = e.y + e.ny * (q.jit * 8 * u + A.out * v * u * age) - A.rise * v * u * age;
+    const s = Math.max(0.15, q.s * u * (1 + A.grow * kk));
+    const a = A.a * lifeEnv(kk) * k * flick * (q.front ? 0.5 : 1);
+    if (a < 0.01) continue;
+    const g = q.front ? f : b;
+    const [sx, sy] = A.stretch ?? [1, 1];
+    if (q.dark) {
+      g.globalCompositeOperation = 'source-over';
+      g.globalAlpha = Math.min(1, a * 0.95);
+      g.drawImage(spr.dark, x - s * 1.2, y - s * 1.2, s * 2.4, s * 2.4);
+    } else {
+      g.globalCompositeOperation = 'lighter';
+      g.globalAlpha = Math.min(1, a);
+      const img = spr.steps[Math.min(7, Math.floor(kk * 8))];
+      g.drawImage(img, x - s * sx, y - s * sy, s * 2 * sx, s * 2 * sy);
+    }
+  }
+  b.globalAlpha = 1; f.globalAlpha = 1;
 }
 
 // 稲妻の折れ線（始点から向きへ長さ L、n 折れ）。r は乱数
@@ -144,22 +270,6 @@ function strokeBolt(g, pts, F, u, k, wide = 1) {
   g.strokeStyle = rgba(F.color, 0.95 * k); g.lineWidth = 4 * u * wide; path(); g.stroke();
   g.shadowBlur = 0;
   g.strokeStyle = rgba(F.core, k); g.lineWidth = 1.6 * u * wide; path(); g.stroke();
-}
-// 炎の舌（根元 x,y から向き dx,dy へ長さ L、幅 W）
-function tongue(g, x, y, dx, dy, L, W, c0, c1, a) {
-  const px = -dy, py = dx;
-  const tx = x + dx * L, ty = y + dy * L;
-  const gr = g.createLinearGradient(x, y, tx, ty);
-  gr.addColorStop(0, rgba(c0, a));
-  gr.addColorStop(0.45, rgba(c1, a * 0.85));
-  gr.addColorStop(1, rgba(c1, 0));
-  g.fillStyle = gr;
-  g.beginPath();
-  g.moveTo(x + px * W, y + py * W);
-  g.quadraticCurveTo(x + dx * L * 0.45 + px * W * 1.1, y + dy * L * 0.45 + py * W * 1.1, tx, ty);
-  g.quadraticCurveTo(x + dx * L * 0.45 - px * W * 1.1, y + dy * L * 0.45 - py * W * 1.1, x - px * W, y - py * W);
-  g.closePath();
-  g.fill();
 }
 function star(g, x, y, R, n, inner, rot = 0) {
   g.beginPath();
@@ -195,8 +305,9 @@ function petal(g, x, y, s, rot, F, a) {
   g.restore();
 }
 
+// 種類ごとの飾り（オーラの粒の上に重ねる）
 const DRAW = {
-  // 金色の光：後ろから射す光の筋と金の粒
+  // 金色の光：後ろから射す光の筋と、きらめき
   radiance(b, f, t, k, c, still) {
     const { F, box, u, P, w, h } = c;
     b.globalCompositeOperation = 'lighter';
@@ -207,37 +318,31 @@ const DRAW = {
       const a = rot + (i / 18) * Math.PI * 2;
       const wd = (i % 2 ? 0.05 : 0.09);
       const gr = b.createRadialGradient(box.cx, box.cy, 0, box.cx, box.cy, R);
-      gr.addColorStop(0, rgba(F.core, 0.5 * k)); gr.addColorStop(0.35, rgba(F.color, 0.28 * k)); gr.addColorStop(1, rgba(F.glow, 0));
+      gr.addColorStop(0, rgba(F.core, 0.42 * k)); gr.addColorStop(0.35, rgba(F.color, 0.22 * k)); gr.addColorStop(1, rgba(F.glow, 0));
       b.fillStyle = gr;
       b.beginPath(); b.moveTo(box.cx, box.cy);
       b.lineTo(box.cx + Math.cos(a - wd) * R, box.cy + Math.sin(a - wd) * R);
       b.lineTo(box.cx + Math.cos(a + wd) * R, box.cy + Math.sin(a + wd) * R);
       b.closePath(); b.fill();
     }
-    aura(b, c, k, 0.9);
-    for (const m of P.motes.slice(0, 34)) {
+    for (const m of P.motes.slice(0, 26)) {
       const x = box.x0 - 40 * u + m.a * (box.w + 80 * u);
       const y = box.y1 - ((m.b * (box.h + 120 * u) + (still ? 0 : t * (40 + m.c * 60) * u)) % (box.h + 120 * u));
       const tw = still ? 0.6 + m.d * 0.4 : 0.5 + 0.5 * Math.sin(t * 9 + m.e * 9);
       glint(f, x, y, (5 + m.c * 10) * u, F.color, F.core, k * tw);
     }
   },
-  // イナズマ：青白い光の縁と、形から外へ走る稲妻・空から落ちる一本
+  // イナズマ：空から落ちる一本と、形から外へ走る稲妻（0.07 秒ごとに形を変えて瞬く）
   thunder(b, f, t, k, c, still) {
     const { F, box, u, P, w } = c;
     const fi = still ? 3 : Math.floor(t / 0.07);
     const r = rngOf(c.seed * 31 + fi * 977);
-    const flick = still ? 1 : 0.65 + 0.35 * r();
-    aura(b, c, k, 1.15 * flick);
-    aura(b, c, k * 0.5, flick);
-    // 空から落ちる稲妻（形の上の縁の点へ）
     const top = P.bolts.filter((e) => e.ny < -0.3);
     const hit = top[Math.floor(r() * top.length)] ?? P.bolts[0];
     const sx = hit.x + (r() - 0.5) * 140 * u, sy = Math.max(0, box.y0 - 260 * u);
     const L = Math.hypot(hit.x - sx, hit.y - sy);
     strokeBolt(b, zigzag(r, sx, sy, (hit.x - sx) / L, (hit.y - sy) / L, L, 9, 22 * u), F, u, k, 1.3);
-    // 縁から外へ走る稲妻（折れて枝分かれする）
-    const n = still ? 6 : 4 + Math.floor(r() * 3);
+    const n = still ? 6 : 3 + Math.floor(r() * 3);
     for (let i = 0; i < n; i++) {
       const e = P.bolts[Math.floor(r() * P.bolts.length)];
       const L2 = (45 + r() * 110) * u;
@@ -249,64 +354,42 @@ const DRAW = {
         strokeBolt(f, zigzag(r, m[0], m[1], Math.cos(a), Math.sin(a), L2 * 0.5, 4, 9 * u), F, u, k * 0.7, 0.5);
       }
     }
-    for (let i = 0; i < 10; i++) {
-      const e = P.bolts[Math.floor(r() * P.bolts.length)];
-      glint(f, e.x + e.nx * r() * 30 * u, e.y + e.ny * r() * 30 * u, (4 + r() * 7) * u, F.glow, F.core, k);
-    }
-    if (!still && fi % 9 === 0) { f.globalCompositeOperation = 'lighter'; f.fillStyle = rgba(F.core, 0.18 * k); f.fillRect(0, 0, w, c.h); }
+    if (!still && fi % 9 === 0) { f.globalCompositeOperation = 'lighter'; f.fillStyle = rgba(F.core, 0.16 * k); f.fillRect(0, 0, w, c.h); }
   },
-  // 燃えるオーラ：縁から立ち上る炎の舌と、舞い上がる火の粉
+  // 燃えるオーラ：炎はオーラの粒そのもの。舞い上がる火の粉だけ足す
   flame(b, f, t, k, c, still) {
-    const { F, box, u, P } = c;
-    aura(b, c, k, 1.2);
-    b.globalCompositeOperation = 'lighter';
-    for (const e of P.flames) {
-      const fl = still ? 0.85 + e.r * 0.3 : 0.7 + 0.45 * Math.sin(t * (8 + e.k * 5) + e.ph) * Math.sin(t * 3.1 + e.ph * 2);
-      // 炎は上へ立ち上る（縁の外向きを少し混ぜる）
-      let dx = e.nx * 0.45, dy = e.ny * 0.45 - 1;
-      const l = Math.hypot(dx, dy); dx /= l; dy /= l;
-      const L = (40 + e.k * 60) * u * fl;
-      tongue(b, e.x, e.y, dx, dy, L, (9 + e.k * 7) * u, F.core, F.color, 0.8 * k);
-      tongue(b, e.x, e.y, dx, dy, L * 1.3, (13 + e.k * 8) * u, F.color, F.glow, 0.32 * k);
-    }
-    // 前にも小さい炎を少し（脚と胴の下の縁）
-    for (const e of P.flames.slice(0, 18)) {
-      if (e.ny < 0.2) continue;
-      const fl = still ? 0.8 : 0.6 + 0.4 * Math.sin(t * 11 + e.ph);
-      tongue(f, e.x, e.y, 0, -1, (22 + e.k * 20) * u * fl, 6 * u, F.core, F.color, 0.55 * k);
-    }
-    for (const m of P.motes.slice(0, 40)) {
+    const { box, u, P } = c;
+    const spr = c.spr.steps;
+    for (const m of P.motes.slice(0, 44)) {
       const H = box.h + 160 * u;
-      const y = box.y1 + 20 * u - ((m.b * H + (still ? 0 : t * (90 + m.c * 120) * u)) % H);
-      const x = box.x0 + m.a * box.w + Math.sin((still ? 0 : t) * 3 + m.d * 9) * 18 * u;
-      const s = (2 + m.c * 4) * u;
+      const y = box.y1 + 20 * u - ((m.b * H + (still ? 0 : t * (110 + m.c * 140) * u)) % H);
+      const x = box.x0 + m.a * box.w + Math.sin((still ? 0 : t) * 3 + m.d * 9) * 18 * u + c.trail * (still ? 0 : t) * 30 * u * m.e;
+      const s = (2.5 + m.c * 4) * u;
       f.globalCompositeOperation = 'lighter';
-      f.fillStyle = rgba(F.core, k * (0.6 + m.e * 0.4));
-      f.shadowColor = F.glow; f.shadowBlur = SOFT ? 8 * u : 0;
-      f.beginPath(); f.arc(x, y, s, 0, Math.PI * 2); f.fill();
+      f.globalAlpha = k * (0.55 + m.e * 0.45);
+      f.drawImage(spr[1 + Math.floor(m.d * 3)], x - s * 1.6, y - s * 1.6, s * 3.2, s * 3.2);
     }
-    f.shadowBlur = 0;
+    f.globalAlpha = 1;
   },
   // 氷結：縁から外へ伸びる氷の棘と、舞う結晶
   frost(b, f, t, k, c, still) {
     const { F, box, u, P } = c;
-    aura(b, c, k, 1.1);
     const grow = still ? 1 : ease(t / 0.5);
     for (const e of P.spikes) {
-      const L = (18 + e.k * 46) * u * grow;
-      const W = (4 + e.k * 4) * u;
+      const L = (16 + e.k * 40) * u * grow;
+      const W = (3.5 + e.k * 3.5) * u;
       const px = -e.ny, py = e.nx;
       const tx = e.x + e.nx * L, ty = e.y + e.ny * L;
       const g = e.r < 0.75 ? b : f;
       g.globalCompositeOperation = 'lighter';
       const gr = g.createLinearGradient(e.x, e.y, tx, ty);
-      gr.addColorStop(0, rgba(F.glow, 0.55 * k)); gr.addColorStop(0.6, rgba(F.color, 0.75 * k)); gr.addColorStop(1, rgba(F.core, 0.95 * k));
+      gr.addColorStop(0, rgba(F.glow, 0.45 * k)); gr.addColorStop(0.6, rgba(F.color, 0.7 * k)); gr.addColorStop(1, rgba(F.core, 0.9 * k));
       g.fillStyle = gr;
       g.beginPath(); g.moveTo(e.x + px * W, e.y + py * W); g.lineTo(tx, ty); g.lineTo(e.x - px * W, e.y - py * W); g.closePath(); g.fill();
-      g.strokeStyle = rgba(F.core, 0.8 * k); g.lineWidth = 1.2 * u;
+      g.strokeStyle = rgba(F.core, 0.75 * k); g.lineWidth = 1.2 * u;
       g.beginPath(); g.moveTo(e.x, e.y); g.lineTo(tx, ty); g.stroke();
     }
-    for (const m of P.motes.slice(0, 30)) {
+    for (const m of P.motes.slice(0, 26)) {
       const x = box.x0 - 60 * u + m.a * (box.w + 120 * u);
       const H = box.h + 160 * u;
       const y = box.y0 - 60 * u + ((m.b * H + (still ? 0 : t * (20 + m.c * 30) * u)) % H);
@@ -320,10 +403,9 @@ const DRAW = {
       if (m.d > 0.7) glint(f, x, y, R * 1.4, F.glow, F.core, k * 0.8);
     }
   },
-  // 桜吹雪：やわらかな桃色の光と、馬を巻いて舞う花びら（半分は後ろ、半分は前）
+  // 桜吹雪：馬を巻いて舞う花びら（半分は後ろ、半分は前）
   sakura(b, f, t, k, c, still) {
     const { F, box, u, P } = c;
-    aura(b, c, k * 0.85, 1);
     const tt = still ? 0.9 : t;
     for (const [i, m] of P.motes.entries()) {
       const ang = m.a * Math.PI * 2 + tt * (0.9 + m.c * 0.8);
@@ -335,10 +417,9 @@ const DRAW = {
       if (i % 6 === 0) glint(f, x, y, 10 * u, F.color, F.core, k * 0.5);
     }
   },
-  // 疾風：馬を巻く風の弧（後ろの半周と前の半周）と、流れる葉
+  // 疾風：馬を巻く風の弧（後ろの半周と前の半周）。後ろへ流れる筋はオーラの粒が受け持つ
   gale(b, f, t, k, c, still) {
     const { F, box, u, P } = c;
-    aura(b, c, k * 0.9, 1);
     const tt = still ? 0.7 : t;
     for (let i = 0; i < 9; i++) {
       const m = P.motes[i];
@@ -356,7 +437,7 @@ const DRAW = {
           const inHalf = lo === 0 ? Math.sin(mid) > 0 : Math.sin(mid) <= 0;
           if (!inHalf) continue;
           const q = j / N;
-          g.strokeStyle = rgba(q > 0.8 ? F.core : F.color, k * q * 0.9);
+          g.strokeStyle = rgba(q > 0.8 ? F.core : F.color, k * q * 0.85);
           g.lineWidth = (1.5 + q * 4.5) * u;
           g.beginPath();
           g.moveTo(box.cx + Math.cos(s0) * rx, cy + Math.sin(s0) * ry);
@@ -365,54 +446,25 @@ const DRAW = {
         }
       }
     }
-    // 後ろへ流れる筋
-    for (const m of P.motes.slice(10, 34)) {
-      const y = box.y0 + m.b * box.h;
-      const span = box.w + 300 * u;
-      const x = box.x1 + 100 * u - ((m.a * span + (still ? 0 : t * (500 + m.c * 400) * u)) % span);
-      const L = (30 + m.d * 70) * u;
-      const g = m.e < 0.5 ? b : f;
-      const gr = g.createLinearGradient(x, y, x + L, y);
-      gr.addColorStop(0, rgba(F.core, 0.8 * k)); gr.addColorStop(1, rgba(F.color, 0));
-      g.globalCompositeOperation = 'lighter';
-      g.strokeStyle = gr; g.lineWidth = 2 * u;
-      g.beginPath(); g.moveTo(x, y); g.lineTo(x + L, y); g.stroke();
-    }
   },
-  // 漆黒のオーラ：暗い紫の炎（地を暗く沈める）と紫の縁、立ち上る黒い靄
+  // 漆黒のオーラ：暗い粒と紫の粒が立ち上る（オーラの粒）。飾りは紫の火の粉だけ
   shadow(b, f, t, k, c, still) {
-    const { F, box, u, P } = c;
-    // 暗さは加算では出せないので、まず普通の合成で地を沈める
-    b.globalCompositeOperation = 'source-over';
-    b.globalAlpha = 0.75 * k;
-    b.drawImage(c.glow, 0, 0);
-    b.globalAlpha = 1;
-    for (const e of P.flames) {
-      const fl = still ? 0.85 + e.r * 0.3 : 0.7 + 0.4 * Math.sin(t * (6 + e.k * 4) + e.ph);
-      let dx = e.nx * 0.5, dy = e.ny * 0.5 - 1;
-      const l = Math.hypot(dx, dy); dx /= l; dy /= l;
-      b.globalCompositeOperation = 'source-over';
-      tongue(b, e.x, e.y, dx, dy, (50 + e.k * 70) * u * fl, (12 + e.k * 9) * u, '#1a0630', '#3a0c6e', 0.55 * k);
-      b.globalCompositeOperation = 'lighter';
-      tongue(b, e.x, e.y, dx, dy, (30 + e.k * 45) * u * fl, (6 + e.k * 5) * u, F.core, F.color, 0.5 * k);
-    }
-    aura(b, c, k * 0.55, 1);
-    for (const m of P.motes.slice(0, 26)) {
+    const { box, u, P } = c;
+    const spr = c.spr.steps;
+    for (const m of P.motes.slice(0, 24)) {
       const H = box.h + 140 * u;
-      const y = box.y1 - ((m.b * H + (still ? 0 : t * (50 + m.c * 60) * u)) % H);
+      const y = box.y1 - ((m.b * H + (still ? 0 : t * (60 + m.c * 70) * u)) % H);
       const x = box.x0 + m.a * box.w + Math.sin((still ? 0 : t) * 2 + m.d * 9) * 20 * u;
-      const R = (10 + m.c * 16) * u;
-      const gr = f.createRadialGradient(x, y, 0, x, y, R);
-      gr.addColorStop(0, rgba(F.color, 0.55 * k)); gr.addColorStop(1, rgba(F.glow, 0));
+      const s = (2.5 + m.c * 3.5) * u;
       f.globalCompositeOperation = 'lighter';
-      f.fillStyle = gr;
-      f.beginPath(); f.arc(x, y, R, 0, Math.PI * 2); f.fill();
+      f.globalAlpha = k * (0.5 + m.e * 0.5);
+      f.drawImage(spr[0], x - s * 1.6, y - s * 1.6, s * 3.2, s * 3.2);
     }
+    f.globalAlpha = 1;
   },
-  // 星屑：青紫の光と、馬を巡る星の帯
+  // 星屑：馬を巡る星の帯
   star(b, f, t, k, c, still) {
     const { F, box, u, P } = c;
-    aura(b, c, k, 1.05);
     const tt = still ? 1.1 : t;
     for (const [i, m] of P.motes.entries()) {
       const ang = m.a * Math.PI * 2 + tt * (1.4 + m.c * 0.6);
@@ -445,13 +497,10 @@ function tex(shape) {
   const g = c.getContext('2d');
   const m = S / 2;
   if (shape === 'soft') {
+    // オーラの粒：芯から縁へなだらかに（縁の硬い丸は粒が粒に見えて、オーラにならない）
     const gr = g.createRadialGradient(m, m, 0, m, m, m);
-    gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.35, 'rgba(255,255,255,0.6)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
-    g.fillStyle = gr; g.fillRect(0, 0, S, S);
-  } else if (shape === 'flame') {
-    tongue(g, m, S * 0.9, 0, -1, S * 0.85, S * 0.2, '#ffffff', '#ffffff', 1);
-    const gr = g.createRadialGradient(m, S * 0.72, 0, m, S * 0.72, m * 0.6);
-    gr.addColorStop(0, 'rgba(255,255,255,0.9)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+    gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.3, 'rgba(255,255,255,0.6)');
+    gr.addColorStop(0.65, 'rgba(255,255,255,0.16)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
     g.fillStyle = gr; g.fillRect(0, 0, S, S);
   } else if (shape === 'petal') {
     petal(g, m, m, m * 0.8, 0, { core: '#ffffff', color: '#ffffff' }, 1);
@@ -472,53 +521,155 @@ function tex(shape) {
   return t;
 }
 
-// 種類ごとの粒：shape（布）・数・色・合成、born（生まれる所と速さ）、寿命
+/**
+ * オーラの粒（3D、馬の組の座標。前が +z）。速さは m/秒：rise 上へ・out 体の外へ・trail 後ろ（−z）へ。
+ * size は半径 m、grow は一生で大きくなる割合、ramp は色の移り、dark は暗い粒の割合（漆黒）、stretch は縦横の伸び。
+ */
+const AURA3 = {
+  radiance: { n: 110, life: [0.6, 1.1], rise: 1.4, out: 0.35, trail: 1.0, size: [0.165, 0.315], grow: 0.8, ramp: ['core', 'color', 'glow'] },
+  thunder: { n: 100, life: [0.2, 0.45], rise: 0.3, out: 1.3, trail: 2.0, size: [0.12, 0.24], grow: 0.5, ramp: ['core', 'glow', 'glow'], flicker: true },
+  flame: { n: 160, life: [0.4, 0.8], rise: 2.6, out: 0.3, trail: 2.4, size: [0.195, 0.375], grow: -0.5, ramp: ['core', 'color', 'glow'], stretch: [0.85, 1.4] },
+  frost: { n: 100, life: [0.7, 1.3], rise: -0.15, out: 0.45, trail: 1.4, size: [0.15, 0.285], grow: 0.8, ramp: ['core', 'color', 'glow'] },
+  sakura: { n: 90, life: [0.8, 1.4], rise: 0.5, out: 0.45, trail: 1.6, size: [0.15, 0.27], grow: 0.8, ramp: ['core', 'color', 'glow'] },
+  gale: { n: 120, life: [0.3, 0.6], rise: 0.1, out: 0.2, trail: 8, size: [0.12, 0.225], grow: 0.4, ramp: ['core', 'color', 'glow'], stretch: [2.8, 0.45] },
+  shadow: { n: 150, life: [0.5, 1.0], rise: 1.9, out: 0.3, trail: 1.6, size: [0.225, 0.413], grow: 0.7, ramp: ['color', 'glow', 'dark'], dark: 0.45 },
+  star: { n: 100, life: [0.7, 1.2], rise: 0.5, out: 0.4, trail: 1.2, size: [0.15, 0.27], grow: 0.8, ramp: ['core', 'color', 'glow'] },
+};
+
+// 飾りの粒（オーラの上に重ねる）：shape（布）・数・合成、born（生まれる所と速さ）、寿命
 const KIND3 = {
-  radiance: { shape: 'star', n: 40, blend: 'add', life: [0.7, 1.4], born: (r) => ({ p: [(r() - 0.5) * 3, 0.2 + r() * 2.6, (r() - 0.5) * 3], v: [0, 1.2 + r() * 1.6, 0], s: 0.35 + r() * 0.45 }) },
-  flame: { shape: 'flame', n: 64, blend: 'split', life: [0.35, 0.75], colorRamp: true, op: 0.6, born: (r) => { const a = r() * Math.PI * 2; return { p: [Math.cos(a) * 0.75, 0.3 + r() * 1.7, Math.sin(a) * 1.25], v: [Math.cos(a) * 0.4, 2.4 + r() * 2.2, Math.sin(a) * 0.4], s: 0.6 + r() * 0.6, grow: -0.6 }; } },
-  frost: { shape: 'shard', n: 40, blend: 'add', life: [0.8, 1.5], born: (r) => { const a = r() * Math.PI * 2; return { p: [Math.cos(a) * 0.6, 0.4 + r() * 1.8, Math.sin(a) * 0.9], v: [Math.cos(a) * 2.2, (r() - 0.3) * 1.2, Math.sin(a) * 2.2], s: 0.3 + r() * 0.5, spin: (r() - 0.5) * 4 }; } },
-  sakura: { shape: 'petal', n: 64, blend: 'normal', life: [1.2, 2.2], swirl: 2.4, vivid: true, born: (r) => ({ a: r() * Math.PI * 2, rad: 1.2 + r() * 1.6, p: [0, 0.2 + r() * 1.6, 0], v: [0, 0.6 + r() * 0.9, 0], s: 0.26 + r() * 0.2, spin: (r() - 0.5) * 6 }) },
+  radiance: { shape: 'star', n: 30, blend: 'add', life: [0.7, 1.4], born: (r) => ({ p: [(r() - 0.5) * 3, 0.2 + r() * 2.6, (r() - 0.5) * 3], v: [0, 1.2 + r() * 1.6, 0], s: 0.35 + r() * 0.45 }) },
+  flame: { shape: 'star', n: 28, blend: 'add', life: [0.5, 1.0], born: (r) => { const a = r() * Math.PI * 2; return { p: [Math.cos(a) * 0.7, 0.6 + r() * 1.6, Math.sin(a) * 1.1], v: [Math.cos(a) * 0.4, 3 + r() * 2, -1.5 - r()], s: 0.14 + r() * 0.12 }; } },
+  frost: { shape: 'shard', n: 30, blend: 'add', life: [0.8, 1.5], born: (r) => { const a = r() * Math.PI * 2; return { p: [Math.cos(a) * 0.6, 0.4 + r() * 1.8, Math.sin(a) * 0.9], v: [Math.cos(a) * 2.2, (r() - 0.3) * 1.2, Math.sin(a) * 2.2], s: 0.3 + r() * 0.5, spin: (r() - 0.5) * 4 }; } },
+  sakura: { shape: 'petal', n: 56, blend: 'normal', life: [1.2, 2.2], swirl: 2.4, vivid: true, born: (r) => ({ a: r() * Math.PI * 2, rad: 1.2 + r() * 1.6, p: [0, 0.2 + r() * 1.6, 0], v: [0, 0.6 + r() * 0.9, 0], s: 0.26 + r() * 0.2, spin: (r() - 0.5) * 6 }) },
   // 疾風の筋は画面の横（走る向き）に寝かせる。スプライトは画面の中で回るので、世界の向きで回すと筋が交差して見えた
-  gale: { shape: 'streak', n: 40, blend: 'add', life: [0.35, 0.7], swirl: 6, born: (r) => ({ a: r() * Math.PI * 2, rad: 1.2 + r() * 0.8, p: [0, 0.2 + r() * 2.2, 0], v: [0, 0.3 + r() * 0.5, 0], s: 0.7 + r() * 0.6, tilt: (r() - 0.5) * 0.3 }) },
-  shadow: { shape: 'soft', n: 56, blend: 'mix', life: [0.5, 1.0], born: (r) => { const a = r() * Math.PI * 2; return { p: [Math.cos(a) * 0.7, 0.2 + r() * 1.8, Math.sin(a) * 1.2], v: [Math.cos(a) * 0.3, 1.8 + r() * 1.6, Math.sin(a) * 0.3], s: 0.35 + r() * 0.45, grow: 0.6 }; } },
-  star: { shape: 'star5', n: 44, blend: 'add', life: [0.9, 1.6], swirl: 3.2, born: (r) => ({ a: r() * Math.PI * 2, rad: 1.4 + r() * 1.0, p: [0, 0.4 + r() * 2.4, 0], v: [0, 0.5 + r() * 0.8, 0], s: 0.2 + r() * 0.3, spin: (r() - 0.5) * 3 }) },
-  thunder: { shape: 'star', n: 24, blend: 'add', life: [0.15, 0.35], born: (r) => { const a = r() * Math.PI * 2; return { p: [Math.cos(a) * 0.9, 0.5 + r() * 1.8, Math.sin(a) * 1.3], v: [Math.cos(a) * 3, (r() - 0.5) * 2, Math.sin(a) * 3], s: 0.4 + r() * 0.5 }; } },
+  gale: { shape: 'streak', n: 24, blend: 'add', life: [0.35, 0.7], swirl: 6, born: (r) => ({ a: r() * Math.PI * 2, rad: 1.2 + r() * 0.8, p: [0, 0.2 + r() * 2.2, 0], v: [0, 0.3 + r() * 0.5, 0], s: 0.7 + r() * 0.6, tilt: (r() - 0.5) * 0.3 }) },
+  shadow: { shape: 'star', n: 20, blend: 'add', life: [0.6, 1.1], born: (r) => { const a = r() * Math.PI * 2; return { p: [Math.cos(a) * 0.6, 0.4 + r() * 1.6, Math.sin(a) * 1.0], v: [0, 1.6 + r() * 1.4, -1 - r()], s: 0.14 + r() * 0.14 }; } },
+  star: { shape: 'star5', n: 40, blend: 'add', life: [0.9, 1.6], swirl: 3.2, born: (r) => ({ a: r() * Math.PI * 2, rad: 1.4 + r() * 1.0, p: [0, 0.4 + r() * 2.4, 0], v: [0, 0.5 + r() * 0.8, 0], s: 0.2 + r() * 0.3, spin: (r() - 0.5) * 3 }) },
+  thunder: { shape: 'star', n: 20, blend: 'add', life: [0.15, 0.35], born: (r) => { const a = r() * Math.PI * 2; return { p: [Math.cos(a) * 0.9, 0.5 + r() * 1.8, Math.sin(a) * 1.3], v: [Math.cos(a) * 3, (r() - 0.5) * 2, Math.sin(a) * 3], s: 0.4 + r() * 0.5 }; } },
 };
 
 const col3 = (hex) => new THREE.Color(hex);
 
 /**
+ * 馬の体の表面の点を拾う係。source（馬の組）のメッシュの頂点を (メッシュ, 番号) で覚え、粒が生まれるたびに今の位置へ写す
+ * （脚や首は毎コマ動くので、最初に位置で覚えると体から離れたところに湧く）。影・目印など透明や前面に描く部品は除く。
+ */
+function surfaceOf(source, r, rider = null) {
+  if (!source) return null;
+  const meshes = [];
+  let total = 0;
+  source.updateMatrixWorld(true);
+  const sc = new THREE.Vector3();
+  source.traverse((o) => {
+    const m = [o.material].flat()[0];
+    if (!o.isMesh || !o.visible || !o.geometry?.attributes?.position || m?.transparent || m?.depthTest === false) return;
+    // 重みは部品の大きさ（外接球の半径の 2 乗＝表面積の目安）。頂点の数で選ぶと、細かく作った頭に粒が偏った
+    if (!o.geometry.boundingSphere) o.geometry.computeBoundingSphere();
+    o.matrixWorld.decompose(new THREE.Vector3(), new THREE.Quaternion(), sc);
+    const rr = o.geometry.boundingSphere.radius * Math.max(sc.x, sc.y, sc.z);
+    // 騎手は細かい部品が多く、重みの合計が馬の体を上回って粒が騎手に偏った。オーラは馬の体を主に包む
+    let onRider = false;
+    for (let p = o; p && p !== source; p = p.parent) if (p === rider) { onRider = true; break; }
+    const wgt = rr * rr * (onRider ? 0.2 : 1);
+    if (!(wgt > 0)) return;
+    meshes.push([o, wgt]);
+    total += wgt;
+  });
+  if (!total) return null;
+  const pick = [];
+  for (let i = 0; i < 400; i++) {
+    let x = r() * total;
+    for (const [o, wgt] of meshes) {
+      if (x < wgt) { pick.push([o, Math.floor(r() * o.geometry.attributes.position.count)]); break; }
+      x -= wgt;
+    }
+  }
+  return pick;
+}
+
+/**
  * 観戦の馬の組に付けるエフェクト。update(age, life, camera) を毎コマ呼ぶ（age は実時間の経過秒）。
+ * opts.source に馬の組を渡すと、オーラの粒が馬の体の表面から湧く（無ければ体の大きさの楕円体から）。rider は騎手の組（重みを下げる）。
  * 粒は寿命が来たら生まれ直し、最後の 0.6 秒は生まれ直さず消えていく。
  */
-export function createFx3d(kind, seed = 1) {
+export function createFx3d(kind, seed = 1, { source = null, rider = null } = {}) {
   const F = SKILL_FX[kind];
   const K = KIND3[kind];
-  if (!F || !K) return null;
+  const AU = AURA3[kind];
+  if (!F || !K || !AU) return null;
   const r = rngOf(seed);
   const group = new THREE.Group();
-  const cA = col3(F.color), cG = col3(F.glow), cC = col3(F.core);
-  const parts = [];
-  for (let i = 0; i < K.n; i++) {
-    const dark = K.blend === 'mix' && i % 2 === 0;
-    // split：半分は普通の合成（明るい空の前でも炎の色が残る。加算だけだと白く飛んだ）
-    const normal = K.blend === 'normal' || (K.blend === 'split' && i % 2 === 0) || dark;
+  const cA = col3(F.color), cG = col3(F.glow), cC = col3(F.core), cD = col3(DARK);
+  const surf = surfaceOf(source, r, rider);
+  const tmp = new THREE.Vector3();
+  const ctr = new THREE.Vector3();
+
+  // ---- オーラの粒
+  const rampCols = AU.ramp.map((k) => (k === 'dark' ? cD : col3(F[k])));
+  const rampAt = (k, out) => {
+    const t = clamp01(k) * (rampCols.length - 1);
+    const j = Math.min(rampCols.length - 2, Math.floor(t));
+    return out.copy(rampCols[j]).lerp(rampCols[j + 1], t - j);
+  };
+  const aura = [];
+  for (let i = 0; i < AU.n; i++) {
+    const dark = AU.dark ? r() < AU.dark : false;
+    // 半分は普通の合成（明るい空の前でも色が残る。加算だけだと白く飛んだ）、半分は加算（重なった所が光る）
+    const normal = dark || i % 2 === 0;
     const mat = new THREE.SpriteMaterial({
-      map: tex(K.shape), color: dark ? new THREE.Color('#14041f') : (K.vivid ? (i % 2 ? cA : cG) : i % 3 === 0 ? cC : cA).clone(), transparent: true, opacity: 0,
+      map: tex('soft'), color: dark ? cD.clone() : cA.clone(), transparent: true, opacity: 0,
       depthTest: false, depthWrite: false, blending: normal ? THREE.NormalBlending : THREE.AdditiveBlending,
     });
     const sp = new THREE.Sprite(mat);
-    sp.renderOrder = dark ? 20 : 21;
+    sp.renderOrder = dark ? 19 : 20;
+    group.add(sp);
+    aura.push({ sp, dark, normal, t0: -r() * AU.life[1], life: AU.life[1], p: new THREE.Vector3(), v: new THREE.Vector3(), s: 0, born: false });
+  }
+  const spawnAura = (pt, now) => {
+    // 出どころ：体の表面の点（今の位置）。外向きは体の芯（胴の中心の高さの前後の線）から離れる向き
+    if (surf) {
+      const [m, idx] = surf[Math.floor(r() * surf.length)];
+      tmp.fromBufferAttribute(m.geometry.attributes.position, idx);
+      m.localToWorld(tmp);
+      group.worldToLocal(tmp);
+    } else {
+      const a = r() * Math.PI * 2, b = Math.acos(2 * r() - 1);
+      tmp.set(Math.sin(b) * Math.cos(a) * 0.45, 1.35 + Math.cos(b) * 0.7, Math.sin(b) * Math.sin(a) * 1.1);
+    }
+    pt.p.copy(tmp);
+    const ox = tmp.x - ctr.x, oy = (tmp.y - ctr.y) * 0.6;
+    const ol = Math.hypot(ox, oy) || 1;
+    const sp = 0.7 + r() * 0.6;
+    pt.v.set((ox / ol) * AU.out * sp, (oy / ol) * AU.out * sp + AU.rise * sp, -AU.trail * sp);
+    pt.s = AU.size[0] + r() * (AU.size[1] - AU.size[0]);
+    pt.wob = r() * 6.283;
+    pt.t0 = now;
+    pt.life = AU.life[0] + r() * (AU.life[1] - AU.life[0]);
+    pt.born = true;
+  };
+
+  // ---- 飾りの粒
+  const parts = [];
+  for (let i = 0; i < K.n; i++) {
+    const normal = K.blend === 'normal';
+    const mat = new THREE.SpriteMaterial({
+      map: tex(K.shape), color: (K.vivid ? (i % 2 ? cA : cG) : i % 3 === 0 ? cC : cA).clone(), transparent: true, opacity: 0,
+      depthTest: false, depthWrite: false, blending: normal ? THREE.NormalBlending : THREE.AdditiveBlending,
+    });
+    const sp = new THREE.Sprite(mat);
+    sp.renderOrder = 21;
     group.add(sp);
     // 最初の生まれは寿命の中で散らす（一斉に生まれて一斉に消えない）
-    parts.push({ sp, dark, normal, t0: -r() * K.life[1] * 0.8, q: null });
+    parts.push({ sp, t0: -r() * K.life[1] * 0.8, q: null });
   }
   const spawn = (pt, now) => {
     pt.q = K.born(r);
     pt.t0 = now;
     pt.life = K.life[0] + r() * (K.life[1] - K.life[0]);
   };
-  // 稲妻：帯を 2 本（光と芯）ずつ、0.06 秒ごとに形を作り直す
+
+  // ---- 稲妻：帯を 2 本（光と芯）ずつ、0.06 秒ごとに形を作り直す
   const bolts = [];
   if (kind === 'thunder') {
     for (let i = 0; i < 4; i++) {
@@ -552,6 +703,8 @@ export function createFx3d(kind, seed = 1) {
       m.geometry.attributes.position.needsUpdate = true;
     }
   };
+  // カメラのすぐ近くの粒は消す（馬に寄ったカメラの前で、粒が画面を覆う大きさに写った）
+  const nearK = (p, ws) => clamp01((p.distanceTo(camL) * ws - 2.5) / 5);
   return {
     group,
     update(age, life, camera) {
@@ -560,7 +713,26 @@ export function createFx3d(kind, seed = 1) {
       camL.copy(camera.position);
       group.worldToLocal(camL);
       const ws = group.matrixWorld.getMaxScaleOnAxis();
+      // 体の芯（馬の組の原点の 1.35m 上）を粒の座標で
+      if (source) { ctr.set(0, 1.35, 0); source.localToWorld(ctr); group.worldToLocal(ctr); } else ctr.set(0, 1.35, 0);
       const fade = Math.min(1, age / 0.2) * (age > end ? Math.max(0, 1 - (age - end) / 0.6) : 1);
+      const flick = AU.flicker ? 0.6 + 0.4 * ((h32(Math.floor(age / 0.05) + seed) % 1000) / 1000) : 1;
+      const [sx, sy] = AU.stretch ?? [1, 1];
+      for (const pt of aura) {
+        let a = age - pt.t0;
+        if (!pt.born || a > pt.life) {
+          // 最初の生まれは 0〜寿命のあいだに散らす（発動の瞬間から湧き上がって育つ）
+          if (age < end && age >= Math.max(0, pt.t0 + (pt.born ? 0 : pt.life))) { spawnAura(pt, age); a = 0; } else { pt.sp.material.opacity = 0; continue; }
+        }
+        const k = a / pt.life;
+        const p = pt.sp.position;
+        p.copy(pt.p).addScaledVector(pt.v, a);
+        p.x += Math.sin(a * 5 + pt.wob) * 0.08 * k;
+        const s = Math.max(0.03, pt.s * (1 + AU.grow * k));
+        pt.sp.scale.set(s * 2 * sx, s * 2 * sy, 1);
+        if (!pt.dark) rampAt(k, pt.sp.material.color);
+        pt.sp.material.opacity = lifeEnv(k) * fade * flick * (pt.dark ? 0.6 : pt.normal ? 0.5 : 0.55) * nearK(p, ws);
+      }
       for (const pt of parts) {
         let a = age - pt.t0;
         if (pt.q == null || a > pt.life) {
@@ -570,19 +742,11 @@ export function createFx3d(kind, seed = 1) {
         let x = q.p[0] + q.v[0] * a, y = q.p[1] + q.v[1] * a, z = q.p[2] + q.v[2] * a;
         if (K.swirl) { const ang = q.a + a * K.swirl; x += Math.cos(ang) * q.rad; z += Math.sin(ang) * q.rad * 1.2; }
         pt.sp.position.set(x, y, z);
-        const s = q.s * (1 + (q.grow ?? 0) * k) * (kind === 'gale' ? 1 : 1);
-        pt.sp.scale.set(kind === 'gale' ? s * 1.6 : s, kind === 'flame' ? s * 1.5 : kind === 'gale' ? s * 0.2 : s, 1);
+        const s = q.s;
+        pt.sp.scale.set(kind === 'gale' ? s * 1.6 : s, kind === 'gale' ? s * 0.2 : s, 1);
         if (q.spin) pt.sp.material.rotation = q.spin * a;
         if (kind === 'gale') pt.sp.material.rotation = q.tilt;
-        const env = Math.min(1, k / 0.15) * (1 - k);
-        // カメラのすぐ近くの粒は消す（馬に寄ったカメラの前で、粒が画面を覆う大きさに写った）
-        const near = pt.sp.position.distanceTo(camL) * ws;
-        pt.sp.material.opacity = Math.max(0, env * fade * (pt.dark ? 0.7 : pt.normal && K.blend === 'split' ? 0.9 : K.op ?? 0.95) * Math.min(1, Math.max(0, (near - 2.5) / 5)));
-        // 炎は芯の色から光の色へ（上へ行くほど赤く）
-        if (K.colorRamp && !pt.dark) {
-          if (pt.normal) pt.sp.material.color.copy(cA).lerp(cG, Math.min(1, k * 1.4));
-          else pt.sp.material.color.copy(cC).lerp(cA, Math.min(1, k * 2)).lerp(cG, Math.max(0, k * 2 - 1));
-        }
+        pt.sp.material.opacity = lifeEnv(k) * fade * (K.blend === 'normal' ? 0.9 : 0.95) * nearK(pt.sp.position, ws);
       }
       if (bolts.length) {
         const fi = Math.floor(age / 0.06);

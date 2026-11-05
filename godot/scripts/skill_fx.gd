@@ -1,7 +1,8 @@
 extends Node3D
 ## 固有スキルの発動のエフェクト（ゲームの render3d/skillfx.js の createFx3d と同じ筋）。馬の組に付けて一緒に動かす。
 ## 種類と色は data.json の skillFx（JS の SKILL_FX）。見た目だけで、走行ログ（結果）には触らない。
-## 粒は CPUParticles3D（布は最初に一度だけ作って使い回す）、稲妻は帯の形を 0.06 秒ごとに作り直す。
+## オーラは馬の体の頂点から湧く粒（CPUParticles3D の DIRECTED_POINTS、ゲームの AURA3 と同じ値）。飾りの粒と稲妻をその上に重ねる。
+## 粒の布は最初に一度だけ作って使い回す。稲妻は帯の形を 0.06 秒ごとに作り直す。
 ## 深度テストを切って馬群に埋もれない（目印と同じ）。life 秒で消える（最後の 0.6 秒は粒を出さない）。
 
 const LIFE := 3.2
@@ -17,26 +18,48 @@ var bolt_frame := -1
 var ring: MeshInstance3D
 var pillar: MeshInstance3D
 var rng := RandomNumberGenerator.new()
+## 輪・柱・飾り・稲妻の組（カメラの距離で拡大する）。オーラの粒は拡大しない（出どころの体の頂点がずれる）
+var deco := Node3D.new()
+## 体の芯の高さ（この組の座標。体の頂点の高さの真ん中）
+var core_y := 1.35
 
 
-## kind（"thunder" など）と色 {color, glow, core}（"#rrggbb"）で組む。
-func setup(k: String, fx: Dictionary, seed: int) -> void:
+## オーラの粒（ゲームの skillfx.js の AURA3 と同じ値。速さは m/秒：rise 上へ・out 体の外へ・trail 後ろ（−z）へ、
+## size は半径 m、grow は一生で大きくなる割合、ramp は色の移り、dark は暗い粒の割合、stretch は縦横の伸び）
+const AURA := {
+	radiance = {n = 110, life = [0.6, 1.1], rise = 1.4, out = 0.35, trail = 1.0, size = [0.165, 0.315], grow = 0.8, ramp = ["core", "color", "glow"]},
+	thunder = {n = 100, life = [0.2, 0.45], rise = 0.3, out = 1.3, trail = 2.0, size = [0.12, 0.24], grow = 0.5, ramp = ["core", "glow", "glow"]},
+	flame = {n = 160, life = [0.4, 0.8], rise = 2.6, out = 0.3, trail = 2.4, size = [0.195, 0.375], grow = -0.5, ramp = ["core", "color", "glow"], stretch = Vector2(0.85, 1.4)},
+	frost = {n = 100, life = [0.7, 1.3], rise = -0.15, out = 0.45, trail = 1.4, size = [0.15, 0.285], grow = 0.8, ramp = ["core", "color", "glow"]},
+	sakura = {n = 90, life = [0.8, 1.4], rise = 0.5, out = 0.45, trail = 1.6, size = [0.15, 0.27], grow = 0.8, ramp = ["core", "color", "glow"]},
+	gale = {n = 120, life = [0.3, 0.6], rise = 0.1, out = 0.2, trail = 8.0, size = [0.12, 0.225], grow = 0.4, ramp = ["core", "color", "glow"], stretch = Vector2(2.8, 0.45)},
+	shadow = {n = 150, life = [0.5, 1.0], rise = 1.9, out = 0.3, trail = 1.6, size = [0.225, 0.413], grow = 0.7, ramp = ["color", "glow", "dark"], dark = 0.45},
+	star = {n = 100, life = [0.7, 1.2], rise = 0.5, out = 0.4, trail = 1.2, size = [0.15, 0.27], grow = 0.8, ramp = ["core", "color", "glow"]},
+}
+## 漆黒の暗い粒の色（真っ黒だと汚れに見えたので深い紫。ゲームと同じ）
+const DARK := Color("#1c0838")
+
+
+## kind（"thunder" など）と色 {color, glow, core}（"#rrggbb"）で組む。src は馬（horse_model.gd）：オーラの粒をその体の表面から出す。
+## 先に馬へ add_child してから呼ぶ（体の頂点をこの組の座標へ写すのに、木の中の位置が要る）。
+func setup(k: String, fx: Dictionary, seed: int, src: Node3D = null) -> void:
 	kind = k
 	rng.seed = seed
-	cols = {color = Color(fx.color), glow = Color(fx.glow), core = Color(fx.core)}
+	cols = {color = Color(fx.color), glow = Color(fx.glow), core = Color(fx.core), dark = DARK}
+	add_child(deco)
 	_ring_and_pillar()
+	_aura(src)
+	# 飾りの粒（オーラの上に重ねる）
 	match kind:
 		"radiance":
-			_add(_soft_parts("star", 40, [0.7, 1.4], Vector3(1.4, 1.3, 1.4), 1.6, 1.0, [0.6, 1.3], cols.color, true))
-		"flame":
-			var a := _soft_parts("flame", 48, [0.35, 0.75], Vector3(0.75, 0.9, 1.25), 3.4, 1.2, [0.6, 1.2], cols.color, false)
-			a.color_ramp = _ramp([cols.color, cols.glow])
-			_add(a)
-			var b := _soft_parts("flame", 32, [0.35, 0.7], Vector3(0.75, 0.9, 1.25), 3.0, 1.2, [0.5, 1.0], cols.core, true)
-			b.color_ramp = _ramp([cols.core, cols.color, cols.glow])
-			_add(b)
+			_add(_soft_parts("star", 30, [0.7, 1.4], Vector3(1.4, 1.3, 1.4), 1.6, 1.0, [0.6, 1.3], cols.color, true))
+		"flame", "shadow":
+			# 火の粉（漆黒は紫の火の粉）。炎そのものはオーラの粒
+			var e := _soft_parts("star", 26, [0.5, 1.0], Vector3(0.7, 0.8, 1.1), 3.0, 1.0, [0.14, 0.26], cols.core if kind == "flame" else cols.color, true)
+			e.direction = Vector3(0, 1, -0.5).normalized()
+			_add(e)
 		"frost":
-			var f := _soft_parts("shard", 40, [0.8, 1.5], Vector3(0.6, 0.9, 0.9), 2.2, 1.0, [0.3, 0.8], cols.color, true)
+			var f := _soft_parts("shard", 30, [0.8, 1.5], Vector3(0.6, 0.9, 0.9), 2.2, 1.0, [0.3, 0.8], cols.color, true)
 			f.direction = Vector3(1, 0, 0)
 			f.spread = 180.0
 			f.flatness = 0.6
@@ -44,7 +67,7 @@ func setup(k: String, fx: Dictionary, seed: int) -> void:
 			f.angular_velocity_max = 220.0
 			_add(f)
 		"sakura":
-			var s := _soft_parts("petal", 64, [1.2, 2.2], Vector3(1.6, 0.8, 1.9), 0.9, 0.4, [0.26, 0.46], cols.color, false)
+			var s := _soft_parts("petal", 56, [1.2, 2.2], Vector3(1.6, 0.8, 1.9), 0.9, 0.4, [0.26, 0.46], cols.color, false)
 			s.tangential_accel_min = 3.0
 			s.tangential_accel_max = 5.0
 			s.angular_velocity_min = -300.0
@@ -52,27 +75,149 @@ func setup(k: String, fx: Dictionary, seed: int) -> void:
 			s.color_ramp = _ramp([cols.color, cols.glow])
 			_add(s)
 		"gale":
-			var g := _soft_parts("streak", 40, [0.35, 0.7], Vector3(1.3, 1.1, 1.6), 0.6, 0.3, [0.9, 1.5], cols.color, true)
+			var g := _soft_parts("streak", 24, [0.35, 0.7], Vector3(1.3, 1.1, 1.6), 0.6, 0.3, [0.9, 1.5], cols.color, true)
 			g.tangential_accel_min = 8.0
 			g.tangential_accel_max = 12.0
 			_add(g)
-		"shadow":
-			_add(_soft_parts("soft", 28, [0.5, 1.0], Vector3(0.7, 0.9, 1.2), 2.2, 1.0, [0.6, 1.2], Color("#14041f"), false))
-			_add(_soft_parts("soft", 28, [0.5, 1.0], Vector3(0.7, 0.9, 1.2), 2.2, 1.0, [0.6, 1.1], cols.color, true))
 		"star":
-			var t := _soft_parts("star5", 44, [0.9, 1.6], Vector3(1.6, 1.2, 1.8), 0.8, 0.4, [0.3, 0.7], cols.core, true)
+			var t := _soft_parts("star5", 40, [0.9, 1.6], Vector3(1.6, 1.2, 1.8), 0.8, 0.4, [0.3, 0.7], cols.core, true)
 			t.tangential_accel_min = 3.0
 			t.tangential_accel_max = 5.0
 			t.color_ramp = _ramp([cols.core, cols.color])
 			_add(t)
 		"thunder":
-			_add(_soft_parts("star", 24, [0.15, 0.35], Vector3(0.9, 0.9, 1.3), 3.0, 2.0, [0.6, 1.3], cols.core, true))
+			_add(_soft_parts("star", 20, [0.15, 0.35], Vector3(0.9, 0.9, 1.3), 3.0, 2.0, [0.6, 1.3], cols.core, true))
 			for i in 4:
 				bolts.append({glow = _bolt_mesh(cols.glow, 0.75), core = _bolt_mesh(cols.core, 1.0)})
 
 
-func _add(p: CPUParticles3D) -> void:
-	add_child(p)
+## オーラ：馬の体の表面から湧き、上がる・外へ広がる・後ろへ流れる粒。粒は馬と一緒に動く（local_coords）。
+## 生まれと消えは色の段の不透明度で滑らかに（現れて、半ばから溶けて消える）、色は芯 → 主の色 → 光の色。
+## 半分は普通の合成（明るい空の前でも色が残る）、半分は加算（重なった所が光る）。漆黒は暗い粒の組を足す。
+func _aura(src: Node3D) -> void:
+	var A: Dictionary = AURA.get(kind, {})
+	if A.is_empty():
+		return
+	var pts := _surface_points(src)
+	var dark: float = A.get("dark", 0.0)
+	var n: int = A.n
+	var groups := [[int(n * (1.0 - dark) * 0.5), false, false], [int(n * (1.0 - dark) * 0.5), true, false]]
+	if dark > 0.0:
+		groups.append([int(n * dark), false, true])
+	var c0: Color = cols[A.ramp[0]]
+	var c1: Color = cols[A.ramp[1]]
+	var c2: Color = cols[A.ramp[2]]
+	for gdef in groups:
+		var p := CPUParticles3D.new()
+		p.amount = maxi(1, gdef[0])
+		p.lifetime = A.life[1]
+		p.lifetime_randomness = 1.0 - float(A.life[0]) / float(A.life[1])
+		p.local_coords = true
+		var life_avg := (float(A.life[0]) + float(A.life[1])) / 2.0
+		if pts.is_empty():
+			p.emission_shape = CPUParticles3D.EMISSION_SHAPE_BOX
+			p.emission_box_extents = Vector3(0.45, 0.7, 1.1)
+			p.position = Vector3(0, 1.35, 0)
+			p.direction = Vector3.UP
+			p.spread = 60.0
+		else:
+			# 出どころは体の頂点、向きは体の芯（胴の高さの前後の線）から外へ（ゲームの spawnAura と同じ）
+			p.emission_shape = CPUParticles3D.EMISSION_SHAPE_DIRECTED_POINTS
+			p.emission_points = pts
+			var nrm := PackedVector3Array()
+			for q in pts:
+				var o := Vector3(q.x, (q.y - core_y) * 0.6, 0.0)
+				nrm.append(o.normalized() if o.length() > 0.01 else Vector3.UP)
+			p.emission_normals = nrm
+			p.spread = 15.0
+		# 体の外へは初めの速さ、上と後ろへは加速で（寿命の間に、ゲームの「速さ × 時間」と同じくらい進む）
+		p.initial_velocity_min = float(A.out) * 0.7
+		p.initial_velocity_max = float(A.out) * 1.3
+		p.gravity = Vector3(0, float(A.rise), -float(A.trail)) * (2.0 / life_avg)
+		p.scale_amount_min = A.size[0] * 2.0
+		p.scale_amount_max = A.size[1] * 2.0
+		var grow: float = A.grow
+		var sc := Curve.new()
+		if grow >= 0.0:
+			sc.add_point(Vector2(0, 1.0 / (1.0 + grow)))
+			sc.add_point(Vector2(1, 1.0))
+		else:
+			sc.add_point(Vector2(0, 1.0))
+			sc.add_point(Vector2(1, 1.0 + grow))
+		p.scale_amount_curve = sc
+		# 色と濃さの段：ふわっと現れ（0〜0.2）、半ばから溶けて消える（0.45〜1）。直線で上げ下げすると点滅に見えた
+		var is_dark: bool = gdef[2]
+		var op := 0.6 if is_dark else (0.6 if not gdef[1] else 0.7)
+		var g := Gradient.new()
+		var cs := [DARK, DARK, DARK, DARK] if is_dark else [c0, c0.lerp(c1, 0.4), c1, c2]
+		g.offsets = PackedFloat32Array([0.0, 0.2, 0.45, 1.0])
+		g.colors = PackedColorArray([Color(cs[0], 0.0), Color(cs[1], op), Color(cs[2], op * 0.85), Color(cs[3], 0.0)])
+		p.color_ramp = g
+		var qm := QuadMesh.new()
+		qm.size = A.get("stretch", Vector2.ONE)
+		var m := StandardMaterial3D.new()
+		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		m.blend_mode = BaseMaterial3D.BLEND_MODE_ADD if gdef[1] else BaseMaterial3D.BLEND_MODE_MIX
+		m.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
+		m.billboard_keep_scale = true
+		m.no_depth_test = true
+		m.vertex_color_use_as_albedo = true
+		m.albedo_texture = _texture("soft")
+		m.render_priority = 1 if is_dark else 2
+		qm.material = m
+		p.mesh = qm
+		p.emitting = true
+		_add(p, false)
+
+
+## 馬の体の表面の点（この組の座標）。重みは部品の大きさ（AABB の対角の 2 乗）。頂点の数で選ぶと細かく作った頭に偏り、
+## 騎手は細かい部品が多くて重みの合計が馬の体を上回ったので、騎手の部品は 0.2 倍（ゲームの surfaceOf と同じ）。
+func _surface_points(src: Node3D) -> PackedVector3Array:
+	var out := PackedVector3Array()
+	if src == null or not is_inside_tree():
+		return out
+	var rider: Node3D = src.get("rider") if "rider" in src else null
+	# 手綱の円柱は毎コマ置き直す細い部品で、置く前は原点に重なっている（そこから下へ粒が湧いた）。出どころから外す
+	var skip := {}
+	if "reins" in src:
+		for rr in src.get("reins"):
+			for seg in rr[0]:
+				skip[seg] = true
+	var inv := global_transform.affine_inverse()
+	var items := []
+	var total := 0.0
+	for mi in src.find_children("*", "MeshInstance3D", true, false):
+		if skip.has(mi) or not mi.is_visible_in_tree() or mi.mesh == null or mi.mesh.get_surface_count() == 0 or self.is_ancestor_of(mi):
+			continue
+		var verts: PackedVector3Array = mi.mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
+		if verts.is_empty():
+			continue
+		var w: float = (mi.global_transform.basis * mi.mesh.get_aabb().size).length_squared()
+		if rider != null and (rider == mi or rider.is_ancestor_of(mi)):
+			w *= 0.2
+		items.append([mi, verts, w])
+		total += w
+	if total <= 0.0:
+		return out
+	for i in 400:
+		var x := rng.randf() * total
+		for it in items:
+			if x < it[2]:
+				var vv: PackedVector3Array = it[1]
+				out.append(inv * ((it[0] as MeshInstance3D).global_transform * vv[rng.randi() % vv.size()]))
+				break
+			x -= it[2]
+	# 体の芯の高さは点の高さの平均（馬の組の原点の高さはモデルの作りで違う）
+	var sy := 0.0
+	for q in out:
+		sy += q.y
+	core_y = sy / maxf(1.0, out.size())
+	return out
+
+
+func _add(p: CPUParticles3D, to_deco := true) -> void:
+	(deco if to_deco else self).add_child(p)
 	parts.append(p)
 
 
@@ -153,7 +298,7 @@ func _ring_and_pillar() -> void:
 	ring.scale = Vector3(1, 0.02, 1)
 	ring.position.y = 0.08
 	ring.material_override = m
-	add_child(ring)
+	deco.add_child(ring)
 	var pm := StandardMaterial3D.new()
 	pm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	pm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
@@ -171,7 +316,7 @@ func _ring_and_pillar() -> void:
 	pillar = MeshInstance3D.new()
 	pillar.mesh = cm
 	pillar.material_override = pm
-	add_child(pillar)
+	deco.add_child(pillar)
 
 
 func _bolt_mesh(col: Color, op: float) -> MeshInstance3D:
@@ -186,7 +331,7 @@ func _bolt_mesh(col: Color, op: float) -> MeshInstance3D:
 	m.render_priority = 3
 	mi.material_override = m
 	mi.mesh = ArrayMesh.new()
-	add_child(mi)
+	deco.add_child(mi)
 	return mi
 
 
@@ -205,7 +350,7 @@ func _process(delta: float) -> void:
 	var d := cam.global_position.distance_to(global_position) if cam else 30.0
 	# 遠いカメラでも読める大きさに（目印と同じ）。近いときは輪と柱を薄める（柱の中から見ると画面が覆われる）
 	var sc := clampf(d / 30.0, 1.0, 4.0)
-	scale = Vector3.ONE * sc
+	deco.scale = Vector3.ONE * sc
 	var near := clampf((d - 8.0) / 16.0, 0.0, 1.0)
 	var k := age / LIFE
 	var rt := clampf(age / (LIFE * 0.6), 0.0, 1.0)
@@ -225,7 +370,7 @@ func _update_bolts(cam: Camera3D, end: float) -> void:
 	if fi == bolt_frame:
 		return
 	bolt_frame = fi
-	var cl := to_local(cam.global_position) if cam else Vector3(30, 2, 0)
+	var cl := deco.to_local(cam.global_position) if cam else Vector3(30, 2, 0)
 	for i in bolts.size():
 		var b: Dictionary = bolts[i]
 		var on := age < end and rng.randf() < (0.9 if i == 0 else 0.55)
@@ -285,8 +430,10 @@ static func _texture(shape: String) -> Texture2D:
 			var a := 0.0
 			match shape:
 				"soft":
-					a = clampf(1.0 - sqrt(px * px + py * py), 0.0, 1.0)
-					a = a * a
+					# オーラの粒：芯から縁へなだらかに（縁の硬い丸は粒が粒に見えて、オーラにならない）
+					# ゲームの布と同じ段（芯 1・0.3 で 0.6・0.65 で 0.16・縁 0）
+					var rs := sqrt(px * px + py * py)
+					a = lerpf(1.0, 0.6, rs / 0.3) if rs < 0.3 else (lerpf(0.6, 0.16, (rs - 0.3) / 0.35) if rs < 0.65 else clampf(lerpf(0.16, 0.0, (rs - 0.65) / 0.35), 0.0, 1.0))
 				"star":
 					# 4 本の細い光の筋と、ぼけた芯（ゲームの glint と同じ形）
 					var r := sqrt(px * px + py * py)

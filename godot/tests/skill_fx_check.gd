@@ -9,6 +9,7 @@ var frames := 0
 var cams: Array = []
 var views: Array = []
 var fxs: Array = []
+var pending: Array = []
 
 
 func _init() -> void:
@@ -56,8 +57,9 @@ func _init() -> void:
 		cam.look_at_from_position(Vector3(12, 2.2, 4.2), Vector3(0, 1.4, 0))
 		var fx := Node3D.new()
 		fx.set_script(FX)
-		fx.setup(kinds[i], data.skillFx[kinds[i]], 9)
 		h.add_child(fx)
+		# 組むのは木に入ってから（オーラの粒の出どころ＝馬の体の頂点を、木の中の位置で写す）
+		pending.append([fx, kinds[i], data.skillFx[kinds[i]], h])
 		fxs.append(fx)
 		var lb := Label.new()
 		lb.text = data.skillFx[kinds[i]].name
@@ -70,6 +72,10 @@ func _init() -> void:
 
 func _tick() -> void:
 	frames += 1
+	if frames == 1:
+		for q in pending:
+			q[0].setup(q[1], q[2], 9, q[3])
+		return
 	# 粒が出そろうまで（エフェクトの経過 1 秒）待ってから撮る。コマが重いので、コマ数ではなく経過で見る
 	if frames < 0 or not is_instance_valid(fxs[0]) or fxs[0].age < 1.0:
 		return

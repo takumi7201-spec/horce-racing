@@ -96,11 +96,11 @@ function stickerOf(maskUrl, head = null) {
  * 固有スキルのエフェクト（カードエディットで選んだもの）を、馬と騎手の形の後ろ（オーラ）と前（稲妻・粒）の 2 枚に焼き込む。
  * 止めた絵なので、いちばん見栄えのする姿（still）で描く。
  */
-export function bakeFx(kind, maskUrl, seed = 1) {
+export function bakeFx(kind, maskUrl, seed = 1, dir = -1) {
   return new Promise((resolve) => {
     const img = new Image();
     img.onload = () => {
-      const pt = fxPainter(kind, img, W, H, seed);
+      const pt = fxPainter(kind, img, W, H, seed, { dir });
       if (!pt) { resolve(null); return; }
       const b = document.createElement('canvas'), f = document.createElement('canvas');
       b.width = f.width = W; b.height = f.height = H;
@@ -215,7 +215,7 @@ function shoot(card) {
     const ring = v.mask ? await ringOf(v.mask) : null;
     const baked = await bakeBlur(v.background);
     const sticker = v.mask ? await stickerOf(v.mask, v.head) : null;
-    const fx = card.fxArt && v.mask ? await bakeFx(card.fxArt, v.mask, card.hid ?? 1) : null;
+    const fx = card.fxArt && v.mask ? await bakeFx(card.fxArt, v.mask, card.hid ?? 1, card.facing === 'right' ? 1 : -1) : null;
     return { bg: baked ?? v.background, bgBaked: !!baked, fg: v.subject, ring, sun: v.sun, sticker, fx };
   });
   chain = p.catch(() => {});

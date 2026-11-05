@@ -1109,8 +1109,9 @@ func _show_cue(c: Dictionary, rr = null) -> void:
 	if rr != null and String(c.get("fx", "")) != "" and not fxd.is_empty():
 		var fx := Node3D.new()
 		fx.set_script(SKILL_FX)
-		fx.setup(String(c.fx), fxd, int(c.gate) * 977 + int(race_t * 1000.0))
+		# 先に馬へ付けてから組む（オーラの粒の出どころ＝馬の体の頂点を、この組の座標へ写す）
 		rr.node.add_child(fx)
+		fx.setup(String(c.fx), fxd, int(c.gate) * 977 + int(race_t * 1000.0), rr.node)
 	var pc := PanelContainer.new()
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = Color("#f3a332") if c.get("unique", false) else (Color("#a7cb0e") if c.mine else Color(0.07, 0.19, 0.21, 0.85))

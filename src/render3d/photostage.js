@@ -594,7 +594,7 @@ export function createPoseStage(o) {
       st.wind?.update(0, 17, camera);
     },
     /** canvas（2D）へ描く。blur は背景のぼかし（px）。 */
-    // fx：固有スキルのエフェクトの種類（カードエディットの見本。焼き込むカードの絵と同じ描き方）
+    // fx：固有スキルのエフェクト（{ kind, dir }。カードエディットの見本。焼き込むカードの絵と同じ描き方）
     render(renderer, canvas, blur = 3, fx = null) {
       const w = canvas.width, h = canvas.height;
       const g = canvas.getContext('2d');
@@ -620,7 +620,7 @@ export function createPoseStage(o) {
         const hidden = st.subject.children.filter((c) => !keep.has(c) && c.visible);
         for (const c of hidden) c.visible = false;
         renderer.render(st.scene, camera);
-        pt = fxPainter(fx, renderer.domElement, w, h, o.hero?.id ?? 1);
+        pt = fxPainter(fx.kind, renderer.domElement, w, h, o.hero?.id ?? 1, { dir: fx.dir ?? -1 });
         for (const c of hidden) c.visible = true;
         if (pt) {
           front = document.createElement('canvas');

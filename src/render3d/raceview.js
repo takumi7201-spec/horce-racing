@@ -489,7 +489,7 @@ export function createRaceView(canvas, race, opts = {}) {
     const h = horses.find((x) => x.id === id);
     if (!h) return;
     // 固有スキルのエフェクト（skillfx.js）。輪と光の柱もその色にし、粒が舞い終えるまで少し長く光らせる
-    const fx3 = fx ? createFx3d(fx, id * 977 + Math.round(performance.now())) : null;
+    const fx3 = fx ? createFx3d(fx, id * 977 + Math.round(performance.now()), { source: h.group, rider: h.rider }) : null;
     if (fx3) color = new THREE.Color(SKILL_FX[fx].color).getHex();
     const mk = (geo, opts = {}) => new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
       color, transparent: true, opacity: 0, depthTest: false, depthWrite: false,
