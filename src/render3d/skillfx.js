@@ -1180,9 +1180,16 @@ function makeTornado3d(F, r) {
   for (let i = 0; i < 4; i++) {
     ribbons.push({ mesh: mkStrip(lineMap, 18), phi: r() * 6.283, w: 10 + r() * 3, y0: 0.2 + r() * 0.6, span: 1.3, thick: 0.07, line: true, i: 10 + i });
   }
-  // 衝撃波の輪（白と主の色の輪が軸を囲んで後ろへ流れる）
+  // 衝撃波の輪（白と主の色の輪が軸を囲んで後ろへ流れる）。平たい円盤だと横から見て線になったので、帯と同じく毎コマ置き直す輪の帯
+  const NR = 48;
   const rings = [0, 1, 2].map((i) => {
-    const m = new THREE.Mesh(new THREE.RingGeometry(0.93, 1, 56), new THREE.MeshBasicMaterial({ color: i === 1 ? F.color : '#ffffff', transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide }));
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array((NR + 1) * 6), 3));
+    const idx = [];
+    for (let j = 0; j < NR; j++) { const a = j * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+    geo.setIndex(idx);
+    const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: i === 1 ? F.color : '#ffffff', transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide }));
+    m.frustumCulled = false;
     mats.push(m.material);
     m.renderOrder = 16;
     group.add(m);
@@ -1212,14 +1219,31 @@ function makeTornado3d(F, r) {
   const rOf = (an, open) => 0.6 + (1.65 * (1 + open * 0.3) - 0.6) * Math.pow(Math.max(0, an), 1.2);
   const at = (an, th, r, grow, out) => out.set(Math.sin(th) * r, Math.max(0.05, CY + Math.cos(th) * r * 0.85), ZF - an * LZ * grow);
   const v = new THREE.Vector3();
+  // 帯の幅の向き：面が見えている角度では軸の向き（漏斗の壁）、真横向き（面がカメラに沿う）に近づくほどカメラへ面を向けた向きへ移す。
+  // 軸の向きだけだと、正面のカメラ（直線の望遠の正面）で帯が真横向きになり、細い輪の線にしか見えなかった
+  const wA = new THREE.Vector3(), wC = new THREE.Vector3(), wN = new THREE.Vector3(), wV = new THREE.Vector3(), wT = new THREE.Vector3(), wPrev = new THREE.Vector3();
+  const pts = Array.from({ length: Math.max(N, NR) + 1 }, () => new THREE.Vector3());
+  const widthDir = (p, tangent, normal, axial, camL, prev, out) => {
+    wV.subVectors(camL, p).normalize();
+    const k = smooth(0.12, 0.55, Math.abs(normal.dot(wV)));
+    wC.crossVectors(tangent, wV);
+    if (wC.lengthSq() < 1e-8) wC.copy(prev);
+    wC.normalize();
+    // 向きの符号は前の点にそろえる（そろえないと帯がねじれて途中で細る）
+    if (wC.dot(prev) < 0) wC.negate();
+    return out.copy(wC).lerp(axial, k).normalize();
+  };
   return {
     group,
-    update(T, life, fade) {
+    update(T, life, fade, camL = null) {
+      const cam = camL ?? wV.set(30, 2, 0);
       const grow = ease(T / 0.35);
       const open = smooth(life - 0.8, life, T);
       const alpha = fade * (1 - open * 0.9);
+      const camP = cam.clone();
       for (const rb of ribbons) {
         const pos = rb.mesh.geometry.attributes.position.array;
+        const hws = [], ths = [];
         for (let j = 0; j <= N; j++) {
           const q = j / N;
           const th = rb.phi + rb.w * T + q * rb.span;
@@ -1227,9 +1251,20 @@ function makeTornado3d(F, r) {
           const rr = rOf(an, open) * (rb.line ? 1.2 : 1 + 0.07 * Math.sin(th * 3 + T * 5 + rb.i));
           const taper = rb.line ? 1 : smooth(0, 0.35, q) * (1 - smooth(0.88, 1, q) * 0.7);
           const torn = rb.line ? 1 : 0.8 + 0.14 * Math.sin(q * 23 + T * 11 + rb.i * 1.7) * Math.sin(q * 9 - T * 4) + 0.06 * Math.sin(q * 61 + rb.i * 3 + T * 17);
-          const hw = rb.thick * (rb.line ? 1 : 0.45 + an * 0.55) * taper * torn * 0.5;
-          at(an, th, rr, grow, v);
-          pos.set([v.x, v.y, v.z + hw, v.x, v.y, v.z - hw * 0.8], j * 6);
+          hws.push(rb.thick * (rb.line ? 1 : 0.45 + an * 0.55) * taper * torn * 0.5);
+          ths.push(th);
+          at(an, th, rr, grow, pts[j]);
+        }
+        wPrev.set(0, 0, 1);
+        for (let j = 0; j <= N; j++) {
+          const p = pts[j];
+          wT.subVectors(pts[Math.min(N, j + 1)], pts[Math.max(0, j - 1)]);
+          // 漏斗の面の外向き（楕円の断面の法線）
+          wN.set(Math.sin(ths[j]), Math.cos(ths[j]) / 0.85, 0).normalize();
+          widthDir(p, wT, wN, wA.set(0, 0, 1), camP, wPrev, v);
+          wPrev.copy(v);
+          const hw = hws[j];
+          pos.set([p.x + v.x * hw, p.y + v.y * hw, p.z + v.z * hw, p.x - v.x * hw * 0.8, p.y - v.y * hw * 0.8, p.z - v.z * hw * 0.8], j * 6);
         }
         rb.mesh.geometry.attributes.position.needsUpdate = true;
         rb.mesh.material.opacity = alpha * (rb.line ? 0.85 : 0.92);
@@ -1238,8 +1273,23 @@ function makeTornado3d(F, r) {
       for (const [i, m] of rings.entries()) {
         const ph = (T * 1.1 + i / 3) % 1;
         const rad = rOf(ph, open) * (1.1 + ph * 0.3);
-        m.position.set(0, CY, ZF - ph * LZ * grow);
-        m.scale.set(rad, rad * 0.85, 1);
+        const zc = ZF - ph * LZ * grow;
+        for (let j = 0; j <= NR; j++) {
+          const a = (j / NR) * Math.PI * 2;
+          pts[j].set(Math.sin(a) * rad, CY + Math.cos(a) * rad * 0.85, zc);
+        }
+        // 輪の面（軸を向く）が見えている角度では外向きの幅（円盤の輪）、横から見るほどカメラへ面を向けた幅へ
+        const pos = m.geometry.attributes.position.array;
+        wPrev.set(0, 1, 0);
+        for (let j = 0; j <= NR; j++) {
+          const a = (j / NR) * Math.PI * 2, p = pts[j];
+          wT.set(Math.cos(a), -Math.sin(a) * 0.85, 0);
+          widthDir(p, wT, wN.set(0, 0, 1), wA.set(Math.sin(a), Math.cos(a), 0), camP, wPrev, v);
+          wPrev.copy(v);
+          const hw = rad * 0.04;
+          pos.set([p.x + v.x * hw, p.y + v.y * hw, p.z + v.z * hw, p.x - v.x * hw, p.y - v.y * hw, p.z - v.z * hw], j * 6);
+        }
+        m.geometry.attributes.position.needsUpdate = true;
         m.material.opacity = (1 - ph) * 0.8 * alpha * grow;
       }
       // 蹴り上げた土煙が後ろへ流れる
@@ -1722,7 +1772,7 @@ export function createFx3d(kind, seed = 1, { source = null, rider = null } = {})
       // 体の芯（馬の組の原点の 1.35m 上）を粒の座標で
       if (source) { ctr.set(0, 1.35, 0); source.localToWorld(ctr); group.worldToLocal(ctr); } else ctr.set(0, 1.35, 0);
       const fade = Math.min(1, age / 0.2) * (age > end ? Math.max(0, 1 - (age - end) / 0.6) : 1);
-      tornado?.update(age, life, Math.min(1, age / 0.08) * (age > end ? Math.max(0, 1 - (age - end) / 0.6) : 1));
+      tornado?.update(age, life, Math.min(1, age / 0.08) * (age > end ? Math.max(0, 1 - (age - end) / 0.6) : 1), camL);
       comet?.update(age, life, Math.min(1, age / 0.08) * (age > end ? Math.max(0, 1 - (age - end) / 0.6) : 1), camera, camL);
       const flick = AU.flicker ? 0.6 + 0.4 * ((h32(Math.floor(age / 0.05) + seed) % 1000) / 1000) : 1;
       const [sx, sy] = AU.stretch ?? [1, 1];

@@ -1,6 +1,7 @@
 extends SceneTree
 ## 固有スキルのエフェクト（skill_fx.gd）を 8 種並べて撮る（ゲームの render3d/skillfx.js の 3D と見比べる）。
 ## xvfb-run -a -s "-screen 0 1600x900x24" godot --path godot --rendering-method gl_compatibility --rendering-driver opengl3 --script tests/skill_fx_check.gd -- --shot=/tmp/fx.png
+## （--only=gale で 1 種を時間の順に 4 枚、--campos=0.3,1.8,14 でカメラの位置）
 const HM := preload("res://scripts/horse_model.gd")
 const FX := preload("res://scripts/skill_fx.gd")
 
@@ -20,9 +21,14 @@ func _init() -> void:
 	var kinds: Array = data.skillFx.keys()
 	# --only=gale：その種類だけを 4 枚、経過 0.12・0.5・1.0・1.8 秒で並べる（発動の閃光から竜巻まで）
 	var only := ""
+	# --campos=x,y,z：カメラの位置（既定は斜め前の横。正面 0.3,1.8,14・真上 0.4,22,0.6 で、帯が線にならないかを見る）
+	var campos := Vector3(12, 2.2, 4.2)
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--only="):
 			only = a.substr(7)
+		if a.begins_with("--campos="):
+			var c := a.substr(9).split(",")
+			campos = Vector3(float(c[0]), float(c[1]), float(c[2]))
 	if only != "":
 		kinds = [only, only, only, only]
 	var grid := GridContainer.new()
@@ -61,7 +67,7 @@ func _init() -> void:
 		var cam := Camera3D.new()
 		cam.fov = 30
 		sv.add_child(cam)
-		cam.look_at_from_position(Vector3(12, 2.2, 4.2), Vector3(0, 1.4, 0))
+		cam.look_at_from_position(campos, Vector3(0, 1.4, 0))
 		var fx := Node3D.new()
 		fx.set_script(FX)
 		h.add_child(fx)

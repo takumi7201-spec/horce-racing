@@ -389,7 +389,7 @@ func _process(delta: float) -> void:
 		_update_bolts(cam, end)
 	if tor_mesh != null:
 		pillar.visible = false
-		_tornado_update(minf(1.0, age / 0.08) * (maxf(0.0, 1.0 - (age - end) / 0.6) if age > end else 1.0))
+		_tornado_update(minf(1.0, age / 0.08) * (maxf(0.0, 1.0 - (age - end) / 0.6) if age > end else 1.0), cam)
 	if com_shells.size() > 0:
 		pillar.visible = false
 		_comet_update(minf(1.0, age / 0.08) * (maxf(0.0, 1.0 - (age - end) / 0.6) if age > end else 1.0), cam)
@@ -554,18 +554,14 @@ func _tornado_setup() -> void:
 	for i in 4:
 		tor_ribbons.append({phi = rng.randf() * TAU, w = 10.0 + rng.randf() * 3.0, y0 = 0.2 + rng.randf() * 0.6, span = 1.3, thick = 0.07, i = 10 + i, line = true})
 	for i in 3:
-		var tm := TorusMesh.new()
-		tm.inner_radius = 0.93
-		tm.outer_radius = 1.0
-		tm.rings = 56
+		# 輪は毎コマ置き直す帯（平たい円盤だと横から見て線になった。帯の幅の向きは _width_dir で見る角度に合わせる）
 		var mi := MeshInstance3D.new()
-		mi.mesh = tm
+		mi.mesh = ImmediateMesh.new()
 		var m := _tor_mat(null, 0, false)
 		m.vertex_color_use_as_albedo = false
 		m.albedo_color = cols.color if i == 1 else Color.WHITE
 		mi.material_override = m
-		# 輪は軸（z）を囲む向きに立てる
-		mi.rotation.x = PI / 2.0
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		deco.add_child(mi)
 		tor_rings.append(mi)
 	for i in 10:
@@ -582,7 +578,23 @@ func _ease(x: float) -> float:
 	return 1.0 - pow(1.0 - clampf(x, 0.0, 1.0), 3.0)
 
 
-func _tornado_update(fade: float) -> void:
+## 帯の幅の向き：面が見えている角度では axial（漏斗の壁なら軸の向き、輪なら外向き）、真横向き（面がカメラに沿う）に近づくほど
+## カメラへ面を向けた向きへ移す（ゲームの makeTornado3d の widthDir と同じ）。軸の向きだけだと、正面のカメラで帯が細い輪の線になった
+func _width_dir(p: Vector3, tangent: Vector3, normal: Vector3, axial: Vector3, cl: Vector3, prev: Vector3) -> Vector3:
+	var vw := (cl - p).normalized()
+	var k := smoothstep(0.12, 0.55, absf(normal.dot(vw)))
+	var c := tangent.cross(vw)
+	if c.length_squared() < 1e-8:
+		c = prev
+	c = c.normalized()
+	# 向きの符号は前の点にそろえる（そろえないと帯がねじれて途中で細る）
+	if c.dot(prev) < 0.0:
+		c = -c
+	return c.lerp(axial, k).normalized()
+
+
+func _tornado_update(fade: float, cam: Camera3D = null) -> void:
+	var cl := deco.to_local(cam.global_position) if cam else Vector3(30, 2, 0)
 	# 横向きの竜巻：軸は馬の前後（z、前が +z）に胴の高さで通し、鼻先の前（an＝0）で細く、尾の後ろ（an＝1）へ開く（ゲームの makeTornado3d と同じ）
 	var T := age
 	var grow := _ease(T / 0.35)
@@ -601,6 +613,9 @@ func _tornado_update(fade: float) -> void:
 			if rb.line != (which == tor_line):
 				continue
 			var prev := []
+			var ps: Array[Vector3] = []
+			var hws: Array[float] = []
+			var ths: Array[float] = []
 			for j in TOR_N + 1:
 				var q := float(j) / TOR_N
 				var th: float = rb.phi + rb.w * T + q * rb.span
@@ -608,10 +623,20 @@ func _tornado_update(fade: float) -> void:
 				var rr: float = r_of.call(an) * (1.2 if rb.line else 1.0 + 0.07 * sin(th * 3.0 + T * 5.0 + rb.i))
 				var taper := 1.0 if rb.line else smoothstep(0.0, 0.35, q) * (1.0 - smoothstep(0.88, 1.0, q) * 0.7)
 				var torn := 1.0 if rb.line else 0.8 + 0.14 * sin(q * 23.0 + T * 11.0 + rb.i * 1.7) * sin(q * 9.0 - T * 4.0) + 0.06 * sin(q * 61.0 + rb.i * 3.0 + T * 17.0)
-				var hw: float = rb.thick * (1.0 if rb.line else 0.45 + an * 0.55) * taper * torn * 0.5
-				var p: Vector3 = at.call(an, th, rr)
-				# 帯の幅は軸の向き（z）に取る
-				var cur := [p + Vector3(0, 0, hw), p - Vector3(0, 0, hw * 0.8), q]
+				hws.append(rb.thick * (1.0 if rb.line else 0.45 + an * 0.55) * taper * torn * 0.5)
+				ths.append(th)
+				ps.append(at.call(an, th, rr))
+			var wprev := Vector3(0, 0, 1)
+			for j in TOR_N + 1:
+				var q := float(j) / TOR_N
+				var p: Vector3 = ps[j]
+				var hw: float = hws[j]
+				# 帯の幅：面が見えていれば軸の向き（z）、真横向きに近いほどカメラへ面を向ける
+				var tg: Vector3 = ps[mini(TOR_N, j + 1)] - ps[maxi(0, j - 1)]
+				var nrm := Vector3(sin(ths[j]), cos(ths[j]) / 0.85, 0).normalized()
+				var w := _width_dir(p, tg, nrm, Vector3(0, 0, 1), cl, wprev)
+				wprev = w
+				var cur := [p + w * hw, p - w * hw * 0.8, q]
 				if not prev.is_empty():
 					var c := Color(1, 1, 1, alpha * (0.85 if rb.line else 0.92))
 					for v in [[prev[0], prev[2], 1.0], [prev[1], prev[2], 0.0], [cur[0], q, 1.0], [prev[1], prev[2], 0.0], [cur[1], q, 0.0], [cur[0], q, 1.0]]:
@@ -625,8 +650,23 @@ func _tornado_update(fade: float) -> void:
 		var ph := fmod(T * 1.1 + i / 3.0, 1.0)
 		var rad: float = r_of.call(ph) * (1.1 + ph * 0.3)
 		var mi: MeshInstance3D = tor_rings[i]
-		mi.position = Vector3(0, TOR_CY, TOR_ZF - ph * TOR_LZ * grow)
-		mi.scale = Vector3(rad, 0.02, rad * 0.85)
+		var zc := TOR_ZF - ph * TOR_LZ * grow
+		var rim: ImmediateMesh = mi.mesh
+		rim.clear_surfaces()
+		rim.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
+		# 輪の面（軸を向く）が見えていれば外向きの幅（円盤の輪）、横から見るほどカメラへ面を向けた幅へ
+		var wprev := Vector3(0, 1, 0)
+		var prv := []
+		for j in 49:
+			var a := float(j) / 48.0 * TAU
+			var p := Vector3(sin(a) * rad, TOR_CY + cos(a) * rad * 0.85, zc)
+			var w := _width_dir(p, Vector3(cos(a), -sin(a) * 0.85, 0), Vector3(0, 0, 1), Vector3(sin(a), cos(a), 0), cl, wprev)
+			wprev = w
+			var cur := [p + w * rad * 0.04, p - w * rad * 0.04, float(j) / 48.0]
+			if not prv.is_empty():
+				_quad(rim, prv, cur, Color.WHITE)
+			prv = cur
+		rim.surface_end()
 		(mi.material_override as StandardMaterial3D).albedo_color.a = (1.0 - ph) * 0.8 * alpha * grow
 	# 蹴り上げた土煙が後ろへ流れる
 	for d in tor_dust:
