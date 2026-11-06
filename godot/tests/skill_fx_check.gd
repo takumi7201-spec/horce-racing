@@ -18,6 +18,13 @@ func _init() -> void:
 			shot = a.substr(7)
 	var data: Dictionary = JSON.parse_string(FileAccess.get_file_as_string("res://data/ikusei/data.json"))
 	var kinds: Array = data.skillFx.keys()
+	# --only=gale：その種類だけを 4 枚、経過 0.12・0.5・1.0・1.8 秒で並べる（発動の閃光から竜巻まで）
+	var only := ""
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--only="):
+			only = a.substr(7)
+	if only != "":
+		kinds = [only, only, only, only]
 	var grid := GridContainer.new()
 	grid.columns = 4
 	grid.add_theme_constant_override("h_separation", 0)
@@ -73,11 +80,16 @@ func _init() -> void:
 func _tick() -> void:
 	frames += 1
 	if frames == 1:
-		for q in pending:
+		var offs := [-0.88, -0.5, 0.0, 0.8]
+		for i in pending.size():
+			var q = pending[i]
 			q[0].setup(q[1], q[2], 9, q[3])
+			if pending.size() == 4 and q[1] == pending[0][1]:
+				q[0].age = offs[i]
 		return
 	# 粒が出そろうまで（エフェクトの経過 1 秒）待ってから撮る。コマが重いので、コマ数ではなく経過で見る
-	if frames < 0 or not is_instance_valid(fxs[0]) or fxs[0].age < 1.0:
+	var watch = fxs[2] if fxs.size() == 4 else fxs[0]
+	if frames < 0 or not is_instance_valid(watch) or watch.age < 1.0:
 		return
 	frames = -1000
 	await RenderingServer.frame_post_draw

@@ -106,7 +106,7 @@ export const SKILL_FX = {
   flame: { name: '燃えるオーラ', color: '#ff8a1e', glow: '#ff3a12', core: '#fff0a0' },
   frost: { name: '氷結', color: '#a8f2ff', glow: '#3aa8ff', core: '#ffffff' },
   sakura: { name: '桜吹雪', color: '#ffb6d2', glow: '#ff5f9e', core: '#fff2f8' },
-  gale: { name: '疾風', color: '#a6f56c', glow: '#22c98a', core: '#f2ffe2' },
+  gale: { name: '疾風', color: '#6ff0bf', glow: '#14a978', core: '#f4fffb' },
   shadow: { name: '漆黒のオーラ', color: '#b45cff', glow: '#5b10b8', core: '#f0d8ff' },
   star: { name: '星屑', color: '#d2c6ff', glow: '#5868ff', core: '#ffffff' },
 };

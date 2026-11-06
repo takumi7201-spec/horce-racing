@@ -22,6 +22,14 @@ var rng := RandomNumberGenerator.new()
 var deco := Node3D.new()
 ## 体の芯の高さ（この組の座標。体の頂点の高さの真ん中）
 var core_y := 1.35
+## 疾風の竜巻（帯・波紋・土煙・葉・発動の閃光）
+var tor_mesh: MeshInstance3D
+var tor_line: MeshInstance3D
+var tor_ribbons: Array = []
+var tor_rings: Array = []
+var tor_dust: Array = []
+var tor_leaves: Array = []
+var tor_burst: MeshInstance3D
 
 
 ## オーラの粒（ゲームの skillfx.js の AURA3 と同じ値。速さは m/秒：rise 上へ・out 体の外へ・trail 後ろ（−z）へ、
@@ -32,7 +40,7 @@ const AURA := {
 	flame = {n = 160, life = [0.4, 0.8], rise = 2.6, out = 0.3, trail = 2.4, size = [0.195, 0.375], grow = -0.5, ramp = ["core", "color", "glow"], stretch = Vector2(0.85, 1.4)},
 	frost = {n = 100, life = [0.7, 1.3], rise = -0.15, out = 0.45, trail = 1.4, size = [0.15, 0.285], grow = 0.8, ramp = ["core", "color", "glow"]},
 	sakura = {n = 90, life = [0.8, 1.4], rise = 0.5, out = 0.45, trail = 1.6, size = [0.15, 0.27], grow = 0.8, ramp = ["core", "color", "glow"]},
-	gale = {n = 120, life = [0.3, 0.6], rise = 0.1, out = 0.2, trail = 8.0, size = [0.12, 0.225], grow = 0.4, ramp = ["core", "color", "glow"], stretch = Vector2(2.8, 0.45)},
+	gale = {n = 60, life = [0.3, 0.6], rise = 0.3, out = 0.3, trail = 7.0, size = [0.12, 0.225], grow = 0.4, ramp = ["core", "color", "glow"], stretch = Vector2(2.8, 0.45)},
 	shadow = {n = 150, life = [0.5, 1.0], rise = 1.9, out = 0.3, trail = 1.6, size = [0.225, 0.413], grow = 0.7, ramp = ["color", "glow", "dark"], dark = 0.45},
 	star = {n = 100, life = [0.7, 1.2], rise = 0.5, out = 0.4, trail = 1.2, size = [0.15, 0.27], grow = 0.8, ramp = ["core", "color", "glow"]},
 }
@@ -75,10 +83,8 @@ func setup(k: String, fx: Dictionary, seed: int, src: Node3D = null) -> void:
 			s.color_ramp = _ramp([cols.color, cols.glow])
 			_add(s)
 		"gale":
-			var g := _soft_parts("streak", 24, [0.35, 0.7], Vector3(1.3, 1.1, 1.6), 0.6, 0.3, [0.9, 1.5], cols.color, true)
-			g.tangential_accel_min = 8.0
-			g.tangential_accel_max = 12.0
-			_add(g)
+			# アニメ調の竜巻（ゲームの makeTornado3d と同じ形）。光の柱の代わり
+			_tornado_setup()
 		"star":
 			var t := _soft_parts("star5", 40, [0.9, 1.6], Vector3(1.6, 1.2, 1.8), 0.8, 0.4, [0.3, 0.7], cols.core, true)
 			t.tangential_accel_min = 3.0
@@ -363,6 +369,9 @@ func _process(delta: float) -> void:
 	(pillar.material_override as StandardMaterial3D).albedo_color.a = clampf((up if k < 0.25 else 1.0 - (k - 0.25) / 0.75) * 0.85 * near, 0.0, 1.0)
 	if not bolts.is_empty():
 		_update_bolts(cam, end)
+	if tor_mesh != null:
+		pillar.visible = false
+		_tornado_update(minf(1.0, age / 0.08) * (maxf(0.0, 1.0 - (age - end) / 0.6) if age > end else 1.0))
 
 
 func _update_bolts(cam: Camera3D, end: float) -> void:
@@ -456,10 +465,233 @@ static func _texture(shape: String) -> Texture2D:
 					a = clampf(1.0 - absf(px) / maxf(0.01, wd), 0.0, 1.0) * smoothstep(0.0, 0.5, yy) * (1.0 - smoothstep(0.85, 1.0, yy))
 				"streak":
 					a = clampf(1.0 - absf(py) * 3.0, 0.0, 1.0) * clampf((px + 1.0) / 1.5, 0.0, 1.0) * clampf((1.0 - px) * 6.0, 0.0, 1.0)
+				"leaf":
+					# 葉：両端の尖った紡錘
+					a = 1.0 if absf(py) < 0.42 * (1.0 - px * px) else 0.0
+				"line":
+					# 白い細い風の弧：長さの向き（x）に頭が明るく尾が消え、幅の向き（y）の真ん中だけ
+					var lx := (px + 1.0) / 2.0
+					a = (clampf(1.0 - absf(py) * 4.0, 0.0, 1.0)) * smoothstep(0.0, 0.8, lx) * (1.0 - smoothstep(0.85, 1.0, lx))
 				"column":
 					a = clampf((py + 1.0) / 2.0, 0.0, 1.0)
 					a = a * a
 			img.set_pixel(x, y, Color(1, 1, 1, a))
 	var t := ImageTexture.create_from_image(img)
 	_tex[shape] = t
+	return t
+
+
+# ------------------------------------------------------------------ 疾風の竜巻
+## 下が細く上へ開く漏斗の面を、ちぎれた縁のミントの帯（芯の白・主の色・光の色の縁をくっきり塗り分けた布）が巻いて回る。
+## 帯は毎コマ ImmediateMesh で置き直す（回りながら半径と高さがうねる）。漏斗は馬の前後（z）に 1.45 倍の楕円。
+const TOR_N := 30
+const TOR_EZ := 1.45
+const LEAF_COLS := [Color("#5fbf3f"), Color("#3f8f2a"), Color("#8fd65a"), Color("#2f6b22")]
+
+
+func _tor_mat(tex: Texture2D, order: int, depth := true) -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.cull_mode = BaseMaterial3D.CULL_DISABLED
+	m.albedo_texture = tex
+	m.vertex_color_use_as_albedo = true
+	m.no_depth_test = not depth
+	m.render_priority = order
+	return m
+
+
+func _tor_quad(tex: Texture2D, col: Color, order: int, depth := true) -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	var qm := QuadMesh.new()
+	var m := _tor_mat(tex, order, depth)
+	m.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	m.billboard_keep_scale = true
+	m.albedo_color = col
+	qm.material = m
+	mi.mesh = qm
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	deco.add_child(mi)
+	return mi
+
+
+func _tornado_setup() -> void:
+	tor_mesh = MeshInstance3D.new()
+	tor_mesh.mesh = ImmediateMesh.new()
+	tor_mesh.material_override = _tor_mat(_ribbon_texture(), 1)
+	tor_mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	deco.add_child(tor_mesh)
+	tor_line = MeshInstance3D.new()
+	tor_line.mesh = ImmediateMesh.new()
+	tor_line.material_override = _tor_mat(_texture("line"), 2)
+	tor_line.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	deco.add_child(tor_line)
+	for i in 8:
+		tor_ribbons.append({phi = i * 2.399 + rng.randf() * TAU, w = 7.5 + rng.randf() * 2.5, y0 = (i / 8.0) * 0.72 + rng.randf() * 0.06, span = 0.85 * PI + rng.randf() * 0.4, thick = 1.7, i = i, line = false})
+	for i in 4:
+		tor_ribbons.append({phi = rng.randf() * TAU, w = 10.0 + rng.randf() * 3.0, y0 = 0.2 + rng.randf() * 0.6, span = 1.3, thick = 0.07, i = 10 + i, line = true})
+	for i in 3:
+		var tm := TorusMesh.new()
+		tm.inner_radius = 0.93
+		tm.outer_radius = 1.0
+		tm.rings = 56
+		var mi := MeshInstance3D.new()
+		mi.mesh = tm
+		var m := _tor_mat(null, 0, false)
+		m.vertex_color_use_as_albedo = false
+		m.albedo_color = cols.color if i == 1 else Color.WHITE
+		mi.material_override = m
+		mi.position.y = 0.06
+		deco.add_child(mi)
+		tor_rings.append(mi)
+	for i in 10:
+		tor_dust.append({q = _tor_quad(_texture("soft"), Color("#c9d3cf"), 0), a = rng.randf() * TAU, b = rng.randf(), c = rng.randf(), d = rng.randf()})
+	for i in 36:
+		var speck := i % 3 == 2
+		var q := _tor_quad(_texture("streak") if speck else _texture("leaf"), Color("#152018") if speck else LEAF_COLS[i % 4], 2)
+		tor_leaves.append({q = q, speck = speck, a = rng.randf() * TAU, b = rng.randf(), c = rng.randf(), d = rng.randf(), e = rng.randf()})
+	tor_burst = _tor_quad(_burst_texture(), Color.WHITE, 5, false)
+	tor_burst.position = Vector3(0, 1.5, 0)
+
+
+func _ease(x: float) -> float:
+	return 1.0 - pow(1.0 - clampf(x, 0.0, 1.0), 3.0)
+
+
+func _tornado_update(fade: float) -> void:
+	var T := age
+	var grow := _ease(T / 0.35)
+	var open := smoothstep(LIFE - 0.8, LIFE, T)
+	var H := 3.3 * grow
+	var alpha := fade * (1.0 - open * 0.9)
+	var r_of := func(yn: float) -> float:
+		# 下の半径は馬の体（前後 2.4m）を包む大きさ
+		return 0.85 + (1.9 * (1.0 + open * 0.4) - 0.85) * pow(maxf(0.0, yn), 1.25)
+	for which in [tor_mesh, tor_line]:
+		var im: ImmediateMesh = which.mesh
+		im.clear_surfaces()
+		im.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
+		for rb in tor_ribbons:
+			if rb.line != (which == tor_line):
+				continue
+			var prev := []
+			for j in TOR_N + 1:
+				var q := float(j) / TOR_N
+				var th: float = rb.phi + rb.w * T + q * rb.span
+				var yn := minf(1.05, rb.y0 + q * (0.05 if rb.line else 0.32) + 0.035 * sin(th * 2.0 + T * 6.0))
+				var rr: float = r_of.call(yn) * (1.2 if rb.line else 1.0 + 0.07 * sin(th * 3.0 + T * 5.0 + rb.i))
+				var taper := 1.0 if rb.line else smoothstep(0.0, 0.35, q) * (1.0 - smoothstep(0.88, 1.0, q) * 0.7)
+				var torn := 1.0 if rb.line else 0.8 + 0.14 * sin(q * 23.0 + T * 11.0 + rb.i * 1.7) * sin(q * 9.0 - T * 4.0) + 0.06 * sin(q * 61.0 + rb.i * 3.0 + T * 17.0)
+				var hw: float = rb.thick * (1.0 if rb.line else 0.45 + yn * 0.55) * taper * torn * 0.5
+				var x := cos(th) * rr
+				var z := sin(th) * rr * TOR_EZ
+				var y := yn * H
+				var cur := [Vector3(x, y + hw, z), Vector3(x, y - hw * 0.8, z), q]
+				if not prev.is_empty():
+					var c := Color(1, 1, 1, alpha * (0.85 if rb.line else 0.92))
+					for v in [[prev[0], prev[2], 1.0], [prev[1], prev[2], 0.0], [cur[0], q, 1.0], [prev[1], prev[2], 0.0], [cur[1], q, 0.0], [cur[0], q, 1.0]]:
+						im.surface_set_color(c)
+						im.surface_set_uv(Vector2(v[1], 1.0 - v[2]))
+						im.surface_add_vertex(v[0])
+				prev = cur
+		im.surface_end()
+	for i in tor_rings.size():
+		var ph := fmod(T * 1.3 + i / 3.0, 1.0)
+		var rad := 0.7 + ph * 3.2
+		var mi: MeshInstance3D = tor_rings[i]
+		mi.scale = Vector3(rad, 0.02, rad * TOR_EZ)
+		(mi.material_override as StandardMaterial3D).albedo_color.a = (1.0 - ph) * 0.75 * alpha * grow
+	for d in tor_dust:
+		var th: float = d.a + T * (1.5 + d.b)
+		var rr: float = 0.8 * (1.1 + d.c * 0.9) * (1.0 + open)
+		var q: MeshInstance3D = d.q
+		q.position = Vector3(cos(th) * rr, 0.35 + d.d * 0.3, sin(th) * rr * TOR_EZ)
+		var s: float = (0.9 + d.c * 1.1) * (0.6 + 0.4 * grow) * 2.0
+		q.scale = Vector3(s, s, 1)
+		((q.mesh as QuadMesh).material as StandardMaterial3D).albedo_color.a = 0.4 * alpha
+	for l in tor_leaves:
+		var th: float = l.a + T * (5.0 + l.b * 3.0)
+		var yn: float = fmod(l.c + T * (0.3 + l.d * 0.3), 1.15)
+		var rr: float = r_of.call(minf(1.0, yn)) * (1.05 + l.e * 0.45)
+		var q: MeshInstance3D = l.q
+		q.position = Vector3(cos(th) * rr, yn * H, sin(th) * rr * TOR_EZ)
+		var s: float = 0.22 if l.speck else 0.14 + l.e * 0.1
+		q.scale = Vector3(s * (1.0 if l.speck else 1.4), s * (0.2 if l.speck else 1.0), 1)
+		((q.mesh as QuadMesh).material as StandardMaterial3D).albedo_color.a = alpha * smoothstep(0.0, 0.1, yn) * (1.0 - smoothstep(0.95, 1.15, yn))
+	# 発動の瞬間（0.3 秒）：白い閃光・トゲの星・黒い集中線
+	var qb := T / 0.3
+	tor_burst.scale = Vector3.ONE * (2.0 + _ease(qb) * 4.5)
+	((tor_burst.mesh as QuadMesh).material as StandardMaterial3D).albedo_color.a = (1.0 - qb) if qb < 1.0 else 0.0
+
+
+## 竜巻の帯の布（ゲームの ribbonTex と同じ）：長さの向き（u）に尾が消え、幅の向き（v）に 光の色の縁 → 主の色 → 芯の白、縁はちぎれて揺れる
+func _ribbon_texture() -> Texture2D:
+	var key: String = "ribbon" + (cols.color as Color).to_html()
+	if _tex.has(key):
+		return _tex[key]
+	var W := 256
+	var Hh := 64
+	var img := Image.create(W, Hh, false, Image.FORMAT_RGBA8)
+	for x in W:
+		var uu := float(x) / (W - 1)
+		var et := 0.1 + 0.07 * (0.5 + 0.5 * sin(uu * 37.0) * sin(uu * 11.0 + 1.0))
+		var eb := 0.9 - 0.07 * (0.5 + 0.5 * sin(uu * 29.0 + 2.0) * sin(uu * 13.0))
+		var taper := smoothstep(0.0, 0.3, uu) * (1.0 - 0.6 * smoothstep(0.9, 1.0, uu))
+		for y in Hh:
+			var v := float(y) / (Hh - 1)
+			var edge := minf(v - et, eb - v) * Hh
+			if edge <= -1.0:
+				img.set_pixel(x, y, Color(0, 0, 0, 0))
+				continue
+			var d := absf(v - (et + eb) / 2.0) / ((eb - et) / 2.0)
+			var col: Color = cols.core if d < 0.5 else (cols.color if d < 0.86 else cols.glow)
+			var a := 0.95 if d < 0.5 else (0.85 if d < 0.86 else 0.72)
+			img.set_pixel(x, y, Color(col, a * taper * clampf(edge + 1.0, 0.0, 1.0)))
+	var t := ImageTexture.create_from_image(img)
+	_tex[key] = t
+	return t
+
+
+## 発動の閃光の布：黒い集中線・主の色と白のトゲの星・白い芯
+func _burst_texture() -> Texture2D:
+	var key: String = "burst" + (cols.color as Color).to_html()
+	if _tex.has(key):
+		return _tex[key]
+	var S := 128
+	var m := S / 2.0
+	var img := Image.create(S, S, false, Image.FORMAT_RGBA8)
+	var br := RandomNumberGenerator.new()
+	br.seed = 77
+	var lines := []
+	for i in 18:
+		lines.append([br.randf() * TAU, 0.35 + br.randf() * 0.4, (1.5 + br.randf() * 3.0) / 128.0])
+	var spikes := []
+	for i in 14:
+		spikes.append(0.45 + 0.35 * br.randf())
+	for y in S:
+		for x in S:
+			var px := (x + 0.5 - m) / m
+			var py := (y + 0.5 - m) / m
+			var r := sqrt(px * px + py * py)
+			var ang := fposmod(atan2(py, px) - 0.2, TAU)
+			var c := Color(0, 0, 0, 0)
+			for l in lines:
+				var da := absf(wrapf(ang + 0.2 - l[0], -PI, PI))
+				if r > 0.98 - l[1] and r < 0.98 and da * r < l[2] * 2.0 * (r - (0.98 - l[1])) / l[1]:
+					c = Color(0.05, 0.08, 0.07, 0.9)
+			# トゲの星：14 本。トゲの間は細く
+			var seg := ang / TAU * 14.0
+			var k := absf(fposmod(seg, 1.0) - 0.5) * 2.0
+			var tip: float = spikes[int(seg) % 14]
+			if r < lerpf(tip, 0.1, k):
+				c = Color(cols.color, 1.0)
+			if r < lerpf(tip * 0.6, 0.06, k):
+				c = Color(cols.core, 1.0)
+			if r < 0.42:
+				var g := 1.0 - r / 0.42
+				c = c.lerp(Color(1, 1, 1, 1), g)
+				c.a = maxf(c.a, g)
+			img.set_pixel(x, y, c)
+	var t := ImageTexture.create_from_image(img)
+	_tex[key] = t
 	return t
