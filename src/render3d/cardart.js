@@ -13,6 +13,8 @@ const cache = new Map();
 let chain = Promise.resolve();
 
 const W = 606, H = 626;
+// エフェクトの向き（ikusei.js の fxDirOf と同じ。render3d から sim の育成モードを読まないので写す）
+const fxDir = (c) => (c.fxDir === 'left' ? -1 : c.fxDir === 'right' ? 1 : c.facing === 'right' ? 1 : -1);
 
 /** 馬と騎手の形（mask）を膨らませた縁だけの絵（箔押しの輪郭）。 */
 function ringOf(maskUrl) {
@@ -167,7 +169,7 @@ export function cardArtIfReady(card) {
 // 1 枚撮るのに WebGL で舞台を組んで描くので、79 枚の一覧を開くたびに撮り直すと重い。ブラウザの IndexedDB に残す。
 // 鍵は絵に効くカードの値（構え・毛色・白斑・勝負服など）と ART_VER。撮影の舞台（photostage.js）を変えたら ART_VER を上げる。
 const ART_VER = 2;   // 2: ステッカー（sticker）を足した（相手の馬・背景は鍵の値に入るので、足しても上げなくてよい）
-const artKey = (c) => `${ART_VER}:${c.id}:${JSON.stringify([c.hid, c.artCoat ?? c.coat, c.marks, c.surface, c.shot, c.desert, c.silks ?? null, c.facing ?? null, c.pose ?? null, c.gate ?? null, c.phase ?? null, c.legPose ?? null, c.rivals ?? null, c.backdrop ?? null, c.wind ?? null, c.gear ?? null, ...(c.camera ? [c.camera] : []), ...(c.rig ? [c.rig] : []), ...(c.fxArt ? [{ fx: c.fxArt }] : [])])}`;
+const artKey = (c) => `${ART_VER}:${c.id}:${JSON.stringify([c.hid, c.artCoat ?? c.coat, c.marks, c.surface, c.shot, c.desert, c.silks ?? null, c.facing ?? null, c.pose ?? null, c.gate ?? null, c.phase ?? null, c.legPose ?? null, c.rivals ?? null, c.backdrop ?? null, c.wind ?? null, c.gear ?? null, ...(c.camera ? [c.camera] : []), ...(c.rig ? [c.rig] : []), ...(c.fxArt ? [{ fx: c.fxArt, ...(c.fxDir ? { dir: c.fxDir } : {}) }] : [])])}`;
 let dbp = null;
 function db() {
   if (typeof indexedDB === 'undefined') return Promise.resolve(null);
@@ -215,7 +217,7 @@ function shoot(card) {
     const ring = v.mask ? await ringOf(v.mask) : null;
     const baked = await bakeBlur(v.background);
     const sticker = v.mask ? await stickerOf(v.mask, v.head) : null;
-    const fx = card.fxArt && v.mask ? await bakeFx(card.fxArt, v.mask, card.hid ?? 1, card.facing === 'right' ? 1 : -1) : null;
+    const fx = card.fxArt && v.mask ? await bakeFx(card.fxArt, v.mask, card.hid ?? 1, fxDir(card)) : null;
     return { bg: baked ?? v.background, bgBaked: !!baked, fg: v.subject, ring, sun: v.sun, sticker, fx };
   });
   chain = p.catch(() => {});

@@ -107,6 +107,8 @@ export function cleanArt(a) {
   if (typeof a.epithet === 'string' && a.epithet.trim()) o.epithet = a.epithet.trim().slice(0, 16);
   // 固有スキルのエフェクト（絵と観戦）。'none' は「付けない」と決めたもの（既定のエフェクトにも戻さない）
   if (a.fx in SKILL_FX || a.fx === 'none') o.fx = a.fx;
+  // エフェクトの向き（先頭＝竜巻の細い側が向く方。粒は反対へ流れる）。無ければ馬の向き
+  if (a.fxDir === 'left' || a.fxDir === 'right') o.fxDir = a.fxDir;
   // リグ：動かせる軸だけ、回転は ±2 rad・騎手の点は ±0.6 m。0 だけの部位は持たない
   if (a.rig && typeof a.rig === 'object') {
     const pick = (src, keys, lim, axesOf) => {
@@ -468,6 +470,11 @@ export function fxOfFinished(h) {
   return f === 'none' ? null : f in SKILL_FX ? f : uniqueFxOf(u);
 }
 export const fxOfCard = (c) => uniqueFxOf(uniqueCardOf(c));
+/**
+ * 2D のエフェクト（カードの絵・カットイン）の向き。−1 で左向き、+1 で右向き（先頭がその向き、粒は反対へ流れる）。
+ * カードエディットで決めた向き（fxDir）、無ければ馬の向き（facing。既定の馬は左を向いて走る）。
+ */
+export const fxDirOf = (c) => (c?.fxDir === 'left' ? -1 : c?.fxDir === 'right' ? 1 : c?.facing === 'right' ? 1 : -1);
 export { SKILL_FX, uniqueFxOf };
 
 /** 育成中の馬（カードの形）。配合で作った馬は両親から作り直す。古い育成（カード 1 枚を育てる）はそのカード。 */
@@ -480,7 +487,7 @@ export function traineeCard(run) {
 const artFields = (a) => (a ? Object.fromEntries(Object.entries({ shot: a.shot, facing: a.facing, phase: a.phase, pose: a.pose, backdrop: a.backdrop, gate: a.gate,
   legPose: a.legPose, wind: a.wind, camera: a.camera, silks: a.silks, surface: a.surface, rig: a.rig, desert: a.backdrop ? a.backdrop === 'desert' : undefined,
   // エフェクトは絵に描くときだけ（fxArt）。カードの fx（固有の既定）とは別に持つ（LM の元の絵にはエフェクトを描かない）
-  fxArt: a.fx in SKILL_FX ? a.fx : undefined,
+  fxArt: a.fx in SKILL_FX ? a.fx : undefined, fxDir: a.fxDir,
   // 自分のカードは主役 1 頭だけ（元のカードに写っていた相手の馬は連れてこない）
   rivals: [] }).filter(([, v]) => v !== undefined)) : {});
 

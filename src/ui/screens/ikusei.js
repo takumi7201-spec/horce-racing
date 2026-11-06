@@ -1170,12 +1170,14 @@ function skillEffects(R, race, fx, view) {
   for (const c of cues.filter((x) => x.unique)) {
     c.kind = R.looks?.get(c.id)?.fx ?? null;
     if (!c.mine) continue;
-    if (c.kind) c.nameFx = prepNameFx(c.name, c.kind);
     const card = R.looks?.get(c.id)?.artCard ?? null;
+    // カードエディットで向きを決めた馬は、カットインもその向き（決めていなければ切り抜きの頭の向き・字は左へ流す）
+    const fd = card?.fxDir ? I.fxDirOf(card) : 0;
+    if (c.kind) c.nameFx = prepNameFx(c.name, c.kind, fd || 1);
     if (card) cardArtIfReady(card).then((a) => {
       c.img = a?.sticker?.url ?? null;
       // 馬の走る向きは切り抜きの頭の位置から（頭が左なら左へ走る。粒は後ろへ流す）
-      if (c.img && c.kind) prepHorseFx(c.img, c.kind, (a.sticker.focus?.x ?? 0.3) < 0.5 ? -1 : 1).then((v) => { c.horseFx = v; });
+      if (c.img && c.kind) prepHorseFx(c.img, c.kind, fd || ((a.sticker.focus?.x ?? 0.3) < 0.5 ? -1 : 1)).then((v) => { c.horseFx = v; });
     });
   }
   let speed = 1, slowUntil = 0, slowTimer = 0, lastT = 0, lane = 0;
@@ -1262,7 +1264,7 @@ function prepHorseFx(src, kind, dir = -1) {
   });
 }
 /** 切り抜きが無い馬（配合の育成馬は撮った絵を持たない）は、スキル名の字の形から。 */
-function prepNameFx(name, kind) {
+function prepNameFx(name, kind, dir = 1) {
   const W = 760, H = 260;
   const m = cpuCanvas(W, H);
   const mg = m.getContext('2d');
@@ -1271,8 +1273,8 @@ function prepNameFx(name, kind) {
   mg.textAlign = 'center'; mg.textBaseline = 'middle';
   mg.fillStyle = '#fff';
   mg.fillText(name, W / 2, H / 2);
-  // 字の帯は右へ滑り込むので、粒は左へ流す
-  const pt = fxPainter(kind, m, W, H, 11, { unit: 0.7, dir: 1 });
+  // 字の帯は右へ滑り込むので、既定は粒を左へ流す（dir +1）
+  const pt = fxPainter(kind, m, W, H, 11, { unit: 0.7, dir });
   if (!pt) return null;
   // 字は CSS の見出しと同じ白 → 主の色のグラデーション
   const F = I.SKILL_FX[kind];
@@ -1572,7 +1574,7 @@ function cardEditView(app, go) {
       if (!stage || !canvas.isConnected) return;
       // 騎手の点のドラッグは騎手を作り直すので、動かした分をまとめて 1 コマに 1 回だけ当てる
       if (rigDirty) { rigDirty = false; stage.setRig(A.rig); }
-      stage.render(artRenderer(), canvas, 3, A.fx in I.SKILL_FX ? { kind: A.fx, dir: A.facing === 'right' ? 1 : -1 } : null);
+      stage.render(artRenderer(), canvas, 3, A.fx in I.SKILL_FX ? { kind: A.fx, dir: I.fxDirOf(A) } : null);
       hs = null;
       if (showHandles()) drawHandles();
     });
@@ -1811,12 +1813,15 @@ function cardEditView(app, go) {
       const auto = uc ? I.uniqueFxOf(uc) : null;
       const cur = A.fx ?? 'auto';
       const pick = (k) => { A.fx = k === 'auto' ? undefined : k; showTab('fx'); };
+      // 向き：先頭（竜巻の細い側・稲妻の走る先）が向く方。粒は反対へ流れる。自動は馬の向き
+      const dirChip = (k, name) => el(`button.ikce-chip${(A.fxDir ?? 'auto') === k ? '.on' : ''}`, { onclick: () => { A.fxDir = k === 'auto' ? undefined : k; draw(); showTab('fx'); } }, [name]);
       const chip = (k, name, color = null) => el(`button.ikce-chip.ikce-fx${cur === k ? '.on' : ''}`, { style: color ? `--c:${color}` : null, onclick: () => pick(k) }, [color ? el('i') : null, name]);
       return [
         row('エフェクト', el('div.ikce-chips', [
           chip('auto', 'おまかせ'), chip('none', 'なし'),
           ...Object.entries(I.SKILL_FX).map(([k, f]) => chip(k, f.name, f.color)),
         ])),
+        row('向き', el('div.ikce-chips', [dirChip('auto', `自動（${A.facing === 'right' ? '右' : '左'}）`), dirChip('left', '← 左向き'), dirChip('right', '右向き →')])),
         el('p.note', { text: uq
           ? `固有スキル「${uq.name}」の発動（観戦の 3D とカットイン）にも、このエフェクトが出る。おまかせは絵に描かず、発動は${I.SKILL_FX[auto].name}。なしは発動の演出もエフェクトなし。`
           : 'この馬は固有スキルを持たないので、エフェクトはカードの絵だけに付く（LM の親から固有を受け継いだ馬は発動にも出る）。' }),
