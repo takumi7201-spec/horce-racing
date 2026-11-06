@@ -10,7 +10,7 @@
 // 馬の右手が内（左回りの直線、ゴール板は内ラチ側）。馬は +z へ走る。スタンドは -x 側。
 
 import * as THREE from '../../vendor/three/three.module.min.js';
-import { fxPainter } from './skillfx.js';
+import { createFx3d } from './skillfx.js';
 import { makeHorse, makeShadowPatch, disposeHorse, STRIDE } from './horse3d.js';
 import { makeWind } from './wind.js';
 import { riderPointPos } from './jockey3d.js';
@@ -227,6 +227,87 @@ export const SHOTS = {
   duel: { name: '競り合い', pos: [2.2, 1.25, 7.0], look: [-1.1, 1.4, -0.3], fov: 32, inner: true, rails: [] },
 };
 
+// ---- 固有スキルのエフェクト（3D）。カードの絵とカードエディットの見本も、観戦と同じ 3D のエフェクト（createFx3d）で描く。
+// 以前は馬の形に 2D で重ねて描いていたので、カメラを回してもエフェクトの向きが変わらなかった（竜巻の帯は見る角度で向きを変える）。
+// 止めた絵の時刻は 1.2 秒＋利用者の決めた時間（カードエディットの「時間」）。そこまで 0.05 秒ずつ進めて粒を出そろわせる（同じ値なら同じ絵）。
+const FX_LIFE = 1e4;   // 止めた絵は消え際に入らない
+const FX_T0 = 1.2;
+function attachFx(st, fx) {
+  const hero = st.models[0];
+  const f = createFx3d(fx.kind, fx.seed ?? 1, { source: hero.group, rider: hero.rider });
+  if (!f) return null;
+  hero.group.add(f.group);
+  const T = FX_T0 + (fx.time ?? 0);
+  for (let a = 0; a < T; a += 0.05) f.update(a, FX_LIFE, st.camera);
+  f.update(T, FX_LIFE, st.camera);
+  return { f, T, key: `${fx.kind}:${fx.time ?? 0}:${fx.seed ?? 1}` };
+}
+function detachFx(cur) {
+  if (!cur) return;
+  cur.f.group.parent?.remove(cur.f.group);
+  cur.f.dispose();
+}
+/**
+ * エフェクトだけの層（2D の canvas）。馬・騎手・影は深度だけ描き（色を書かない）、エフェクトは深度を見る：
+ * 馬の向こう側は馬に隠れ、手前は馬に重なる 1 枚になる（馬の絵の上に重ねる）。
+ * 加算で光る部分は透明の地に描くと濃さ（α）が育たずに消える（落とし穴 91）ので、黒の地に描いた光から濃さを起こす
+ * （α＝いちばん明るい色の値、色＝光 ÷ α）。
+ */
+function fxLayer(renderer, st, cur, w, h) {
+  const inFx = new Set();
+  cur.f.group.traverse((o) => inFx.add(o));
+  const saved = [];
+  st.subject.traverse((o) => {
+    for (const m of [o.material].flat()) {
+      if (!m) continue;
+      if (inFx.has(o)) { saved.push([m, 'depthTest', m.depthTest]); m.depthTest = true; }
+      else { saved.push([m, 'colorWrite', m.colorWrite]); m.colorWrite = false; }
+    }
+  });
+  const bgVis = st.bg.visible;
+  st.bg.visible = false;
+  cur.f.group.visible = true;
+  renderer.setClearColor(0x000000, 1);
+  // エフェクトはトーンマップを掛けない（ACES で帯の白とミントがくすんだ灰色になった。観戦と同じ色で）
+  const tm = renderer.toneMapping;
+  renderer.toneMapping = THREE.NoToneMapping;
+  renderer.render(st.scene, st.camera);
+  renderer.toneMapping = tm;
+  // 戻すのは逆の順に（共有の材質は 2 度目に「書き換えた後の値」を保存しているので、前から戻すと書き換えた値が残って馬が透けた）
+  for (let i = saved.length - 1; i >= 0; i--) { const [m, k, v] = saved[i]; m[k] = v; }
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const g = c.getContext('2d', { willReadFrequently: true });
+  g.drawImage(renderer.domElement, 0, 0, w, h);
+  const img = g.getImageData(0, 0, w, h), d = img.data;
+  // 馬と騎手の形（白）。形の上に重なるエフェクトは薄める（撮影の舞台はカメラが近く、手前の帯や殻が馬を覆い隠した）
+  const keep = new Set(st.models.map((m) => m.group));
+  const hidden = st.subject.children.filter((x) => !keep.has(x) && x.visible);
+  for (const x of hidden) x.visible = false;
+  cur.f.group.visible = false;
+  const white = new THREE.MeshBasicMaterial({ color: 0xffffff });
+  st.scene.overrideMaterial = white;
+  renderer.toneMapping = THREE.NoToneMapping;
+  renderer.render(st.scene, st.camera);
+  renderer.toneMapping = tm;
+  st.scene.overrideMaterial = null;
+  white.dispose();
+  for (const x of hidden) x.visible = true;
+  st.bg.visible = bgVis;
+  g.drawImage(renderer.domElement, 0, 0, w, h);
+  const md = g.getImageData(0, 0, w, h).data;
+  for (let i = 0; i < d.length; i += 4) {
+    const a = Math.max(d[i], d[i + 1], d[i + 2]);
+    if (a < 2) { d[i + 3] = 0; continue; }
+    const k = 255 / a;
+    d[i] = Math.min(255, d[i] * k); d[i + 1] = Math.min(255, d[i + 1] * k); d[i + 2] = Math.min(255, d[i + 2] * k);
+    // 馬の上は 0.45、ほかは 0.9 の濃さ
+    d[i + 3] = a * (0.9 - 0.45 * (md[i] / 255));
+  }
+  g.putImageData(img, 0, 0);
+  return c;
+}
+
 /**
  * ゴールの瞬間を撮る。
  * @param {THREE.WebGLRenderer} renderer alpha 付きの描画器（使い回す。WebGL を増やさない：落とし穴 23）
@@ -241,6 +322,9 @@ export function shootFinish(renderer, o) {
   renderer.setSize(width, height, false);
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 0.92;
+  // エフェクト（o.fx = { kind, time, seed }）は別の層で撮る。馬の層・形には入れない
+  const fx = o.fx ? attachFx(st, o.fx) : null;
+  if (fx) fx.f.group.visible = false;
 
   // 背景だけ → 馬だけ（透明の地）の順に描いて、その場で読み出す（描いた直後なら preserveDrawingBuffer は要らない）。
   subject.visible = false;
@@ -271,8 +355,10 @@ export function shootFinish(renderer, o) {
   models[0].head.getWorldPosition(hp);
   hp.project(camera);
   const head = { x: (hp.x + 1) / 2, y: (1 - hp.y) / 2 };
+  const fxFront = fx ? fxLayer(renderer, st, fx, width, height).toDataURL('image/png') : null;
+  detachFx(fx);
   st.dispose();
-  return { background, subject: subjectUrl, mask: maskUrl, sun, head };
+  return { background, subject: subjectUrl, mask: maskUrl, sun, head, fx: fxFront };
 }
 
 /**
@@ -509,6 +595,7 @@ export function createPoseStage(o) {
   const camera = st.camera;
   const v = new THREE.Vector3();
   const toCanvas = (p, w, h) => { v.copy(p).project(camera); return { x: (v.x + 1) / 2 * w, y: (1 - v.y) / 2 * h, z: v.z }; };
+  let curFx = null;
   const riderPoint = (key) => hero.rider?.localToWorld(new THREE.Vector3(...riderPointPos(riderPoseName, rig?.rider, key))) ?? null;
   return {
     /** 脚の運びと脚ごとの角度を当て直す。 */
@@ -594,8 +681,14 @@ export function createPoseStage(o) {
       st.wind?.update(0, 17, camera);
     },
     /** canvas（2D）へ描く。blur は背景のぼかし（px）。 */
-    // fx：固有スキルのエフェクト（{ kind, dir, time }。カードエディットの見本。焼き込むカードの絵と同じ描き方）
+    // fx：固有スキルのエフェクト（{ kind, time, seed }。カードエディットの見本。焼き込むカードの絵と同じ 3D の描き方）
     render(renderer, canvas, blur = 3, fx = null) {
+      // 種類と時間が同じあいだはエフェクトを作り直さない（カメラだけ変わったときは同じ時刻で 1 度更新して、見る角度に合わせる）
+      const key = fx ? `${fx.kind}:${fx.time ?? 0}:${fx.seed ?? 1}` : null;
+      if (curFx && curFx.key !== key) { detachFx(curFx); curFx = null; }
+      if (fx && !curFx) curFx = attachFx(st, fx);
+      else if (curFx) curFx.f.update(curFx.T, FX_LIFE, camera);
+      if (curFx) curFx.f.group.visible = false;
       const w = canvas.width, h = canvas.height;
       const g = canvas.getContext('2d');
       camera.aspect = w / h;
@@ -613,26 +706,11 @@ export function createPoseStage(o) {
       st.subject.visible = true;
       st.bg.visible = false;
       renderer.setClearColor(0x000000, 0);
-      let pt = null, front = null;
-      if (fx) {
-        // 馬と騎手だけの形（影・芝の塊・風の筋を除く。shootFinish の mask と同じ）
-        const keep = new Set(st.models.map((m) => m.group));
-        const hidden = st.subject.children.filter((c) => !keep.has(c) && c.visible);
-        for (const c of hidden) c.visible = false;
-        renderer.render(st.scene, camera);
-        pt = fxPainter(fx.kind, renderer.domElement, w, h, o.hero?.id ?? 1, { dir: fx.dir ?? -1 });
-        for (const c of hidden) c.visible = true;
-        if (pt) {
-          front = document.createElement('canvas');
-          front.width = w; front.height = h;
-          pt.draw(g, front.getContext('2d'), 1.2, { still: true, time: fx.time ?? 0 });
-        }
-      }
       renderer.render(st.scene, camera);
       g.drawImage(renderer.domElement, 0, 0, w, h);
-      if (front) g.drawImage(front, 0, 0);
       st.bg.visible = true;
+      if (curFx) g.drawImage(fxLayer(renderer, st, curFx, w, h), 0, 0);
     },
-    dispose: st.dispose,
+    dispose() { detachFx(curFx); curFx = null; st.dispose(); },
   };
 }

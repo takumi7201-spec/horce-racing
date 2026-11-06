@@ -6,15 +6,14 @@
 
 import * as THREE from '../../vendor/three/three.module.min.js';
 import { shootFinish } from './photostage.js';
-import { fxPainter } from './skillfx.js';
 
 let renderer = null;
 const cache = new Map();
 let chain = Promise.resolve();
 
 const W = 606, H = 626;
-// エフェクトの向き（ikusei.js の fxDirOf と同じ。render3d から sim の育成モードを読まないので写す）
-const fxDir = (c) => (c.fxDir === 'left' ? -1 : c.fxDir === 'right' ? 1 : c.facing === 'right' ? 1 : -1);
+// エフェクトの後ろの層は使わない（3D のエフェクトは馬との前後を深度で決めた 1 枚にする）。透明の 1 画素
+const EMPTY_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
 
 /** 馬と騎手の形（mask）を膨らませた縁だけの絵（箔押しの輪郭）。 */
 function ringOf(maskUrl) {
@@ -95,26 +94,6 @@ function stickerOf(maskUrl, head = null) {
 }
 
 /**
- * 固有スキルのエフェクト（カードエディットで選んだもの）を、馬と騎手の形の後ろ（オーラ）と前（稲妻・粒）の 2 枚に焼き込む。
- * 止めた絵なので、いちばん見栄えのする姿（still）で描く。
- */
-export function bakeFx(kind, maskUrl, seed = 1, dir = -1, time = 0) {
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.onload = () => {
-      const pt = fxPainter(kind, img, W, H, seed, { dir });
-      if (!pt) { resolve(null); return; }
-      const b = document.createElement('canvas'), f = document.createElement('canvas');
-      b.width = f.width = W; b.height = f.height = H;
-      pt.draw(b.getContext('2d'), f.getContext('2d'), 1.2, { still: true, time });
-      resolve({ back: b.toDataURL('image/png'), front: f.toDataURL('image/png') });
-    };
-    img.onerror = () => resolve(null);
-    img.src = maskUrl;
-  });
-}
-
-/**
  * 背景のぼかし（被写界深度）を絵に焼き込む。CSS の filter: blur を一覧のカードすべてに掛けると、
  * 傾けたりホロが動いたりするたびにぼかし直しになって重かった。canvas の filter が無い環境（古い Safari）では null を返し、
  * 画面側が今までどおり CSS でぼかす。
@@ -169,7 +148,7 @@ export function cardArtIfReady(card) {
 // 1 枚撮るのに WebGL で舞台を組んで描くので、79 枚の一覧を開くたびに撮り直すと重い。ブラウザの IndexedDB に残す。
 // 鍵は絵に効くカードの値（構え・毛色・白斑・勝負服など）と ART_VER。撮影の舞台（photostage.js）を変えたら ART_VER を上げる。
 const ART_VER = 2;   // 2: ステッカー（sticker）を足した（相手の馬・背景は鍵の値に入るので、足しても上げなくてよい）
-const artKey = (c) => `${ART_VER}:${c.id}:${JSON.stringify([c.hid, c.artCoat ?? c.coat, c.marks, c.surface, c.shot, c.desert, c.silks ?? null, c.facing ?? null, c.pose ?? null, c.gate ?? null, c.phase ?? null, c.legPose ?? null, c.rivals ?? null, c.backdrop ?? null, c.wind ?? null, c.gear ?? null, ...(c.camera ? [c.camera] : []), ...(c.rig ? [c.rig] : []), ...(c.fxArt ? [{ fx: c.fxArt, ...(c.fxDir ? { dir: c.fxDir } : {}), ...(c.fxT ? { t: c.fxT } : {}) }] : [])])}`;
+const artKey = (c) => `${ART_VER}:${c.id}:${JSON.stringify([c.hid, c.artCoat ?? c.coat, c.marks, c.surface, c.shot, c.desert, c.silks ?? null, c.facing ?? null, c.pose ?? null, c.gate ?? null, c.phase ?? null, c.legPose ?? null, c.rivals ?? null, c.backdrop ?? null, c.wind ?? null, c.gear ?? null, ...(c.camera ? [c.camera] : []), ...(c.rig ? [c.rig] : []), ...(c.fxArt ? [{ fx: c.fxArt, d3: 1, ...(c.fxT ? { t: c.fxT } : {}) }] : [])])}`;
 let dbp = null;
 function db() {
   if (typeof indexedDB === 'undefined') return Promise.resolve(null);
@@ -212,12 +191,14 @@ function shoot(card) {
       surface: card.surface ?? '芝', shot, phase: card.phase ?? (shot === 'charge' ? 0.3 : 0.25), facing: card.facing ?? 'left',
       riderPose: card.pose ?? (shot === 'charge' || shot === 'arc' ? 'race' : 'celebrate'), wind: card.wind ?? true, camera: card.camera ?? null, backdrop: card.backdrop ?? (card.desert ? 'desert' : 'sunset'), mask: true,
       // 写真に写っている相手（モンジューのカードのエルコンドルパサー）。dx は横（負で奥）、dz は前後（負で後ろ）
+      // 固有スキルのエフェクトは 3D で撮る（カメラの向きに合う。向き fxDir は 2D のカットインだけに効く）
+      fx: card.fxArt ? { kind: card.fxArt, time: card.fxT ?? 0, seed: card.hid ?? 1 } : null,
       rivals: (card.rivals ?? []).map((r, i) => ({ id: r.hid ?? (card.hid ?? 1) + 101 + i, coat: r.coat, gate: r.gate ?? 2, frame: 1, marks: r.marks ?? null, silks: r.silks ?? null, dx: r.dx, dz: r.dz, phase: r.phase })),
     });
     const ring = v.mask ? await ringOf(v.mask) : null;
     const baked = await bakeBlur(v.background);
     const sticker = v.mask ? await stickerOf(v.mask, v.head) : null;
-    const fx = card.fxArt && v.mask ? await bakeFx(card.fxArt, v.mask, card.hid ?? 1, fxDir(card), card.fxT ?? 0) : null;
+    const fx = v.fx ? { back: EMPTY_PNG, front: v.fx } : null;
     return { bg: baked ?? v.background, bgBaked: !!baked, fg: v.subject, ring, sun: v.sun, sticker, fx };
   });
   chain = p.catch(() => {});

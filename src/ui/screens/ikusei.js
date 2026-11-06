@@ -1574,7 +1574,7 @@ function cardEditView(app, go) {
       if (!stage || !canvas.isConnected) return;
       // 騎手の点のドラッグは騎手を作り直すので、動かした分をまとめて 1 コマに 1 回だけ当てる
       if (rigDirty) { rigDirty = false; stage.setRig(A.rig); }
-      stage.render(artRenderer(), canvas, 3, A.fx in I.SKILL_FX ? { kind: A.fx, dir: I.fxDirOf(A), time: A.fxT ?? 0 } : null);
+      stage.render(artRenderer(), canvas, 3, A.fx in I.SKILL_FX ? { kind: A.fx, time: A.fxT ?? 0, seed: base.hid ?? 1 } : null);
       hs = null;
       if (showHandles()) drawHandles();
     });
@@ -1821,7 +1821,7 @@ function cardEditView(app, go) {
           chip('auto', 'おまかせ'), chip('none', 'なし'),
           ...Object.entries(I.SKILL_FX).map(([k, f]) => chip(k, f.name, f.color)),
         ])),
-        row('向き', el('div.ikce-chips', [dirChip('auto', `自動（${A.facing === 'right' ? '右' : '左'}）`), dirChip('left', '← 左向き'), dirChip('right', '右向き →')])),
+        row('カットインの向き', el('div.ikce-chips', [dirChip('auto', `自動（${A.facing === 'right' ? '右' : '左'}）`), dirChip('left', '← 左向き'), dirChip('right', '右向き →')])),
         // 時間：止めた絵の時刻だけを進める（脚の運びを変えると馬の形が変わって粒の出どころも変わるので、エフェクトだけ動かすのはこちら）
         A.fx in I.SKILL_FX ? row('時間', slider(0, I.FX_TIME_MAX, 0.02, A.fxT ?? 0, (v) => { A.fxT = v || undefined; draw(); }, (v) => `+${v.toFixed(2)} 秒`)) : null,
         el('p.note', { text: uq
