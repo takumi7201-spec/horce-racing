@@ -102,7 +102,8 @@ function rampSprites(kind) {
 /**
  * 形からエフェクトを描く係を作る。mask は透明の地に形のある絵（Image・canvas）。w・h は描く大きさ。
  * draw(back, front, t, { still, alpha }) で、back（形の後ろに描く 2D の文脈）と front（形の前）に時刻 t 秒の絵を描く。
- * still はカードの絵（現れて消える動きを付けず、粒が出そろった姿で止める）。
+ * still はカードの絵（現れて消える動きを付けず、粒が出そろった姿で止める）。time は止めた絵の時刻のずらし（秒、0 で既定の 1 コマ）。
+ * 馬の形が変わると粒の出どころも変わるので、エフェクトだけを動かしたいとき（カードエディットの「時間」）はこちらを動かす。
  * dir は馬の走る向き（−1 で画面の左へ、+1 で右へ、0 は分からない）。粒は逆へ流れる。
  */
 export function fxPainter(kind, mask, w, h, seed = 1, { unit = null, dir = -1 } = {}) {
@@ -178,12 +179,14 @@ export function fxPainter(kind, mask, w, h, seed = 1, { unit = null, dir = -1 } 
   const ctx = { F, A, w, h, box, u, rim, P, edges, pool, parts, seed, trail: -Math.sign(dir || 0), spr: rampSprites(kind) };
   return {
     box,
-    draw(back, front, t, { still = false, alpha = 1 } = {}) {
+    draw(back, front, t, { still = false, alpha = 1, time = 0 } = {}) {
       const env = still ? 1 : Math.min(ease(t / 0.22), 1 - ease((t - 2.1) / 0.5));
       const k = Math.max(0, env) * alpha;
       if (k <= 0) return;
       for (const g of [back, front]) { g.save(); g.globalAlpha = 1; }
       SOFT = still;
+      // 止めた絵の時刻のずらし。育つ・開く・閃光の動き（grow・open・env）は出そろった姿のまま、流れと回りだけを進める
+      ctx.s = still ? Math.max(0, +time || 0) : 0;
       drawAura(back, front, t, k, ctx, still);
       DRAW[kind](back, front, t, k, ctx, still);
       for (const g of [back, front]) g.restore();
@@ -212,7 +215,7 @@ function drawAura(b, f, t, k, c, still) {
   b.globalCompositeOperation = 'lighter';
   b.globalAlpha = Math.min(1, k * 0.32);
   b.drawImage(c.rim, 0, 0);
-  const T = still ? 2.2 : t;
+  const T = still ? 2.2 + c.s : t;
   const flick = A.flicker && !still ? 0.6 + 0.4 * ((h32(Math.floor(t / 0.05) + c.seed) % 1000) / 1000) : 1;
   for (let i = 0; i < parts.length; i++) {
     const q = parts[i];
@@ -312,7 +315,7 @@ const LEAF_COLS = ['#5fbf3f', '#3f8f2a', '#8fd65a', '#2f6b22'];
 function galeTornado2D(b, f, t, k, c, still) {
   const { F, box, u, P, seed } = c;
   // 止めた絵（カード）は帯が馬の胴を隠さない巻き方の時刻で
-  const T = still ? 1.3 : t;
+  const T = still ? 1.3 + c.s : t;
   // 竜巻が育つ（0.35 秒で鼻先から後ろへ伸びる）。終わり際は外へ開きながら薄れる
   const grow = still ? 1 : ease(T / 0.35);
   const open = still ? 0 : smooth(2.0, 2.6, T);
@@ -385,7 +388,7 @@ function galeTornado2D(b, f, t, k, c, still) {
     g.globalCompositeOperation = 'source-over';
     g.lineCap = 'round';
     for (let i = 0; i < 3; i++) {
-      const ph = still ? 0.2 + i * 0.3 : (T * 1.1 + i / 3) % 1;
+      const ph = still ? (0.2 + i * 0.3 + c.s * 1.1) % 1 : (T * 1.1 + i / 3) % 1;
       const r = rOf(ph) * (1.1 + ph * 0.3);
       g.globalAlpha = (1 - ph) * 0.8 * alpha;
       g.strokeStyle = i === 1 ? F.color : '#ffffff';
@@ -525,7 +528,7 @@ const DRAW = {
     b.globalCompositeOperation = 'lighter';
     // 横長の絵（カットインの字）では筋が絵の上下の縁で四角く切れるので、短い辺の中で消す
     const R = Math.max(w, h) / Math.min(w, h) > 1.6 ? Math.min(w, h) * 0.5 : Math.max(w, h) * 0.85;
-    const rot = still ? 0.2 : t * 0.35;
+    const rot = still ? 0.2 + c.s * 0.35 : t * 0.35;
     for (let i = 0; i < 18; i++) {
       const a = rot + (i / 18) * Math.PI * 2;
       const wd = (i % 2 ? 0.05 : 0.09);
@@ -539,7 +542,7 @@ const DRAW = {
     }
     for (const m of P.motes.slice(0, 26)) {
       const x = box.x0 - 40 * u + m.a * (box.w + 80 * u);
-      const y = box.y1 - ((m.b * (box.h + 120 * u) + (still ? 0 : t * (40 + m.c * 60) * u)) % (box.h + 120 * u));
+      const y = box.y1 - ((m.b * (box.h + 120 * u) + ((still ? c.s : t) * (40 + m.c * 60) * u)) % (box.h + 120 * u));
       const tw = still ? 0.6 + m.d * 0.4 : 0.5 + 0.5 * Math.sin(t * 9 + m.e * 9);
       glint(f, x, y, (5 + m.c * 10) * u, F.color, F.core, k * tw);
     }
@@ -547,7 +550,7 @@ const DRAW = {
   // イナズマ：空から落ちる一本と、形から外へ走る稲妻（0.07 秒ごとに形を変えて瞬く）
   thunder(b, f, t, k, c, still) {
     const { F, box, u, P, w } = c;
-    const fi = still ? 3 : Math.floor(t / 0.07);
+    const fi = still ? 3 + Math.floor(c.s / 0.07) : Math.floor(t / 0.07);
     const r = rngOf(c.seed * 31 + fi * 977);
     const top = P.bolts.filter((e) => e.ny < -0.3);
     const hit = top[Math.floor(r() * top.length)] ?? P.bolts[0];
@@ -574,8 +577,8 @@ const DRAW = {
     const spr = c.spr.steps;
     for (const m of P.motes.slice(0, 44)) {
       const H = box.h + 160 * u;
-      const y = box.y1 + 20 * u - ((m.b * H + (still ? 0 : t * (110 + m.c * 140) * u)) % H);
-      const x = box.x0 + m.a * box.w + Math.sin((still ? 0 : t) * 3 + m.d * 9) * 18 * u + c.trail * (still ? 0 : t) * 30 * u * m.e;
+      const y = box.y1 + 20 * u - ((m.b * H + ((still ? c.s : t) * (110 + m.c * 140) * u)) % H);
+      const x = box.x0 + m.a * box.w + Math.sin((still ? c.s : t) * 3 + m.d * 9) * 18 * u + c.trail * (still ? c.s : t) * 30 * u * m.e;
       const s = (2.5 + m.c * 4) * u;
       f.globalCompositeOperation = 'lighter';
       f.globalAlpha = k * (0.55 + m.e * 0.45);
@@ -604,11 +607,11 @@ const DRAW = {
     for (const m of P.motes.slice(0, 26)) {
       const x = box.x0 - 60 * u + m.a * (box.w + 120 * u);
       const H = box.h + 160 * u;
-      const y = box.y0 - 60 * u + ((m.b * H + (still ? 0 : t * (20 + m.c * 30) * u)) % H);
+      const y = box.y0 - 60 * u + ((m.b * H + ((still ? c.s : t) * (20 + m.c * 30) * u)) % H);
       const R = (5 + m.c * 9) * u;
       f.globalCompositeOperation = 'lighter';
       f.strokeStyle = rgba(F.core, k * (0.55 + m.d * 0.45)); f.lineWidth = 1.4 * u;
-      const rot = m.e * 3 + (still ? 0 : t * 1.5);
+      const rot = m.e * 3 + ((still ? c.s : t) * 1.5);
       f.beginPath();
       for (let i = 0; i < 3; i++) { const a = rot + (i / 3) * Math.PI; f.moveTo(x - Math.cos(a) * R, y - Math.sin(a) * R); f.lineTo(x + Math.cos(a) * R, y + Math.sin(a) * R); }
       f.stroke();
@@ -618,12 +621,12 @@ const DRAW = {
   // 桜吹雪：馬を巻いて舞う花びら（半分は後ろ、半分は前）
   sakura(b, f, t, k, c, still) {
     const { F, box, u, P } = c;
-    const tt = still ? 0.9 : t;
+    const tt = still ? 0.9 + c.s : t;
     for (const [i, m] of P.motes.entries()) {
       const ang = m.a * Math.PI * 2 + tt * (0.9 + m.c * 0.8);
       const rx = box.w * (0.55 + m.b * 0.35), ry = box.h * (0.28 + m.d * 0.3);
       const x = box.cx + Math.cos(ang) * rx;
-      const y = box.cy + Math.sin(ang) * ry * 0.6 - (m.e - 0.5) * box.h * 0.9 + (still ? 0 : tt * 25 * u);
+      const y = box.cy + Math.sin(ang) * ry * 0.6 - (m.e - 0.5) * box.h * 0.9 + (still ? c.s * 25 * u : tt * 25 * u);
       const front = Math.sin(ang) > 0;
       petal(front ? f : b, x, y, (7 + m.c * 7) * u, m.e * 6 + tt * (2 + m.b * 3), F, k * (0.75 + m.d * 0.25));
       if (i % 6 === 0) glint(f, x, y, 10 * u, F.color, F.core, k * 0.5);
@@ -640,8 +643,8 @@ const DRAW = {
     const spr = c.spr.steps;
     for (const m of P.motes.slice(0, 24)) {
       const H = box.h + 140 * u;
-      const y = box.y1 - ((m.b * H + (still ? 0 : t * (60 + m.c * 70) * u)) % H);
-      const x = box.x0 + m.a * box.w + Math.sin((still ? 0 : t) * 2 + m.d * 9) * 20 * u;
+      const y = box.y1 - ((m.b * H + ((still ? c.s : t) * (60 + m.c * 70) * u)) % H);
+      const x = box.x0 + m.a * box.w + Math.sin((still ? c.s : t) * 2 + m.d * 9) * 20 * u;
       const s = (2.5 + m.c * 3.5) * u;
       f.globalCompositeOperation = 'lighter';
       f.globalAlpha = k * (0.5 + m.e * 0.5);
@@ -652,7 +655,7 @@ const DRAW = {
   // 星屑：馬を巡る星の帯
   star(b, f, t, k, c, still) {
     const { F, box, u, P } = c;
-    const tt = still ? 1.1 : t;
+    const tt = still ? 1.1 + c.s : t;
     for (const [i, m] of P.motes.entries()) {
       const ang = m.a * Math.PI * 2 + tt * (1.4 + m.c * 0.6);
       const rx = box.w * (0.55 + m.b * 0.2), ry = box.h * 0.22;

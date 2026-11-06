@@ -109,6 +109,8 @@ export function cleanArt(a) {
   if (a.fx in SKILL_FX || a.fx === 'none') o.fx = a.fx;
   // エフェクトの向き（先頭＝竜巻の細い側が向く方。粒は反対へ流れる）。無ければ馬の向き
   if (a.fxDir === 'left' || a.fxDir === 'right') o.fxDir = a.fxDir;
+  // エフェクトの時間（止めた絵の時刻のずらし、0〜FX_TIME_MAX 秒）。馬の脚の運びとは別に、渦や粒の流れだけを進める。0 は持たない
+  { const ft = num(a.fxT, 0, FX_TIME_MAX); if (ft) o.fxT = Math.round(ft * 100) / 100; }
   // リグ：動かせる軸だけ、回転は ±2 rad・騎手の点は ±0.6 m。0 だけの部位は持たない
   if (a.rig && typeof a.rig === 'object') {
     const pick = (src, keys, lim, axesOf) => {
@@ -470,6 +472,8 @@ export function fxOfFinished(h) {
   return f === 'none' ? null : f in SKILL_FX ? f : uniqueFxOf(u);
 }
 export const fxOfCard = (c) => uniqueFxOf(uniqueCardOf(c));
+/** カードの絵のエフェクトの時間（秒）の上限。粒の寿命（1.6 秒まで）と竜巻の 1 回りより長くとる。 */
+export const FX_TIME_MAX = 3;
 /**
  * 2D のエフェクト（カードの絵・カットイン）の向き。−1 で左向き、+1 で右向き（先頭がその向き、粒は反対へ流れる）。
  * カードエディットで決めた向き（fxDir）、無ければ馬の向き（facing。既定の馬は左を向いて走る）。
@@ -487,7 +491,7 @@ export function traineeCard(run) {
 const artFields = (a) => (a ? Object.fromEntries(Object.entries({ shot: a.shot, facing: a.facing, phase: a.phase, pose: a.pose, backdrop: a.backdrop, gate: a.gate,
   legPose: a.legPose, wind: a.wind, camera: a.camera, silks: a.silks, surface: a.surface, rig: a.rig, desert: a.backdrop ? a.backdrop === 'desert' : undefined,
   // エフェクトは絵に描くときだけ（fxArt）。カードの fx（固有の既定）とは別に持つ（LM の元の絵にはエフェクトを描かない）
-  fxArt: a.fx in SKILL_FX ? a.fx : undefined, fxDir: a.fxDir,
+  fxArt: a.fx in SKILL_FX ? a.fx : undefined, fxDir: a.fxDir, fxT: a.fxT,
   // 自分のカードは主役 1 頭だけ（元のカードに写っていた相手の馬は連れてこない）
   rivals: [] }).filter(([, v]) => v !== undefined)) : {});
 

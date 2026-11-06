@@ -98,7 +98,7 @@ function stickerOf(maskUrl, head = null) {
  * 固有スキルのエフェクト（カードエディットで選んだもの）を、馬と騎手の形の後ろ（オーラ）と前（稲妻・粒）の 2 枚に焼き込む。
  * 止めた絵なので、いちばん見栄えのする姿（still）で描く。
  */
-export function bakeFx(kind, maskUrl, seed = 1, dir = -1) {
+export function bakeFx(kind, maskUrl, seed = 1, dir = -1, time = 0) {
   return new Promise((resolve) => {
     const img = new Image();
     img.onload = () => {
@@ -106,7 +106,7 @@ export function bakeFx(kind, maskUrl, seed = 1, dir = -1) {
       if (!pt) { resolve(null); return; }
       const b = document.createElement('canvas'), f = document.createElement('canvas');
       b.width = f.width = W; b.height = f.height = H;
-      pt.draw(b.getContext('2d'), f.getContext('2d'), 1.2, { still: true });
+      pt.draw(b.getContext('2d'), f.getContext('2d'), 1.2, { still: true, time });
       resolve({ back: b.toDataURL('image/png'), front: f.toDataURL('image/png') });
     };
     img.onerror = () => resolve(null);
@@ -169,7 +169,7 @@ export function cardArtIfReady(card) {
 // 1 枚撮るのに WebGL で舞台を組んで描くので、79 枚の一覧を開くたびに撮り直すと重い。ブラウザの IndexedDB に残す。
 // 鍵は絵に効くカードの値（構え・毛色・白斑・勝負服など）と ART_VER。撮影の舞台（photostage.js）を変えたら ART_VER を上げる。
 const ART_VER = 2;   // 2: ステッカー（sticker）を足した（相手の馬・背景は鍵の値に入るので、足しても上げなくてよい）
-const artKey = (c) => `${ART_VER}:${c.id}:${JSON.stringify([c.hid, c.artCoat ?? c.coat, c.marks, c.surface, c.shot, c.desert, c.silks ?? null, c.facing ?? null, c.pose ?? null, c.gate ?? null, c.phase ?? null, c.legPose ?? null, c.rivals ?? null, c.backdrop ?? null, c.wind ?? null, c.gear ?? null, ...(c.camera ? [c.camera] : []), ...(c.rig ? [c.rig] : []), ...(c.fxArt ? [{ fx: c.fxArt, ...(c.fxDir ? { dir: c.fxDir } : {}) }] : [])])}`;
+const artKey = (c) => `${ART_VER}:${c.id}:${JSON.stringify([c.hid, c.artCoat ?? c.coat, c.marks, c.surface, c.shot, c.desert, c.silks ?? null, c.facing ?? null, c.pose ?? null, c.gate ?? null, c.phase ?? null, c.legPose ?? null, c.rivals ?? null, c.backdrop ?? null, c.wind ?? null, c.gear ?? null, ...(c.camera ? [c.camera] : []), ...(c.rig ? [c.rig] : []), ...(c.fxArt ? [{ fx: c.fxArt, ...(c.fxDir ? { dir: c.fxDir } : {}), ...(c.fxT ? { t: c.fxT } : {}) }] : [])])}`;
 let dbp = null;
 function db() {
   if (typeof indexedDB === 'undefined') return Promise.resolve(null);
@@ -217,7 +217,7 @@ function shoot(card) {
     const ring = v.mask ? await ringOf(v.mask) : null;
     const baked = await bakeBlur(v.background);
     const sticker = v.mask ? await stickerOf(v.mask, v.head) : null;
-    const fx = card.fxArt && v.mask ? await bakeFx(card.fxArt, v.mask, card.hid ?? 1, fxDir(card)) : null;
+    const fx = card.fxArt && v.mask ? await bakeFx(card.fxArt, v.mask, card.hid ?? 1, fxDir(card), card.fxT ?? 0) : null;
     return { bg: baked ?? v.background, bgBaked: !!baked, fg: v.subject, ring, sun: v.sun, sticker, fx };
   });
   chain = p.catch(() => {});

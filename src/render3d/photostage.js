@@ -594,7 +594,7 @@ export function createPoseStage(o) {
       st.wind?.update(0, 17, camera);
     },
     /** canvas（2D）へ描く。blur は背景のぼかし（px）。 */
-    // fx：固有スキルのエフェクト（{ kind, dir }。カードエディットの見本。焼き込むカードの絵と同じ描き方）
+    // fx：固有スキルのエフェクト（{ kind, dir, time }。カードエディットの見本。焼き込むカードの絵と同じ描き方）
     render(renderer, canvas, blur = 3, fx = null) {
       const w = canvas.width, h = canvas.height;
       const g = canvas.getContext('2d');
@@ -625,7 +625,7 @@ export function createPoseStage(o) {
         if (pt) {
           front = document.createElement('canvas');
           front.width = w; front.height = h;
-          pt.draw(g, front.getContext('2d'), 1.2, { still: true });
+          pt.draw(g, front.getContext('2d'), 1.2, { still: true, time: fx.time ?? 0 });
         }
       }
       renderer.render(st.scene, camera);
