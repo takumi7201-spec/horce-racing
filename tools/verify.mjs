@@ -1195,9 +1195,12 @@ section('カード育成モード');
     I.setFinishedArt(big, h.id, { fx: 'gale', fxT: 99 });
     const dt = I.horseCard(h).fxT;
     big.finished.find((x) => x.id === h.id).art = undefined;
-    check(`固有スキルのエフェクト：LM ${lms.length} 枚が ${kinds.size} 種を持ち、完成馬（固有 ${def}）は選んだエフェクト・向き（左・右）・時間が発動と絵に効き、なしで消える`,
+    check(`固有スキルのエフェクト：LM ${lms.length} 枚が ${kinds.size} 種を持ち（流星を含む）、完成馬（固有 ${def}）は選んだエフェクト・向き（左・右）・時間が発動と絵に効き、なしで消える`,
       lms.every((c) => I.SKILL_FX[I.uniqueFxOf(c)]) && kinds.size >= 6 && I.uniqueFxOf(I.CARDS.find((c) => c.rar === 'SR')) === null
       && I.uniqueFxOf(I.cardById('P4-03')) === 'thunder' && I.uniqueFxOf(I.cardById('EV-02')) === 'shadow'
+      // 流星（9 種目）を足しても、id のハッシュで決まる既定は変わらない（はじめの 8 種から選ぶ）
+      && I.SKILL_FX.comet?.name === '流星' && I.uniqueFxOf(I.cardById('P4-07')) === 'comet'
+      && I.uniqueFxOf(I.cardById('P1-01')) === 'shadow' && I.uniqueFxOf(I.cardById('P2-01')) === 'star' && I.uniqueFxOf(I.cardById('P1-08')) === 'frost'
       && def === I.uniqueFxOf(I.cardById(h.unique)) && a1.fx === 'thunder' && on.every((x) => x === 'thunder') && bogus === undefined
       && none[0] === null && none[1] === undefined && I.horseCard(h).fxArt === undefined
       && dr[0] === 'right' && dr[1] === 1 && dr[2] === 1.23 && du[0] === undefined && du[1] === 1 && du[2] === -1 && du[3] === -1

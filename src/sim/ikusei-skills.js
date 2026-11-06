@@ -109,19 +109,25 @@ export const SKILL_FX = {
   gale: { name: '疾風', color: '#6ff0bf', glow: '#14a978', core: '#f4fffb' },
   shadow: { name: '漆黒のオーラ', color: '#b45cff', glow: '#5b10b8', core: '#f0d8ff' },
   star: { name: '星屑', color: '#d2c6ff', glow: '#5868ff', core: '#ffffff' },
+  // 流星：宇宙のエネルギーの彗星（桃色の頭・紫から青紫へ消える尾）。deep は尾の先と星の青
+  comet: { name: '流星', color: '#f45cff', glow: '#8a4bff', core: '#fff0ff', deep: '#4f5bff' },
 };
 export const SKILL_FX_KEYS = Object.keys(SKILL_FX);
+// id のハッシュで選ぶ既定は、はじめの 8 種の中から（種類を足すたびに割る数が変わると、手で決めていないカードの既定が全部入れ替わる）
+const HASH_FX = SKILL_FX_KEYS.slice(0, 8);
 // 二つ名や毛色に合うものは手で決める（閃光はイナズマ、真夜中・南十字は星屑、黄金は金色の光…）。ほかは id から
 const FX_OF = {
   'P4-03': 'thunder', 'P2-17': 'thunder', 'P4-06': 'star', 'P4-10': 'star', 'P4-09': 'radiance', 'P2-40': 'radiance',
   'EV-02': 'shadow', 'P1-40': 'flame', 'P1-17': 'flame', 'P4-02': 'gale', 'P2-10': 'gale', 'P4-01': 'sakura', 'P1-15': 'sakura',
   'EV-01': 'frost', 'P4-08': 'frost',
+  // 一度も背を見せず＝誰も追いつけない流れ星
+  'P4-07': 'comet',
 };
 /** カード（LM）の固有スキルのエフェクト。カードの fx、手で決めた表、id のハッシュの順。LM でなければ null。 */
 export function uniqueFxOf(card) {
   if (!card || card.rar !== 'LM') return null;
   if (card.fx in SKILL_FX) return card.fx;
-  return FX_OF[card.id] ?? SKILL_FX_KEYS[hash(`${card.id}:fx`) % SKILL_FX_KEYS.length];
+  return FX_OF[card.id] ?? HASH_FX[hash(`${card.id}:fx`) % HASH_FX.length];
 }
 
 /** スキルの名前と説明（画面用）。'u:<カードid>' は固有。 */

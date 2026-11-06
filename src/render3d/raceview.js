@@ -527,9 +527,11 @@ export function createRaceView(canvas, race, opts = {}) {
         flares.splice(i, 1);
         continue;
       }
-      // 遠いカメラでも読める大きさに（目印と同じ考え）
+      // 遠いカメラでも読める大きさに（目印と同じ考え）。拡大は画面での見え方（距離 × 画角）で決める。距離だけで決めると、
+      // 望遠のカメラ（遠くから狭い画角で狙う。馬は大きく写る）で光の柱と飾りが 4 倍に膨らみ、画面を白く覆った（画角 48° で以前と同じ）
       const d = camera.position.distanceTo(f.h.group.position);
-      f.g.scale.setScalar(clamp(d / 30, 1, 4));
+      const span = d * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2);
+      f.g.scale.setScalar(clamp(span / 13.4, 1, 4));
       for (const r of f.rings) {
         const t = clamp((age - r.userData.delay) / (f.life * 0.6), 0, 1);
         r.scale.setScalar(1 + t * (f.big ? 7 : 5));

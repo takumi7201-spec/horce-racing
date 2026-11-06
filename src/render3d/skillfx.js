@@ -1,4 +1,4 @@
-// 固有スキルの発動のエフェクト（イナズマ・燃えるオーラ・氷結・桜吹雪・疾風・金色の光・漆黒のオーラ・星屑）。
+// 固有スキルの発動のエフェクト（イナズマ・燃えるオーラ・氷結・桜吹雪・疾風・金色の光・漆黒のオーラ・星屑・流星）。
 // 種類と色は sim/ikusei-skills.js の SKILL_FX。見た目だけで、走行ログ（結果）には触らない。
 //
 // オーラは粒（パーティクル）で作る。以前は形をぼかした光を明滅させ、炎は多角形の舌を伸び縮みさせていたので、
@@ -68,6 +68,8 @@ const AURA2 = {
   gale: { n: 120, life: [0.35, 0.7], rise: 30, out: 20, trail: 300, size: [6, 11], grow: 0.4, ramp: ['core', 'color', 'glow'], a: 0.4, front: 0.25, stretch: [2.6, 0.5] },
   shadow: { n: 380, life: [0.6, 1.2], rise: 125, out: 22, trail: 60, size: [14, 27], grow: 0.7, ramp: ['color', 'glow', 'dark'], a: 0.52, front: 0.12, dark: 0.45, up: 0.6 },
   star: { n: 250, life: [0.8, 1.4], rise: 30, out: 26, trail: 40, size: [8, 15], grow: 0.8, ramp: ['core', 'color', 'glow'], a: 0.45, front: 0.25 },
+  // 流星：体から剥がれて尾へ流れる星屑（横に伸ばす）。主役は彗星の頭と尾（cometBack・cometFront）
+  comet: { n: 200, life: [0.35, 0.8], rise: 4, out: 16, trail: 280, size: [5, 10], grow: 0.3, ramp: ['core', 'color', 'glow'], a: 0.42, front: 0.22, stretch: [2.4, 0.55] },
 };
 
 // 粒の布：色ごとに 8 段（一生の進みで段を進める）。白い丸をぼかした絵を色で染めておく（毎コマ放射グラデーションを作らない）
@@ -187,6 +189,8 @@ export function fxPainter(kind, mask, w, h, seed = 1, { unit = null, dir = -1 } 
       SOFT = still;
       // 止めた絵の時刻のずらし。育つ・開く・閃光の動き（grow・open・env）は出そろった姿のまま、流れと回りだけを進める
       ctx.s = still ? Math.max(0, +time || 0) : 0;
+      // 形の後ろの土台（流星の頭と尾）はオーラの粒より先に描く（粒が頭の光の上に乗る）
+      PRE[kind]?.(back, front, t, k, ctx, still);
       drawAura(back, front, t, k, ctx, still);
       DRAW[kind](back, front, t, k, ctx, still);
       for (const g of [back, front]) g.restore();
@@ -520,6 +524,319 @@ function galeTornado2D(b, f, t, k, c, still) {
   b.globalAlpha = 1; f.globalAlpha = 1;
 }
 
+// ---- 流星（2D）。宇宙のエネルギーの彗星：馬が彗星の頭になり、桃色の殻が体を包み、紫から青紫へ消える尾を後ろへ引く。
+// 頭はアニメのセル調（光の色の外殻 → 主の色 → 芯の桃白を段で塗り、殻の中を濃い紫の流れと白い筋が後ろへ流れる）。
+// 周りは宇宙：暗い星雲の地・星の粒・走る光の筋・四芒星のきらめき・尾に乗る星座。発動の瞬間は鼻先の閃光と十字の光芒と輪。
+// 軸は走る向きに沿い、後ろほど少し上がる（COMET_TILT）。s は鼻先からの後ろへの距離、n は軸から上への距離（px）。
+const COMET_TILT = 0.09;
+const COMET_DARK = '#5a1fc8';   // 殻の中の濃い紫の流れ
+function cometGeo(c, T, still) {
+  const { box } = c;
+  const tr = c.trail || 1;
+  const grow = still ? 1 : ease(T / 0.32);
+  const tail = still ? 1 : ease(T / 0.7);
+  const bx = tr * Math.cos(COMET_TILT), by = -Math.sin(COMET_TILT);
+  const nx = -tr * Math.sin(COMET_TILT), ny = -Math.cos(COMET_TILT);
+  const x0 = (tr > 0 ? box.x0 : box.x1) - tr * box.w * 0.1, y0 = box.y0 + box.h * 0.56;
+  const at = (s, n) => [x0 + bx * s + nx * n, y0 + by * s + ny * n];
+  // 殻の長さと太さ（頭から尾の付け根まで）。発動で鼻先から後ろへ伸びる
+  const L = box.w * 1.22 * (0.3 + 0.7 * grow);
+  const H = box.h * 0.62 * (0.25 + 0.75 * grow);
+  return { tr, grow, tail, at, L, H, bx, by, nx, ny, x0, y0 };
+}
+// 殻の形（q＝0 鼻先 〜 1 尾の付け根）：丸い鼻先（平方根）→ 胴の太さ → 尾へ細る。縁は後ろへ流れるうねりでちぎれる
+const shellH = (q) => Math.sqrt(clamp01(q / 0.2)) * (1 - 0.12 * smooth(0.2, 0.55, q)) * Math.pow(1 - smooth(0.45, 1, q), 0.9);
+function shellPath(g, G, T, u, { len = 1, hs = 1, s0 = 0, wob = 1, side = 0 } = {}) {
+  const n = 44;
+  const pt = (q, up) => {
+    const s = s0 + q * G.L * len;
+    // 縁のうねり：大きくゆっくり（液体のように）。細かい波を強くすると炎のギザギザに見えた
+    const w = 1 + wob * (0.035 * Math.sin(s / (34 * u) - T * 7 + (up ? 0 : 2.1) + side) + 0.012 * Math.sin(s / (12 * u) - T * 12 + (up ? 1 : 3) + side));
+    return G.at(s, (up ? 1 : -1) * G.H * hs * shellH(q) * w * (up ? 1 : 0.92));
+  };
+  g.beginPath();
+  for (let i = 0; i <= n; i++) { const p = pt(i / n, true); if (i) g.lineTo(...p); else g.moveTo(...p); }
+  for (let i = n; i >= 0; i--) g.lineTo(...pt(i / n, false));
+  g.closePath();
+}
+// 宇宙の飾り（星の粒・光の筋・きらめき・星座）の置き場所は最初に一度だけ決める
+function cometBits(c) {
+  if (c.comet) return c.comet;
+  const r = rngOf(c.seed * 7 + 3);
+  c.comet = {
+    stars: Array.from({ length: 130 }, () => ({ x: r(), y: r(), s: r(), c: r(), tw: r() * 6.283, v: 0.2 + r() * 0.8 })),
+    lines: Array.from({ length: 34 }, () => ({ x: r(), y: r(), L: r(), w: r(), c: r(), v: 0.6 + r() * 0.8, front: r() < 0.3 })),
+    sparks: Array.from({ length: 16 }, () => ({ q: r(), n: r() * 2 - 1, s: r(), tw: r() * 6.283, v: r() })),
+    bands: Array.from({ length: 6 }, (_, i) => ({ n: (r() * 2 - 1) * 0.5, A: 0.12 + r() * 0.2, lam: 0.25 + r() * 0.3, ph: r() * 6.283, w: 0.1 + r() * 0.16, q0: r() * 0.2, len: 0.45 + r() * 0.45, dark: i % 2 === 0 })),
+    cons: Array.from({ length: 3 }, (_, i) => {
+      const n = 4 + Math.floor(r() * 2);
+      const q0 = 0.75 + i * 0.32 + r() * 0.1, n0 = (r() * 2 - 1) * 0.6;
+      return Array.from({ length: n }, (_, j) => ({ q: q0 + j * (0.07 + r() * 0.06), n: n0 + (r() * 2 - 1) * 0.28, s: r() }));
+    }),
+  };
+  return c.comet;
+}
+
+/** 流星の土台（形の後ろ）：星雲の地・星の粒・尾・殻と中の流れ。 */
+function cometBack(b, f, t, k, c, still) {
+  const { F, u, w, h } = c;
+  const T = still ? 1.2 + c.s : t;
+  const G = cometGeo(c, T, still);
+  const B = cometBits(c);
+  const deep = F.deep ?? F.glow;
+  // 暗い星雲の地：頭のまわりを沈めて、桃色と紫の光を立たせる（明るい競馬場の前でも宇宙に見える）
+  {
+    const [cx, cy] = G.at(G.L * 0.42, 0);
+    b.save();
+    b.translate(cx, cy);
+    b.rotate(Math.atan2(G.by, G.bx));
+    const RX = G.L * 1.35;
+    b.scale(1, (G.H * 3) / RX);
+    // 消えるときは暗い地を先に引く（明るい光と一緒に薄めると灰色に濁った）
+    const kd = k * k;
+    const gr = b.createRadialGradient(0, 0, 0, 0, 0, RX);
+    gr.addColorStop(0, rgba('#0e0424', 0.78 * kd)); gr.addColorStop(0.45, rgba('#170842', 0.62 * kd)); gr.addColorStop(0.75, rgba('#1d0b4a', 0.3 * kd)); gr.addColorStop(1, rgba('#1d0b4a', 0));
+    b.globalCompositeOperation = 'source-over';
+    b.globalAlpha = 1;
+    b.fillStyle = gr;
+    b.beginPath(); b.arc(0, 0, RX, 0, 6.283); b.fill();
+    b.restore();
+  }
+  // 星の粒（後ろへゆっくり流れ、瞬く。少しだけ走る向きに伸ばす）
+  b.globalCompositeOperation = 'lighter';
+  b.lineCap = 'round';
+  for (const s of B.stars) {
+    const drift = ((s.x - (still ? 0 : T) * 0.05 * s.v * G.tr) % 1 + 1) % 1;
+    const x = drift * w, y = s.y * h;
+    const tw = still ? 0.55 + 0.45 * Math.sin(s.tw + c.s * 7) : 0.5 + 0.5 * Math.sin(T * (4 + s.v * 6) + s.tw);
+    const col = s.c < 0.45 ? '#ffffff' : s.c < 0.75 ? deep : F.color;
+    const sz = (1 + s.s * 2.6) * u;
+    b.globalAlpha = k * (0.4 + 0.6 * tw) * (0.55 + s.s * 0.45);
+    b.strokeStyle = col; b.lineWidth = sz;
+    b.beginPath(); b.moveTo(x, y); b.lineTo(x + G.bx * sz * (1 + s.v * 2.5), y + G.by * sz * (1 + s.v * 2.5)); b.stroke();
+    // 大きな星はきらめきの十字を付ける
+    if (s.s > 0.86) glint(b, x, y, sz * 5, col, '#ffffff', b.globalAlpha);
+  }
+  b.globalAlpha = 1;
+  // 外の光（頭のまわりのにじみ）
+  for (let i = 0; i < 6; i++) {
+    const q = i / 5;
+    const [x, y] = G.at(G.L * (0.08 + q * 0.75), 0);
+    const R = G.H * (1.45 - q * 0.7);
+    const gr = b.createRadialGradient(x, y, 0, x, y, R);
+    gr.addColorStop(0, rgba(i < 2 ? F.color : F.glow, 0.3 * k)); gr.addColorStop(0.6, rgba(F.glow, 0.12 * k)); gr.addColorStop(1, rgba(F.glow, 0));
+    b.fillStyle = gr;
+    b.beginPath(); b.arc(x, y, R, 0, 6.283); b.fill();
+  }
+  // 尾：殻の中ほどから後ろへ伸びる光の帯（くっきりした縁、後ろほど紫から青紫へ消える）。後ろへ流れて揺れる
+  const TL = G.L * 2.2 * G.tail;
+  for (let i = 0; i < 13; i++) {
+    const m = P0(c, i);
+    const n0 = (m.a * 2 - 1) * 0.7;                // 付け根の高さ（殻の太さに対する割合）
+    const s0 = G.L * (0.3 + m.b * 0.35);
+    const len = TL * (0.45 + m.c * 0.65);
+    const wd = G.H * (0.06 + m.d * 0.15);
+    const N = 18;
+    const top = [], bot = [];
+    for (let j = 0; j <= N; j++) {
+      const q = j / N;
+      const s = s0 + q * len;
+      const n = G.H * (n0 * (1 - q * 0.45) + 0.06 * Math.sin(q * 5 - T * 3 + i)) ;
+      const ww = wd * (1 - q) ** 0.7 * (0.85 + 0.15 * Math.sin(q * 13 - T * 9 + i * 2));
+      top.push(G.at(s, n + ww)); bot.push(G.at(s, n - ww));
+    }
+    const [ax, ay] = G.at(s0, 0), [ex, ey] = G.at(s0 + len, 0);
+    const gr = b.createLinearGradient(ax, ay, ex, ey);
+    gr.addColorStop(0, rgba(F.color, 0.75 * k)); gr.addColorStop(0.3, rgba(F.glow, 0.6 * k)); gr.addColorStop(0.75, rgba(deep, 0.32 * k)); gr.addColorStop(1, rgba(deep, 0));
+    b.globalCompositeOperation = 'lighter';
+    b.fillStyle = gr;
+    b.beginPath(); b.moveTo(...top[0]);
+    for (const p of top) b.lineTo(...p);
+    for (let j = bot.length - 1; j >= 0; j--) b.lineTo(...bot[j]);
+    b.closePath(); b.fill();
+    // 帯の芯（細い明るい線）
+    if (i % 2 === 0) {
+      const g2 = b.createLinearGradient(ax, ay, ex, ey);
+      g2.addColorStop(0, rgba(F.core, 0.7 * k)); g2.addColorStop(0.5, rgba(F.color, 0.3 * k)); g2.addColorStop(1, rgba(F.color, 0));
+      b.strokeStyle = g2; b.lineWidth = Math.max(1, wd * 0.25);
+      b.beginPath(); top.forEach((p, j) => { const q = bot[j]; const m2 = [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2]; if (j) b.lineTo(...m2); else b.moveTo(...m2); }); b.stroke();
+    }
+  }
+  // 殻：鼻先の丸みに沿って入れ子になった三日月の段（セル調）。外から 光の色 → 主の色 → 濃い紫の隙間 → 桃 → 芯の桃白。
+  // 中ほどは透かして縁を光らせる（エネルギーの膜。地が少し見える）。普通の合成で色を残す（明るい地でも白く飛ばない）
+  const [nx0, ny0] = G.at(0, 0), [nx1, ny1] = G.at(G.L, 0);
+  const lin = (stops, l = 1) => { const [ex, ey] = G.at(G.L * l, 0); const gr = b.createLinearGradient(nx0, ny0, ex, ey); for (const [o, col, a] of stops) gr.addColorStop(o, rgba(col, a * k)); return gr; };
+  b.globalCompositeOperation = 'source-over';
+  // 普通の合成の殻は k² で薄める（消え際に光と同じ速さで薄めると、緑の地と混ざって灰色の膜が残った）
+  b.globalAlpha = k;
+  shellPath(b, G, T, u, { hs: 1.1, len: 1.05, s0: -G.L * 0.035 });
+  b.fillStyle = lin([[0, F.glow, 0.7], [0.45, F.glow, 0.5], [1, deep, 0]]);
+  b.fill();
+  shellPath(b, G, T, u);
+  b.fillStyle = lin([[0, F.color, 0.95], [0.3, F.color, 0.62], [0.7, F.glow, 0.4], [1, F.glow, 0]]);
+  b.fill();
+  b.globalAlpha = 1;
+  // 縁の内側の光（殻で切り抜いて縁を太くなぞる＝縁ほど明るい膜）と、殻の中の流れ（濃い紫のうねりと白い筋が後ろへ流れる）
+  b.save();
+  shellPath(b, G, T, u);
+  b.clip();
+  b.globalCompositeOperation = 'lighter';
+  b.lineJoin = 'round';
+  shellPath(b, G, T, u);
+  b.strokeStyle = lin([[0, F.core, 0.55], [0.4, F.color, 0.4], [1, F.color, 0]]);
+  b.lineWidth = G.H * 0.22;
+  b.stroke();
+  for (const bd of B.bands) {
+    const N = 22;
+    const top = [], bot = [];
+    for (let j = 0; j <= N; j++) {
+      const q = bd.q0 + (j / N) * bd.len;
+      const s = q * G.L;
+      const n = G.H * shellH(q) * (bd.n + bd.A * Math.sin(q / bd.lam * 6.283 - T * 5 + bd.ph));
+      const ww = G.H * bd.w * Math.sin(Math.PI * (j / N)) ** 0.8 * shellH(q);
+      top.push(G.at(s, n + ww)); bot.push(G.at(s, n - ww * 0.6));
+    }
+    b.globalCompositeOperation = bd.dark ? 'source-over' : 'lighter';
+    b.globalAlpha = (bd.dark ? 0.32 * k : 0.4) * k;
+    b.fillStyle = bd.dark ? COMET_DARK : F.core;
+    b.beginPath(); b.moveTo(...top[0]);
+    for (const p of top) b.lineTo(...p);
+    for (let j = bot.length - 1; j >= 0; j--) b.lineTo(...bot[j]);
+    b.closePath(); b.fill();
+  }
+  b.restore();
+  b.globalAlpha = 1;
+  // 鼻先の三日月の段（同じ鼻先の形を少し後ろへずらして縮めた入れ子。濃い紫の隙間を挟んで桃 → 桃白）
+  b.globalCompositeOperation = 'source-over';
+  shellPath(b, G, T, u, { hs: 0.8, len: 0.6, s0: G.L * 0.045, wob: 1.4, side: 2 });
+  b.fillStyle = lin([[0, COMET_DARK, 0.5 * k], [0.3, COMET_DARK, 0.28 * k], [0.6, COMET_DARK, 0]]);
+  b.fill();
+  b.globalCompositeOperation = 'lighter';
+  shellPath(b, G, T, u, { hs: 0.66, len: 0.5, s0: G.L * 0.075, wob: 1.8, side: 4 });
+  b.fillStyle = lin([[0, F.color, 0.7], [0.25, F.color, 0.45], [0.5, F.color, 0]]);
+  b.fill();
+  // 芯（鼻先の桃白の塊）
+  b.globalCompositeOperation = 'lighter';
+  shellPath(b, G, T, u, { hs: 0.44, len: 0.34, s0: G.L * 0.11, wob: 2.2, side: 1 });
+  b.fillStyle = lin([[0, F.core, 0.9], [0.14, F.core, 0.7], [0.3, F.color, 0.25], [0.4, F.color, 0]]);
+  b.fill();
+  b.globalCompositeOperation = 'source-over';
+  b.globalAlpha = 1;
+}
+// 飾り用の決まった乱数（P.motes を流用。cometBits と別に、尾の帯ごとの値）
+const P0 = (c, i) => c.P.motes[40 + (i % 20)];
+
+/** 流星の前（形の前）：鼻先の縁の光・薄い膜・四芒星・星座・光の筋・発動の閃光。 */
+function cometFront(b, f, t, k, c, still) {
+  const { F, u, w, h } = c;
+  const T = still ? 1.2 + c.s : t;
+  const G = cometGeo(c, T, still);
+  const B = cometBits(c);
+  const deep = F.deep ?? F.glow;
+  // 走る光の筋（画面いっぱいに、軸の向きに後ろへ飛ぶ。頭が白く尾が消える）
+  for (const ln of B.lines) {
+    const g = ln.front ? f : b;
+    const span = w + 600 * u;
+    const along = ((ln.x * span + (still ? 0 : T) * 900 * u * ln.v) % span) - 300 * u;
+    const x = G.tr > 0 ? along : w - along;
+    const y = ln.y * h;
+    const L = (40 + ln.L * 220) * u;
+    const ex = x + G.bx * L, ey = y + G.by * L;
+    const col = ln.c < 0.4 ? F.color : ln.c < 0.7 ? deep : F.core;
+    const gr = g.createLinearGradient(x, y, ex, ey);
+    gr.addColorStop(0, rgba('#ffffff', 0.85 * k)); gr.addColorStop(0.15, rgba(col, 0.6 * k)); gr.addColorStop(1, rgba(col, 0));
+    g.globalCompositeOperation = 'lighter';
+    g.strokeStyle = gr; g.lineCap = 'round';
+    g.lineWidth = (0.8 + ln.w * 1.8) * u;
+    g.beginPath(); g.moveTo(x, y); g.lineTo(ex, ey); g.stroke();
+  }
+  // 薄い膜（馬が光の殻の中に居るように見せる。芯の周りだけ、馬が読める薄さ）
+  f.globalCompositeOperation = 'lighter';
+  f.globalAlpha = (still ? 0.13 : 0.18) * k;
+  shellPath(f, G, T, u, { hs: 0.95, len: 0.75 });
+  const [nx0, ny0] = G.at(0, 0), [nx1, ny1] = G.at(G.L * 0.75, 0);
+  const gv = f.createLinearGradient(nx0, ny0, nx1, ny1);
+  gv.addColorStop(0, F.core); gv.addColorStop(0.4, F.color); gv.addColorStop(1, 'rgba(0,0,0,0)');
+  f.fillStyle = gv; f.fill();
+  f.globalAlpha = 1;
+  // 鼻先の縁の光（殻の前の縁をなぞる桃白の線）
+  f.save();
+  f.globalCompositeOperation = 'lighter';
+  f.lineJoin = 'round'; f.lineCap = 'round';
+  const rimPts = [];
+  for (let i = 0; i <= 30; i++) {
+    const q = 0.34 * (1 - i / 15) * (i < 15 ? 1 : -1);
+    const qq = Math.abs(q), up = i <= 15;
+    const s = qq * G.L;
+    const wv = 1 + 0.05 * Math.sin(s / (26 * u) - T * 8 + (up ? 0 : 2.1));
+    rimPts.push(G.at(s, (up ? 1 : -1) * G.H * shellH(qq) * wv * (up ? 1 : 0.92)));
+  }
+  for (const [col, lw, a, blur] of [[F.color, 7, 0.45, 14], [F.core, 2.6, 0.95, 6]]) {
+    f.shadowColor = F.color; f.shadowBlur = SOFT ? blur * u : 0;
+    f.strokeStyle = rgba(col, a * k); f.lineWidth = lw * u;
+    f.beginPath(); rimPts.forEach((p, i) => (i ? f.lineTo(...p) : f.moveTo(...p))); f.stroke();
+  }
+  f.shadowBlur = 0;
+  f.restore();
+  // 鼻先の光の玉
+  {
+    const [x, y] = G.at(G.L * 0.02, 0);
+    const R = G.H * 0.5;
+    const gr = f.createRadialGradient(x, y, 0, x, y, R);
+    gr.addColorStop(0, rgba('#ffffff', 0.75 * k)); gr.addColorStop(0.25, rgba(F.core, 0.45 * k)); gr.addColorStop(1, rgba(F.color, 0));
+    f.globalCompositeOperation = 'lighter';
+    f.fillStyle = gr; f.beginPath(); f.arc(x, y, R, 0, 6.283); f.fill();
+  }
+  // 四芒星のきらめき（殻と尾に散らして、後ろへゆっくり流れながら瞬く）
+  for (const sp of B.sparks) {
+    const q = (sp.q + (still ? 0 : T) * 0.25 * (0.5 + sp.v)) % 1.6;
+    const s = q * G.L;
+    const n = sp.n * G.H * (q < 1 ? shellH(Math.min(1, q)) + 0.25 : 0.7);
+    const [x, y] = G.at(s, n);
+    const tw = still ? 0.6 + 0.4 * Math.sin(sp.tw + c.s * 6) : 0.5 + 0.5 * Math.sin(T * 9 + sp.tw);
+    const R = (6 + sp.s * 14) * u * (0.6 + 0.4 * tw);
+    glint(q < 0.55 ? f : b, x, y, R, F.color, F.core, k * (0.55 + 0.45 * tw) * (1 - smooth(1.2, 1.6, q)));
+  }
+  // 星座（尾に乗る点と細い線。後ろへ流れる）
+  f.globalCompositeOperation = 'lighter';
+  for (const con of B.cons) {
+    const pts = con.map((p) => {
+      const q = p.q + (still ? 0 : T) * 0.12;
+      return [...G.at(q * G.L, p.n * G.H), p.s, q];
+    });
+    const a = k * G.tail * (1 - smooth(1.6, 2.1, pts[0][3]));
+    if (a <= 0.01) continue;
+    f.strokeStyle = rgba(F.core, 0.55 * a); f.lineWidth = 1.1 * u;
+    f.beginPath(); pts.forEach((p, i) => (i ? f.lineTo(p[0], p[1]) : f.moveTo(p[0], p[1]))); f.stroke();
+    for (const p of pts) {
+      f.fillStyle = rgba('#ffffff', 0.9 * a);
+      f.beginPath(); f.arc(p[0], p[1], (1.4 + p[2] * 1.6) * u, 0, 6.283); f.fill();
+      if (p[2] > 0.55) glint(f, p[0], p[1], (5 + p[2] * 6) * u, deep, F.core, a * 0.8);
+    }
+  }
+  // 発動の瞬間（0.35 秒）：鼻先の白い閃光・十字の光芒・広がる輪
+  if (!still && T < 0.38) {
+    const q = T / 0.38, a = 1 - q;
+    const [x, y] = G.at(G.L * 0.05, 0);
+    const R0 = Math.max(c.box.w, c.box.h);
+    f.globalCompositeOperation = 'lighter';
+    const gr = f.createRadialGradient(x, y, 0, x, y, R0 * (0.25 + q * 0.35));
+    gr.addColorStop(0, rgba('#ffffff', a)); gr.addColorStop(0.3, rgba(F.core, 0.8 * a)); gr.addColorStop(1, rgba(F.color, 0));
+    f.fillStyle = gr; f.beginPath(); f.arc(x, y, R0 * (0.25 + q * 0.35), 0, 6.283); f.fill();
+    for (const [dx, dy, L] of [[1, 0, 1.4], [0, 1, 0.7], [0.7, 0.7, 0.35], [0.7, -0.7, 0.35]]) {
+      const LL = R0 * L * (0.5 + q * 0.7);
+      const g2 = f.createLinearGradient(x - dx * LL, y - dy * LL, x + dx * LL, y + dy * LL);
+      g2.addColorStop(0, rgba(F.color, 0)); g2.addColorStop(0.5, rgba('#ffffff', 0.95 * a)); g2.addColorStop(1, rgba(F.color, 0));
+      f.strokeStyle = g2; f.lineWidth = (dy && dx ? 2 : 4) * u * (1 - q * 0.5);
+      f.beginPath(); f.moveTo(x - dx * LL, y - dy * LL); f.lineTo(x + dx * LL, y + dy * LL); f.stroke();
+    }
+    f.strokeStyle = rgba(F.color, 0.9 * a); f.lineWidth = 3 * u * a + 0.5;
+    f.beginPath(); f.ellipse(x, y, R0 * 0.7 * q, R0 * 0.42 * q, -COMET_TILT * G.tr, 0, 6.283); f.stroke();
+  }
+  f.globalCompositeOperation = 'source-over'; b.globalCompositeOperation = 'source-over';
+  f.globalAlpha = 1; b.globalAlpha = 1;
+}
+
 // 種類ごとの飾り（オーラの粒の上に重ねる）
 const DRAW = {
   // 金色の光：後ろから射す光の筋と、きらめき
@@ -675,7 +992,10 @@ const DRAW = {
       }
     }
   },
+  comet: cometFront,
 };
+// 形の後ろの土台（オーラの粒より先に描く）
+const PRE = { comet: cometBack };
 
 // ---------------------------------------------------------------- 3D
 
@@ -724,6 +1044,8 @@ const AURA3 = {
   gale: { n: 60, life: [0.3, 0.6], rise: 0.3, out: 0.3, trail: 7, size: [0.12, 0.225], grow: 0.4, ramp: ['core', 'color', 'glow'], stretch: [2.8, 0.45] },
   shadow: { n: 150, life: [0.5, 1.0], rise: 1.9, out: 0.3, trail: 1.6, size: [0.225, 0.413], grow: 0.7, ramp: ['color', 'glow', 'dark'], dark: 0.45 },
   star: { n: 100, life: [0.7, 1.2], rise: 0.5, out: 0.4, trail: 1.2, size: [0.15, 0.27], grow: 0.8, ramp: ['core', 'color', 'glow'] },
+  // 流星：体から剥がれて尾へ流れる星屑
+  comet: { n: 90, life: [0.3, 0.7], rise: 0.1, out: 0.3, trail: 8, size: [0.1, 0.2], grow: 0.3, ramp: ['core', 'color', 'glow'], stretch: [2.4, 0.5] },
 };
 
 // 飾りの粒（オーラの上に重ねる）：shape（布）・数・合成、born（生まれる所と速さ）、寿命
@@ -736,6 +1058,8 @@ const KIND3 = {
   gale: { shape: 'streak', n: 0, blend: 'add', life: [0.35, 0.7], born: () => ({}) },
   shadow: { shape: 'star', n: 20, blend: 'add', life: [0.6, 1.1], born: (r) => { const a = r() * Math.PI * 2; return { p: [Math.cos(a) * 0.6, 0.4 + r() * 1.6, Math.sin(a) * 1.0], v: [0, 1.6 + r() * 1.4, -1 - r()], s: 0.14 + r() * 0.14 }; } },
   star: { shape: 'star5', n: 40, blend: 'add', life: [0.9, 1.6], swirl: 3.2, born: (r) => ({ a: r() * Math.PI * 2, rad: 1.4 + r() * 1.0, p: [0, 0.4 + r() * 2.4, 0], v: [0, 0.5 + r() * 0.8, 0], s: 0.2 + r() * 0.3, spin: (r() - 0.5) * 3 }) },
+  // 流星の飾り（四芒星・光の筋・閃光）は彗星が受け持つ
+  comet: { shape: 'star', n: 0, blend: 'add', life: [0.5, 1], born: () => ({}) },
   thunder: { shape: 'star', n: 20, blend: 'add', life: [0.15, 0.35], born: (r) => { const a = r() * Math.PI * 2; return { p: [Math.cos(a) * 0.9, 0.5 + r() * 1.8, Math.sin(a) * 1.3], v: [Math.cos(a) * 3, (r() - 0.5) * 2, Math.sin(a) * 3], s: 0.4 + r() * 0.5 }; } },
 };
 
@@ -946,6 +1270,284 @@ function makeTornado3d(F, r) {
   };
 }
 
+// ---- 流星（3D）。2D の cometBack・cometFront と同じ筋：馬を包む光の殻（鼻先の前で丸く、尾へ細る）と、後ろへ伸びる光の帯の尾、
+// 体から剥がれる星屑、四芒星、走る光の筋、発動の閃光。殻はシェーダで縁ほど明るい膜（フレネル）にし、縁の光と中の流れを段で塗る（セル調）。
+// 殻は深度を見る（馬の向こう側の殻は馬に隠れ、手前の殻は透けて馬が見える。ほかの粒と違って馬群に埋もれてよい）。
+const COMET3 = { ZN: 2.05, L: 5.4, CY: 1.35, RX: 1.05, RY: 1.5 };
+let cometGeoCache = null;
+function cometShellGeo() {
+  if (cometGeoCache) return cometGeoCache;
+  // 長さ 1（z＝0 が鼻先、−z へ尾）・半径 1 の殻。断面の半径は 2D の shellH と同じ形。uv.x＝鼻先からの割合、uv.y＝周の割合
+  const NQ = 48, NA = 40;
+  const pos = [], uv = [], idx = [];
+  for (let i = 0; i <= NQ; i++) {
+    const q = (i / NQ) ** 1.35;   // 鼻先を細かく（丸みが角張らない）
+    const r = Math.max(0.002, shellH(q));
+    for (let j = 0; j <= NA; j++) {
+      const a = (j / NA) * Math.PI * 2;
+      pos.push(Math.cos(a) * r, Math.sin(a) * r, -q);
+      uv.push(q, j / NA);
+    }
+  }
+  for (let i = 0; i < NQ; i++) for (let j = 0; j < NA; j++) {
+    const a = i * (NA + 1) + j, b2 = a + NA + 1;
+    idx.push(a, b2, a + 1, a + 1, b2, b2 + 1);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  cometGeoCache = g;
+  return g;
+}
+const COMET_VS = `
+uniform float uTime; uniform float uWob;
+varying vec2 vUv; varying vec3 vN; varying vec3 vV;
+void main() {
+  vUv = uv;
+  vec3 p = position;
+  float q = uv.x, a = uv.y * 6.2831853;
+  // 縁のうねり（後ろへ流れる。2D と同じく大きくゆっくり）
+  p.xy *= 1.0 + uWob * (0.045 * sin(q * 9.0 - uTime * 6.0 + a * 2.0) + 0.015 * sin(q * 23.0 - uTime * 11.0 + a * 3.0));
+  vec4 mv = modelViewMatrix * vec4(p, 1.0);
+  vN = normalize(normalMatrix * normal);
+  vV = normalize(-mv.xyz);
+  gl_Position = projectionMatrix * mv;
+}`;
+const COMET_FS = `
+uniform vec3 cCore; uniform vec3 cColor; uniform vec3 cGlow; uniform vec3 cDeep; uniform vec3 cDark;
+uniform float uTime; uniform float uFade; uniform float uLayer;
+varying vec2 vUv; varying vec3 vN; varying vec3 vV;
+void main() {
+  float q = vUv.x, a = vUv.y * 6.2831853;
+  float fr = 1.0 - abs(dot(normalize(vN), normalize(vV)));
+  // 縁の光を段で（セル調）：外の縁ほど明るい 3 段
+  float rim = 0.35 * smoothstep(0.42, 0.46, fr) + 0.35 * smoothstep(0.66, 0.7, fr) + 0.3 * smoothstep(0.86, 0.9, fr);
+  vec3 col = mix(cColor, cGlow, smoothstep(0.22, 0.7, q));
+  col = mix(col, cDeep, smoothstep(0.7, 1.0, q));
+  col = mix(cCore, col, smoothstep(0.0, 0.16, q));
+  // 殻の中の流れ：うねる縞が後ろへ流れる（明るい筋と濃い紫の溝）
+  float f = sin(q * 15.0 - uTime * 5.0 + sin(a * 2.0 + uTime * 1.3) * 1.4 + a);
+  col = mix(col, cCore, step(0.62, f) * 0.5 * (1.0 - q));
+  col = mix(col, cDark, step(f, -0.7) * 0.6);
+  // 縁は外の段だけ桃白に（全部を白へ寄せるとシャボン玉に見えた）。内側の段は主の色のまま濃く
+  col = mix(col, cCore, smoothstep(0.86, 0.9, fr) * smoothstep(0.8, 0.1, q) * 0.7);
+  float body = (1.0 - smoothstep(0.5, 1.0, q)) * smoothstep(0.0, 0.015, q);
+  // 鼻先の塊は縁で見たときだけ濃く（正面から見ると馬の前に丸い板が立って、馬が隠れた）
+  float tip = (1.0 - smoothstep(0.0, 0.1, q)) * (0.2 + 0.8 * smoothstep(0.2, 0.7, fr));
+  // 正面（縁から遠い所）は薄く：馬が桃色に染まって見えないように。光るのは縁と流れの筋
+  float flow = step(0.62, f) * 0.35 * (1.0 - q);
+  float alpha = uLayer < 0.5 ? (0.11 + 0.8 * rim + flow) * body + 0.6 * tip : (0.08 + 0.55 * rim + flow) * body + 0.3 * tip;
+  gl_FragColor = vec4(col, clamp(alpha, 0.0, 1.0) * uFade);
+  #include <colorspace_fragment>
+}`;
+function cometTailTex(F) {
+  const key = 'tail' + F.color + F.glow;
+  if (ribbonTexCache.has(key)) return ribbonTexCache.get(key);
+  const W = 256, Hh = 32;
+  const c = canvasOf(W, Hh), g = c.getContext('2d');
+  const img = g.createImageData(W, Hh);
+  const rgb = (hex) => { const n = parseInt(hex.slice(1), 16); return [n >> 16, (n >> 8) & 255, n & 255]; };
+  const stops = [[0, rgb(F.core)], [0.12, rgb(F.color)], [0.45, rgb(F.glow)], [1, rgb(F.deep ?? F.glow)]];
+  for (let x = 0; x < W; x++) {
+    const uu = x / (W - 1);
+    let j = 0; while (j < stops.length - 2 && uu > stops[j + 1][0]) j++;
+    const tt = clamp01((uu - stops[j][0]) / (stops[j + 1][0] - stops[j][0]));
+    const col = stops[j][1].map((v, i) => v + (stops[j + 1][1][i] - v) * tt);
+    const along = smooth(0, 0.06, uu) * (1 - uu) ** 1.1;
+    // ちぎれた縁（帯ごとに長さ方向へうねる）
+    const half = 0.42 + 0.06 * Math.sin(uu * 31) * Math.sin(uu * 7 + 1);
+    for (let y = 0; y < Hh; y++) {
+      const v = Math.abs(y / (Hh - 1) - 0.5);
+      const i = (y * W + x) * 4;
+      const inside = clamp01((half - v) * Hh * 0.7);
+      const core = v < 0.09 ? 1 : 0;
+      img.data[i] = Math.min(255, col[0] + core * 90); img.data[i + 1] = Math.min(255, col[1] + core * 90); img.data[i + 2] = Math.min(255, col[2] + core * 60);
+      img.data[i + 3] = Math.round(255 * along * inside * (0.6 + 0.4 * core));
+    }
+  }
+  g.putImageData(img, 0, 0);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  ribbonTexCache.set(key, t);
+  return t;
+}
+function cometFlareTex(F) {
+  const key = 'cflare' + F.color;
+  if (ribbonTexCache.has(key)) return ribbonTexCache.get(key);
+  const S = 256, m = S / 2;
+  const c = canvasOf(S, S), g = c.getContext('2d');
+  const gr = g.createRadialGradient(m, m, 0, m, m, m * 0.5);
+  gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.3, rgba(F.core, 0.85)); gr.addColorStop(1, rgba(F.color, 0));
+  g.fillStyle = gr; g.beginPath(); g.arc(m, m, m * 0.5, 0, 6.283); g.fill();
+  // 十字の光芒（横に長く）と斜めの短い光
+  for (const [dx, dy, L, w] of [[1, 0, 1, 5], [0, 1, 0.55, 4], [0.7, 0.7, 0.28, 2], [0.7, -0.7, 0.28, 2]]) {
+    const g2 = g.createLinearGradient(m - dx * m * L, m - dy * m * L, m + dx * m * L, m + dy * m * L);
+    g2.addColorStop(0, rgba(F.color, 0)); g2.addColorStop(0.5, 'rgba(255,255,255,1)'); g2.addColorStop(1, rgba(F.color, 0));
+    g.strokeStyle = g2; g.lineWidth = w;
+    g.beginPath(); g.moveTo(m - dx * m * L, m - dy * m * L); g.lineTo(m + dx * m * L, m + dy * m * L); g.stroke();
+  }
+  g.strokeStyle = rgba(F.color, 0.9); g.lineWidth = 3;
+  g.beginPath(); g.ellipse(m, m, m * 0.85, m * 0.5, 0, 0, 6.283); g.stroke();
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  ribbonTexCache.set(key, t);
+  return t;
+}
+
+function makeComet3d(F, r) {
+  const { ZN, L, CY, RX, RY } = COMET3;
+  const group = new THREE.Group();
+  const mats = [];
+  const deep = F.deep ?? F.glow;
+  // 殻：外の膜（普通の合成で色を残す）と、鼻先の入れ子の桃・芯（加算で光らせる）
+  const shellMat = (layer, additive) => {
+    const m = new THREE.ShaderMaterial({
+      uniforms: {
+        cCore: { value: new THREE.Color(F.core) }, cColor: { value: new THREE.Color(F.color) }, cGlow: { value: new THREE.Color(F.glow) },
+        cDeep: { value: new THREE.Color(deep) }, cDark: { value: new THREE.Color(COMET_DARK) },
+        uTime: { value: 0 }, uFade: { value: 0 }, uLayer: { value: layer }, uWob: { value: layer ? 1.6 : 1 },
+      },
+      vertexShader: COMET_VS, fragmentShader: COMET_FS,
+      transparent: true, depthWrite: false, side: THREE.DoubleSide,
+      blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending,
+    });
+    mats.push(m);
+    return m;
+  };
+  const shells = [
+    { m: new THREE.Mesh(cometShellGeo(), shellMat(0, false)), hs: 1, len: 1, s0: 0, op: 1 },
+    { m: new THREE.Mesh(cometShellGeo(), shellMat(1, true)), hs: 0.72, len: 0.55, s0: 0.22, op: 0.75 },
+    { m: new THREE.Mesh(cometShellGeo(), shellMat(1, true)), hs: 0.45, len: 0.32, s0: 0.42, op: 0.6 },
+  ];
+  for (const [i, s] of shells.entries()) { s.m.renderOrder = 15 + i; s.m.frustumCulled = false; group.add(s.m); }
+  // 尾：カメラへ向く光の帯。付け根は殻の後ろ半分、後ろほど軸へ寄って少し上がる
+  const N = 20;
+  const tails = [];
+  for (let i = 0; i < 12; i++) {
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array((N + 1) * 6), 3));
+    const uv = new Float32Array((N + 1) * 4), idx = [];
+    for (let j = 0; j <= N; j++) { uv.set([j / N, 1, j / N, 0], j * 4); if (j < N) { const a = j * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); } }
+    geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+    geo.setIndex(idx);
+    const additive = i % 3 === 0;
+    const mat = new THREE.MeshBasicMaterial({ map: cometTailTex(F), transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide, blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending });
+    mats.push(mat);
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.frustumCulled = false;
+    mesh.renderOrder = 14;
+    group.add(mesh);
+    const a = r() * Math.PI * 2, rr = Math.sqrt(r()) * 0.75;
+    tails.push({ mesh, ox: Math.cos(a) * rr, oy: Math.sin(a) * rr, q0: 0.32 + r() * 0.3, len: 5 + r() * 6, w: 0.16 + r() * 0.3, ph: r() * 6.283, additive });
+  }
+  // 走る光の筋（馬のまわりを後ろへ飛ぶ。画面の上の走る向きに寝かせる）と四芒星
+  const sp = (map, color, add = true, order = 22) => {
+    const mat = new THREE.SpriteMaterial({ map, color, transparent: true, opacity: 0, depthTest: false, depthWrite: false, blending: add ? THREE.AdditiveBlending : THREE.NormalBlending });
+    mats.push(mat);
+    const s = new THREE.Sprite(mat);
+    s.renderOrder = order;
+    group.add(s);
+    return s;
+  };
+  const lines = Array.from({ length: 26 }, (_, i) => {
+    const a = r() * Math.PI * 2, rad = 1.6 + r() * 4.5;
+    return { s: sp(tex('streak'), [F.core, F.color, deep][i % 3]), x: Math.cos(a) * rad, y: Math.max(0.2, CY + Math.sin(a) * rad * 0.6), z0: r(), v: 18 + r() * 16, len: 2 + r() * 4 };
+  });
+  const sparks = Array.from({ length: 30 }, (_, i) => ({ s: sp(tex('star'), i % 3 ? F.color : F.core), a: r() * 6.283, rr: 0.4 + r() * 0.9, q: r(), v: 0.15 + r() * 0.35, sz: 0.2 + r() * 0.35, tw: r() * 6.283 }));
+  const flare = sp(cometFlareTex(F), '#ffffff', true, 26);
+  // 鼻先の光の玉（2D と同じ。殻の先が光って見える）
+  // 普通の合成で桃色に（加算だと明るい芝の前で緑がかった白に飛んだ）
+  const nose = sp(tex('soft'), F.color, false, 23);
+  const v = new THREE.Vector3(), d = new THREE.Vector3(), side = new THREE.Vector3(), cam = new THREE.Vector3();
+  const p0 = new THREE.Vector3(), p1 = new THREE.Vector3(), pR = new THREE.Vector3(), camRight = new THREE.Vector3();
+  const camC = new THREE.Vector3();
+  return {
+    group,
+    update(T, life, fade, camera, camF) {
+      // 観戦は遠いカメラでも読めるようにエフェクトの組を距離で拡大する（最大 4 倍）が、彗星は馬の体を包む形なので打ち消す。
+      // 拡大したままだと、望遠のカメラ（遠くから狭い画角で狙う）で殻が 4 倍に膨らんで画面を覆った
+      group.parent?.updateMatrixWorld();
+      const wsP = group.parent ? group.parent.matrixWorld.getMaxScaleOnAxis() : 1;
+      group.scale.setScalar(1 / wsP);
+      const camL = camC.copy(camF).multiplyScalar(wsP);
+      const grow = ease(T / 0.32), tail = ease(T / 0.7);
+      // カメラが殻の中（騎手視点・ごく近いマーク）に入ったら殻を消す（中から見ると画面じゅうが桃色の膜になる）
+      const zq = (ZN - camL.z) / L;
+      const inside = zq > -0.1 && zq < 1 ? ((camL.x / RX) ** 2 + ((camL.y - CY) / RY) ** 2) / Math.max(0.05, shellH(clamp01(zq)) ** 2) : 9;
+      // 殻のすぐ前のカメラ（ゴール前の正面・マーク）でも、鼻先が画面いっぱいの白い膜になった。殻の中心から 8m より近いと薄める
+      const dc = Math.hypot(camL.x, camL.y - CY, camL.z - (ZN - L * 0.35));
+      const shellK = smooth(1.2, 2.2, inside) * smooth(4.5, 8, dc);
+      for (const s of shells) {
+        const Ls = L * s.len * (0.3 + 0.7 * grow);
+        s.m.position.set(0, CY, ZN - s.s0);
+        s.m.scale.set(RX * s.hs * (0.25 + 0.75 * grow), RY * s.hs * (0.25 + 0.75 * grow), Ls);
+        s.m.material.uniforms.uTime.value = T;
+        s.m.material.uniforms.uFade.value = fade * s.op * shellK;
+      }
+      // 尾の帯（後ろへ流れながら揺れる。カメラへ面を向ける）
+      cam.copy(camL);
+      for (const t of tails) {
+        const pos = t.mesh.geometry.attributes.position.array;
+        const zs = ZN - t.q0 * L;
+        const len = t.len * tail;
+        for (let j = 0; j <= N; j++) {
+          const q = j / N;
+          const k1 = 1 - q * 0.5;
+          v.set(t.ox * RX * k1 + 0.08 * Math.sin(q * 5 - T * 3 + t.ph), CY + t.oy * RY * k1 + q * len * 0.09 + 0.08 * Math.sin(q * 4 - T * 2.5 + t.ph), zs - q * len);
+          d.set(0, 0.09, -1).normalize();
+          side.subVectors(cam, v).cross(d).normalize().multiplyScalar(t.w * (1 - q) ** 0.6 * (0.85 + 0.15 * Math.sin(q * 13 - T * 9 + t.ph)));
+          pos.set([v.x + side.x, v.y + side.y, v.z + side.z, v.x - side.x, v.y - side.y, v.z - side.z], j * 6);
+        }
+        t.mesh.geometry.attributes.position.needsUpdate = true;
+        t.mesh.material.opacity = fade * (t.additive ? 0.7 : 0.85);
+      }
+      // 画面の上の走る向き（筋の布は +x が頭なので、前へ向く角に回す）
+      group.updateMatrixWorld();
+      const ws0 = group.matrixWorld.getMaxScaleOnAxis();
+      p0.set(0, CY, 0).applyMatrix4(group.matrixWorld).project(camera);
+      p1.set(0, CY, 1).applyMatrix4(group.matrixWorld).project(camera);
+      const rot = Math.atan2(p1.y - p0.y, (p1.x - p0.x) * (camera.aspect || 1));
+      // 筋は 1 本ずつ画面の上の向きと長さを求める（正面から見ると消失点から放射状に、奥行きで縮む。全部を同じ角に
+      // 寝かせたら、正面のカメラで筋が画面を斜めに横切った）
+      camRight.setFromMatrixColumn(camera.matrixWorld, 0);
+      for (const ln of lines) {
+        const z = 9 - ((ln.z0 * 22 + T * ln.v) % 22);
+        ln.s.position.set(ln.x, ln.y, z);
+        p0.copy(ln.s.position).applyMatrix4(group.matrixWorld);
+        pR.copy(camRight).multiplyScalar(ln.len * ws0).add(p0).project(camera);
+        p1.set(ln.x, ln.y, z + ln.len).applyMatrix4(group.matrixWorld).project(camera);
+        p0.project(camera);
+        const asp = camera.aspect || 1;
+        const sx = Math.hypot((p1.x - p0.x) * asp, p1.y - p0.y), sr = Math.hypot((pR.x - p0.x) * asp, pR.y - p0.y) || 1;
+        const lenS = ln.len * Math.min(1.2, sx / sr);
+        ln.s.scale.set(Math.max(0.05, lenS), ln.len * 0.12, 1);
+        ln.s.material.rotation = Math.atan2(p1.y - p0.y, (p1.x - p0.x) * asp);
+        const near = clamp01((ln.s.position.distanceTo(camL) - 2.5) / 5);
+        ln.s.material.opacity = fade * 0.85 * smooth(9, 6, z) * smooth(-13, -8, z) * near;
+      }
+      for (const s of sparks) {
+        const q = (s.q + T * s.v) % 1.5;
+        const rr = s.rr * (q < 1 ? shellH(Math.min(1, q)) : 0.6);
+        s.s.position.set(Math.cos(s.a) * rr * RX, CY + Math.sin(s.a) * rr * RY, ZN - q * L);
+        const tw = 0.5 + 0.5 * Math.sin(T * 9 + s.tw);
+        s.s.scale.setScalar(s.sz * (0.6 + 0.4 * tw));
+        s.s.material.opacity = fade * (0.5 + 0.5 * tw) * (1 - smooth(1.1, 1.5, q)) * clamp01((s.s.position.distanceTo(camL) - 2) / 4);
+      }
+      // 発動の瞬間（0.35 秒）：鼻先の閃光と十字の光芒
+      const fq = T / 0.35;
+      flare.position.set(0, CY, ZN);
+      flare.scale.set((3 + ease(fq) * 6) * 1.6, 3 + ease(fq) * 6, 1);
+      flare.material.opacity = fq < 1 ? (1 - fq) * smooth(3, 7, dc) : 0;
+      flare.material.rotation = rot;
+      nose.position.set(0, CY, ZN - 0.25);
+      nose.scale.setScalar(2.6 * (0.4 + 0.6 * grow));
+      nose.material.opacity = 0.6 * fade * shellK;
+    },
+  };
+}
+
 const col3 = (hex) => new THREE.Color(hex);
 
 /**
@@ -1002,6 +1604,9 @@ export function createFx3d(kind, seed = 1, { source = null, rider = null } = {})
   // 疾風はアニメ調の竜巻（光の柱の代わり。観戦の柱は出さない）
   const tornado = kind === 'gale' ? makeTornado3d(F, r) : null;
   if (tornado) group.add(tornado.group);
+  // 流星は光の殻と尾の彗星（光の柱も出さない）
+  const comet = kind === 'comet' ? makeComet3d(F, r) : null;
+  if (comet) group.add(comet.group);
   const tmp = new THREE.Vector3();
   const ctr = new THREE.Vector3();
 
@@ -1107,7 +1712,7 @@ export function createFx3d(kind, seed = 1, { source = null, rider = null } = {})
   const nearK = (p, ws) => clamp01((p.distanceTo(camL) * ws - 2.5) / 5);
   return {
     group,
-    noPillar: !!tornado,
+    noPillar: !!(tornado || comet),
     update(age, life, camera) {
       const end = life - 0.6;
       group.updateMatrixWorld();
@@ -1118,6 +1723,7 @@ export function createFx3d(kind, seed = 1, { source = null, rider = null } = {})
       if (source) { ctr.set(0, 1.35, 0); source.localToWorld(ctr); group.worldToLocal(ctr); } else ctr.set(0, 1.35, 0);
       const fade = Math.min(1, age / 0.2) * (age > end ? Math.max(0, 1 - (age - end) / 0.6) : 1);
       tornado?.update(age, life, Math.min(1, age / 0.08) * (age > end ? Math.max(0, 1 - (age - end) / 0.6) : 1));
+      comet?.update(age, life, Math.min(1, age / 0.08) * (age > end ? Math.max(0, 1 - (age - end) / 0.6) : 1), camera, camL);
       const flick = AU.flicker ? 0.6 + 0.4 * ((h32(Math.floor(age / 0.05) + seed) % 1000) / 1000) : 1;
       const [sx, sy] = AU.stretch ?? [1, 1];
       for (const pt of aura) {

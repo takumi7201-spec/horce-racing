@@ -30,6 +30,17 @@ var tor_rings: Array = []
 var tor_dust: Array = []
 var tor_leaves: Array = []
 var tor_burst: MeshInstance3D
+## 流星（殻・尾の帯・光の筋・四芒星・鼻先の光・閃光）
+var com_shells: Array = []
+var com_tail: Array[MeshInstance3D] = []
+var com_tails: Array = []
+var com_lines_mesh: MeshInstance3D
+var com_lines: Array = []
+var com_sparks: Array = []
+var com_nose: MeshInstance3D
+var com_flare: MeshInstance3D
+## 流星の組。距離で拡大しない（彗星は馬の体を包む形。拡大すると望遠のカメラで殻が膨らんで画面を覆う）
+var com_root := Node3D.new()
 
 
 ## オーラの粒（ゲームの skillfx.js の AURA3 と同じ値。速さは m/秒：rise 上へ・out 体の外へ・trail 後ろ（−z）へ、
@@ -43,6 +54,8 @@ const AURA := {
 	gale = {n = 60, life = [0.3, 0.6], rise = 0.3, out = 0.3, trail = 7.0, size = [0.12, 0.225], grow = 0.4, ramp = ["core", "color", "glow"], stretch = Vector2(2.8, 0.45)},
 	shadow = {n = 150, life = [0.5, 1.0], rise = 1.9, out = 0.3, trail = 1.6, size = [0.225, 0.413], grow = 0.7, ramp = ["color", "glow", "dark"], dark = 0.45},
 	star = {n = 100, life = [0.7, 1.2], rise = 0.5, out = 0.4, trail = 1.2, size = [0.15, 0.27], grow = 0.8, ramp = ["core", "color", "glow"]},
+	# 流星：体から剥がれて尾へ流れる星屑
+	comet = {n = 90, life = [0.3, 0.7], rise = 0.1, out = 0.3, trail = 8.0, size = [0.1, 0.2], grow = 0.3, ramp = ["core", "color", "glow"], stretch = Vector2(2.4, 0.5)},
 }
 ## 漆黒の暗い粒の色（真っ黒だと汚れに見えたので深い紫。ゲームと同じ）
 const DARK := Color("#1c0838")
@@ -53,7 +66,7 @@ const DARK := Color("#1c0838")
 func setup(k: String, fx: Dictionary, seed: int, src: Node3D = null) -> void:
 	kind = k
 	rng.seed = seed
-	cols = {color = Color(fx.color), glow = Color(fx.glow), core = Color(fx.core), dark = DARK}
+	cols = {color = Color(fx.color), glow = Color(fx.glow), core = Color(fx.core), dark = DARK, deep = Color(fx.get("deep", fx.glow))}
 	add_child(deco)
 	_ring_and_pillar()
 	_aura(src)
@@ -85,6 +98,9 @@ func setup(k: String, fx: Dictionary, seed: int, src: Node3D = null) -> void:
 		"gale":
 			# アニメ調の竜巻（ゲームの makeTornado3d と同じ形）。光の柱の代わり
 			_tornado_setup()
+		"comet":
+			# 宇宙のエネルギーの彗星（ゲームの makeComet3d と同じ形）。光の柱の代わり
+			_comet_setup()
 		"star":
 			var t := _soft_parts("star5", 40, [0.9, 1.6], Vector3(1.6, 1.2, 1.8), 0.8, 0.4, [0.3, 0.7], cols.core, true)
 			t.tangential_accel_min = 3.0
@@ -355,7 +371,9 @@ func _process(delta: float) -> void:
 	var cam := get_viewport().get_camera_3d()
 	var d := cam.global_position.distance_to(global_position) if cam else 30.0
 	# 遠いカメラでも読める大きさに（目印と同じ）。近いときは輪と柱を薄める（柱の中から見ると画面が覆われる）
-	var sc := clampf(d / 30.0, 1.0, 4.0)
+	# 拡大は画面での見え方（距離 × 画角）で決める。距離だけだと、望遠のカメラで柱と飾りが 4 倍に膨らんで画面を覆った
+	var fov := cam.fov if cam else 48.0
+	var sc := clampf(d * tan(deg_to_rad(fov) / 2.0) / 13.4, 1.0, 4.0)
 	deco.scale = Vector3.ONE * sc
 	var near := clampf((d - 8.0) / 16.0, 0.0, 1.0)
 	var k := age / LIFE
@@ -372,6 +390,9 @@ func _process(delta: float) -> void:
 	if tor_mesh != null:
 		pillar.visible = false
 		_tornado_update(minf(1.0, age / 0.08) * (maxf(0.0, 1.0 - (age - end) / 0.6) if age > end else 1.0))
+	if com_shells.size() > 0:
+		pillar.visible = false
+		_comet_update(minf(1.0, age / 0.08) * (maxf(0.0, 1.0 - (age - end) / 0.6) if age > end else 1.0), cam)
 
 
 func _update_bolts(cam: Camera3D, end: float) -> void:
@@ -503,7 +524,7 @@ func _tor_mat(tex: Texture2D, order: int, depth := true) -> StandardMaterial3D:
 	return m
 
 
-func _tor_quad(tex: Texture2D, col: Color, order: int, depth := true) -> MeshInstance3D:
+func _tor_quad(tex: Texture2D, col: Color, order: int, depth := true, parent: Node3D = null) -> MeshInstance3D:
 	var mi := MeshInstance3D.new()
 	var qm := QuadMesh.new()
 	var m := _tor_mat(tex, order, depth)
@@ -513,7 +534,7 @@ func _tor_quad(tex: Texture2D, col: Color, order: int, depth := true) -> MeshIns
 	qm.material = m
 	mi.mesh = qm
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	deco.add_child(mi)
+	(parent if parent != null else deco).add_child(mi)
 	return mi
 
 
@@ -699,6 +720,322 @@ func _burst_texture() -> Texture2D:
 				c = c.lerp(Color(1, 1, 1, 1), g)
 				c.a = maxf(c.a, g)
 			img.set_pixel(x, y, c)
+	var t := ImageTexture.create_from_image(img)
+	_tex[key] = t
+	return t
+
+
+# ------------------------------------------------------------------ 流星
+## 宇宙のエネルギーの彗星（ゲームの makeComet3d と同じ）：馬を包む光の殻（鼻先の前で丸く、尾へ細る）と、後ろへ伸びる光の帯の尾、
+## 走る光の筋、四芒星、鼻先の光、発動の閃光。殻はシェーダで縁ほど明るい膜（フレネル）にし、縁の光と中の流れを段で塗る（セル調）。
+## 殻は深度を見る（馬の向こう側の殻は馬に隠れ、手前の殻は透けて馬が見える）。
+const COM_ZN := 2.05   # 殻の鼻先
+const COM_L := 5.4     # 殻の長さ
+const COM_CY := 1.35   # 軸の高さ
+const COM_RX := 1.05   # 殻の幅（半径）
+const COM_RY := 1.5    # 殻の高さ（半径）
+const COM_DARK := Color("#5a1fc8")
+const COM_TN := 20
+static var _com_mesh: ArrayMesh
+static var _com_shader := {}
+
+
+## 殻の断面の半径（q＝0 鼻先 〜 1 尾の付け根。ゲームの shellH と同じ）
+static func _shell_h(q: float) -> float:
+	return sqrt(clampf(q / 0.2, 0.0, 1.0)) * (1.0 - 0.12 * smoothstep(0.2, 0.55, q)) * pow(1.0 - smoothstep(0.45, 1.0, q), 0.9)
+
+
+## 長さ 1（z＝0 が鼻先、−z へ尾）・半径 1 の殻。uv.x＝鼻先からの割合、uv.y＝周の割合。法線は回転面の外向き
+static func _comet_mesh() -> ArrayMesh:
+	if _com_mesh != null:
+		return _com_mesh
+	var NQ := 48
+	var NA := 40
+	var v := PackedVector3Array()
+	var n := PackedVector3Array()
+	var uv := PackedVector2Array()
+	var idx := PackedInt32Array()
+	for i in NQ + 1:
+		var q := pow(float(i) / NQ, 1.35)
+		var r := maxf(0.002, _shell_h(q))
+		var dr := (_shell_h(minf(1.0, q + 0.002)) - _shell_h(maxf(0.0, q - 0.002))) / 0.004
+		for j in NA + 1:
+			var a := float(j) / NA * TAU
+			v.append(Vector3(cos(a) * r, sin(a) * r, -q))
+			n.append(Vector3(cos(a), sin(a), dr).normalized())
+			uv.append(Vector2(q, float(j) / NA))
+	for i in NQ:
+		for j in NA:
+			var a := i * (NA + 1) + j
+			var b := a + NA + 1
+			idx.append_array([a, a + 1, b, a + 1, b + 1, b])
+	var arr := []
+	arr.resize(Mesh.ARRAY_MAX)
+	arr[Mesh.ARRAY_VERTEX] = v
+	arr[Mesh.ARRAY_NORMAL] = n
+	arr[Mesh.ARRAY_TEX_UV] = uv
+	arr[Mesh.ARRAY_INDEX] = idx
+	_com_mesh = ArrayMesh.new()
+	_com_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+	return _com_mesh
+
+
+static func _comet_shader(add: bool) -> Shader:
+	if _com_shader.has(add):
+		return _com_shader[add]
+	var sh := Shader.new()
+	sh.code = """
+shader_type spatial;
+render_mode unshaded, cull_disabled, depth_draw_never, %s;
+uniform vec4 c_core : source_color;
+uniform vec4 c_color : source_color;
+uniform vec4 c_glow : source_color;
+uniform vec4 c_deep : source_color;
+uniform vec4 c_dark : source_color;
+uniform float u_time;
+uniform float u_fade;
+uniform float u_layer;
+uniform float u_wob;
+varying vec2 vuv;
+void vertex() {
+	vuv = UV;
+	float q = UV.x;
+	float a = UV.y * 6.2831853;
+	// 縁のうねり（後ろへ流れる。大きくゆっくり）
+	VERTEX.xy *= 1.0 + u_wob * (0.045 * sin(q * 9.0 - u_time * 6.0 + a * 2.0) + 0.015 * sin(q * 23.0 - u_time * 11.0 + a * 3.0));
+}
+void fragment() {
+	float q = vuv.x;
+	float a = vuv.y * 6.2831853;
+	float fr = 1.0 - abs(dot(normalize(NORMAL), normalize(VIEW)));
+	// 縁の光を段で（セル調）：外の縁ほど明るい 3 段
+	float rim = 0.35 * smoothstep(0.42, 0.46, fr) + 0.35 * smoothstep(0.66, 0.7, fr) + 0.3 * smoothstep(0.86, 0.9, fr);
+	vec3 col = mix(c_color.rgb, c_glow.rgb, smoothstep(0.22, 0.7, q));
+	col = mix(col, c_deep.rgb, smoothstep(0.7, 1.0, q));
+	col = mix(c_core.rgb, col, smoothstep(0.0, 0.16, q));
+	// 殻の中の流れ：うねる縞が後ろへ流れる（明るい筋と濃い紫の溝）
+	float f = sin(q * 15.0 - u_time * 5.0 + sin(a * 2.0 + u_time * 1.3) * 1.4 + a);
+	col = mix(col, c_core.rgb, step(0.62, f) * 0.5 * (1.0 - q));
+	col = mix(col, c_dark.rgb, step(f, -0.7) * 0.6);
+	col = mix(col, c_core.rgb, smoothstep(0.86, 0.9, fr) * smoothstep(0.8, 0.1, q) * 0.7);
+	float body = (1.0 - smoothstep(0.5, 1.0, q)) * smoothstep(0.0, 0.015, q);
+	float tip = (1.0 - smoothstep(0.0, 0.1, q)) * (0.2 + 0.8 * smoothstep(0.2, 0.7, fr));
+	float flow = step(0.62, f) * 0.35 * (1.0 - q);
+	float al = u_layer < 0.5 ? (0.11 + 0.8 * rim + flow) * body + 0.6 * tip : (0.08 + 0.55 * rim + flow) * body + 0.3 * tip;
+	ALBEDO = col;
+	ALPHA = clamp(al, 0.0, 1.0) * u_fade;
+}
+""" % ("blend_add" if add else "blend_mix")
+	_com_shader[add] = sh
+	return sh
+
+
+func _comet_setup() -> void:
+	add_child(com_root)
+	# 殻：外の膜（普通の合成で色を残す）と、鼻先の入れ子の桃・芯（加算で光らせる）
+	for d in [[0, false, 1.0, 1.0, 0.0, 1.0], [1, true, 0.72, 0.55, 0.22, 0.75], [1, true, 0.45, 0.32, 0.42, 0.6]]:
+		var mi := MeshInstance3D.new()
+		mi.mesh = _comet_mesh()
+		var m := ShaderMaterial.new()
+		m.shader = _comet_shader(d[1])
+		m.set_shader_parameter("c_core", cols.core)
+		m.set_shader_parameter("c_color", cols.color)
+		m.set_shader_parameter("c_glow", cols.glow)
+		m.set_shader_parameter("c_deep", cols.deep)
+		m.set_shader_parameter("c_dark", COM_DARK)
+		m.set_shader_parameter("u_layer", float(d[0]))
+		m.set_shader_parameter("u_wob", 1.6 if d[0] == 1 else 1.0)
+		m.render_priority = 1 + com_shells.size()
+		mi.material_override = m
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		com_root.add_child(mi)
+		com_shells.append({mi = mi, hs = d[2], len = d[3], s0 = d[4], op = d[5]})
+	# 尾：カメラへ向く光の帯（普通の合成と加算の 2 組）。付け根は殻の後ろ半分、後ろほど軸へ寄って少し上がる
+	for add in [false, true]:
+		var tm := MeshInstance3D.new()
+		tm.mesh = ImmediateMesh.new()
+		var m := _tor_mat(_comet_tail_texture(), 0)
+		if add:
+			m.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+		tm.material_override = m
+		tm.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		com_root.add_child(tm)
+		com_tail.append(tm)
+	for i in 12:
+		var a := rng.randf() * TAU
+		var rr := sqrt(rng.randf()) * 0.75
+		com_tails.append({ox = cos(a) * rr, oy = sin(a) * rr, q0 = 0.32 + rng.randf() * 0.3, len = 5.0 + rng.randf() * 6.0, w = 0.16 + rng.randf() * 0.3, ph = rng.randf() * TAU, add = i % 3 == 0})
+	# 走る光の筋（馬のまわりを後ろへ飛ぶ。カメラへ向けた帯なので、どこから見ても走る向きに寝る）
+	com_lines_mesh = MeshInstance3D.new()
+	com_lines_mesh.mesh = ImmediateMesh.new()
+	var lm := _tor_mat(_texture("line"), 4, false)
+	lm.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	com_lines_mesh.material_override = lm
+	com_lines_mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	com_root.add_child(com_lines_mesh)
+	for i in 26:
+		var a := rng.randf() * TAU
+		var rad := 1.6 + rng.randf() * 4.5
+		com_lines.append({x = cos(a) * rad, y = maxf(0.2, COM_CY + sin(a) * rad * 0.6), z0 = rng.randf(), v = 18.0 + rng.randf() * 16.0, len = 2.0 + rng.randf() * 4.0, col = [cols.core, cols.color, cols.deep][i % 3]})
+	# 四芒星（殻と尾に散らして、後ろへ流れながら瞬く）
+	for i in 30:
+		var q := _tor_quad(_texture("star"), cols.color if i % 3 else cols.core, 3, false, com_root)
+		(q.mesh as QuadMesh).material.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+		com_sparks.append({q = q, a = rng.randf() * TAU, rr = 0.4 + rng.randf() * 0.9, ph = rng.randf(), v = 0.15 + rng.randf() * 0.35, sz = 0.2 + rng.randf() * 0.35, tw = rng.randf() * TAU})
+	# 鼻先の光の玉（普通の合成で桃色に。加算だと明るい芝の前で白に飛ぶ）と、発動の閃光
+	com_nose = _tor_quad(_texture("soft"), cols.color, 3, false, com_root)
+	com_flare = _tor_quad(_comet_flare_texture(), Color.WHITE, 5, false, com_root)
+	(com_flare.mesh as QuadMesh).material.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+
+
+func _comet_update(fade: float, cam: Camera3D) -> void:
+	var T := age
+	var grow := _ease(T / 0.32)
+	var tail := _ease(T / 0.7)
+	var cl := com_root.to_local(cam.global_position) if cam else Vector3(30, 2, 0)
+	# カメラが殻の中（騎手視点）か殻のすぐ前（ゴール前の正面）なら殻を薄める（画面いっぱいの桃色の膜になった）
+	var zq := (COM_ZN - cl.z) / COM_L
+	var inside := 9.0
+	if zq > -0.1 and zq < 1.0:
+		inside = (pow(cl.x / COM_RX, 2.0) + pow((cl.y - COM_CY) / COM_RY, 2.0)) / maxf(0.05, pow(_shell_h(clampf(zq, 0.0, 1.0)), 2.0))
+	var dc := Vector3(cl.x, cl.y - COM_CY, cl.z - (COM_ZN - COM_L * 0.35)).length()
+	var shell_k := smoothstep(1.2, 2.2, inside) * smoothstep(4.5, 8.0, dc)
+	for s in com_shells:
+		var g := 0.25 + 0.75 * grow
+		var mi: MeshInstance3D = s.mi
+		mi.position = Vector3(0, COM_CY, COM_ZN - s.s0)
+		mi.scale = Vector3(COM_RX * s.hs * g, COM_RY * s.hs * g, COM_L * s.len * (0.3 + 0.7 * grow))
+		var m: ShaderMaterial = mi.material_override
+		m.set_shader_parameter("u_time", T)
+		m.set_shader_parameter("u_fade", fade * s.op * shell_k)
+	# 尾の帯（後ろへ流れながら揺れる。カメラへ面を向ける）
+	for k in 2:
+		var im: ImmediateMesh = com_tail[k].mesh
+		im.clear_surfaces()
+		im.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
+		for t in com_tails:
+			if t.add != (k == 1):
+				continue
+			var zs: float = COM_ZN - t.q0 * COM_L
+			var ln: float = t.len * tail
+			var prev := []
+			for j in COM_TN + 1:
+				var q := float(j) / COM_TN
+				var k1 := 1.0 - q * 0.5
+				var p := Vector3(t.ox * COM_RX * k1 + 0.08 * sin(q * 5.0 - T * 3.0 + t.ph), COM_CY + t.oy * COM_RY * k1 + q * ln * 0.09 + 0.08 * sin(q * 4.0 - T * 2.5 + t.ph), zs - q * ln)
+				var d := Vector3(0, 0.09, -1).normalized()
+				var tw: float = t.w
+				var side: Vector3 = (cl - p).cross(d).normalized() * tw * pow(1.0 - q, 0.6) * (0.85 + 0.15 * sin(q * 13.0 - T * 9.0 + t.ph))
+				var cur := [p + side, p - side, q]
+				if not prev.is_empty():
+					_quad(im, prev, cur, Color(1, 1, 1, fade * (0.7 if t.add else 0.85)))
+				prev = cur
+		im.surface_end()
+	# 走る光の筋（後ろへ飛ぶ。頭が前）
+	var lim: ImmediateMesh = com_lines_mesh.mesh
+	lim.clear_surfaces()
+	# 描く筋が 1 本も無いコマは面を作らない（頂点の無い面は Godot がエラーを出す）
+	var any_line := false
+	for l in com_lines:
+		var z: float = 9.0 - fmod(l.z0 * 22.0 + T * l.v, 22.0)
+		var a := Vector3(l.x, l.y, z - l.len)
+		var b := Vector3(l.x, l.y, z)
+		var near := clampf((b.distance_to(cl) - 2.5) / 5.0, 0.0, 1.0)
+		var op := fade * 0.85 * smoothstep(9.0, 6.0, z) * smoothstep(-13.0, -8.0, z) * near
+		if op <= 0.01:
+			continue
+		if not any_line:
+			lim.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
+			any_line = true
+		var ll: float = l.len
+		var sd: Vector3 = (cl - b).cross(Vector3(0, 0, 1)).normalized() * ll * 0.06
+		_quad(lim, [a + sd, a - sd, 0.0], [b + sd, b - sd, 1.0], Color(l.col, op))
+	if any_line:
+		lim.surface_end()
+	for s in com_sparks:
+		var q: float = fmod(s.ph + T * s.v, 1.5)
+		var rr: float = s.rr * (_shell_h(minf(1.0, q)) if q < 1.0 else 0.6)
+		var qd: MeshInstance3D = s.q
+		qd.position = Vector3(cos(s.a) * rr * COM_RX, COM_CY + sin(s.a) * rr * COM_RY, COM_ZN - q * COM_L)
+		var tw := 0.5 + 0.5 * sin(T * 9.0 + s.tw)
+		qd.scale = Vector3.ONE * s.sz * (0.6 + 0.4 * tw)
+		((qd.mesh as QuadMesh).material as StandardMaterial3D).albedo_color.a = fade * (0.5 + 0.5 * tw) * (1.0 - smoothstep(1.1, 1.5, q)) * clampf((qd.position.distance_to(cl) - 2.0) / 4.0, 0.0, 1.0)
+	com_nose.position = Vector3(0, COM_CY, COM_ZN - 0.25)
+	com_nose.scale = Vector3.ONE * 2.6 * (0.4 + 0.6 * grow)
+	((com_nose.mesh as QuadMesh).material as StandardMaterial3D).albedo_color.a = 0.6 * fade * shell_k
+	# 発動の瞬間（0.35 秒）：鼻先の閃光と十字の光芒
+	var fq := T / 0.35
+	com_flare.position = Vector3(0, COM_CY, COM_ZN)
+	com_flare.scale = Vector3((3.0 + _ease(fq) * 6.0) * 1.6, 3.0 + _ease(fq) * 6.0, 1)
+	((com_flare.mesh as QuadMesh).material as StandardMaterial3D).albedo_color.a = (1.0 - fq) * smoothstep(3.0, 7.0, dc) if fq < 1.0 else 0.0
+
+
+## 帯の 1 区間（prev・cur は [左, 右, u]）を 2 つの三角形で
+func _quad(im: ImmediateMesh, prev: Array, cur: Array, c: Color) -> void:
+	for v in [[prev[0], prev[2], 1.0], [prev[1], prev[2], 0.0], [cur[0], cur[2], 1.0], [prev[1], prev[2], 0.0], [cur[1], cur[2], 0.0], [cur[0], cur[2], 1.0]]:
+		im.surface_set_color(c)
+		im.surface_set_uv(Vector2(v[1], v[2]))
+		im.surface_add_vertex(v[0])
+
+
+## 尾の帯の布（ゲームの cometTailTex と同じ）：長さの向き（u）に 芯 → 主の色 → 光の色 → 青紫 と移って消え、幅の向き（v）は
+## くっきりした縁（ちぎれてうねる）と明るい芯の線
+func _comet_tail_texture() -> Texture2D:
+	var key: String = "ctail" + (cols.color as Color).to_html()
+	if _tex.has(key):
+		return _tex[key]
+	var W := 256
+	var Hh := 32
+	var img := Image.create(W, Hh, false, Image.FORMAT_RGBA8)
+	var stops := [[0.0, cols.core], [0.12, cols.color], [0.45, cols.glow], [1.0, cols.deep]]
+	for x in W:
+		var uu := float(x) / (W - 1)
+		var j := 0
+		while j < stops.size() - 2 and uu > stops[j + 1][0]:
+			j += 1
+		var tt := clampf((uu - stops[j][0]) / (stops[j + 1][0] - stops[j][0]), 0.0, 1.0)
+		var col: Color = (stops[j][1] as Color).lerp(stops[j + 1][1], tt)
+		var along := smoothstep(0.0, 0.06, uu) * pow(1.0 - uu, 1.1)
+		var half := 0.42 + 0.06 * sin(uu * 31.0) * sin(uu * 7.0 + 1.0)
+		for y in Hh:
+			var v := absf(float(y) / (Hh - 1) - 0.5)
+			var inside := clampf((half - v) * Hh * 0.7, 0.0, 1.0)
+			var core := 1.0 if v < 0.09 else 0.0
+			var c := Color(minf(1.0, col.r + core * 0.35), minf(1.0, col.g + core * 0.35), minf(1.0, col.b + core * 0.24), along * inside * (0.6 + 0.4 * core))
+			img.set_pixel(x, y, c)
+	var t := ImageTexture.create_from_image(img)
+	_tex[key] = t
+	return t
+
+
+## 発動の閃光の布：白い芯・十字の光芒（横に長く）・斜めの短い光・主の色の輪
+func _comet_flare_texture() -> Texture2D:
+	var key: String = "cflare" + (cols.color as Color).to_html()
+	if _tex.has(key):
+		return _tex[key]
+	var S := 128
+	var m := S / 2.0
+	var img := Image.create(S, S, false, Image.FORMAT_RGBA8)
+	for y in S:
+		for x in S:
+			var px := (x + 0.5 - m) / m
+			var py := (y + 0.5 - m) / m
+			var r := sqrt(px * px + py * py)
+			var a := pow(clampf(1.0 - r / 0.5, 0.0, 1.0), 1.5)
+			var col: Color = Color.WHITE.lerp(cols.color, clampf(r / 0.5, 0.0, 1.0))
+			# 十字と斜め（細い線、端で消える）
+			for ln in [[1.0, 0.0, 1.0, 0.045], [0.0, 1.0, 0.55, 0.035], [0.7071, 0.7071, 0.28, 0.02], [0.7071, -0.7071, 0.28, 0.02]]:
+				var along: float = absf(px * ln[0] + py * ln[1])
+				var across: float = absf(-px * ln[1] + py * ln[0])
+				var la: float = clampf(1.0 - across / ln[3], 0.0, 1.0) * clampf(1.0 - along / ln[2], 0.0, 1.0)
+				a = maxf(a, la)
+			# 主の色の輪（横長の楕円）
+			var e := sqrt(px * px / 0.72 + py * py / 0.25)
+			var ring := clampf(1.0 - absf(e - 1.0) * 30.0, 0.0, 1.0) * 0.9
+			if ring > a:
+				col = cols.color
+			a = maxf(a, ring)
+			img.set_pixel(x, y, Color(col, a))
 	var t := ImageTexture.create_from_image(img)
 	_tex[key] = t
 	return t
