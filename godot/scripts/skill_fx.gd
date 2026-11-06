@@ -482,10 +482,12 @@ static func _texture(shape: String) -> Texture2D:
 
 
 # ------------------------------------------------------------------ 疾風の竜巻
-## 下が細く上へ開く漏斗の面を、ちぎれた縁のミントの帯（芯の白・主の色・光の色の縁をくっきり塗り分けた布）が巻いて回る。
-## 帯は毎コマ ImmediateMesh で置き直す（回りながら半径と高さがうねる）。漏斗は馬の前後（z）に 1.45 倍の楕円。
+## 走る向きに寝た漏斗（鼻先の前で細く尾の後ろへ開く）の面を、ちぎれた縁のミントの帯（芯の白・主の色・光の色の縁をくっきり塗り分けた布）が巻いて回る。
+## 帯は毎コマ ImmediateMesh で置き直す（回りながら半径と軸の位置がうねる）。
 const TOR_N := 30
-const TOR_EZ := 1.45
+const TOR_ZF := 1.9    # 竜巻の先（鼻先の前）
+const TOR_LZ := 5.4    # 竜巻の長さ（尾の後ろまで）
+const TOR_CY := 1.35   # 軸の高さ（胴）
 const LEAF_COLS := [Color("#5fbf3f"), Color("#3f8f2a"), Color("#8fd65a"), Color("#2f6b22")]
 
 
@@ -541,7 +543,8 @@ func _tornado_setup() -> void:
 		m.vertex_color_use_as_albedo = false
 		m.albedo_color = cols.color if i == 1 else Color.WHITE
 		mi.material_override = m
-		mi.position.y = 0.06
+		# 輪は軸（z）を囲む向きに立てる
+		mi.rotation.x = PI / 2.0
 		deco.add_child(mi)
 		tor_rings.append(mi)
 	for i in 10:
@@ -559,14 +562,16 @@ func _ease(x: float) -> float:
 
 
 func _tornado_update(fade: float) -> void:
+	# 横向きの竜巻：軸は馬の前後（z、前が +z）に胴の高さで通し、鼻先の前（an＝0）で細く、尾の後ろ（an＝1）へ開く（ゲームの makeTornado3d と同じ）
 	var T := age
 	var grow := _ease(T / 0.35)
 	var open := smoothstep(LIFE - 0.8, LIFE, T)
-	var H := 3.3 * grow
 	var alpha := fade * (1.0 - open * 0.9)
-	var r_of := func(yn: float) -> float:
-		# 下の半径は馬の体（前後 2.4m）を包む大きさ
-		return 0.85 + (1.9 * (1.0 + open * 0.4) - 0.85) * pow(maxf(0.0, yn), 1.25)
+	var r_of := func(an: float) -> float:
+		return 0.6 + (1.65 * (1.0 + open * 0.3) - 0.6) * pow(maxf(0.0, an), 1.2)
+	var at := func(an: float, th: float, r: float) -> Vector3:
+		# 下側は地面の下へ潜らないよう高さを抑える
+		return Vector3(sin(th) * r, maxf(0.05, TOR_CY + cos(th) * r * 0.85), TOR_ZF - an * TOR_LZ * grow)
 	for which in [tor_mesh, tor_line]:
 		var im: ImmediateMesh = which.mesh
 		im.clear_surfaces()
@@ -578,15 +583,14 @@ func _tornado_update(fade: float) -> void:
 			for j in TOR_N + 1:
 				var q := float(j) / TOR_N
 				var th: float = rb.phi + rb.w * T + q * rb.span
-				var yn := minf(1.05, rb.y0 + q * (0.05 if rb.line else 0.32) + 0.035 * sin(th * 2.0 + T * 6.0))
-				var rr: float = r_of.call(yn) * (1.2 if rb.line else 1.0 + 0.07 * sin(th * 3.0 + T * 5.0 + rb.i))
+				var an := minf(1.05, rb.y0 + q * (0.05 if rb.line else 0.32) + 0.035 * sin(th * 2.0 + T * 6.0))
+				var rr: float = r_of.call(an) * (1.2 if rb.line else 1.0 + 0.07 * sin(th * 3.0 + T * 5.0 + rb.i))
 				var taper := 1.0 if rb.line else smoothstep(0.0, 0.35, q) * (1.0 - smoothstep(0.88, 1.0, q) * 0.7)
 				var torn := 1.0 if rb.line else 0.8 + 0.14 * sin(q * 23.0 + T * 11.0 + rb.i * 1.7) * sin(q * 9.0 - T * 4.0) + 0.06 * sin(q * 61.0 + rb.i * 3.0 + T * 17.0)
-				var hw: float = rb.thick * (1.0 if rb.line else 0.45 + yn * 0.55) * taper * torn * 0.5
-				var x := cos(th) * rr
-				var z := sin(th) * rr * TOR_EZ
-				var y := yn * H
-				var cur := [Vector3(x, y + hw, z), Vector3(x, y - hw * 0.8, z), q]
+				var hw: float = rb.thick * (1.0 if rb.line else 0.45 + an * 0.55) * taper * torn * 0.5
+				var p: Vector3 = at.call(an, th, rr)
+				# 帯の幅は軸の向き（z）に取る
+				var cur := [p + Vector3(0, 0, hw), p - Vector3(0, 0, hw * 0.8), q]
 				if not prev.is_empty():
 					var c := Color(1, 1, 1, alpha * (0.85 if rb.line else 0.92))
 					for v in [[prev[0], prev[2], 1.0], [prev[1], prev[2], 0.0], [cur[0], q, 1.0], [prev[1], prev[2], 0.0], [cur[1], q, 0.0], [cur[0], q, 1.0]]:
@@ -595,29 +599,32 @@ func _tornado_update(fade: float) -> void:
 						im.surface_add_vertex(v[0])
 				prev = cur
 		im.surface_end()
+	# 衝撃波の輪：軸を囲む輪が鼻先から後ろへ流れながら広がる
 	for i in tor_rings.size():
-		var ph := fmod(T * 1.3 + i / 3.0, 1.0)
-		var rad := 0.7 + ph * 3.2
+		var ph := fmod(T * 1.1 + i / 3.0, 1.0)
+		var rad: float = r_of.call(ph) * (1.1 + ph * 0.3)
 		var mi: MeshInstance3D = tor_rings[i]
-		mi.scale = Vector3(rad, 0.02, rad * TOR_EZ)
-		(mi.material_override as StandardMaterial3D).albedo_color.a = (1.0 - ph) * 0.75 * alpha * grow
+		mi.position = Vector3(0, TOR_CY, TOR_ZF - ph * TOR_LZ * grow)
+		mi.scale = Vector3(rad, 0.02, rad * 0.85)
+		(mi.material_override as StandardMaterial3D).albedo_color.a = (1.0 - ph) * 0.8 * alpha * grow
+	# 蹴り上げた土煙が後ろへ流れる
 	for d in tor_dust:
-		var th: float = d.a + T * (1.5 + d.b)
-		var rr: float = 0.8 * (1.1 + d.c * 0.9) * (1.0 + open)
+		var an: float = fmod(d.b + T * (0.5 + d.c * 0.4), 1.1)
 		var q: MeshInstance3D = d.q
-		q.position = Vector3(cos(th) * rr, 0.35 + d.d * 0.3, sin(th) * rr * TOR_EZ)
-		var s: float = (0.9 + d.c * 1.1) * (0.6 + 0.4 * grow) * 2.0
+		q.position = Vector3(cos(d.a) * 0.6, 0.3 + d.d * 0.3 + an * 0.4, TOR_ZF - (0.25 + an * 0.9) * TOR_LZ * grow)
+		var s: float = (0.7 + d.c * 0.9) * (0.6 + 0.6 * an) * (0.6 + 0.4 * grow) * 2.0
 		q.scale = Vector3(s, s, 1)
-		((q.mesh as QuadMesh).material as StandardMaterial3D).albedo_color.a = 0.4 * alpha
+		((q.mesh as QuadMesh).material as StandardMaterial3D).albedo_color.a = 0.4 * alpha * (1.0 - smoothstep(0.8, 1.1, an))
+	# 渦に巻かれて後ろへ飛ぶ葉と黒い粒
 	for l in tor_leaves:
 		var th: float = l.a + T * (5.0 + l.b * 3.0)
-		var yn: float = fmod(l.c + T * (0.3 + l.d * 0.3), 1.15)
-		var rr: float = r_of.call(minf(1.0, yn)) * (1.05 + l.e * 0.45)
+		var an: float = fmod(l.c + T * (0.3 + l.d * 0.3), 1.15)
+		var rr: float = r_of.call(minf(1.0, an)) * (1.05 + l.e * 0.45)
 		var q: MeshInstance3D = l.q
-		q.position = Vector3(cos(th) * rr, yn * H, sin(th) * rr * TOR_EZ)
+		q.position = at.call(an, th, rr)
 		var s: float = 0.22 if l.speck else 0.14 + l.e * 0.1
 		q.scale = Vector3(s * (1.0 if l.speck else 1.4), s * (0.2 if l.speck else 1.0), 1)
-		((q.mesh as QuadMesh).material as StandardMaterial3D).albedo_color.a = alpha * smoothstep(0.0, 0.1, yn) * (1.0 - smoothstep(0.95, 1.15, yn))
+		((q.mesh as QuadMesh).material as StandardMaterial3D).albedo_color.a = alpha * smoothstep(0.0, 0.1, an) * (1.0 - smoothstep(0.95, 1.15, an))
 	# 発動の瞬間（0.3 秒）：白い閃光・トゲの星・黒い集中線
 	var qb := T / 0.3
 	tor_burst.scale = Vector3.ONE * (2.0 + _ease(qb) * 4.5)

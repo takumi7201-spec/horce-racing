@@ -313,79 +313,89 @@ function galeTornado2D(b, f, t, k, c, still) {
   const { F, box, u, P, seed } = c;
   // 止めた絵（カード）は帯が馬の胴を隠さない巻き方の時刻で
   const T = still ? 1.3 : t;
-  // 竜巻が育つ（0.35 秒で下から立ち上がる）。終わり際は外へ開きながら薄れる
+  // 竜巻が育つ（0.35 秒で鼻先から後ろへ伸びる）。終わり際は外へ開きながら薄れる
   const grow = still ? 1 : ease(T / 0.35);
   const open = still ? 0 : smooth(2.0, 2.6, T);
-  const cx = box.cx, yb = box.y1 + 6 * u, yt = box.y0 - box.h * 0.16;
-  const H = (yb - yt) * grow;
-  const rxb = box.w * 0.24, rxt = box.w * (0.56 + open * 0.2);
-  const rOf = (yn) => rxb + (rxt - rxb) * Math.pow(yn, 1.25);
+  // 横向きの竜巻：軸は走る向きに沿って馬の胴を通り、鼻先の前で細く尾の後ろへ開く（風を切って突き進む渦）。
+  // 軸の位置 an（0＝鼻先の前・1＝尾の後ろ）と軸の周りの角 th から画面の点へ。th の sin が正の側が手前（馬の前に描く）。
+  // 真横から見ると軸の周りの円は縦の線に潰れるので、手前ほど少し後ろへずらして楕円に見せる。
+  const tr = c.trail || 1;                 // 後ろの向き（画面の x）
+  const L = box.w * 1.2 * grow;
+  const xF = tr > 0 ? box.x0 - box.w * 0.12 : box.x1 + box.w * 0.12;
+  const cy = box.y0 + box.h * 0.56;
+  const yb = box.y1 + 6 * u;
+  const rf = box.h * 0.2, rr = box.h * (0.6 + open * 0.25);
+  const rOf = (an) => rf + (rr - rf) * Math.pow(Math.max(0, an), 1.2);
+  const at = (an, th, r) => ({ x: xF + tr * an * L + tr * Math.sin(th) * r * 0.3, y: cy - Math.cos(th) * r });
   const R = 7, N = 34;
-  const thick = box.h * 0.32;
+  const thick = box.w * 0.24;
   const ribbons = [];
   for (let i = 0; i < R; i++) {
     const m = P.motes[i];
     const phi = i * 2.399 + m.a * 6.283;
     const w = 7.5 + m.b * 2.5;          // 回る速さ（rad/秒）
-    const y0n = (i / R) * 0.72 + m.c * 0.06;
+    const a0 = (i / R) * 0.72 + m.c * 0.06;
     const span = 0.85 * Math.PI + m.d * 0.4;
     const pts = [];
     for (let j = 0; j <= N; j++) {
       const q = j / N;
       const th = phi + w * T + q * span;
-      const yn = Math.min(1.05, y0n + q * 0.32 + 0.035 * Math.sin(th * 2 + T * 6));
-      const rx = rOf(yn) * (1 + 0.07 * Math.sin(th * 3 + T * 5 + i));
-      const ry = rx * 0.24;
+      const an = Math.min(1.05, a0 + q * 0.32 + 0.035 * Math.sin(th * 2 + T * 6));
+      const r = rOf(an) * (1 + 0.07 * Math.sin(th * 3 + T * 5 + i));
       // 帯の厚み：尾は細って消え、頭は丸く、縁はちぎれて揺れる
       const taper = smooth(0, 0.35, q) * (1 - smooth(0.88, 1, q) * 0.7);
       // ちぎれた縁：細かい波と大きなうねりを重ねる
       const torn = 0.8 + 0.14 * Math.sin(q * 23 + T * 11 + i * 1.7) * Math.sin(q * 9 - T * 4) + 0.06 * Math.sin(q * 61 + i * 3 + T * 17);
-      const hw = thick * (0.45 + yn * 0.55) * taper * torn * 0.5;
-      pts.push({ x: cx + Math.cos(th) * rx, y: yb - yn * H + Math.sin(th) * ry, hw, front: Math.sin(th) > 0 });
+      const hw = thick * (0.45 + an * 0.55) * taper * torn * 0.5;
+      pts.push({ ...at(an, th, r), hw, front: Math.sin(th) > 0 });
     }
     ribbons.push(pts);
   }
   const alpha = k * (1 - open * 0.9);
-  // 帯を手前・奥の連なりに分けて、3 段の色で塗る
+  // 帯を手前・奥の連なりに分けて、3 段の色で塗る。帯の幅は軸の向き（画面の横）に取る
   const paint = (g, run, scale, col, a) => {
     if (run.length < 2) return;
     g.beginPath();
-    g.moveTo(run[0].x, run[0].y - run[0].hw * scale);
-    for (const p of run) g.lineTo(p.x, p.y - p.hw * scale);
-    for (let j = run.length - 1; j >= 0; j--) g.lineTo(run[j].x, run[j].y + run[j].hw * scale * 0.8);
+    g.moveTo(run[0].x - tr * run[0].hw * scale, run[0].y);
+    for (const p of run) g.lineTo(p.x - tr * p.hw * scale, p.y);
+    for (let j = run.length - 1; j >= 0; j--) g.lineTo(run[j].x + tr * run[j].hw * scale * 0.8, run[j].y);
     g.closePath();
     g.globalAlpha = a;
     g.fillStyle = col;
     g.fill();
   };
-  // 足元：土煙（灰色のやわらかい丸）と波紋（白い楕円の輪が広がる）
+  // 足元：蹴り上げた土煙（灰色のやわらかい丸）が後ろへ流れる
   const dust = (g, front) => {
     g.globalCompositeOperation = 'source-over';
     for (let i = 0; i < 12; i++) {
       const m = P.motes[20 + i];
-      const th = m.a * 6.283 + T * (1.5 + m.b);
-      if ((Math.sin(th) > 0) !== front) continue;
-      const rr = rxb * (1.1 + m.c * 0.9) * (1 + open);
-      const x = cx + Math.cos(th) * rr, y = yb + Math.sin(th) * rr * 0.24 - m.d * 10 * u;
-      const s = (16 + m.e * 22) * u * (0.6 + 0.4 * grow);
+      if ((m.a > 0.5) !== front) continue;
+      const an = (m.b + T * (0.5 + m.c * 0.4)) % 1.1;
+      const x = xF + tr * (0.25 + an * 0.9) * L, y = yb - m.d * 12 * u - an * 20 * u;
+      const s = (14 + m.e * 22) * u * (0.6 + 0.6 * an) * (0.6 + 0.4 * grow);
       const gr = g.createRadialGradient(x, y, 0, x, y, s);
-      gr.addColorStop(0, rgba('#c9d3cf', 0.42 * alpha)); gr.addColorStop(1, rgba('#9aa7a2', 0));
+      gr.addColorStop(0, rgba('#c9d3cf', 0.42 * alpha * (1 - smooth(0.8, 1.1, an)))); gr.addColorStop(1, rgba('#9aa7a2', 0));
       g.globalAlpha = 1;
       g.fillStyle = gr;
       g.beginPath(); g.arc(x, y, s, 0, Math.PI * 2); g.fill();
     }
   };
+  // 衝撃波の輪：軸を囲む白い輪が鼻先から後ろへ流れながら広がる（手前の半周は馬の前）
   const rings = (g, front) => {
     g.globalCompositeOperation = 'source-over';
     g.lineCap = 'round';
     for (let i = 0; i < 3; i++) {
-      const ph = still ? 0.25 + i * 0.28 : (T * 1.3 + i / 3) % 1;
-      const rx = rxb * (1.1 + ph * 2.4), ry = rx * 0.22;
-      g.globalAlpha = (1 - ph) * 0.75 * alpha;
+      const ph = still ? 0.2 + i * 0.3 : (T * 1.1 + i / 3) % 1;
+      const r = rOf(ph) * (1.1 + ph * 0.3);
+      g.globalAlpha = (1 - ph) * 0.8 * alpha;
       g.strokeStyle = i === 1 ? F.color : '#ffffff';
       g.lineWidth = (1 + 3.5 * (1 - ph)) * u;
       g.beginPath();
-      g.ellipse(cx, yb, rx, ry, 0, front ? 0 : Math.PI, front ? Math.PI : Math.PI * 2);
+      for (let j = 0; j <= 24; j++) {
+        const th = (front ? 0 : Math.PI) + (j / 24) * Math.PI;
+        const p = at(ph, th, r);
+        if (j) g.lineTo(p.x, p.y); else g.moveTo(p.x, p.y);
+      }
       g.stroke();
     }
   };
@@ -416,8 +426,8 @@ function galeTornado2D(b, f, t, k, c, still) {
   // 白い細い風の弧（帯の外を速く回る）
   for (let i = 0; i < 4; i++) {
     const m = P.motes[8 + i];
-    const yn = 0.25 + m.b * 0.65;
-    const rx = rOf(yn) * 1.18, ry = rx * 0.24, cy = yb - yn * H;
+    const an = 0.2 + m.b * 0.7;
+    const r = rOf(an) * 1.18;
     const a0 = m.a * 6.283 + T * (9 + m.c * 3);
     for (const [g, front] of [[b, false], [f, true]]) {
       g.globalCompositeOperation = 'source-over'; g.lineCap = 'round';
@@ -428,25 +438,25 @@ function galeTornado2D(b, f, t, k, c, still) {
       let on = false;
       for (let j = 0; j <= 16; j++) {
         const th = a0 + (j / 16) * 1.3;
-        const x = cx + Math.cos(th) * rx, y = cy + Math.sin(th) * ry;
+        const p = at(an + (j / 16) * 0.06, th, r);
         if ((Math.sin(th) > 0) !== front) { on = false; continue; }
-        if (!on) { g.moveTo(x, y); on = true; } else g.lineTo(x, y);
+        if (!on) { g.moveTo(p.x, p.y); on = true; } else g.lineTo(p.x, p.y);
       }
       g.stroke();
     }
   }
-  // 巻き上がる葉と黒い粒
+  // 渦に巻かれて後ろへ飛ぶ葉と黒い粒
   for (let i = 0; i < 30; i++) {
     const m = P.motes[30 + (i % 30)];
     const th = m.a * 6.283 + T * (5 + m.b * 3) + i;
-    const yn = ((m.c + T * (0.3 + m.d * 0.3)) % 1.15);
-    const rr = rOf(Math.min(1, yn)) * (1.05 + m.e * 0.45);
-    const x = cx + Math.cos(th) * rr, y = yb - yn * H + Math.sin(th) * rr * 0.24;
+    const an = ((m.c + T * (0.3 + m.d * 0.3)) % 1.15);
+    const r = rOf(Math.min(1, an)) * (1.05 + m.e * 0.45);
+    const p = at(an, th, r);
     const g = Math.sin(th) > 0 ? f : b;
     g.globalCompositeOperation = 'source-over';
-    g.globalAlpha = alpha * smooth(0, 0.1, yn) * (1 - smooth(0.95, 1.15, yn));
+    g.globalAlpha = alpha * smooth(0, 0.1, an) * (1 - smooth(0.95, 1.15, an));
     g.save();
-    g.translate(x, y);
+    g.translate(p.x, p.y);
     g.rotate(th * 2 + m.e * 5);
     if (i % 3 === 2) {
       // 黒い粒（細い欠片）
@@ -454,11 +464,11 @@ function galeTornado2D(b, f, t, k, c, still) {
       g.fillRect(-4 * u, -0.9 * u, 8 * u, 1.8 * u);
     } else {
       g.fillStyle = LEAF_COLS[i % 4];
-      const s = (3.5 + m.e * 3) * u;
+      const sz = (3.5 + m.e * 3) * u;
       g.beginPath();
-      g.moveTo(-s * 1.4, 0);
-      g.quadraticCurveTo(0, -s, s * 1.4, 0);
-      g.quadraticCurveTo(0, s * 0.8, -s * 1.4, 0);
+      g.moveTo(-sz * 1.4, 0);
+      g.quadraticCurveTo(0, -sz, sz * 1.4, 0);
+      g.quadraticCurveTo(0, sz * 0.8, -sz * 1.4, 0);
       g.fill();
     }
     g.restore();
@@ -469,7 +479,7 @@ function galeTornado2D(b, f, t, k, c, still) {
     const q = T / 0.32;
     const a = 1 - q;
     const R0 = Math.max(box.w, box.h) * (0.5 + q * 0.6);
-    const cy = box.cy;
+    const cx = box.cx, cy = box.cy;
     const r = rngOf(seed * 13 + 5);
     f.globalCompositeOperation = 'source-over';
     // 黒い集中線（外から中心へ細る楔）
@@ -726,9 +736,9 @@ const KIND3 = {
   thunder: { shape: 'star', n: 20, blend: 'add', life: [0.15, 0.35], born: (r) => { const a = r() * Math.PI * 2; return { p: [Math.cos(a) * 0.9, 0.5 + r() * 1.8, Math.sin(a) * 1.3], v: [Math.cos(a) * 3, (r() - 0.5) * 2, Math.sin(a) * 3], s: 0.4 + r() * 0.5 }; } },
 };
 
-// ---- 疾風の竜巻（3D）。2D の galeTornado2D と同じ形：下が細く上へ開く漏斗の面を、ちぎれた縁のミントの帯が巻いて回る。
-// 帯は毎コマ頂点を置き直す（回りながら半径と高さがうねる）。布は帯の幅の向きに 光の色の縁 → 主の色 → 芯の白（セル調にくっきり）、
-// 長さの向きに尾が消える。馬の体の向き（z が前後）に合わせて漏斗は前後に 1.45 倍の楕円。
+// ---- 疾風の竜巻（3D）。2D の galeTornado2D と同じ形：走る向きに寝た漏斗（鼻先の前で細く尾の後ろへ開く）の面を、
+// ちぎれた縁のミントの帯が巻いて回る。帯は毎コマ頂点を置き直す（回りながら半径と軸の位置がうねる）。
+// 布は帯の幅の向きに 光の色の縁 → 主の色 → 芯の白（セル調にくっきり）、長さの向きに尾が消える。
 const ribbonTexCache = new Map();
 function ribbonTex(F) {
   const key = F.color + F.glow + F.core;
@@ -808,7 +818,6 @@ function leafTex() {
 function makeTornado3d(F, r) {
   const group = new THREE.Group();
   const R = 8, N = 30;
-  const EZ = 1.45;
   const mats = [];
   const ribbons = [];
   const mkStrip = (map, order) => {
@@ -844,12 +853,10 @@ function makeTornado3d(F, r) {
   for (let i = 0; i < 4; i++) {
     ribbons.push({ mesh: mkStrip(lineMap, 18), phi: r() * 6.283, w: 10 + r() * 3, y0: 0.2 + r() * 0.6, span: 1.3, thick: 0.07, line: true, i: 10 + i });
   }
-  // 足元の波紋（白と主の色の輪が広がる）
+  // 衝撃波の輪（白と主の色の輪が軸を囲んで後ろへ流れる）
   const rings = [0, 1, 2].map((i) => {
     const m = new THREE.Mesh(new THREE.RingGeometry(0.93, 1, 56), new THREE.MeshBasicMaterial({ color: i === 1 ? F.color : '#ffffff', transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide }));
     mats.push(m.material);
-    m.rotation.x = -Math.PI / 2;
-    m.position.y = 0.06;
     m.renderOrder = 16;
     group.add(m);
     return m;
@@ -872,53 +879,60 @@ function makeTornado3d(F, r) {
   const burst = sp(burstTex(F), '#ffffff', true, 25);
   burst.material.depthTest = false;
   // 下の半径は馬の体（前後 2.4m）を包む大きさ。細くすると漏斗の下側が体の中に埋もれた
-  const rOf = (yn, open) => 0.85 + (1.9 * (1 + open * 0.4) - 0.85) * Math.pow(Math.max(0, yn), 1.25);
+  // 横向きの竜巻：軸は馬の前後（z、前が +z）に胴の高さで通し、鼻先の前（an＝0）で細く、尾の後ろ（an＝1）へ開く。
+  // 帯の幅は軸の向き（z）に取る。下側は地面の下へ潜らないよう高さを抑える
+  const ZF = 1.9, LZ = 5.4, CY = 1.35;
+  const rOf = (an, open) => 0.6 + (1.65 * (1 + open * 0.3) - 0.6) * Math.pow(Math.max(0, an), 1.2);
+  const at = (an, th, r, grow, out) => out.set(Math.sin(th) * r, Math.max(0.05, CY + Math.cos(th) * r * 0.85), ZF - an * LZ * grow);
+  const v = new THREE.Vector3();
   return {
     group,
     update(T, life, fade) {
       const grow = ease(T / 0.35);
       const open = smooth(life - 0.8, life, T);
-      const H = 3.3 * grow;
       const alpha = fade * (1 - open * 0.9);
       for (const rb of ribbons) {
         const pos = rb.mesh.geometry.attributes.position.array;
         for (let j = 0; j <= N; j++) {
           const q = j / N;
-          const th = rb.phi + rb.w * T + q * (rb.line ? rb.span : rb.span);
-          const yn = Math.min(1.05, rb.y0 + q * (rb.line ? 0.05 : 0.32) + 0.035 * Math.sin(th * 2 + T * 6));
-          const rr = rOf(yn, open) * (rb.line ? 1.2 : 1 + 0.07 * Math.sin(th * 3 + T * 5 + rb.i));
+          const th = rb.phi + rb.w * T + q * rb.span;
+          const an = Math.min(1.05, rb.y0 + q * (rb.line ? 0.05 : 0.32) + 0.035 * Math.sin(th * 2 + T * 6));
+          const rr = rOf(an, open) * (rb.line ? 1.2 : 1 + 0.07 * Math.sin(th * 3 + T * 5 + rb.i));
           const taper = rb.line ? 1 : smooth(0, 0.35, q) * (1 - smooth(0.88, 1, q) * 0.7);
           const torn = rb.line ? 1 : 0.8 + 0.14 * Math.sin(q * 23 + T * 11 + rb.i * 1.7) * Math.sin(q * 9 - T * 4) + 0.06 * Math.sin(q * 61 + rb.i * 3 + T * 17);
-          const hw = rb.thick * (rb.line ? 1 : 0.45 + yn * 0.55) * taper * torn * 0.5;
-          const x = Math.cos(th) * rr, z = Math.sin(th) * rr * EZ, y = yn * H;
-          pos.set([x, y + hw, z, x, y - hw * 0.8, z], j * 6);
+          const hw = rb.thick * (rb.line ? 1 : 0.45 + an * 0.55) * taper * torn * 0.5;
+          at(an, th, rr, grow, v);
+          pos.set([v.x, v.y, v.z + hw, v.x, v.y, v.z - hw * 0.8], j * 6);
         }
         rb.mesh.geometry.attributes.position.needsUpdate = true;
         rb.mesh.material.opacity = alpha * (rb.line ? 0.85 : 0.92);
       }
+      // 衝撃波の輪：軸を囲む輪が鼻先から後ろへ流れながら広がる
       for (const [i, m] of rings.entries()) {
-        const ph = (T * 1.3 + i / 3) % 1;
-        const rad = 0.7 + ph * 3.2;
-        m.scale.set(rad, rad * EZ, 1);
-        m.material.opacity = (1 - ph) * 0.75 * alpha * grow;
+        const ph = (T * 1.1 + i / 3) % 1;
+        const rad = rOf(ph, open) * (1.1 + ph * 0.3);
+        m.position.set(0, CY, ZF - ph * LZ * grow);
+        m.scale.set(rad, rad * 0.85, 1);
+        m.material.opacity = (1 - ph) * 0.8 * alpha * grow;
       }
+      // 蹴り上げた土煙が後ろへ流れる
       for (const d of dust) {
-        const th = d.a + T * (1.5 + d.b);
-        const rr = 0.8 * (1.1 + d.c * 0.9) * (1 + open);
-        d.s.position.set(Math.cos(th) * rr, 0.35 + d.d * 0.3, Math.sin(th) * rr * EZ);
-        const s = (0.9 + d.c * 1.1) * (0.6 + 0.4 * grow);
+        const an = (d.b + T * (0.5 + d.c * 0.4)) % 1.1;
+        d.s.position.set(Math.cos(d.a) * 0.6, 0.3 + d.d * 0.3 + an * 0.4, ZF - (0.25 + an * 0.9) * LZ * grow);
+        const s = (0.7 + d.c * 0.9) * (0.6 + 0.6 * an) * (0.6 + 0.4 * grow);
         d.s.scale.set(s, s, 1);
-        d.s.material.opacity = 0.4 * alpha;
+        d.s.material.opacity = 0.4 * alpha * (1 - smooth(0.8, 1.1, an));
       }
+      // 渦に巻かれて後ろへ飛ぶ葉と黒い粒
       for (const l of leaves) {
         const th = l.a + T * (5 + l.b * 3);
-        const yn = (l.c + T * (0.3 + l.d * 0.3)) % 1.15;
-        const rr = rOf(Math.min(1, yn), open) * (1.05 + l.e * 0.45);
-        l.s.position.set(Math.cos(th) * rr, yn * H, Math.sin(th) * rr * EZ);
+        const an = (l.c + T * (0.3 + l.d * 0.3)) % 1.15;
+        const rr = rOf(Math.min(1, an), open) * (1.05 + l.e * 0.45);
+        at(an, th, rr, grow, l.s.position);
         const s = l.speck ? 0.22 : 0.14 + l.e * 0.1;
         l.s.scale.set(s * (l.speck ? 1 : 1.4), s * (l.speck ? 0.2 : 1), 1);
         l.s.material.rotation = th * 2 + l.e * 5;
-        l.s.material.opacity = alpha * smooth(0, 0.1, yn) * (1 - smooth(0.95, 1.15, yn));
+        l.s.material.opacity = alpha * smooth(0, 0.1, an) * (1 - smooth(0.95, 1.15, an));
       }
       // 発動の瞬間（0.3 秒）：白い閃光・トゲの星・黒い集中線
       const q = T / 0.3;
