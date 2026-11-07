@@ -31,7 +31,7 @@ const RAR_TEXT := {LM = "#8a3fd6", SSR = "#b07a10", SR = "#5d6b7c", R = "#9a5a22
 const HOLO := {LM = 1.0, SSR = 0.8, SR = 0.65, R = 0.5, N = 0.0}
 const TITLES := {gacha = ["ガチャ", "GACHA"], cards = ["所持カード", "MY CARDS"], book = ["カード図鑑", "CARD BOOK"], deck = ["編成", "DECK"],
 	train = ["育成", "TRAINING"], finished = ["完成馬", "STABLE"], horse = ["完成馬", "HORSE"], battle = ["対戦", "BATTLE"], event = ["イベント", "EVENT"],
-	mission = ["ミッション", "MISSION"]}
+	mission = ["ミッション", "MISSION"], rival = ["ライバルレース", "RIVAL RACE"]}
 
 var p: Dictionary
 var screen := "home"
@@ -46,6 +46,9 @@ var card_menu: Control
 var book_opt := {pack = "", rar = "", sort = "rar"}
 var deck_f := {rar = "", surf = "", dist = "", style = "", skill = ""}
 var ev_slide := ""
+## 出る馬の並べ替え（評価値・脚質・距離・芝ダート。同じ札を押すと向きが逆）。画面をまたいで同じ
+var pick_sort := {by = "rating", rev = false}
+var _last_screen := ""
 
 
 func _ready() -> void:
@@ -350,6 +353,12 @@ func go(name: String, o := {}) -> void:
 
 
 func render(animate := true) -> void:
+	# 同じ画面の描き直し（出る馬・難易度を選び直す）ではスクロールを保つ。先頭へ戻ると、選んだ馬が画面の外へ消えた
+	var keep := -1
+	if screen == _last_screen:
+		for sc0 in body.find_children("*", "ScrollContainer", false, false):
+			keep = (sc0 as ScrollContainer).scroll_vertical
+	_last_screen = screen
 	for n in [body, top, dock]:
 		for c in n.get_children():
 			n.remove_child(c)
@@ -373,9 +382,12 @@ func render(animate := true) -> void:
 			"battle": content = _battle()
 			"event": content = _event()
 			"mission": content = _mission()
+			"rival": content = _rival_page()
 			_: content = _gacha()
 		page = _scrolled(content)
 	body.add_child(page)
+	if keep > 0 and page is ScrollContainer:
+		_restore_scroll(page, keep)
 	_render_dock()
 	if animate:
 		# position を動かすと、大きさの決まる前の画面で錨の位置が狂って本文が右へずれた。余白（offset）で動かす
@@ -388,6 +400,14 @@ func render(animate := true) -> void:
 		tw.tween_property(page, "modulate:a", 1.0, 0.2)
 		tw.tween_property(page, "offset_top", t0, 0.24)
 		tw.tween_property(page, "offset_bottom", b0, 0.24)
+
+
+func _restore_scroll(sc: ScrollContainer, v: int) -> void:
+	# 中身の大きさが決まるのを待ってから戻す（すぐに入れると、まだ短い中身で頭打ちになる）
+	await get_tree().process_frame
+	await get_tree().process_frame
+	if is_instance_valid(sc):
+		sc.scroll_vertical = v
 
 
 ## 中の画面：上の帯の下から流れる（下に 116px 空ける。ボタン列が中身を隠さない）
@@ -2309,6 +2329,7 @@ func _horse_head(h: Dictionary, c: Dictionary) -> Control:
 func _battle() -> Control:
 	var page := UI.vbox(18)
 	page.add_child(_event_carousel())
+	page.add_child(_rival_banner(true))
 	if p.finished.is_empty():
 		var v0 := UI.vbox(10)
 		v0.add_child(UI.label("対戦には完成馬が要る。", 14, INK))
@@ -2322,12 +2343,7 @@ func _battle() -> Control:
 	var diff: String = opts.get("diff", "normal")
 	var v := UI.vbox(12)
 	v.add_child(UI.label("出す馬", 12, Color("#4a5b58"), "black"))
-	var hf := HFlowContainer.new()
-	hf.add_theme_constant_override("h_separation", 6)
-	hf.add_theme_constant_override("v_separation", 10)
-	for h in p.finished:
-		hf.add_child(_tile(IK.horse_card(h), h.name, "%s %d" % [h.rank, int(h.rating)], go.bind("battle", {id = h.id, race = race_id, diff = diff}), {sel = int(h.id) == int(hid), badge = h.rank}))
-	v.add_child(hf)
+	v.add_child(_horse_picker(hid, func(id) -> void: go("battle", {id = id, race = race_id, diff = diff})))
 	v.add_child(UI.label("舞台（GI）", 12, Color("#4a5b58"), "black"))
 	var rf := HFlowContainer.new()
 	rf.add_theme_constant_override("h_separation", 8)
@@ -2360,54 +2376,185 @@ func _battle() -> Control:
 			_watch(r.result, mine, r.fired, _result.bind(r.result, mine, r.fired, "完成馬どうし　%s" % r.race.name, null)), "paper", 15))
 	v.add_child(row)
 	page.add_child(UI.section("ランク戦", v))
-	page.add_child(_rival(hid, race_id, diff))
 	return page
 
 
-## ライバルレース：☆1〜☆5。相手は名馬のカードを難易度の強さにした 9 頭。勝つとウイコイン（1 日 10 枚まで、0:00 で戻る）。
-## 勝ったことのある☆はスキップで受け取れる。出す馬と舞台はランク戦と同じ選択。
-func _rival(hid, race_id: String, diff: String) -> Control:
+## 出る馬をアイコンで並べて選ぶ（対戦・イベント・ライバルレース。ゲームの horsePicker）。並べ替えは pick_sort
+func _horse_picker(sel_id, on_pick: Callable, race = null) -> Control:
+	var v := UI.vbox(8)
+	var bar := UI.hbox(6)
+	bar.add_child(UI.label("並べ替え", 11, Color("#5a706c"), "black"))
+	for it in [["rating", "評価値"], ["style", "脚質"], ["dist", "距離"], ["surface", "芝・ダート"]]:
+		var on: bool = pick_sort.by == it[0]
+		bar.add_child(UI.chip(it[1] + ((" ▲" if pick_sort.rev else " ▼") if on else ""), on, func() -> void:
+			if pick_sort.by == it[0]:
+				pick_sort.rev = not pick_sort.rev
+			else:
+				pick_sort.by = it[0]
+				pick_sort.rev = false
+			render(false), 12))
+	v.add_child(bar)
+	var keyf := func(h) -> float:
+		match pick_sort.by:
+			"style": return float(IK.STYLE_NAMES.find(IK.horse_race_style(h)))
+			"dist": return float(h.dist)
+			"surface": return float(h.dirt) - float(h.turf)
+		return -float(h.rating)
+	var list: Array = p.finished.duplicate()
+	var sgn := -1.0 if pick_sort.rev else 1.0
+	list = IK.Sim.stable_sort(list, func(a, b):
+		var ka: float = keyf.call(a) * sgn
+		var kb: float = keyf.call(b) * sgn
+		return ka < kb if ka != kb else float(a.rating) > float(b.rating))
+	var hf := HFlowContainer.new()
+	hf.add_theme_constant_override("h_separation", 6)
+	hf.add_theme_constant_override("v_separation", 10)
+	for h in list:
+		var l2 := "%s・%s %dm" % [IK.horse_race_style(h), IK.dist_cat(float(h.dist)), roundi(float(h.dist) / 100.0) * 100]
+		var t := _tile(IK.horse_card(h), h.name, l2, on_pick.bind(h.id), {sel = int(h.id) == int(sel_id), badge = h.rank})
+		var l3 := "芝%s ダ%s　%d" % [_mark(float(h.turf)), _mark(float(h.dirt)), int(h.rating)]
+		if race != null:
+			l3 += "\n" + _fit_of(h, race)
+		var lb := UI.label(l3, 11, Color("#2f6a20") if race != null else Color("#5f706c"))
+		lb.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		t.add_child(lb)
+		hf.add_child(t)
+	v.add_child(hf)
+	return v
+
+
+static func _mark(a: float) -> String:
+	return "◎" if a >= 0.8 else ("○" if a >= 0.7 else ("△" if a >= 0.6 else "×"))
+
+
+## 舞台への向き（馬場の◎○△×と距離の○△×）
+func _fit_of(h: Dictionary, race: Dictionary) -> String:
+	var surf := ("芝" + _mark(float(h.turf))) if race.surface == "芝" else ("ダ" + _mark(float(h.dirt)))
+	var d := absf(float(h.dist) - float(race.distance))
+	var rg := float(h.get("range", 400))
+	return "%s %dm%s" % [surf, int(race.distance), "○" if d <= rg else ("△" if d <= 800 else "×")]
+
+
+## ライバルレースのバナー（イベントのバナーと同じ組み立て。絵はイクイノックス）。nav なら押すと特設ページ
+func _rival_banner(nav := false) -> Control:
+	var rs := IK.rival_state(p, _today())
+	var cleared: Array = (rs.cleared as Array).map(func(x): return int(x))
+	var art := "P2-17"
+	var lay := Control.new()
+	lay.custom_minimum_size.y = 190
+	lay.mouse_filter = Control.MOUSE_FILTER_STOP if nav else Control.MOUSE_FILTER_IGNORE
+	if nav:
+		lay.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		lay.gui_input.connect(func(e: InputEvent) -> void:
+			if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
+				go("rival"))
+	var bg := _img(_bg_tex(art), true)
+	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	lay.add_child(bg)
+	lay.add_child(_shade(0.92, 0.05))
+	var st := _img(_sticker_tex(art))
+	st.size = Vector2(340, 230)
+	st.position = Vector2(W() - 380, -16)
+	lay.add_child(st)
+	var v := UI.vbox(3)
+	v.position = Vector2(20, 14)
+	var chip := UI.box({c = [SUN], radius = 6.0, border = 0.0, shadow = Vector2.ZERO, pad = Vector4(8, 1, 8, 2)})
+	chip.add_child(UI.label("DAILY　RIVAL RACE", 12, INK, "title"))
+	chip.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	chip.rotation = -0.04
+	v.add_child(chip)
+	v.add_child(UI.outlined("ライバルレース", 36, Color("#fff4dc"), "title", Color("#0d2a2e"), 6))
+	v.add_child(UI.outlined("― 名馬に挑み、ウイコインを掴め ―", 14, Color.WHITE, "black", Color("#0d2a2e"), 4))
+	v.add_child(UI.outlined(" ".join(range(1, 6).map(func(x): return ("★" if cleared.has(x) else "☆") + str(x))) + "　今日 %d/%d 枚（0:00 に戻る）" % [int(rs.got), int(IK.data().rival.daily)], 15, Color("#ffd36a"), "black", Color("#0d2a2e"), 4))
+	lay.add_child(v)
+	return _framed(lay)
+
+
+## ライバルレースの特設ページ（イベントの画面と同じ並び）：バナー → 難易度 → 舞台 → 出る馬（アイコン・並べ替え）→ 出走・スキップ。
+## 相手は名馬のカードを難易度の強さにした 9 頭。勝つとウイコイン（1 日 10 枚まで、0:00 で戻る）。勝った☆はスキップで受け取れる
+func _rival_page() -> Control:
+	var page := UI.vbox(18)
+	page.add_child(_rival_banner())
 	var today := _today()
 	var rs := IK.rival_state(p, today)
 	var R: Dictionary = IK.data().rival
-	var cleared: Array = rs.cleared
-	var is_cl := func(n: int) -> bool: return cleared.has(n) or cleared.has(float(n))
+	var cleared: Array = (rs.cleared as Array).map(func(x): return int(x))
 	var top_cl := 0
 	for c in cleared:
-		top_cl = maxi(top_cl, int(c))
+		top_cl = maxi(top_cl, c)
 	var star: int = int(opts.get("star", mini(5, top_cl + 1)))
-	var v := UI.vbox(10)
-	var head := UI.hbox(10)
+	var race_id: String = opts.get("race", IK.battle_races()[0].id)
+	var race: Dictionary = IK.battle_races()[0]
+	for r in IK.battle_races():
+		if r.id == race_id:
+			race = r
+	var o := func(k: String, val) -> Dictionary:
+		var d := {star = star, race = race_id}
+		if opts.has("id"):
+			d.id = opts.id
+		d[k] = val
+		return d
+	# 難易度
+	var dv := UI.vbox(10)
 	var pill := UI.box({c = [INK], radius = 999.0, border = 0.0, shadow = Vector2.ZERO, pad = Vector4(10, 4, 14, 5)})
+	pill.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	var ph := UI.hbox(6)
 	ph.add_child(UI.icon("wcoin", 18, SUN))
 	ph.add_child(UI.label("今日 %d/%d" % [int(rs.got), int(R.daily)], 16, Color("#f6cf86"), "black"))
 	ph.add_child(UI.label("0:00 に戻る", 11, Color("#cfe3e0")))
 	pill.add_child(ph)
-	head.add_child(pill)
-	v.add_child(head)
-	v.add_child(_wrap("相手は名馬のカードを難易度の強さにした %d 頭（自分の馬に合わせない）。勝つとウイコイン（☆1・☆2 は 1 枚、☆3・☆4 は 2 枚、☆5 は 3 枚、1 日 %d 枚まで）。勝ったことのある☆はスキップで受け取れる。出す馬・舞台・脚質は上のランク戦の欄で選ぶ。" % [int(R.field) - 1, int(R.daily)], 12, 900, Color("#4a5b58")))
-	var sr := UI.hbox(8)
+	dv.add_child(pill)
+	dv.add_child(_wrap("名馬のカードから選ばれた %d 頭のライバルが、難易度の強さで待ち構える（自分の馬には合わせない）。勝てばウイコイン（1 日 %d 枚まで）。一度勝った☆はスキップで受け取れる。" % [int(R.field) - 1, int(R.daily)], 13, 900, Color("#4a5b58")))
+	var sr := HFlowContainer.new()
+	sr.add_theme_constant_override("h_separation", 8)
+	sr.add_theme_constant_override("v_separation", 8)
 	for n in range(1, 6):
-		var lbl := "%s　%d枚%s" % ["☆".repeat(n), int(R.coins[str(n)]), "　勝利済み" if is_cl.call(n) else ""]
-		sr.add_child(UI.chip(lbl, n == star, go.bind("battle", {id = hid, race = race_id, diff = diff, star = n}), 13))
-	v.add_child(sr)
+		var lv := clampi(roundi((float(R.level[str(n)]) - 0.5) / 0.05), 1, 5)
+		var lbl := "%s　%d枚　強さ%s%s" % ["☆".repeat(n), int(R.coins[str(n)]), "★".repeat(lv), "　勝利済み" if cleared.has(n) else ""]
+		sr.add_child(UI.chip(lbl, n == star, func() -> void: go("rival", o.call("star", n)), 13))
+	dv.add_child(sr)
+	page.add_child(UI.section("難易度", dv))
+	# 出る馬
+	var v := UI.vbox(10)
+	if p.finished.is_empty():
+		v.add_child(UI.label("ライバルレースには完成馬が要る。", 14, INK))
+		page.add_child(UI.section("出る馬", v))
+		return page
+	var hid = opts.get("id", null)
+	if hid == null or IK.find_finished(p, hid) == null:
+		var best: Dictionary = p.finished[0]
+		for h in p.finished:
+			if float(h.rating) > float(best.rating):
+				best = h
+		hid = best.id
+	v.add_child(UI.label("舞台（GI）", 12, Color("#4a5b58"), "black"))
+	var rf := HFlowContainer.new()
+	rf.add_theme_constant_override("h_separation", 8)
+	rf.add_theme_constant_override("v_separation", 8)
+	for r in IK.battle_races():
+		rf.add_child(UI.chip("%s　%s%dm" % [r.name, "芝" if r.surface == "芝" else "ダ", int(r.distance)], r.id == race_id, func() -> void: go("rival", o.call("race", r.id)), 13))
+	v.add_child(rf)
+	v.add_child(UI.label("出る馬", 12, Color("#4a5b58"), "black"))
+	v.add_child(_horse_picker(hid, func(id) -> void: go("rival", o.call("id", id)), race))
+	var hb = IK.find_finished(p, hid)
+	v.add_child(_style_row(IK.horse_race_style(hb), IK.style_name_of(float(hb.style)), func(x: String) -> void: IK.set_race_style(hb, x)))
+	v.add_child(UI.label("%s：%s" % [hb.name, _fit_of(hb, race)], 13, Color("#4a5b58"), "black"))
 	var row := UI.hbox(12)
 	row.add_child(UI.button("%s で出走する" % "☆".repeat(star), func() -> void:
 		var r := IK.rival_race(p, hid, race_id, star, today)
 		save()
-		var h = IK.find_finished(p, hid)
 		var got := IK.rival_state(p, today)
 		var note := "ウイコイン +%d（今日 %d/%d）" % [int(r.coins), int(got.got), int(R.daily)] if int(r.coins) > 0 else ("今日のウイコインは受け取り済み" if int(r.order) == 1 else "勝てばウイコイン")
-		_watch(r.result, [100], r.fired, _result.bind(r.result, [100], r.fired, "ライバルレース %s　%s %d 着" % ["☆".repeat(star), h.name, int(r.order)], _coin_note(note))), "primary", 20, "sword"))
+		_watch(r.result, [100], r.fired, _result.bind(r.result, [100], r.fired, "ライバルレース %s　%s %d 着" % ["☆".repeat(star), hb.name, int(r.order)], _coin_note(note))), "primary", 20, "sword"))
 	var why := IK.can_rival_skip(p, star, today)
 	row.add_child(UI.button("スキップ（+%d）" % mini(int(R.coins[str(star)]), int(rs.left)) if why == "" else "スキップ（%s）" % why, func() -> void:
 		var n := IK.rival_skip(p, star, today)
 		save()
-		go("battle", {id = hid, race = race_id, diff = diff, star = star})
+		go("rival", o.call("star", star))
 		toast("スキップ：ウイコイン +%d" % n), "paper" if why == "" else "off", 15))
 	v.add_child(row)
-	return UI.section("ライバルレース", v)
+	page.add_child(UI.section("出る馬", v))
+	return page
 
 
 ## ウイコインの知らせの帯（紺の地に金の字）
@@ -2427,7 +2574,7 @@ func _coin_howto() -> Control:
 	var pend := IK.mission_gain(p).size()
 	var h := UI.hbox(12)
 	for it in [["trophy", "ミッション", "いまの育成を終えると +%d 枚" % pend if pend > 0 else "初めて編成したカードの育成を終えると 1 枚ずつ", go.bind("mission")],
-			["sword", "ライバルレース", "今日 %d/%d 枚（0:00 に戻る）" % [int(rs.got), int(IK.data().rival.daily)], go.bind("battle")]]:
+			["sword", "ライバルレース", "今日 %d/%d 枚（0:00 に戻る）" % [int(rs.got), int(IK.data().rival.daily)], go.bind("rival")]]:
 		var b := UI.box({c = [PAPER], radius = 14.0, border = 2.5, shadow = Vector2(0, 3), pad = Vector4(12, 8, 14, 9)})
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		var r := UI.hbox(10)
@@ -2652,11 +2799,7 @@ func _event() -> Control:
 	else:
 		var hid = opts.get("id", p.finished[p.finished.size() - 1].id)
 		v.add_child(UI.label("挑む馬", 12, Color("#4a5b58"), "black"))
-		var hf := HFlowContainer.new()
-		hf.add_theme_constant_override("h_separation", 6)
-		for h in p.finished:
-			hf.add_child(_tile(IK.horse_card(h), h.name, "%s %d" % [h.rank, int(h.rating)], go.bind("event", {id = h.id, ev = ev.id}), {sel = int(h.id) == int(hid), badge = h.rank}))
-		v.add_child(hf)
+		v.add_child(_horse_picker(hid, func(id) -> void: go("event", {id = id, ev = ev.id}), ev.race))
 		var he = IK.find_finished(p, hid)
 		if he != null:
 			v.add_child(_style_row(IK.horse_race_style(he), IK.style_name_of(float(he.style)), func(x: String) -> void: IK.set_race_style(he, x)))

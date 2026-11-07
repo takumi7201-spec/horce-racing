@@ -19,7 +19,7 @@ import * as sound from '../sound.js';
 const TITLES = {
   gacha: ['ガチャ', 'GACHA'], cards: ['所持カード', 'MY CARDS'], book: ['カード図鑑', 'CARD BOOK'], run: ['育成', 'TRAINING'], horse: ['完成馬', 'HORSE'],
   stable: ['完成馬', 'STABLE'], deck: ['編成', 'DECK'], battle: ['対戦', 'BATTLE'], result: ['レース結果', 'RESULT'], event: ['イベント', 'EVENT'],
-  cardedit: ['カード編集', 'CARD EDIT'], mission: ['ミッション', 'MISSION'],
+  cardedit: ['カード編集', 'CARD EDIT'], mission: ['ミッション', 'MISSION'], rival: ['ライバルレース', 'RIVAL RACE'],
 };
 /** 端末の今日（'YYYY-MM-DD'、0:00 で切り替わる）。ライバルレースの 1 日の上限に使う（sim は日付を作らない）。 */
 const todayKey = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
@@ -66,8 +66,8 @@ export function ikuseiScreen(app) {
   // 背景（空・網点・街）は画面の外に固定して敷く。中身だけが流れる（background-attachment: fixed はスマホで効かない）。
   const sky = el('div.ik-sky', [el('b.ik-water', { text: 'WINNING ROAD' })]);
   if (view === 'home') return el('div.ikh-wrap', [sky, homeView(app, go)]);
-  const body = { gacha: gachaView, cards: cardsView, book: bookView, run: runView, stable: stableView, horse: horseView, battle: battleView, result: resultView, event: eventView, deck: deckOnlyView, cardedit: cardEditView, mission: missionView }[view] ?? gachaView;
-  const navId = view === 'result' ? (app.ikRace?.back ?? 'run') : view === 'horse' || view === 'deck' || view === 'cardedit' ? 'stable' : view === 'book' ? 'cards' : view === 'event' ? 'battle' : view === 'mission' ? 'gacha' : view;
+  const body = { gacha: gachaView, cards: cardsView, book: bookView, run: runView, stable: stableView, horse: horseView, battle: battleView, result: resultView, event: eventView, deck: deckOnlyView, cardedit: cardEditView, mission: missionView, rival: rivalView }[view] ?? gachaView;
+  const navId = view === 'result' ? (app.ikRace?.back ?? 'run') : view === 'horse' || view === 'deck' || view === 'cardedit' ? 'stable' : view === 'book' ? 'cards' : view === 'event' || view === 'rival' ? 'battle' : view === 'mission' ? 'gacha' : view;
   const [jp, en] = TITLES[view] ?? ['', ''];
   return el('div.ikp-wrap', [
     sky,
@@ -301,7 +301,7 @@ function coinHowto(app, go) {
   return el('div.ik-howcoin', [
     el('button.ik-howc', { onclick: () => go('mission') }, [ic('trophy', 22), el('span', [el('b', { text: 'ミッション' }),
       el('small', { text: pend ? `いまの育成を終えると +${pend} 枚` : '初めて編成したカードの育成を終えると 1 枚ずつ' })])]),
-    el('button.ik-howc', { onclick: () => go('battle') }, [ic('sword', 22), el('span', [el('b', { text: 'ライバルレース' }),
+    el('button.ik-howc', { onclick: () => go('rival') }, [ic('sword', 22), el('span', [el('b', { text: 'ライバルレース' }),
       el('small', { text: `今日 ${rs.got}/${I.RIVAL_DAILY} 枚（0:00 に戻る）` })])]),
   ]);
 }
@@ -2054,16 +2054,24 @@ function eventView(app, go) {
   const starBtns = el('div.ikev-diff', [1, 2, 3, 4, 5].map((n) => el(`button.ikev-star${E.star === n ? '.on' : ''}${st.cleared.includes(n) ? '.done' : ''}`, {
     onclick: () => { E.star = n; go('event', { ev: ev.id }); },
   }, [el('b', { text: '☆'.repeat(n) }), el('small', { text: st.cleared.includes(n) ? '勝利済み' : '報酬あり' })])));
-  const horseSel = el('select.inp', { onchange: (e) => { E.horse = Number(e.target.value); go('event', { ev: ev.id }); } },
-    turfs.map((h) => el('option', { value: String(h.id), text: `${h.rank} ${h.name}（${h.rating}）`, selected: h.id === E.horse })));
-  const me = p.finished.find((h) => h.id === E.horse);
   const R = ev.race;
   const D = R.distance;
-  const fitTxt = me ? [
+  const fitTxt = (me) => [
     R.surface === '芝' ? `芝 ${MARK(me.turf)}` : `ダート ${MARK(me.dirt)}`,
     R.ground !== '良' ? `重い馬場 ${MARK(me.soft)}` : null,
     `${D}m ${Math.abs(me.dist - D) <= (me.range ?? 400) ? '○' : Math.abs(me.dist - D) <= 800 ? '△' : '×'}`,
-  ].filter(Boolean).join('　') : '';
+  ].filter(Boolean).join('　');
+  // 出る馬を選び直したら、脚質の札と向きだけを描き直す（画面ごと描き直すとスクロールが先頭へ戻る）
+  const meBox = el('div.ik-rv-me');
+  const drawMe = () => {
+    const me = p.finished.find((h) => h.id === E.horse);
+    meBox.replaceChildren(
+      me ? styleSeg(I.horseRaceStyle(me), I.styleNameOf(me.style), (x) => { I.setHorseRaceStyle(me, x); save(app); }) : '',
+      el('p.note', { text: `${ev.stage}。${me ? `${me.name}：${fitTxt(me)}` : ''}` }),
+    );
+  };
+  drawMe();
+  const horseSel = turfs.length ? horsePicker(app, E.horse, (h) => { E.horse = h.id; drawMe(); }, { race: R }) : null;
   const run = () => {
     const out = I.eventRace(p, E.horse, ev.id, E.star);
     save(app);
@@ -2085,9 +2093,8 @@ function eventView(app, go) {
       el('p.note', { text: `各難易度で初めて勝つと ${c.name}（${c.rar}）を 1 枚。☆1〜☆5 の 5 つで 5 枚＝覚醒 MAX。いま ${st.cleared.length}/5（挑戦 ${st.tries} 回）。☆4 でほぼ史実の強さ。` }),
     ]),
     card('出る馬', turfs.length ? [
-      el('div.form', [el('label', ['完成馬', horseSel])]),
-      me ? styleSeg(I.horseRaceStyle(me), I.styleNameOf(me.style), (x) => { I.setHorseRaceStyle(me, x); save(app); }) : null,
-      el('p.note', { text: `${ev.stage}。${me ? `${me.name}：${fitTxt}` : ''}` }),
+      horseSel,
+      meBox,
       el('div.ik-gbtns', [button(`${'☆'.repeat(E.star)} で出走する`, run, { cls: 'primary big' })]),
     ] : [el('p', { text: 'イベントには完成馬が要る。' }), button('育成へ', () => go('run'), { cls: 'primary' })]),
     card(`出走馬（${ev.year} 年 ${ev.date}・${ev.field.length} 頭）`, [
@@ -2108,24 +2115,118 @@ function eventView(app, go) {
     ]),
   ];
 }
+// ---------------------------------------------------------------- 出る馬を選ぶ（アイコン）
+
+/** 並べ替え（評価値・脚質・距離・芝ダート）。同じ札をもう一度押すと向きが逆になる。 */
+const PICK_SORTS = [['rating', '評価値'], ['style', '脚質'], ['dist', '距離'], ['surface', '芝・ダート']];
+const PICK_KEY = {
+  rating: (h) => -h.rating,
+  style: (h) => I.STYLE_NAMES.indexOf(I.horseRaceStyle(h)),   // 逃げ → 追込
+  dist: (h) => h.dist,                                        // 短 → 長
+  surface: (h) => h.dirt - h.turf,                            // 芝 → ダート
+};
+/** 舞台への向き（馬場の◎○△×と距離の○△×）。 */
+const fitOf = (h, race) => {
+  const surf = race.surface === '芝' ? `芝${MARK(h.turf)}` : `ダ${MARK(h.dirt)}`;
+  const d = Math.abs(h.dist - race.distance);
+  return `${surf} ${race.distance}m${d <= (h.range ?? 400) ? '○' : d <= 800 ? '△' : '×'}`;
+};
+
 /**
- * ライバルレース：☆1〜☆5。相手は名馬のカードを難易度の強さにした 9 頭（自分の馬に合わせない）。
- * 勝つとウイコイン（☆ごとの枚数、1 日 I.RIVAL_DAILY 枚まで、端末の 0:00 で戻る）。勝ったことのある☆はスキップで受け取れる。
- * 出る馬と舞台は対戦の画面の上の欄（B）を使う。
+ * 出る馬を顔のアイコンで並べて選ぶ（対戦・イベント・ライバルレース）。
+ * 選び直しても画面ごと描き直さない（描き直すとスクロールが先頭へ戻る。落とし穴 77）：印を付け替えて onPick を呼ぶだけ。
+ * 並べ替えは app.ikPickSort に覚える（画面をまたいで同じ）。
  */
-function rivalCard(app, go, B) {
+function horsePicker(app, selId, onPick, { race = null } = {}) {
+  const p = app.ik;
+  app.ikPickSort ??= { by: 'rating', rev: false };
+  const S = app.ikPickSort;
+  const grid = el('div.ik-hpick');
+  let sel = selId;
+  const icon1 = (h) => {
+    const c = I.horseCard(h);
+    const face = el('span.ik-ico-face');
+    const node = el(`button.ik-ico.ik-hp.r-${h.rar}${h.id === sel ? '.sel' : ''}`, {
+      onclick: () => { sel = h.id; for (const n of grid.children) n.classList.toggle('sel', n === node); onPick(h); },
+      title: `${h.name}　評価点 ${h.rating}`,
+    }, [
+      el('span.ik-ico-ring', [face, el('span.ik-ico-rar', { text: h.rar })]),
+      el(`span.ik-ico-rk.rk-${h.rank.replace('+', 'p')}`, { text: h.rank }),
+      el('b.ik-ico-name', { text: h.name }),
+      el('small', { text: `${I.horseRaceStyle(h)}・${I.distCat(h.dist)} ${r100(h.dist)}m` }),
+      el('small', { text: `芝${MARK(h.turf)} ダ${MARK(h.dirt)}　${h.rating}` }),
+      race ? el('i.ik-hp-fit', { text: fitOf(h, race) }) : null,
+    ]);
+    if (c) whenVisible(node, () => stickerInto(face, c, { mode: 'face', zoom: 2.4 }));
+    return node;
+  };
+  const draw = () => {
+    const k = PICK_KEY[S.by] ?? PICK_KEY.rating;
+    const list = [...p.finished].sort((a, b) => (k(a) - k(b)) * (S.rev ? -1 : 1) || b.rating - a.rating);
+    grid.replaceChildren(...list.map(icon1));
+  };
+  const bar = el('div.ik-hsort', [el('small', { text: '並べ替え' }), ...PICK_SORTS.map(([id, name]) => el(`button.ik-hs${S.by === id ? '.on' : ''}`, {
+    onclick: (e) => {
+      if (S.by === id) S.rev = !S.rev; else { S.by = id; S.rev = false; }
+      for (const b of bar.querySelectorAll('.ik-hs')) { b.classList.toggle('on', b === e.currentTarget); b.dataset.rev = b === e.currentTarget && S.rev ? '1' : ''; }
+      draw();
+    },
+    'data-rev': S.by === id && S.rev ? '1' : '',
+  }, name))]);
+  draw();
+  return el('div.ik-hpicker', [bar, grid]);
+}
+
+// ---------------------------------------------------------------- ライバルレース
+
+/** ライバルレースのバナーの絵（イクイノックス）。 */
+const RIVAL_ART = 'P2-17';
+
+/** ライバルレースのバナー（イベントのバナーと同じ組み立て）。今日のウイコインと勝った☆を載せる。 */
+function rivalBanner(app, onclick = null) {
+  const c = I.cardById(RIVAL_ART);
+  const rs = I.rivalState(app.ik, todayKey());
+  const bg = el('span.ikev-bg');
+  const hero = el('img.ikev-hero', { alt: c.name, draggable: false });
+  bgInto(bg, c);
+  stickerInto(hero, c, { mode: 'img' });
+  return el(`${onclick ? 'button' : 'div'}.ikev-banner.ik-rvb`, { onclick }, [
+    bg, el('span.ikev-shade'), hero,
+    el('div.ikev-tx', [
+      el('span.ikev-tag', { text: 'DAILY' }),
+      el('small.ikev-en', { text: 'RIVAL RACE' }),
+      el('b.ikev-ttl', { text: 'ライバルレース' }),
+      el('span.ikev-sub', { text: '― 名馬に挑み、ウイコインを掴め ―' }),
+      el('span.ikev-rw.ik-rvb-coin', [ic('wcoin', 16), el('span', { text: `今日 ${rs.got}/${I.RIVAL_DAILY} 枚（0:00 に戻る）` })]),
+      el('span.ikev-stars', [1, 2, 3, 4, 5].map((n) => el(`i${rs.cleared.includes(n) ? '.on' : ''}`, { text: '★' }))),
+    ]),
+  ]);
+}
+
+/**
+ * ライバルレースの特設ページ（イベントの画面と同じ並び）：バナー → 難易度（☆1〜☆5 と枚数）→ 舞台 → 出る馬（アイコン・並べ替え）→ 出走・スキップ。
+ * 相手は名馬のカードを難易度の強さにした 9 頭（自分の馬に合わせない）。勝つとウイコイン（1 日 I.RIVAL_DAILY 枚まで、端末の 0:00 で戻る）。
+ */
+function rivalView(app, go) {
   const p = app.ik;
   const today = todayKey();
   const rs = I.rivalState(p, today);
+  app.ikRival ??= {};
+  const B = app.ikRival;
   B.star ??= Math.min(5, (rs.cleared.length ? Math.max(...rs.cleared) : 0) + 1);
-  const stars = el('div.ikev-diff.ik-rv-diff', [1, 2, 3, 4, 5].map((n) => el(`button.ikev-star${B.star === n ? '.on' : ''}${rs.cleared.includes(n) ? '.done' : ''}`, {
-    onclick: () => { B.star = n; go('battle'); },
+  B.race ??= I.BATTLE_RACES[0].id;
+  const best = [...p.finished].sort((a, b) => b.rating - a.rating)[0];
+  if (best) B.horse = p.finished.some((h) => h.id === B.horse) ? B.horse : (app.ikBattle?.horse ?? best.id);
+  if (!p.finished.some((h) => h.id === B.horse)) B.horse = best?.id;
+  const race = () => I.BATTLE_RACES.find((r) => r.id === B.race) ?? I.BATTLE_RACES[0];
+  const stars = el('div.ikev-diff', [1, 2, 3, 4, 5].map((n) => el(`button.ikev-star${B.star === n ? '.on' : ''}${rs.cleared.includes(n) ? '.done' : ''}`, {
+    onclick: () => { B.star = n; go('rival'); },
   }, [el('b', { text: '☆'.repeat(n) }), el('small', { text: `${rs.cleared.includes(n) ? '勝利済み・' : ''}${I.RIVAL_COINS[n]} 枚` })])));
   const run = () => {
     const out = I.rivalRace(p, B.horse, B.race, B.star, today);
     save(app);
     const st = I.rivalState(p, today);
-    app.ikRace = { race: out.result, looks: looksOf(out.field, p), mine: [100], order: out.order, back: 'battle',
+    app.ikRace = { race: out.result, looks: looksOf(out.field, p), mine: [100], order: out.order, back: 'rival',
       title: `ライバルレース ${out.race.name}（${'☆'.repeat(B.star)}）`, fired: out.fired, rival: { star: B.star, coins: out.coins, first: out.first, got: st.got } };
     sound.play(out.order === 1 ? 'bell' : out.order <= 3 ? 'win' : 'ok');
     go('result');
@@ -2136,21 +2237,49 @@ function rivalCard(app, go, B) {
     save(app);
     sound.play('win');
     toast(`スキップ：ウイコイン +${n}（今日 ${I.rivalState(p, today).got}/${I.RIVAL_DAILY}）`);
-    go('battle');
+    go('rival');
   };
-  return card('ライバルレース', [
-    el('div.ik-rv-head', [
-      el('span.ik-rv-coin', [ic('wcoin', 18), el('b', { text: `今日 ${rs.got}/${I.RIVAL_DAILY}` }), el('small', { text: '0:00 に戻る' })]),
-      el('span.ik-rv-bar', [el('i', { style: `width:${(rs.got / I.RIVAL_DAILY) * 100}%` })]),
+  // 出る馬を選び直したら、脚質の札と舞台への向きだけを描き直す
+  const meBox = el('div.ik-rv-me');
+  const drawMe = () => {
+    const me = p.finished.find((h) => h.id === B.horse);
+    if (!me) return meBox.replaceChildren();
+    meBox.replaceChildren(
+      styleSeg(I.horseRaceStyle(me), I.styleNameOf(me.style), (x) => { I.setHorseRaceStyle(me, x); save(app); }),
+      el('p.note', { text: `${me.name}：${fitOf(me, race())}` }),
+    );
+  };
+  drawMe();
+  const raceSel = el('div.ik-rv-races', I.BATTLE_RACES.map((r) => el(`button.ik-hs${r.id === B.race ? '.on' : ''}`, {
+    onclick: (e) => { B.race = r.id; for (const b of raceSel.children) b.classList.toggle('on', b === e.currentTarget); picker.replaceWith(picker = mkPicker()); drawMe(); },
+  }, `${r.name} ${r.surface === '芝' ? '芝' : 'ダ'}${r.distance}`)));
+  const mkPicker = () => horsePicker(app, B.horse, (h) => { B.horse = h.id; drawMe(); }, { race: race() });
+  let picker = p.finished.length ? mkPicker() : null;
+  const lv = (n) => '★'.repeat(Math.max(1, Math.min(5, Math.round((I.RIVAL_LEVEL[n] - 0.5) / 0.05))));
+  return [
+    rivalBanner(app),
+    el('p.ikev-blurb', { text: `名馬のカードから選ばれた ${I.RIVAL_FIELD - 1} 頭のライバルが、難易度の強さで待ち構える（自分の馬には合わせない）。勝てばウイコイン。1 日 ${I.RIVAL_DAILY} 枚まで、端末の 0:00 に戻る。一度勝った☆はスキップで受け取れる。` }),
+    card('難易度', [
+      stars,
+      el('div.ik-rv-head', [
+        el('span.ik-rv-coin', [ic('wcoin', 18), el('b', { text: `今日 ${rs.got}/${I.RIVAL_DAILY}` }), el('small', { text: '0:00 に戻る' })]),
+        el('span.ik-rv-bar', [el('i', { style: `width:${(rs.got / I.RIVAL_DAILY) * 100}%` })]),
+      ]),
+      table(['難易度', 'ライバルの強さ', 'ウイコイン', ''], [1, 2, 3, 4, 5].map((n) => [
+        el(n === B.star ? 'b.mine' : 'span', { text: '☆'.repeat(n) }), el('span.ikev-lv', { text: lv(n) }), `${I.RIVAL_COINS[n]} 枚`, rs.cleared.includes(n) ? '勝利済み（スキップ可）' : '',
+      ]), { cls: 'ik-tbl' }),
     ]),
-    el('p.note', { text: `相手は名馬のカードを難易度の強さにした ${I.RIVAL_FIELD - 1} 頭（自分の馬に合わせない）。勝つとウイコイン（☆1・☆2 は 1 枚、☆3・☆4 は 2 枚、☆5 は 3 枚、1 日 ${I.RIVAL_DAILY} 枚まで）。勝ったことのある☆はスキップで受け取れる。` }),
-    stars,
-    el('div.ik-gbtns', [
-      button(`${'☆'.repeat(B.star)} で出走する`, run, { cls: 'primary big' }),
-      button(why && rs.cleared.includes(B.star) ? 'スキップ（受け取り済み）' : `スキップ（+${Math.min(I.RIVAL_COINS[B.star], rs.left)}）`, skip, { disabled: !!why, title: why ?? '' }),
-    ]),
-    !rs.left ? el('p.note', { text: '今日のウイコインは受け取り済み。走ることはできる（ウイコインは出ない）。' }) : null,
-  ]);
+    card('出る馬', p.finished.length ? [
+      el('div.form', [el('label', ['舞台（GI）', raceSel])]),
+      picker,
+      meBox,
+      el('div.ik-gbtns', [
+        button(`${'☆'.repeat(B.star)} で出走する`, run, { cls: 'primary big' }),
+        button(why && rs.cleared.includes(B.star) ? 'スキップ（受け取り済み）' : `スキップ（+${Math.min(I.RIVAL_COINS[B.star], rs.left)}）`, skip, { disabled: !!why, title: why ?? '' }),
+      ]),
+      !rs.left ? el('p.note', { text: '今日のウイコインは受け取り済み。走ることはできる（ウイコインは出ない）。' }) : null,
+    ] : [el('p', { text: 'ライバルレースには完成馬が要る。' }), button('育成へ', () => go('run'), { cls: 'primary' })]),
+  ];
 }
 
 function battleView(app, go) {
@@ -2168,8 +2297,7 @@ function battleView(app, go) {
   // 脚質の札は出る馬に合わせて差し替える（馬を選び直しても画面は描き直さない）
   const segOf = (id) => { const h = p.finished.find((x) => x.id === id); return styleSeg(I.horseRaceStyle(h), I.styleNameOf(h.style), (x) => { I.setHorseRaceStyle(h, x); save(app); }); };
   let seg = segOf(B.horse);
-  const horseSel = el('select.inp', { onchange: (e) => { B.horse = Number(e.target.value); const n = segOf(B.horse); seg.replaceWith(n); seg = n; } },
-    [...p.finished].sort((a, b) => b.rating - a.rating).map((h) => el('option', { value: String(h.id), text: `${h.rank} ${h.name}（${h.rating}）`, selected: h.id === B.horse })));
+  const horseSel = horsePicker(app, B.horse, (h) => { B.horse = h.id; const n = segOf(B.horse); seg.replaceWith(n); seg = n; });
   const diffTabs = tabs(Object.entries(I.DIFFICULTY).map(([id, d]) => ({ id, name: d.name })), B.diff, (id) => { B.diff = id; go('battle'); });
   const runNpc = () => {
     const out = I.battleNpc(p, B.horse, B.race, B.diff);
@@ -2188,8 +2316,8 @@ function battleView(app, go) {
   };
   return [
     eventCarousel(app, go),
-    card('出る馬と舞台', [el('div.form', [el('label', ['出る馬', horseSel]), el('label', ['レース', raceSel])]), seg]),
-    rivalCard(app, go, B),
+    rivalBanner(app, () => go('rival')),
+    card('出る馬と舞台', [el('div.form', [el('label', ['レース', raceSel])]), horseSel, seg]),
     el('div.ik-cols', [
       card('NPC とのランク戦', [
         el('p.note', { text: '相手は全カードの名馬を育て上げた姿（12 頭立て）。強さは自分の馬に合わせて難しさで変わる。' }),
