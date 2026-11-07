@@ -180,6 +180,13 @@ export const COST = {
   entryFee: 0.3,       // 出走手当の見合い（ごく小額）
 };
 
+/**
+ * 名声。自分の馬が勝つと上がり、一定を超えると海外の種牡馬に種付けできる（海外の名門牧場が相手にしてくれる）。
+ * 条件戦 1・オープン 3・GIII 5・GII 8・GI 15（海外の GI は 25）。GI を 2〜3 勝するか、重賞を 10 勝ほどで届く。
+ */
+export const FAME_POINTS = { GI: 15, GII: 8, GIII: 5, op: 3, other: 1, abroadGI: 25 };
+export const ABROAD_FAME = 60;
+
 /** 開始時の資金（万円）。1 億 2000 万。無収入なら 4 年ほどで尽きる。 */
 export const START_MONEY = 12000;
 

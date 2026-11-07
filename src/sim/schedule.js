@@ -152,7 +152,27 @@ export const GRADED = [
   { id: 'turquoise-s', name: 'ターコイズS', grade: 'GIII', courseId: 'nakayama', surface: T, distance: 1600, week: W(12, 3), age: [3, 99], sex: '牝', prize: 3900 },
   { id: 'arima-kinen', name: '有馬記念', grade: 'GI', courseId: 'nakayama', surface: T, distance: 2500, week: W(12, 4), age: [3, 99], prize: 40000 },
   { id: 'hopeful-s', name: 'ホープフルS', grade: 'GI', courseId: 'nakayama', surface: T, distance: 2000, week: W(12, 4), age: [2, 2], prize: 10000 },
+  // --- 米国（海外遠征。abroad: 'US'） ---
+  // 日本の NPC は出ない。相手は海外の実在馬（os）で、日本馬は史実でその年に出走した馬だけ（data/abroad-runs.js）。
+  // プレイヤーは遠征費（ABROAD_COST）を払って登録できる。距離はマイル・ハロンをメートルに丸めた値
+  // （ケンタッキーダービー 1 1/4 マイル＝2012m → 2000m）。賞金は 1 着本賞金をおおむね 1 ドル 150 円で万円に直した。
+  // ブリーダーズカップの開催場は毎年変わるが、サンタアニタに固定している。
+  { id: 'pegasus-wc', name: 'ペガサスワールドC', grade: 'GI', courseId: 'gulfstream', surface: D, distance: 1800, week: W(1, 4), age: [4, 99], prize: 45000, abroad: 'US' },
+  { id: 'kentucky-oaks', name: 'ケンタッキーオークス', grade: 'GI', courseId: 'churchill', surface: D, distance: 1800, week: W(5, 1), age: [3, 3], sex: '牝', prize: 12000, abroad: 'US' },
+  { id: 'kentucky-derby', name: 'ケンタッキーダービー', grade: 'GI', courseId: 'churchill', surface: D, distance: 2000, week: W(5, 1), age: [3, 3], prize: 46000, abroad: 'US' },
+  { id: 'preakness', name: 'プリークネスS', grade: 'GI', courseId: 'pimlico', surface: D, distance: 1900, week: W(5, 3), age: [3, 3], prize: 12000, abroad: 'US' },
+  { id: 'belmont-s', name: 'ベルモントS', grade: 'GI', courseId: 'belmont', surface: D, distance: 2400, week: W(6, 2), age: [3, 3], prize: 12000, abroad: 'US' },
+  { id: 'travers', name: 'トラヴァーズS', grade: 'GI', courseId: 'saratoga', surface: D, distance: 2000, week: W(8, 4), age: [3, 3], prize: 11000, abroad: 'US' },
+  { id: 'bc-sprint', name: 'BCスプリント', grade: 'GI', courseId: 'santaanita', surface: D, distance: 1200, week: W(11, 1), age: [3, 99], prize: 15000, abroad: 'US' },
+  { id: 'bc-mile', name: 'BCマイル', grade: 'GI', courseId: 'santaanita', surface: T, distance: 1600, week: W(11, 1), age: [3, 99], prize: 15000, abroad: 'US' },
+  { id: 'bc-fm-turf', name: 'BCフィリー&メアターフ', grade: 'GI', courseId: 'santaanita', surface: T, distance: 2200, week: W(11, 1), age: [3, 99], sex: '牝', prize: 15000, abroad: 'US' },
+  { id: 'bc-distaff', name: 'BCディスタフ', grade: 'GI', courseId: 'santaanita', surface: D, distance: 1800, week: W(11, 1), age: [3, 99], sex: '牝', prize: 15000, abroad: 'US' },
+  { id: 'bc-turf', name: 'BCターフ', grade: 'GI', courseId: 'santaanita', surface: T, distance: 2400, week: W(11, 1), age: [3, 99], prize: 30000, abroad: 'US' },
+  { id: 'bc-classic', name: 'BCクラシック', grade: 'GI', courseId: 'santaanita', surface: D, distance: 2000, week: W(11, 1), age: [3, 99], prize: 54000, abroad: 'US' },
 ];
+
+/** 海外遠征の費用（万円）。登録した馬が出走したときに払う（輸送・検疫・滞在）。 */
+export const ABROAD_COST = 2500;
 
 const GRADE_CLASS = { GI: 'g1', GII: 'g2', GIII: 'g3' };
 
@@ -188,7 +208,8 @@ export function racesOfWeek(year, week, rng) {
       prize: g.prize,
       week, year,
       graded: true,
-      maxField: g.grade === 'GI' ? 18 : 18,
+      abroad: g.abroad ?? null,
+      maxField: g.abroad ? 14 : 18,
     });
   }
 

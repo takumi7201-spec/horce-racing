@@ -1,0 +1,2104 @@
+// 育成モード（カード）。ガチャ・カード一覧・編成と育成・完成馬・対戦。
+// 牧場経営とは別のモードで、世界（game.js）は使わない。入口は sim/ikusei.js だけ。
+// プロフィールは localStorage に置く（数 KB。牧場のセーブの IndexedDB とは別）。
+// 画面は app.go('ik', { view }) で切り替える。レースの結果（走行ログ）は保存しないので app.ikRace に持つ。
+
+import { createRaceHud } from '../racehud.js';
+import { el, card, table, button, toast, modal, ask, tabs, frameChip } from '../dom.js';
+import { icon } from '../icons.js';
+import { cardArt, cardArtIfReady, artRenderer, ART_SIZE } from '../../render3d/cardart.js';
+import { createPoseStage, shotCamera, SHOTS } from '../../render3d/photostage.js';
+import { fxPainter } from '../../render3d/skillfx.js';
+import * as I from '../../sim/ikusei.js';
+import { cardView, epithetOf, holoOf, holoName, whenVisible } from '../cardview.js';
+import { createRaceView, CAMERAS } from '../../render3d/raceview.js';
+import { formatTime } from '../../core/util.js';
+import * as sound from '../sound.js';
+
+/** 画面の題（日本語と英語の小見出し）。 */
+const TITLES = {
+  gacha: ['ガチャ', 'GACHA'], cards: ['所持カード', 'MY CARDS'], book: ['カード図鑑', 'CARD BOOK'], run: ['育成', 'TRAINING'], horse: ['完成馬', 'HORSE'],
+  stable: ['完成馬', 'STABLE'], deck: ['編成', 'DECK'], battle: ['対戦', 'BATTLE'], result: ['レース結果', 'RESULT'], event: ['イベント', 'EVENT'],
+  cardedit: ['カード編集', 'CARD EDIT'],
+};
+/** 弾の短い名前（タブ用）。イベントの報酬は「イベント」。 */
+const packTab = (id) => (id in I.PACKS ? `第${id.slice(1)}弾` : I.PACK_NAMES[id]);
+
+const store = () => { try { return window.localStorage; } catch { return null; } };
+const save = (app) => I.saveProfile(app.ik, store());
+const RCLS = (r) => `rar-${r}`;
+/** 一覧のカードの倍率。狭い画面でも 2 枚は並ぶように縮める。 */
+const fit = (sc) => Math.min(sc, (window.innerWidth - 74) / 2 / 630);
+
+/** 線の絵（24×24、currentColor）。icons.js に無いものだけここに持つ。 */
+const SVG = {
+  cards: '<rect x="7.5" y="3.5" width="11" height="15" rx="2" transform="rotate(12 13 11)"/><rect x="4.5" y="5.5" width="11" height="15" rx="2"/><path d="M7.5 10h5M7.5 13h3"/>',
+  spark: '<path d="M12 2.5c.6 4.8 2.7 6.9 7.5 7.5-4.8.6-6.9 2.7-7.5 7.5-.6-4.8-2.7-6.9-7.5-7.5 4.8-.6 6.9-2.7 7.5-7.5z"/><path d="M19 16.5c.2 1.7 1 2.5 2.5 2.7-1.6.2-2.3 1-2.5 2.6-.2-1.6-1-2.4-2.5-2.6 1.6-.2 2.3-1 2.5-2.7z"/>',
+  book: '<path d="M4 5.5c2.7-1 5.3-1 8 .8 2.7-1.8 5.3-1.8 8-.8V19c-2.7-1-5.3-1-8 .8-2.7-1.8-5.3-1.8-8-.8z"/><path d="M12 6.3v13.5"/>',
+  sound: '<path d="M4.5 9.5h3l4.5-4v13l-4.5-4h-3z"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/>',
+  mute: '<path d="M4.5 9.5h3l4.5-4v13l-4.5-4h-3z"/><path d="m15.5 9.5 5 5M20.5 9.5l-5 5"/>',
+  exit: '<path d="M10 4.5H5.5v15H10"/><path d="M14 8l4 4-4 4M18 12H9"/>',
+  sword: '<path d="M14.5 4.5h5v5L10 19l-2-2-2 2-1-1 2-2-2-2z"/><path d="m13 8 3 3"/>',
+  fist: '<path d="M7 11V7.5a1.5 1.5 0 0 1 3 0V10m0-2.5V6.5a1.5 1.5 0 0 1 3 0V10m0-2.5a1.5 1.5 0 0 1 3 0V10m0-1a1.5 1.5 0 0 1 3 0v4.5c0 4-2.7 6.5-6.5 6.5S7 17.5 7 14.5V11a1.5 1.5 0 0 1-2 0"/>',
+};
+const svg = (name, size = 24) => {
+  const span = document.createElement('span');
+  span.className = 'ico';
+  span.innerHTML = `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${SVG[name] ?? ''}</svg>`;
+  return span;
+};
+const ic = (name, size = 24) => (SVG[name] ? svg(name, size) : icon(name, { size }));
+
+export function ikuseiScreen(app) {
+  app.ik ??= I.loadProfile(store());
+  const view = app.params.view ?? 'home';
+  const go = (v, extra = {}) => app.go('ik', { view: v, ...extra });
+  // カードエディットの生の舞台は、画面を描き直すたびに捨てる（作ったまま離れると three.js の形と布が残る）
+  if (app.ikStage) { app.ikStage.dispose(); app.ikStage = null; }
+  if (view !== 'cardedit') app.ikEdit = null;
+  if (view === 'watch') return watchView(app);
+  // カード編集は全画面の別ページ（下のボタン列を出さず、絵を大きく）
+  if (view === 'cardedit') return cardEditView(app, go);
+  // 背景（空・網点・街）は画面の外に固定して敷く。中身だけが流れる（background-attachment: fixed はスマホで効かない）。
+  const sky = el('div.ik-sky', [el('b.ik-water', { text: 'WINNING ROAD' })]);
+  if (view === 'home') return el('div.ikh-wrap', [sky, homeView(app, go)]);
+  const body = { gacha: gachaView, cards: cardsView, book: bookView, run: runView, stable: stableView, horse: horseView, battle: battleView, result: resultView, event: eventView, deck: deckOnlyView, cardedit: cardEditView }[view] ?? gachaView;
+  const navId = view === 'result' ? (app.ikRace?.back ?? 'run') : view === 'horse' || view === 'deck' || view === 'cardedit' ? 'stable' : view === 'book' ? 'cards' : view === 'event' ? 'battle' : view;
+  const [jp, en] = TITLES[view] ?? ['', ''];
+  return el('div.ikp-wrap', [
+    sky,
+    el('div.ikp', [
+      el('header.ikp-top', [
+        el('button.ikp-back', { onclick: () => go('home'), title: 'ホームへ' }, icon('back', { size: 26 })),
+        el('div.ikp-title', [el('b', { text: jp }), el('small', { text: en })]),
+        shardPill(app, go),
+        coinPill(go),
+      ]),
+      el('div.ik.ikp-body', body(app, go)),
+    ]),
+    dock(app, go, navId),
+  ]);
+}
+
+// ---------------------------------------------------------------- ホーム（参考：縦長のスマホゲームのホーム画面）
+
+/** ホームの主役のカード。お気に入り → 育成中の馬 → いちばん強い完成馬 → 持っているいちばん強いカード → 見本。 */
+function heroCard(p) {
+  const own = (id) => (id && p.cards[id] ? I.cardById(id) : null);
+  const best = [...p.finished].sort((a, b) => b.rating - a.rating)[0];
+  const top = [...I.owned(p)].sort((a, b) => I.RARITIES.indexOf(a.rar) - I.RARITIES.indexOf(b.rar) || I.cardPower(b) - I.cardPower(a))[0];
+  // 配合で作った完成馬（B<id>）もホームに立たせられる
+  const bred = (id) => { const h = typeof id === 'string' && id[0] === 'B' ? p.finished.find((x) => `B${x.id}` === id) : null; return h ? I.horseCard(h) : null; };
+  return own(p.fav) ?? bred(p.fav) ?? (p.run?.sire ? I.traineeCard(p.run) : own(p.run?.trainee)) ?? (best ? I.horseCard(best) : null) ?? top ?? I.cardById('P1-40') ?? I.CARDS[0];
+}
+/** 二つ名（配合の馬は両親）。 */
+const epiOf = (c) => (c.bred ? `${c.sire} × ${c.dam}` : epithetOf(c));
+
+/**
+ * ステッカー（白縁の切り抜き）を入れる。絵は撮るまで時間が掛かるので、届いたら差し込む。
+ * mode 'face' は頭のあたり（撮影の舞台が返す頭の位置）を中心に、zoom 倍に拡大して丸い枠に収める。
+ */
+function stickerInto(node, c, { mode = 'img', zoom = 2.6 } = {}) {
+  cardArt(c).then((a) => {
+    const st = a.sticker;
+    const url = st?.url ?? a.fg;
+    if (mode === 'img') { node.src = url; node.classList.add('ready'); return; }
+    node.style.backgroundImage = `url(${url})`;
+    node.style.backgroundSize = `${zoom * 100}% auto`;
+    if (st?.focus) {
+      // background-position の p% は「絵の p% を枠の p% に合わせる」。絵の f の点を枠の中央に置く p を解く。
+      const zy = zoom * (st.h / st.w);
+      const px = Math.min(1, Math.max(0, (st.focus.x * zoom - 0.5) / (zoom - 1)));
+      const py = zy > 1 ? Math.min(1, Math.max(0, (st.focus.y * zy - 0.5) / (zy - 1))) : 0.5;
+      node.style.backgroundPosition = `${(px * 100).toFixed(1)}% ${(py * 100).toFixed(1)}%`;
+    }
+    node.classList.add('ready');
+  }).catch(() => {});
+}
+function bgInto(node, c) {
+  cardArt(c).then((a) => { node.style.backgroundImage = `url(${a.bg})`; node.classList.add('ready'); }).catch(() => {});
+}
+
+/** 右上の通貨（試作なのでガチャは何度でも引ける）。 */
+/** かけらの数（押すと所持カードの交換の欄へ）。 */
+function shardPill(app, go) {
+  const n = I.shardsOf(app.ik);
+  const spare = I.spareValue(app.ik);
+  return el('button.ik-shard', { onclick: () => go('cards'), title: spare ? `余りを替えると +${spare}` : 'かけら' }, [
+    el('span.gem'), el('b', { text: n.toLocaleString() }), spare ? el('i.dot') : null,
+  ]);
+}
+
+function coinPill(go) {
+  return el('button.ik-coin', { onclick: () => go('gacha'), title: 'ガチャへ' }, [
+    el('span.cn', icon('coin', { size: 20 })), el('b', { text: '∞' }), el('i.plus', { text: '+' }),
+  ]);
+}
+
+/** 下のボタン列（参考画像の SHOP・神明・CLUB・宠物・召唤）。 */
+function dock(app, go, current) {
+  const p = app.ik;
+  // 中身は span.ikd-in に包む（ガチャのボタンは菱形に回すので、中身だけ逆に回して立てる）
+  // el() の onX は addEventListener で付くので、後から node.onclick を代入しても go() は消えない。押し方は引数で渡す
+  const b = (id, jp, en, iconName, cls, badge = null, onclick = () => go(id)) => el(`button.ikd.${cls}${current === id ? '.on' : ''}`, { onclick }, [
+    el('span.ikd-in', [
+      el('span.ikd-ic', ic(iconName, cls === 'gacha' ? 28 : 24)),
+      el('span.ikd-t', [el('b', { text: jp }), el('small', { text: en })]),
+    ]),
+    badge ? el('i.ik-badge', { text: badge }) : null,
+  ]);
+  // 「カード」は所有カード・完成馬・編成の 3 つをまとめた札。押すと上に小さな一覧が開く（ボタン列の数を増やさない）
+  const cardViews = ['cards', 'book', 'stable', 'horse', 'deck'];
+  const menu = el('div.ikd-menu', [
+    ['cards', '所有カード', 'cards'], ['stable', '完成馬', 'trophy'], ['deck', '編成', 'horse'],
+  ].map(([id, jp, icn]) => el(`button.ikd-mi${current === id ? '.on' : ''}`, { onclick: (e) => { e.stopPropagation(); close(); go(id); } }, [ic(icn, 18), el('b', { text: jp })])));
+  // 外を押したら閉じる。閉じる係は開いている間だけ付ける（最初から付けると、開いた直後の別のクリックで消える）
+  const close = () => { wrap.classList.remove('open'); document.removeEventListener('click', close); };
+  const cardsBtn = b('cards', 'カード', 'CARDS', 'cards', 'cards', app.ikNew ? 'NEW' : null, (e) => {
+    e.stopPropagation();
+    if (wrap.classList.toggle('open')) document.addEventListener('click', close);
+    else document.removeEventListener('click', close);
+  });
+  if (cardViews.includes(current)) cardsBtn.classList.add('on');
+  const wrap = el('div.ikd-cardwrap', [menu, cardsBtn]);
+  return el('nav.ik-dock', [
+    wrap,
+    b('run', '育成', 'TRAINING', 'horse', 'run', p.run ? '!' : null),
+    b('home', 'ホーム', 'HOME', 'home', 'stable'),
+    b('battle', '対戦', 'BATTLE', 'sword', 'battle'),
+    b('gacha', 'ガチャ', 'GACHA', 'spark', 'gacha'),
+  ]);
+}
+
+function homeView(app, go) {
+  const p = app.ik;
+  const have = I.owned(p);
+  const hc = heroCard(p);
+  const power = have.reduce((s, c) => s + I.cardPower(c), 0);
+  const run = p.run;
+
+  // 主役：白縁の切り抜きを大きく、ふわっと浮かせる
+  const heroImg = el('img.ikh-sticker', { alt: hc.name, draggable: false });
+  stickerInto(heroImg, hc);
+  const hero = el('button.ikh-hero', {
+    onclick: () => (hc.bred ? (p.run && `B${p.run.id}` === hc.id ? go('run') : go('horse', { id: Number(hc.id.slice(1)) })) : p.cards[hc.id] ? showCard(app, hc) : go('gacha')),
+    title: hc.bred ? '馬を見る' : p.cards[hc.id] ? 'カードを見る' : 'ガチャで出る',
+  }, [heroImg, el('div.ikh-plate', [
+    el(`span.rb.r-${hc.rar}`, { text: hc.rar }),
+    el('span.nm', [el('small', { text: epiOf(hc) }), el('b', { text: hc.name })]),
+    p.cards[hc.id] || hc.bred ? null : el('em', { text: '未所持' }),
+  ])]);
+
+  // 左上：アバター（主役の顔）と戦力。押すとお気に入りを選ぶ
+  const ava = el('span.ikh-ava-img');
+  stickerInto(ava, hc, { mode: 'face' });
+  const top = el('header.ikh-top', [
+    el('button.ikh-ava', { onclick: () => pickFavorite(app, go), title: 'ホームの馬を選ぶ' }, [ava]),
+    el('div.ikh-power', [svg('fist', 16), el('b', { text: power.toLocaleString() })]),
+    el('div.ikh-sp'),
+    shardPill(app, go),
+    coinPill(go),
+  ]);
+
+  // 左の列：開催中のパック・遊びかた
+  const ev = (cls, label, c, onclick, badge) => {
+    const face = el('span.ikh-ev-face');
+    if (c) stickerInto(face, c, { mode: 'face' });
+    return el(`button.ikh-ev.${cls}`, { onclick }, [face, el('span.ikh-ev-l', { text: label }), badge ? el('i.ik-badge', { text: badge }) : null]);
+  };
+  const gc = I.CARDS.find((c) => c.name === 'アーモンドアイ') ?? I.CARDS[0];
+  // 開催中のイベントは新しいものから（ほかのイベントは対戦の画面のバナーから入れる）
+  const evNow = I.EVENTS.at(-1);
+  const evCard = I.cardById(evNow.reward);
+  const evLeft = 5 - I.eventState(p, evNow.id).cleared.length;
+  const left = el('nav.ikh-left', [
+    ev('evt', 'イベント 開催中', evCard, () => go('event', { ev: evNow.id }), evLeft ? String(evLeft) : null),
+    ev('p2', 'ガチャ NEW', gc, () => go('gacha'), '!'),
+    (() => { const x = ev('howto', '遊びかた', null, showHowto); x.querySelector('.ikh-ev-face').append(svg('book', 30)); return x; })(),
+  ]);
+
+  // 右の列：丸いボタン
+  const muteIc = el('span', ic(sound.isMuted() ? 'mute' : 'sound', 24));
+  const right = el('nav.ikh-right', [
+    el('button.ikh-rb', { onclick: () => go('book'), title: 'カード図鑑' }, [ic('book', 24), el('small', { text: '図鑑' })]),
+    el('button.ikh-rb', {
+      onclick: () => { sound.setMuted(!sound.isMuted()); muteIc.replaceChildren(ic(sound.isMuted() ? 'mute' : 'sound', 24)); sound.play('ok'); },
+      title: '効果音の入切',
+    }, [muteIc, el('small', { text: '音' })]),
+    el('button.ikh-rb', { onclick: () => app.go('title', {}, { replace: true }), title: 'タイトルへ' }, [ic('exit', 24), el('small', { text: 'タイトル' })]),
+  ]);
+
+  // 左下：育成の進み（参考画像の「当前进度」）
+  const tc = run ? I.traineeCard(run) : null;
+  const pf = el('span.ikh-prog-face');
+  if (tc) stickerInto(pf, tc, { mode: 'face', zoom: 2.2 });
+  const pct = run ? Math.round((run.turn / I.TOTAL_TURNS) * 100) : 0;
+  const prog = el('button.ikh-prog', { onclick: () => go('run') }, [
+    el('span.ikh-bubble', { text: run ? (I.isRaceTurn(run) ? 'レースだ!' : '育成へ!') : '育成しよう!' }),
+    el('span.ikh-ring', { style: `--p:${pct}` }, [pf, el('b', { text: run ? String(run.starts) : '0' }), el('small', { text: '/10戦' })]),
+    el('span.ikh-prog-l', { text: run ? '育成 進行中' : '育成を始める' }),
+    run ? el('i.ik-badge', { text: '!' }) : null,
+  ]);
+
+  // 右下：チケット（参考画像の「玩法目录」「世界染色 15/26」）
+  const ticket = (cls, a, bb, c, caption, onclick) => {
+    const img = el('span.tk-img');
+    bgInto(img, c);
+    return el(`button.ikh-ticket.${cls}`, { onclick }, [
+      el('span.tk-l', [el('b', { text: a }), el('b', { text: bb }), el('i.tk-bar')]),
+      el('span.tk-r', [img, el('small', { text: caption })]),
+    ]);
+  };
+  const second = have.find((c) => c.id !== hc.id) ?? I.CARDS.find((c) => c.id !== hc.id);
+  const tickets = el('div.ikh-tickets', [
+    ticket('t1', 'ランク', '対戦', hc, `完成馬 ${p.finished.length}頭`, () => go('battle')),
+    ticket('t2', 'カード', '図鑑', second, `${have.length}/${I.CARDS.length}`, () => go('book')),
+  ]);
+
+  return el('div.ikh', [
+    top,
+    el('div.ikh-stage', [el('div.ikh-city'), hero, left, right, prog, tickets]),
+    dock(app, go, 'home'),
+  ]);
+}
+
+/** ホームの馬を選ぶ（持っているカードから）。 */
+function pickFavorite(app, go) {
+  const p = app.ik;
+  const have = I.owned(p);
+  if (!have.length) { toast('まだカードが無い。ガチャで引こう'); go('gacha'); return; }
+  const m = modal('ホームに立たせる馬', [
+    el('div.ik-grid', have.map((c) => cardView(c, { scale: fit(0.22), tilt: false, onClick: () => { p.fav = c.id; save(app); m.close(); go('home'); } }))),
+  ], { wide: true });
+}
+
+function showHowto() {
+  modal('遊びかた', [el('ul.howto', [
+    el('li', { text: 'ガチャ：第 1 弾【世界の英雄たち】・第 2 弾【異国を制する者たち】。排出率 LM 2%・SSR 6%・SR 15%・R 27%・N 50%。試作なので回数の制限は無い。' }),
+    el('li', { text: '育てる馬：カードの能力が出発点、+値が伸びしろ（+5 で上限 1200 点、+1 で 720 点）。距離・馬場の適性もカードのまま。' }),
+    el('li', { text: 'サポート：練習場に顔を出すと伸びが増える。得意な練習（カードのいちばん高い能力）で会うと「友情」でさらに伸びる。レア度が高いほど友情が強い。' }),
+    el('li', { text: '1 戦ごとに 3 回の練習。体力が 50 を切ると練習に失敗しやすくなる（賢さの練習は失敗しない）。休むと体力が戻る。' }),
+    el('li', { text: 'レースは勝ち数でクラスが上がり、1 勝すると重賞、2 勝か重賞勝ちで GI に出られる。勝つと全能力と気分が上がる。' }),
+    el('li', { text: 'ホーム左上の顔を押すと、ホームに立たせる馬を選べる。' }),
+  ])]);
+}
+
+// ---------------------------------------------------------------- ガチャ
+
+function gachaView(app, go) {
+  const p = app.ik;
+  const last = app.ikLast ?? [];
+  // ガチャは一つ（弾を選ばず全カードから引く）。弾はカードの通し番号と図鑑の区分にだけ残す
+  const pull = (n) => {
+    const got = I.pull(p, n, 'ALL');
+    save(app);
+    app.ikLast = got;
+    if (got.some((g) => g.isNew)) app.ikNew = true;   // 下のボタン列の「カード」に NEW を付ける（図鑑を開くまで）
+    app.ikReveal = true;   // 次の描画で 1 度だけ、伏せて配ってめくる（描き直したら表のまま）
+    sound.play('ok');
+    go('gacha');
+  };
+  return [
+    gachaBanner(app),
+    card('ガチャ', [
+      el('div.ik-gbtns', [
+        button('1 回引く', () => pull(1), { cls: 'primary' }),
+        button('10 回引く', () => pull(10), { cls: 'primary big' }),
+      ]),
+      el('p.note', { text: `排出率 ${Object.entries(I.RATES).map(([k, v]) => `${k} ${Math.round(v * 100)}%`).join('・')}　通算 ${p.pulls} 回` }),
+    ]),
+    last.length ? card(`引いたカード（${last.length} 枚）`, [pulledGrid(app, last)]) : null,
+  ];
+}
+
+/**
+ * 引いたカードの並び。引いた直後だけ演出する：伏せて配り、順にめくり、いちばん良い 1 枚（SR 以上）は最後に溜めてから
+ * 光ってめくれる。stageshow のデモ（.agents/skills/stageshow/examples/gacha-pull）と同じ筋。
+ * - 絵（cardArt）は WebGL で 1 枚ずつ撮るので、撮り終わる前にめくると絵の無いカードが表になる。1 枚ずつ自分の絵を待ってからめくる（1.2 秒まで）。
+ * - 伏せている間に押すと全部めくる（飛ばす）。めくり終えたカードを押すと今までどおり大きく見る。
+ * - めくり終えたら 3D の箱を外す（.done）。カード 1 枚ずつが 3D の合成レイヤーのまま残ると重い（落とし穴 93 の「重くしたもの」）。
+ */
+function pulledGrid(app, got) {
+  // 狭い画面でも 3 列に並べる（2 列だと 10 枚が 5 段になり、めくっている途中のカードが画面の外へ出る）
+  const scale = Math.min(fit(0.3), (Math.min(window.innerWidth, 900) - 80) / 3 / 630);
+  const face = (g) => cardView(g.card, { scale, eager: true, badge: g.isNew ? 'NEW' : g.awaken ? `覚醒${g.awaken >= I.AWAKEN.max ? 'MAX' : g.awaken}` : null, onClick: (c) => showCard(app, c) });
+  const fresh = app.ikReveal;
+  app.ikReveal = false;
+  const reduce = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (!fresh || reduce) return el('div.ik-grid', got.map(face));
+  // いちばん良い 1 枚（同じレア度なら後ろ）。SR 以上のときだけ最後に回して溜める
+  const rank = (g) => I.RARITIES.indexOf(g.card.rar);
+  let best = 0;
+  got.forEach((g, i) => { if (rank(g) <= rank(got[best])) best = i; });
+  const hold = got.length > 1 && rank(got[best]) <= I.RARITIES.indexOf('SR') ? best : -1;
+  const cells = got.map((g, i) => el(`div.ikr.out.down.r-${g.card.rar}`, { style: `width:${630 * scale}px;height:${880 * scale}px;transition-delay:${i * 50}ms` }, [
+    el('div.ikr-in', [face(g), el('div.ikr-back', { style: `border-radius:${26 * scale}px` })]),
+  ]));
+  let left = cells.length;
+  const flip = (i) => {
+    const c = cells[i];
+    if (!c.classList.contains('down')) return;
+    c.classList.remove('down');
+    if (--left === 0) setTimeout(() => cells.forEach((x) => x.classList.add('done')), 600);
+  };
+  let skipped = false;
+  const grid = el('div.ik-grid.ikr-grid', cells);
+  // 伏せている間の 1 押しは「全部めくる」。カードの onClick（大きく見る）まで届かせない
+  grid.addEventListener('click', (e) => {
+    if (left === 0) return;
+    e.stopPropagation();
+    skipped = true;
+    cells.forEach((_, i) => flip(i));
+  }, true);
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  // めくるカードへ画面を寄せる（追従）。10 連は狭い画面で 4 段になり、下の段はボタン列の陰か画面の外でめくれていた。
+  // 上の帯（72px）と下のボタン列の間に収まっていなければ、真ん中へ滑らかに寄せてからめくる。収まっていれば動かさない（毎回揺らさない）
+  const follow = async (c) => {
+    const r = c.getBoundingClientRect();
+    const dock = document.querySelector('.ikd')?.getBoundingClientRect();
+    const bottom = Math.min(window.innerHeight, dock && dock.top > 0 ? dock.top : window.innerHeight);
+    if (r.top >= 72 && r.bottom <= bottom) return;
+    c.style.scrollMarginTop = '72px';
+    c.style.scrollMarginBottom = `${window.innerHeight - bottom}px`;
+    c.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+    await wait(280);
+  };
+  (async () => {
+    await wait(30);
+    cells.forEach((c) => c.classList.remove('out'));
+    // 結果の欄の頭（「引いたカード」の題）を画面の上へ。真ん中に合わせると 1 段目が上に切れた
+    const sec = grid.closest('.card') ?? grid;
+    sec.style.scrollMarginTop = '72px';   // 上の帯（戻る・題・通貨）の下に題が来るように
+    sec.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+    // 絵は撮った順に届くので、1 枚ずつ自分の絵を待ってからめくる（1 枚 1.2 秒まで。遅い端末で 10 連が 30 秒かからないよう、待ちきれなければ表にして絵は後から付く）
+    const arts = got.map((g) => cardArt(g.card).catch(() => null));
+    await wait(700 + cells.length * 50);
+    for (let i = 0; i < cells.length && !skipped; i++) {
+      if (i === hold) continue;
+      await Promise.race([arts[i], wait(1200)]);
+      if (skipped) break;
+      await follow(cells[i]);
+      if (skipped) break;
+      flip(i);
+      sound.play('tick');
+      await wait(140);
+    }
+    if (skipped || hold < 0) return;
+    await Promise.race([arts[hold], wait(1200)]);
+    await follow(cells[hold]);
+    await wait(320);
+    cells[hold].classList.add('glow');
+    await wait(rank(got[hold]) <= 1 ? 850 : 450);
+    if (skipped) return;
+    flip(hold);
+    sound.play(rank(got[hold]) <= 1 ? 'bell' : 'win');
+  })();
+  return grid;
+}
+
+/**
+ * ガチャのバナー。ガチャは一つなので、新しく入ったカード（PICK UP：第 4 弾【女傑たちの凱歌】の LM 3 頭）の一枚絵を背景に、切り抜きを並べ、
+ * 収録の LM の顔・収録数と所持数・排出率を載せる。絵はカードの一枚絵を使い回す（cardArt。WebGL を増やさない：落とし穴 23）。
+ */
+const GACHA_PICK = ['アーモンドアイ', 'ザルカヴァ', 'レイチェルアレクサンドラ'];
+function gachaBanner(app) {
+  const inPool = (c) => c.pack in I.PACKS;
+  const picks = GACHA_PICK.map((n) => I.CARDS.find((c) => c.name === n)).filter(Boolean);
+  // 顔の列は新しい弾の LM だけ（全弾の LM 30 種を並べると 2 段にあふれて馬の絵に重なった）
+  const newPack = picks[0]?.pack ?? 'P4';
+  const lms = I.CARDS.filter((c) => c.pack === newPack && c.rar === 'LM');
+  const total = I.CARDS.filter(inPool).length;
+  const have = I.CARDS.filter((c) => inPool(c) && app.ik.cards[c.id]).length;
+  const bg = el('span.ikev-bg');
+  bgInto(bg, picks[0]);
+  const heroes = picks.map((c, i) => {
+    const im = el(`img.ikev-hero.ikgb-h${i}`, { alt: c.name, draggable: false });
+    stickerInto(im, c, { mode: 'img' });
+    return im;
+  });
+  const faces = lms.map((c) => {
+    const f = el('span.ikgb-face', { title: c.name });
+    whenVisible(f, () => stickerInto(f, c, { mode: 'face', zoom: 2.4 }));
+    return f;
+  });
+  return el('div.ikev-banner.ikgb.trio', [
+    bg, el('span.ikev-shade'), ...heroes,
+    el('div.ikev-tx', [
+      el('span.ikev-tag.gacha', { text: 'GACHA' }),
+      el('small.ikev-en', { text: 'WINNING ROAD' }),
+      el('b.ikev-ttl', { text: '名馬ガチャ' }),
+      el('span.ikev-sub', { text: `NEW 第4弾【${I.PACKS.P4}】牡馬を破った名牝 40 頭` }),
+      el('span.ikev-rw', [el('i', { text: 'PICK UP' }), el('span', { text: picks.map((c) => c.name).join('・') })]),
+      el('span.ikgb-faces', [el('small', { text: `第${newPack.slice(1)}弾 LM ${lms.length} 種` }), ...faces]),
+      el('span.ikgb-foot', { text: `全 ${total} 種・所持 ${have} 種　LM ${Math.round(I.RATES.LM * 100)}%・SSR ${Math.round(I.RATES.SSR * 100)}%` }),
+    ]),
+  ]);
+}
+
+/** カードを大きく見る。 */
+/** スキルの札（種類で色分け。押すと説明）。ids はスキル id、uniq は固有スキル { name, desc }。 */
+function skillTags(ids, uniq = null, { small = false } = {}) {
+  const tag = (cls, name, desc) => el(`span.ik-sk.${cls}${small ? '.sm' : ''}`, { title: desc, onclick: (e) => { e.stopPropagation(); toast(`${name}：${desc}`); } }, name);
+  return el('span.ik-sks', [
+    uniq ? tag('uniq', uniq.name, uniq.desc) : null,
+    ...ids.map((id) => I.skillInfo(id)).filter(Boolean).map((x) => tag(x.type, x.name, x.desc)),
+  ]);
+}
+
+/** カードのスキルの一覧（説明つき）。 */
+function skillList(c, aw = 0) {
+  const sk = I.skillsOf(c, aw);
+  const base = I.skillsOf(c);
+  // 覚醒で増えたスキルには印を付ける
+  const row = (cls, head, name, desc, extra) => el('div.ik-skrow', [el(`span.ik-sk.${cls}`, name), extra ? el('em.ik-awk', { text: `覚醒${extra}` }) : null, el('small', { text: `${head}　${desc}` })]);
+  return el('div.ik-sklist', [
+    sk.unique ? row('uniq', '固有', sk.unique.name, sk.unique.desc) : null,
+    ...sk.race.map((id) => [I.skillInfo(id), base.race.includes(id) ? 0 : 2]).map(([x, e]) => row('race', 'レース', x.name, x.desc, e)),
+    ...sk.support.map((id) => [I.skillInfo(id), base.support.includes(id) ? 0 : 4]).map(([x, e]) => row('support', 'サポート', x.name, x.desc, e)),
+  ]);
+}
+
+/** 覚醒（同じカードを重ねて持つ利点）の段と効き目。 */
+function awakenPanel(c, count) {
+  const A = I.AWAKEN;
+  const aw = Math.max(0, Math.min(A.max, count - 1));
+  const lv = (n, text) => el(`div.ik-awrow${aw >= n ? '.on' : ''}`, [el('b', { text: `覚醒${n}` }), el('span', { text })]);
+  return el('div.ik-awaken', [
+    el('div.ik-awhead', [
+      el('b', { text: aw >= A.max ? '覚醒 MAX' : `覚醒 ${aw}` }),
+      el('i', { text: '◆'.repeat(aw) + '◇'.repeat(A.max - aw) }),
+      el('small', { text: aw >= A.max ? `所持 ${count} 枚（5 枚で完凸）` : `所持 ${count} 枚・あと ${aw + 2 - count} 枚で覚醒 ${aw + 1}` }),
+    ]),
+    el('p.note', { text: `同じカードを 2 枚目から重ねると 1 段ずつ覚醒する（カードは減らない）。いまの効き目　育てる馬：初期値 +${A.init * aw}・伸びしろの上限 +${A.cap * aw}・レーススキル +${Math.round(A.skill * aw * 100)}%　サポート：友情練習 +${Math.round(A.friend * aw * 100)}%・来ない確率 −${Math.round(A.show * aw * 100)}%` }),
+    lv(1, '育てる馬の初期値・伸びしろの上限・レーススキルの効き目、サポートの友情練習・来やすさが上がる（以降も段ごとに）'),
+    lv(2, 'レーススキルが 1 つ増える'),
+    lv(3, 'サポートのとき、友情練習 1 回でスキルを教える'),
+    lv(4, 'サポートスキルが 1 つ増える（完凸）'),
+  ]);
+}
+
+function showCard(app, c) {
+  const p = app.ik;
+  let m = null;
+  m = modal(`${epithetOf(c)} ${c.name}`, [
+    el('div.ik-big', cardView(c, { scale: Math.min(0.7, (window.innerHeight - 170) / 880, (window.innerWidth - 60) / 630), tilt: 'full' })),
+    c.record ? el('p.ik-record', { text: `戦績　${c.record}` }) : null,
+    I.GEAR_KEYS.some((k) => c.gear?.[k]) ? el('p.ik-record', ['実際の馬具　', el('span.gearline', gearChips(c.gear))]) : null,
+    p.cards[c.id] ? awakenPanel(c, p.cards[c.id]) : null,
+    p.cards[c.id] ? shardActions(app, c, () => m.close()) : null,
+    el('h4.ik-skh', { text: 'スキル' }),
+    skillList(c, I.awakenOfCard(p, c.id)),
+    el('p.note', { text: `所持 ${p.cards[c.id] ?? 0} 枚　サポートの得意：${I.STAT_LABEL[I.supportType(c)]}の練習${holoOf(c) ? `　ホロ：${holoName(holoOf(c))}` : ''}　（ドラッグで傾けられる）` }),
+  ], { wide: true });
+}
+
+// ---------------------------------------------------------------- カード一覧
+
+/** 所持カード：持っているカードだけ。並べ替えと絞り込み、重ねた枚数。 */
+function cardsView(app, go) {
+  const p = app.ik;
+  app.ikNew = false;
+  app.ikOwnOpt ??= { pack: 'ALL', rar: 'ALL', sort: 'rar' };
+  const f = app.ikOwnOpt;
+  const set = (k, v) => { f[k] = v; go('cards'); };
+  const all = I.owned(p);
+  const SORTS = { rar: (a, b) => I.RARITIES.indexOf(a.rar) - I.RARITIES.indexOf(b.rar) || I.cardPower(b) - I.cardPower(a),
+    power: (a, b) => I.cardPower(b) - I.cardPower(a), count: (a, b) => (p.cards[b.id] - p.cards[a.id]) || I.cardPower(b) - I.cardPower(a),
+    no: (a, b) => a.id.localeCompare(b.id) };
+  const list = all.filter((c) => (f.pack === 'ALL' || c.pack === f.pack) && (f.rar === 'ALL' || c.rar === f.rar)).sort(SORTS[f.sort]);
+  const total = all.reduce((n, c) => n + p.cards[c.id], 0);
+  if (!all.length) return [card('所持カード', [el('p', { text: 'まだカードが無い。ガチャで引こう。' }), button('ガチャへ', () => go('gacha'), { cls: 'primary' })])];
+  const mine = p.finished.filter((h) => h.art);
+  return [
+    shardPanel(app, go),
+    mine.length ? card(`マイカード（${mine.length} 枚）`, [
+      el('div.ik-mycards', mine.map((h) => cardView(I.finishedCard(h), { scale: 0.26, onClick: () => showMyCard(app, h) }))),
+      el('p.note', { text: '完成馬の詳細の「カードにする」で作る。構図・ポーズ・馬具・勝負服を自分で決められる。' }),
+    ]) : null,
+    card(`所持カード（${all.length} 種・${total} 枚）`, [
+      tabs([{ id: 'ALL', name: '全弾' }, ...Object.keys(I.PACK_NAMES).map((id) => ({ id, name: packTab(id) }))], f.pack, (v) => set('pack', v)),
+      tabs([{ id: 'ALL', name: '全レア' }, ...I.RARITIES.map((r) => ({ id: r, name: r }))], f.rar, (v) => set('rar', v)),
+      tabs([{ id: 'rar', name: 'レア度順' }, { id: 'power', name: 'カードパワー順' }, { id: 'count', name: '枚数順' }, { id: 'no', name: '番号順' }], f.sort, (v) => set('sort', v)),
+      list.length ? el('div.ik-icons', list.map((c) => cardIcon(app, c, p.cards[c.id])))
+        : el('p.note', { text: 'この条件のカードは持っていない。' }),
+      el('div.ik-gbtns', [button('カード図鑑を見る', () => go('book'))]),
+    ]),
+  ];
+}
+
+/**
+ * 所持カードの一覧の 1 マス：馬の顔の丸いアイコン（枠の色がレア度）と名前・枚数・覚醒。
+ * カード 1 枚まるごと並べると、50 種で縦に長く、顔も名前も小さくて見分けにくかった。押すとカードの詳細（カード全体）を開く。
+ * 顔は画面に入ってから撮る（whenVisible。開いた瞬間に 50 枚を撮らない）。
+ */
+function cardIcon(app, c, count) {
+  const face = el('span.ik-ico-face');
+  const node = el(`button.ik-ico.r-${c.rar}`, { onclick: () => showCard(app, c), title: `${epithetOf(c)} ${c.name}` }, [
+    el('span.ik-ico-ring', [face, el('span.ik-ico-rar', { text: c.rar })]),
+    count > 1 ? el(`span.ik-ico-n${count >= I.KEEP ? '.max' : ''}`, [el('b', { text: `×${count}` }), el('i', { text: '◆'.repeat(Math.min(4, count - 1)) + '◇'.repeat(Math.max(0, 4 - (count - 1))) })]) : null,
+    el('b.ik-ico-name', { text: c.name }),
+    el('small', { text: `${c.turf >= c.dirt ? '芝' : 'ダ'}・${I.distCat(c.dist)}　${I.cardPower(c)}` }),
+  ]);
+  whenVisible(node, () => stickerInto(face, c, { mode: 'face', zoom: 2.4 }));
+  return node;
+}
+
+/** かけら：余り（覚醒 MAX を超えた分）をまとめて替える欄。 */
+function shardPanel(app, go) {
+  const p = app.ik;
+  const spare = I.spareValue(p);
+  const n = I.CARDS.reduce((a, c) => a + I.spareOf(p, c.id), 0);
+  return card('かけら', [
+    el('div.ik-shardbox', [
+      el('div.ik-shardn', [el('span.gem'), el('b', { text: I.shardsOf(p).toLocaleString() }), el('small', { text: 'かけら' })]),
+      el('div.ik-shardtx', [
+        el('p', { text: n ? `覚醒 MAX を超えた余りが ${n} 枚ある（替えると +${spare}）。` : '余りのカードは無い（6 枚目から余りになる）。' }),
+        el('small', { text: `余り 1 枚 → ${I.RARITIES.map((r) => `${r} ${I.SHARD_VALUE[r]}`).join('・')}　／　交換 1 枚 → ${I.RARITIES.map((r) => `${r} ${I.SHARD_COST[r]}`).join('・')}。カードを押すと交換できる（図鑑の持っていないカードも）。` }),
+      ]),
+      button(n ? `余りをまとめて替える（+${spare}）` : '余りなし', async () => {
+        if (!await ask(`余りのカード ${n} 枚をかけら ${spare} に替える？（覚醒 MAX の 5 枚は残る）`, { ok: '替える', cancel: 'やめる' })) return;
+        const got = I.shardSpare(p);
+        save(app);
+        sound.play('win');
+        toast(`かけら +${got}`);
+        go('cards');
+      }, { cls: 'primary', disabled: !n }),
+    ]),
+  ]);
+}
+
+/** カードのかけらの操作（余りを替える・かけらで 1 枚もらう）。 */
+function shardActions(app, c, close) {
+  const p = app.ik;
+  const spare = I.spareOf(p, c.id);
+  const cost = I.SHARD_COST[c.rar];
+  const why = I.canBuyWithShards(p, c.id);
+  const redo = () => { close(); app.go('ik', { view: app.params.view }); };
+  return el('div.ik-shardact', [
+    el('span.ik-shardn.sm', [el('span.gem'), el('b', { text: I.shardsOf(p).toLocaleString() })]),
+    spare ? button(`余り ${spare} 枚をかけらに（+${spare * I.SHARD_VALUE[c.rar]}）`, () => {
+      const got = I.shardSpare(p, c.id);
+      save(app); sound.play('win'); toast(`かけら +${got}`); redo();
+    }) : null,
+    (p.cards[c.id] ?? 0) >= I.KEEP ? el('small', { text: '覚醒 MAX（これ以上は交換できない）' }) : button(`かけら ${cost} で 1 枚交換`, () => {
+      const g = I.buyWithShards(p, c.id);
+      save(app); sound.play('bell');
+      toast(g.isNew ? `${c.name}を手に入れた！` : `${c.name}が覚醒${g.awaken >= I.AWAKEN.max ? 'MAX' : g.awaken}になった`);
+      if (g.isNew) app.ikNew = true;
+      redo();
+    }, { cls: 'primary', disabled: !!why, title: why ?? '' }),
+    why && (p.cards[c.id] ?? 0) < I.KEEP ? el('small', { text: why }) : null,
+  ]);
+}
+
+/** 図鑑の持っていないカード：中身は見せず、レア度と番号だけでかけらと交換できる。 */
+function showMissing(app, c) {
+  let m = null;
+  m = modal(`No.${c.id.split('-')[1]}（${c.rar}）`, [
+    el('div.ik-missbig', [el(`b.${RCLS(c.rar)}`, { text: c.rar }), el('span', { text: '？？？' }), el('small', { text: `第${c.pack.slice(1)}弾 No.${c.id.split('-')[1]}` })]),
+    el('p.note', { text: 'まだ持っていないカード。かけらで交換すると中身が分かる。' }),
+    shardActions(app, c, () => m.close()),
+  ]);
+}
+
+/** カード図鑑：全カード。持っていないカードは「？？？」で、集めた割合を弾とレア度ごとに出す。 */
+function bookView(app, go) {
+  const p = app.ik;
+  app.ikBookOpt ??= { pack: 'ALL', rar: 'ALL' };
+  const f = app.ikBookOpt;
+  const set = (k, v) => { f[k] = v; go('book'); };
+  const list = I.CARDS.filter((c) => (f.pack === 'ALL' || c.pack === f.pack) && (f.rar === 'ALL' || c.rar === f.rar));
+  const got = (cs) => cs.filter((c) => p.cards[c.id]).length;
+  const meter = (label, cs) => el('div.ik-meter', [
+    el('span', { text: label }), el('span.bar', [el('i', { style: `width:${(got(cs) / cs.length) * 100}%` })]), el('b', { text: `${got(cs)}/${cs.length}` }),
+  ]);
+  return [
+    card(`カード図鑑（${got(I.CARDS)} / ${I.CARDS.length} 種）`, [
+      el('div.ik-meters', [
+        ...Object.entries(I.PACK_NAMES).map(([id, name]) => meter(id in I.PACKS ? `第${id.slice(1)}弾【${name}】` : name, I.CARDS.filter((c) => c.pack === id))),
+        ...I.RARITIES.map((r) => meter(r, I.CARDS.filter((c) => c.rar === r))),
+      ]),
+    ]),
+    card('一覧', [
+      tabs([{ id: 'ALL', name: '全弾' }, ...Object.keys(I.PACK_NAMES).map((id) => ({ id, name: packTab(id) }))], f.pack, (v) => set('pack', v)),
+      tabs([{ id: 'ALL', name: '全レア' }, ...I.RARITIES.map((r) => ({ id: r, name: r }))], f.rar, (v) => set('rar', v)),
+      el('div.ik-grid', list.map((c) => (p.cards[c.id]
+        ? cardView(c, { scale: fit(0.26), count: p.cards[c.id], onClick: (x) => showCard(app, x) })
+        : el('div.ik-missing.click', { style: `width:${630 * fit(0.26)}px;height:${880 * fit(0.26)}px`, onclick: () => showMissing(app, c) }, [
+          el(`b.${RCLS(c.rar)}`, { text: c.rar }), el('span', { text: '？？？' }), el('small', { text: `No.${c.id.split('-')[1]}` }),
+        ])))),
+    ]),
+  ];
+}
+
+// ---------------------------------------------------------------- 編成と育成
+
+function runView(app, go) {
+  const p = app.ik;
+  if (!p.run) return deckView(app, go);
+  return trainView(app, go);
+}
+
+/** カードの「編成」から開く編成。育成の途中は組み直せないので、そのことと育成への道を出す。 */
+function deckOnlyView(app, go) {
+  if (app.ik.run) return [card('編成', [el('p', { text: '育成の途中は編成を組み直せない（いまの育成を終えるか、やめると組める）。' }), button('育成へ', () => go('run'), { cls: 'primary' })])];
+  return deckView(app, go);
+}
+
+/**
+ * 編成：父（牡のカード）× 母（牝のカード）で育成馬を作り（名前は自分で決め、脚質は両親のあいだから選ぶ）、サポート 4 枚と組む。
+ * カードを押すと、空いている枠へ入る（牡は父、牝は母、埋まっていればサポート）。もう一度押すと外れる。
+ */
+function deckView(app, go) {
+  const p = app.ik;
+  const have = I.owned(p);
+  app.ikDeck ??= { sire: null, dam: null, supports: [], name: '', style: null };
+  const d = app.ikDeck;
+  if (d.sire && !p.cards[d.sire]) d.sire = null;
+  if (d.dam && !p.cards[d.dam]) d.dam = null;
+  d.supports = d.supports.filter((id) => p.cards[id] && id !== d.sire && id !== d.dam);
+  const males = have.filter((c) => c.sex === '牡'), females = have.filter((c) => c.sex === '牝');
+  if (have.length < 2 + I.SUPPORT_SLOTS || !males.length || !females.length) {
+    return [card('編成', [
+      el('p', { text: `育成には父（牡のカード）・母（牝のカード）と、サポート ${I.SUPPORT_SLOTS} 枚の、あわせて ${2 + I.SUPPORT_SLOTS} 種のカードが要る（いま ${have.length} 種・牡 ${males.length}・牝 ${females.length}）。` }),
+      button('ガチャへ', () => go('gacha'), { cls: 'primary' }),
+    ])];
+  }
+  // カードの「編成」から開いたときは、選び直しても編成の画面に留まる（育成の画面へ飛ばない）
+  const self = app.params.view === 'deck' ? 'deck' : 'run';
+  const parentsChanged = () => { d.name = ''; d.style = null; };
+  const pick = (c) => {
+    if (d.sire === c.id) { d.sire = null; parentsChanged(); } else if (d.dam === c.id) { d.dam = null; parentsChanged(); } else if (d.supports.includes(c.id)) d.supports = d.supports.filter((x) => x !== c.id);
+    else if (c.sex === '牡' && !d.sire) { d.sire = c.id; parentsChanged(); } else if (c.sex === '牝' && !d.dam) { d.dam = c.id; parentsChanged(); } else if (d.supports.length < I.SUPPORT_SLOTS) d.supports.push(c.id);
+    else return toast(`サポートは ${I.SUPPORT_SLOTS} 枚まで（外すにはもう一度押す）`, { bad: true });
+    go(self);
+  };
+  const slot = (id, label) => el('div.ik-slot', [
+    el('small', { text: label }),
+    id ? cardView(I.cardById(id), { scale: 0.22, onClick: () => pick(I.cardById(id)) }) : el('div.ik-empty', { text: '空き' }),
+  ]);
+  const sire = d.sire ? I.cardById(d.sire) : null, dam = d.dam ? I.cardById(d.dam) : null;
+  const pv = sire && dam ? I.breedPreview(p, sire.id, dam.id, d.style) : null;
+  if (pv) { d.style = pv.style; if (!d.name) d.name = I.foalNameIdea(sire, dam); }
+  const ready = pv && d.supports.length === I.SUPPORT_SLOTS && d.name.trim();
+  const start = button('育成を始める', () => {
+    try { I.startRun(p, { sire: d.sire, dam: d.dam, name: d.name, style: d.style }, d.supports); } catch (e) { return toast(e.message, { bad: true }); }
+    app.ikDeck = null;
+    save(app);
+    sound.play('ok');
+    go('run');
+  }, { cls: 'primary big', disabled: !ready });
+  return [
+    card(`編成（父 × 母の配合で育成馬を作る＋サポート ${I.SUPPORT_SLOTS} 枚）`, [
+      el('div.ik-deck', [slot(d.sire, '父（牡）'), el('b.ik-cross', { text: '×' }), slot(d.dam, '母（牝）'), ...[0, 1, 2, 3].map((i) => slot(d.supports[i], `サポート ${i + 1}`))]),
+      pv ? breedPanel(p, pv, sire, dam, d, () => { start.disabled = !(d.supports.length === I.SUPPORT_SLOTS && d.name.trim()); }, () => go(self))
+        : el('p.note', { text: '牡のカードを押すと父、牝のカードを押すと母に入る。両親が決まると、生まれる仔の名前と脚質を決められる。続けてサポートを 4 枚選ぶ。選んだカードをもう一度押すと外れる。' }),
+      d.supports.length ? el('div.ik-deckskills', d.supports.map((id) => el('div', [el('small', { text: `${I.cardById(id).name}（サポート${awkLabel(p, id)}）` }), skillTags(I.skillsOf(I.cardById(id), I.awakenOfCard(p, id)).support, null, { small: true })]))) : null,
+      el('p.note', { text: 'サポートと友情練習を 2 回すると（覚醒 3 なら 1 回）、そのサポートのレーススキルを覚える（完成馬に残る）。同じカードを重ねて持つと覚醒して強くなる（育成馬の覚醒は両親の平均）。' }),
+      el('div.ik-gbtns', [
+        start,
+        button('おまかせ', () => {
+          // 覚醒したカードを優先する（1 段でカードパワー 8 ぶん）
+          const sc = (c) => I.cardPower(c) + 8 * I.awakenOfCard(p, c.id);
+          const s = [...have].sort((a, b) => sc(b) - sc(a));
+          if (!d.sire) { d.sire = s.find((c) => c.sex === '牡').id; parentsChanged(); }
+          if (!d.dam) { d.dam = s.find((c) => c.sex === '牝').id; parentsChanged(); }
+          d.supports = s.filter((c) => c.id !== d.sire && c.id !== d.dam).slice(0, I.SUPPORT_SLOTS).map((c) => c.id);
+          go(self);
+        }, { cls: 'ghost' }),
+      ]),
+    ]),
+    (() => {
+      // 片親だけ決まっているあいだは相方の性のカードだけを出す（父を決めたら牝、母を決めたら牡）
+      const want = d.sire && !d.dam ? '牝' : d.dam && !d.sire ? '牡' : null;
+      const grid = el('div.ik-grid');
+      const draw = () => {
+        const xs = deckFilter(app, have, want);
+        grid.replaceChildren(...(xs.length ? xs.map((c) => cardView(c, {
+          scale: fit(0.24), count: p.cards[c.id], onClick: pick,
+          badge: c.id === d.sire ? '父' : c.id === d.dam ? '母' : d.supports.includes(c.id) ? `サポ${d.supports.indexOf(c.id) + 1}` : null,
+        })) : [el('p.note', { text: 'この条件のカードは持っていない。' })]));
+        count.textContent = `${xs.length} / ${have.filter((c) => !want || c.sex === want).length} 種`;
+      };
+      const count = el('span.ik-fcount');
+      const head = want ? `持っているカード（${want === '牝' ? '母にする牝' : '父にする牡'}のカードだけ）` : '持っているカード';
+      const body = [filterBar(app, have, () => draw(), count), grid];
+      draw();
+      return card(head, body);
+    })(),
+  ];
+}
+
+/**
+ * レースの脚質を選ぶ札（逃げ・先行・差し・追込）。base は育てた脚質（印を付ける）。押すと描き直さずに札だけ切り替える。
+ * 合わない脚質のスキル（逃げ切り・末脚炸裂）はそのレースでは使わない。
+ */
+function styleSeg(cur, base, onPick) {
+  const SKILL = { 逃げ: '逃げ切り', 差し: '末脚炸裂', 追込: '末脚炸裂' };
+  const btns = I.STYLE_NAMES.map((x) => el(`button.ik-stseg-b${x === cur ? '.on' : ''}`, {
+    onclick: () => { for (const b of btns) b.classList.toggle('on', b === btns[I.STYLE_NAMES.indexOf(x)]); onPick(x); },
+  }, [el('b', { text: x }), x === base ? el('small', { text: '育成' }) : null]));
+  return el('div.ik-stseg', [el('span.ik-stseg-l', { text: '脚質' }), el('div.ik-stseg-bs', btns),
+    el('small.ik-stseg-n', { text: `合わない脚質のスキル（${[...new Set(Object.values(SKILL))].join('・')}）は使わない` })]);
+}
+
+// 編成の絞り込み（レア度・馬場・距離・脚質・スキル）。条件は app.ikDeckOpt に覚え、一覧だけを描き直す
+// （画面ごと描き直すとスクロールが先頭へ戻る。落とし穴 77 と同じ）。
+const DECK_OPT0 = { rar: 'ALL', surf: 'ALL', dist: 'ALL', style: 'ALL', skill: 'ALL' };
+const surfOf = (c) => (c.turf >= c.dirt ? '芝' : 'ダート');
+const cardSkillIds = (p, c) => {
+  const sk = I.skillsOf(c, I.awakenOfCard(p, c.id));
+  return [...sk.race, ...sk.support, ...(sk.unique ? ['uniq'] : [])];
+};
+function deckFilter(app, have, want) {
+  const f = app.ikDeckOpt ??= { ...DECK_OPT0 };
+  const p = app.ik;
+  return have.filter((c) => (!want || c.sex === want)
+    && (f.rar === 'ALL' || c.rar === f.rar) && (f.surf === 'ALL' || surfOf(c) === f.surf)
+    && (f.dist === 'ALL' || I.distCat(c.dist) === f.dist) && (f.style === 'ALL' || I.STYLE_NAMES[Math.min(3, Math.floor(c.style / 0.25))] === f.style)
+    && (f.skill === 'ALL' || cardSkillIds(p, c).includes(f.skill)));
+}
+function filterBar(app, have, redraw, count) {
+  const f = app.ikDeckOpt ??= { ...DECK_OPT0 };
+  const p = app.ik;
+  // スキルは持っているカードに付いているものだけを、レース・サポートに分けて並べる
+  const ids = new Set(have.flatMap((c) => cardSkillIds(p, c)));
+  const infos = [...ids].filter((id) => id !== 'uniq').map((id) => I.skillInfo(id)).filter(Boolean);
+  const sel = (key, label, opts) => el('label.ik-fsel', [el('small', { text: label }), el('select.inp', {
+    onchange: (e) => { f[key] = e.target.value; redraw(); reset.hidden = Object.keys(DECK_OPT0).every((k) => f[k] === 'ALL'); },
+  }, [['ALL', 'すべて'], ...opts].map(([v, t]) => (Array.isArray(t) ? el('optgroup', { label: v }, t.map(([v2, t2]) => el('option', { value: v2, text: t2, selected: f[key] === v2 })))
+    : el('option', { value: v, text: t, selected: f[key] === v }))))]);
+  const reset = button('条件を外す', () => { Object.assign(f, DECK_OPT0); bar.replaceWith(filterBar(app, have, redraw, count)); redraw(); }, { cls: 'ghost small' });
+  reset.hidden = Object.keys(DECK_OPT0).every((k) => f[k] === 'ALL');
+  const bar = el('div.ik-filter', [
+    sel('rar', 'レア度', I.RARITIES.map((r) => [r, r])),
+    sel('surf', '馬場', [['芝', '芝'], ['ダート', 'ダート']]),
+    sel('dist', '距離', ['短距離', 'マイル', '中距離', '長距離'].map((x) => [x, x])),
+    sel('style', '脚質', I.STYLE_NAMES.map((x) => [x, x])),
+    sel('skill', 'スキル', [
+      ['uniq', '固有スキル（LM）'],
+      ['レーススキル', infos.filter((x) => x.type === 'race').map((x) => [x.id, x.name])],
+      ['サポートスキル', infos.filter((x) => x.type === 'support').map((x) => [x.id, x.name])],
+    ]),
+    reset, count,
+  ]);
+  return bar;
+}
+
+/** 生まれる仔：名前（自分で決める）・脚質（両親のあいだから選ぶ）・伸びしろ・適性・受け継ぐスキル。 */
+function breedPanel(p, pv, sire, dam, d, onName, redraw) {
+  const c = pv.card;
+  const name = el('input.inp.ik-name', {
+    type: 'text', value: d.name, maxLength: I.NAME_MAX, placeholder: '馬名', spellcheck: false,
+    // 1 文字ごとに画面を描き直すと入力欄の焦点が外れる（落とし穴 77 と同じ）。値だけ覚える
+    oninput: (e) => { d.name = e.target.value; onName(); },
+  });
+  const styleOfCard = (x) => I.STYLE_NAMES[x < 0.25 ? 0 : x < 0.5 ? 1 : x < 0.75 ? 2 : 3];
+  return el('div.ik-breed', [
+    el('div.ik-breed-h', [el('b', { text: '生まれる仔' }), el('small', { text: `${sire.name} × ${dam.name}　${c.rar}${pv.awaken ? `・覚醒${pv.awaken}` : ''}` })]),
+    el('label.ik-breed-row', [el('small', { text: '名前' }), name,
+      button('案', () => { d.name = I.foalNameIdea(sire, dam); name.value = d.name; onName(); }, { cls: 'sm ghost' })]),
+    el('div.ik-breed-row', [el('small', { text: '脚質' }),
+      el('div.ik-styles', I.STYLE_NAMES.map((s) => el(`button.ik-style${s === pv.style ? '.on' : ''}`, {
+        disabled: !pv.styles.includes(s), title: pv.styles.includes(s) ? '' : '両親の脚質のあいだにない',
+        onclick: () => { d.style = s; redraw(); },
+      }, s))),
+      el('small.ik-breed-par', { text: `父 ${styleOfCard(sire.style)} × 母 ${styleOfCard(dam.style)}` })]),
+    el('div.ik-breed-row', [el('small', { text: '伸びしろ' }), el('span.ik-plus', I.STATS.map((k) => el(`span.p${c.plus[k]}`, { text: `${I.STAT_SHORT[k]}+${c.plus[k]}` })))]),
+    el('div.ik-breed-row', [el('small', { text: '初期値' }), el('span.ik-plus', I.STATS.map((k) => el('span', { text: `${I.STAT_SHORT[k]} ${pv.init[k]}` })))]),
+    el('div.ik-breed-row', [el('small', { text: '適性' }), el('span', { text: `${c.turf >= c.dirt ? '芝' : 'ダート'}・${I.distCat(c.dist)}（${Math.max(1000, c.dist - c.range)}〜${Math.min(3600, c.dist + c.range)}m）` })]),
+    el('div.ik-breed-row', [el('small', { text: '受け継ぐ' }), skillTags(c.raceSkills, I.uniqueOf(c))]),
+    el('p.note', { text: '伸びしろは能力ごとに両親の高いほう、初期値は両親の平均。性と毛色は生まれてのお楽しみ。逃げ切り・末脚炸裂は選んだ脚質に合うときだけ受け継ぐ。' }),
+  ]);
+}
+
+/** 覚醒の段（見出しに添える）。 */
+const awkLabel = (p, id) => { const a = I.awakenOfCard(p, id); return a ? `・覚醒${a >= I.AWAKEN.max ? 'MAX' : a}` : ''; };
+
+function traineeNote(c) {
+  const plus = I.plusOf(c);
+  return el('p.note', { text: `${c.name}：${I.distCat(c.dist)}・${c.turf >= c.dirt ? '芝' : 'ダート'}　伸びしろ ${I.STATS.map((k) => `${I.STAT_SHORT[k]}+${plus[k]}`).join(' ')}` });
+}
+
+/** 育成の 1 ターン。 */
+/** 付けている馬具の札（メンコとシャドーロールは色の点つき）。無ければ「なし」。 */
+function gearChips(gear) {
+  const ks = I.GEAR_KEYS.filter((k) => gear?.[k]);
+  if (!ks.length) return [el('i.gearchip.none', { text: 'なし' })];
+  return ks.map((k) => el('i.gearchip', { title: I.GEAR[k].desc }, [
+    typeof gear[k] === 'string' ? el('span.gdot', { style: `background:${gear[k]}` }) : null, I.GEAR[k].name,
+  ]));
+}
+
+/**
+ * 馬具を決める（育成中の馬・完成馬）。育成モードの馬は気性を持たないので、効き目は気性 0.35 の馬として小さく効く
+ * （sim/gear.js・ikusei.js の GEAR_TEMPER）。onSave(gear) が保存する。
+ */
+function gearPicker(name, gear, onSave, note = '') {
+  const cur = { ...(gear ?? {}) };
+  let m = null;
+  const body = el('div.gearm');
+  const draw = () => {
+    body.replaceChildren(
+      el('p.note', { text: note || '効き目は小さい（出遅れ・掛かり・追ってからの集中）。付けた馬具はレースの 3D にも出る。' }),
+      ...I.GEAR_KEYS.map((k) => {
+        const on = !!cur[k];
+        const colored = k === 'menko' || k === 'shadowRoll';
+        return el(`div.gear-row${on ? '.on' : ''}`, [
+          el('button.gear-tog', {
+            onclick: () => {
+              if (on) delete cur[k];
+              else {
+                cur[k] = colored ? I.GEAR_COLORS[0] : true;
+                if (k === 'blinker') delete cur.cheek;
+                if (k === 'cheek') delete cur.blinker;
+              }
+              draw();
+            },
+          }, [el('b', { text: I.GEAR[k].name }), el('small', { text: I.GEAR[k].desc })]),
+          colored && on ? el('div.gear-colors', I.GEAR_COLORS.map((c) => el(`button.gear-c${cur[k] === c ? '.on' : ''}`, {
+            style: `background:${c}`, title: c, onclick: () => { cur[k] = c; draw(); },
+          }))) : null,
+        ]);
+      }),
+      el('div.gear-acts', [
+        button('決める', () => {
+          const g = onSave(cur);
+          toast(`${name}の馬具：${I.gearNames(g).join('・') || 'なし'}`);
+          m?.close();
+        }, { cls: 'primary' }),
+        button('やめる', () => m?.close()),
+      ]),
+    );
+  };
+  draw();
+  m = modal(`${name}の馬具`, [body]);
+}
+
+/**
+ * 育成の画面。練習（またはレース）を 1 画面に収める（「スクロールしないと練習できない」）。
+ * 上から：進み → 馬（小さな切り抜きと体力・気分・戦績・馬具）と能力（5 つを 1 段）→ スキル（1 行。「詳しく」で開く）→ 練習 →
+ * これまでのレース（畳んである）。カードの絵は切り抜きを押すと大きく見られる。
+ */
+function trainView(app, go) {
+  const p = app.ik;
+  const run = p.run;
+  const c = I.traineeCard(run);
+  const plus = I.plusOf(c);
+  const cap = (k) => I.capOf(plus[k], run.awaken?.t ?? 0);
+  const done = I.runDone(run);
+
+  // 馬：切り抜き（押すとカード）と状態
+  const thumb = el('img.ik-who-img', { alt: c.name, draggable: false });
+  stickerInto(thumb, c);
+  const who = el('div.ik-who', [
+    el('button.ik-who-art', { title: c.bred ? c.name : 'カードを見る', onclick: () => (c.bred ? null : showCard(app, c)) }, thumb),
+    el('div.ik-who-meta', [
+      el('div.ik-who-n', [el(`span.rb.r-${c.rar}`, { text: c.rar }), el('b', { text: c.name }),
+        el('small', { text: `${c.sex}・${c.coat}・${I.STYLE_NAMES[c.style < 0.25 ? 0 : c.style < 0.5 ? 1 : c.style < 0.75 ? 2 : 3]}` })]),
+      el('div.ik-who-st', [
+        el('small', { text: '体力' }), el('span.bar.en', [el('i', { style: `width:${run.energy}%` })]), el('b', { text: String(run.energy) }),
+        el(`b.mood.m${run.mood}`, { text: I.MOODS[run.mood] }),
+        run.awaken?.t ? el('b.ik-awk', { text: `${'◆'.repeat(run.awaken.t)}` }) : null,
+      ]),
+      el('div.ik-who-rec', { text: `${run.starts}戦${run.wins}勝（重賞 ${run.gradedWins}・GI ${run.giWins}）　ファン ${run.fans.toLocaleString()}人` }),
+      el('div.ik-gear', [el('small', { text: '馬具' }), el('span.gearline', gearChips(I.runGear(run))),
+        done ? null : el('button.gchange', { text: '変更', onclick: () => gearPicker(c.name, I.runGear(run), (g) => { const r = I.setRunGear(run, g); save(app); go('run'); return r; }) })]),
+    ]),
+  ]);
+  // 能力：5 つを 1 段（評価・点・伸びしろの上限の線）
+  const stats = el('div.ik-st5', { title: `黄色の線は伸びしろの上限（${c.bred ? '両親の +値の高いほう' : 'カードの +値'}）` }, I.STATS.map((k) => {
+    const g = I.gradeOfPts(run.stats[k]);
+    return el('div.ik-st', [
+      el('small', { text: I.STAT_SHORT[k] }),
+      el(`b.g.g-${g.replace('+', 'p')}`, { text: g }),
+      el('span.n', { text: String(run.stats[k]) }),
+      el('span.bar', [el('i', { style: `width:${(run.stats[k] / 1200) * 100}%` }), el('em', { style: `left:${(cap(k) / 1200) * 100}%`, title: `上限 ${cap(k)}` })]),
+    ]);
+  }));
+
+  // スキル：1 行（レースで使うスキルと、サポートとの絆の進み）。「詳しく」で説明つきに開く（開いたかは覚えておく）
+  const bonds = run.supports.map((id, i) => {
+    const sc = I.cardById(id);
+    const b = (run.bonds ?? [])[i] ?? 0;
+    const need = I.bondNeed(run, i);
+    return { sc, b, need, done: b >= need };
+  });
+  const open = !!app.ikSkillOpen;
+  const skillBar = el('div.ik-skbar', [
+    el('small.ik-skl', { text: 'スキル' }),
+    el('div.ik-skline', [
+      skillTags(I.runSkills(run), I.uniqueOf(c), { small: true }),
+      el('span.ik-bonds.sm', bonds.map((x) => el(`span.ik-bond.sm${x.done ? '.done' : ''}`, { title: `${x.sc.name}：友情練習 ${x.b}/${x.need}` }, [
+        el(`b.${RCLS(x.sc.rar)}`, { text: x.sc.name.length > 5 ? `${x.sc.name.slice(0, 4)}…` : x.sc.name }), el('i', { text: x.done ? '習得' : `${x.b}/${x.need}` }),
+      ]))),
+    ]),
+    el('button.ik-skx', { text: open ? '閉じる' : '詳しく', onclick: (e) => {
+      // 画面を描き直さずに開け閉めする（描き直すと一瞬で伸び縮みした）。高さは grid の 0fr → 1fr で滑らかに
+      app.ikSkillOpen = !app.ikSkillOpen;
+      skillGroup.classList.toggle('open', app.ikSkillOpen);
+      e.currentTarget.textContent = app.ikSkillOpen ? '閉じる' : '詳しく';
+    } }),
+  ]);
+  const skillMore = el('div.ik-skwrap', el('div.ik-skclip', el('div.ik-skmore', [
+    ...[...(I.uniqueOf(c) ? [{ ...I.uniqueOf(c), type: 'uniq' }] : []), ...I.runSkills(run).map((id) => I.skillInfo(id)).filter(Boolean)]
+      .map((x) => el('div', [el(`span.ik-sk.sm.${x.type}`, { text: x.name }), el('small', { text: x.desc })])),
+    el('div', [el('small', { text: 'サポートと友情練習を重ねると、そのサポートのレーススキルを覚える（完成馬に残る）。' })]),
+    el('div.ik-bonds', bonds.map((x) => el(`span.ik-bond${x.done ? '.done' : ''}`, [el(`b.${RCLS(x.sc.rar)}`, { text: x.sc.name }), el('i', { text: x.done ? '習得' : `${x.b}/${x.need}` })]))),
+  ])));
+  const skillGroup = el(`div.ik-skgroup${open ? '.open' : ''}`, [skillBar, skillMore]);
+
+  const progress = el('div.ik-prog', [
+    el('b', { text: done ? '育成完了' : I.turnLabel(run) }),
+    el('span.bar', [el('i', { style: `width:${(run.turn / I.TOTAL_TURNS) * 100}%` })]),
+    el('small', { text: `${run.turn} / ${I.TOTAL_TURNS} ターン` }),
+  ]);
+  let action;
+  if (done) {
+    action = card('育成完了', [
+      el('p', { text: `${c.name}の 2 年が終わった。${run.starts}戦${run.wins}勝（GI ${run.giWins}勝）。` }),
+      button('完成馬として登録する', () => {
+        const h = I.finishRun(p);
+        save(app);
+        sound.play('bell');
+        modal('完成！', [finishedCard(h), el('p.note', { text: '完成馬は「対戦」で戦わせられる。' })]);
+        go('stable');
+      }, { cls: 'primary big' }),
+    ]);
+  } else if (I.isRaceTurn(run)) {
+    const opts = I.raceOptions(run);
+    let style = I.runRaceStyle(run);
+    action = card(`${I.SLOTS[run.slot].label}のレース`, [
+      styleSeg(style, I.styleNameOf(I.traineeCard(run).style), (x) => { style = x; run.raceStyle = x; save(app); }),
+      el('div.ik-races', opts.map((o) => el('button.ik-race', {
+        onclick: () => {
+          const out = I.raceTurn(run, o.id, style);
+          save(app);
+          app.ikRace = { race: out.result, looks: looksOf([I.traineeSpec(run)]), mine: [1], order: out.order, back: 'run', title: o.name, fired: { 1: out.fired } };
+          sound.play(out.order === 1 ? 'bell' : out.order <= 3 ? 'win' : 'ok');
+          go('result');
+        },
+      }, [
+        o.grade ? el(`span.gr.${o.grade}`, { text: o.grade }) : el('span.gr', { text: '条件' }),
+        el('b', { text: o.name }),
+        el('small', { text: `${o.surface}${o.distance}m・${o.ground}　相手の強さ ${lvlLabel(o.level)}` }),
+      ]))),
+      el('p.note', { text: '重賞は 1 勝から、GI は 2 勝か重賞勝ちで出られる。' }),
+    ]);
+  } else {
+    const board = I.trainingBoard(run);
+    action = card('練習', [
+      el('div.ik-trains', I.STATS.map((k) => {
+        const pv = I.trainingPreview(run, k);
+        return el(`button.ik-train${pv.friendship ? '.friend' : ''}`, {
+          onclick: () => { const m = I.train(run, k); save(app); toast(m, { bad: m.includes('失敗') }); go('run'); },
+        }, [
+          el('b', { text: I.STAT_LABEL[k] }),
+          el('div.gains', Object.entries(pv.gains).map(([s, g]) => el('span', { text: `${I.STAT_SHORT[s]}+${g}` }))),
+          el('div.sup', board[k].map((i) => el(`span.${RCLS(I.cardById(run.supports[i]).rar)}`, { text: I.cardById(run.supports[i]).name }))),
+          pv.friendship ? el('em.fr', { text: '友情' }) : null,
+          pv.skills.length ? el('div.sks', pv.skills.map((n) => el('i', { text: n }))) : null,
+          el('small', { text: `${k === 'wit' ? '体力+5' : `体力−${pv.cost}`}${pv.fail ? `　失敗${Math.round(pv.fail * 100)}%` : ''}` }),
+        ]);
+      })),
+      el('div.ik-gbtns.ik-rest', [button('休む（体力を戻す）', () => { toast(I.rest(run)); save(app); go('run'); }, { cls: run.energy < 50 ? 'primary' : '' })]),
+    ]);
+  }
+  // これまでのレースと記録は畳んでおく（練習を押すのに下までスクロールしなくて済むように）
+  const history = run.races.length || run.log.length ? el('details.ik-hist', [
+    el('summary', { text: `これまでのレース（${run.races.length} 戦）と記録` }),
+    run.races.length ? table(['時期', 'レース', '', '着順', '発動スキル'], run.races.map((r) => [
+      I.SLOTS[r.slot].label, r.name, `${r.surface}${r.distance}m${r.ground ? `・${r.ground}` : ''}`, el(`b${r.order === 1 ? '.win' : ''}`, { text: `${r.order}着/${r.field}` }),
+      el('small', { text: (r.skills ?? []).join('・') || '—' }),
+    ])) : null,
+    el('div.ik-log', run.log.slice(-5).reverse().map((l) => el('div', { text: l }))),
+  ]) : null;
+  return [
+    progress,
+    el('div.ik-run2', [
+      el('div.ik-top', [who, stats]),
+      skillGroup,
+      action,
+      history,
+      el('div.ik-gbtns', [button('育成をやめる', async () => {
+        if (!await ask('この育成をやめる？（育てた馬は残らない）', { ok: 'やめる', cancel: '続ける' })) return;
+        p.run = null; save(app); go('run');
+      }, { cls: 'sm ghost' })]),
+    ]),
+  ];
+}
+
+const lvlLabel = (l) => (l >= 0.66 ? '★★★★★' : l >= 0.62 ? '★★★★' : l >= 0.58 ? '★★★' : l >= 0.52 ? '★★' : '★');
+
+/** 3D に渡す毛色と白斑（カードの馬は実在馬の白斑）。field は runRace に渡した馬。 */
+function looksOf(field, p = null) {
+  const m = new Map();
+  for (const f of field) {
+    const c = f.cardId ? I.cardById(f.cardId) : null;
+    // 完成馬はカードにした姿（撮った絵）を固有のカットインの切り抜きに使う
+    const fh = f.fid != null ? p?.finished.find((x) => x.id === f.fid) : null;
+    m.set(f.id, { coat: f.coat ?? c?.coat ?? '鹿毛', marks: f.marks ?? c?.marks ?? null, cardId: c?.id ?? null, gear: f.gear ?? null,
+      // 固有スキルのエフェクト（自分の馬は spec が持つ。相手のカードの馬はカードの既定）
+      fx: 'fx' in f ? f.fx : I.fxOfCard(c), artCard: fh ? I.horseCard(fh) : c });
+  }
+  return m;
+}
+
+// ---------------------------------------------------------------- レースの結果と観戦
+
+function resultView(app, go) {
+  const R = app.ikRace;
+  if (!R) return homeView(app, go);
+  const res = R.race;
+  const mine = new Set(R.mine);
+  const myBest = res.results.find((r) => mine.has(r.horseId));
+  return [
+    el('div.ik-result', [
+      el('div.ik-rh', [
+        res.grade ? el(`span.gr.${res.grade}`, { text: res.grade }) : null,
+        el('h2', { text: R.title ?? res.name }),
+        el('small', { text: `${res.courseName ?? ''} ${res.surface}${res.distance}m　${res.ground}` }),
+      ]),
+      myBest ? el(`div.ik-place.p${Math.min(4, myBest.order)}`, { text: `${myBest.name} ${myBest.order}着` }) : null,
+      R.reward ? el('div.ikev-got', [
+        cardView(R.reward.card, { scale: 0.2, onClick: (x) => showCard(app, x) }),
+        el('div', [
+          el('small', { text: `イベント報酬（${'☆'.repeat(R.reward.star)} 初勝利）` }),
+          el('b', { text: `${R.reward.card.name}を${R.reward.isNew ? '手に入れた！' : `重ねた（${R.reward.awaken >= 4 ? '覚醒 MAX' : `覚醒 ${R.reward.awaken}`}）`}` }),
+        ]),
+      ]) : null,
+      R.fired ? el('div.ik-fired', res.results.filter((r) => mine.has(r.horseId) && R.fired[r.horseId]?.length).map((r) =>
+        el('div', [el('b', { text: `${r.name}　発動` }), ...R.fired[r.horseId].map((n) => el('span.ik-sk.race', n))]))) : null,
+      table(['着', '', '馬名', 'タイム', '着差', '上がり', '脚質'], res.results.map((r) => [
+        r.order, frameChip(r.frame, r.gate), el(mine.has(r.horseId) ? 'b.mine' : 'span', { text: r.name }),
+        formatTime(r.time), r.margin, r.last3f.toFixed(1), r.styleLabel,
+      ]), { cls: 'ik-tbl' }),
+      el('div.ik-gbtns', [
+        button('3D で観る', () => go('watch'), { cls: 'primary big' }),
+        button('次へ', () => go(R.back ?? 'run', R.backParams ?? {}), { cls: 'big' }),
+      ]),
+    ]),
+  ];
+}
+
+function watchView(app) {
+  const R = app.ikRace;
+  const go = (v) => app.go('ik', { view: v });
+  if (!R) return el('div');
+  const race = R.race;
+  const myIds = race.results.filter((r) => R.mine.includes(r.horseId)).sort((a, b) => a.gate - b.gate).map((r) => r.horseId);
+  const canvas = el('canvas.race3d');
+  const rankList = el('ol.rank');
+  const camBar = el('div.cambar');
+  const ctrl = el('div.ctrl-right');
+  const fx = el('div.ik-fx');
+  const wrap = el('div.watch.ik-watch', [
+    el('div.view.bc', [canvas, fx, el('div.rankbox', [el('h3', { text: '順位' }), rankList])]),
+    el('div.controls', [camBar, ctrl]),
+  ]);
+  let view = null;
+  requestAnimationFrame(() => {
+    try {
+      view = createRaceView(canvas, race, { focusId: myIds[0] ?? null, marks: myIds, camera: 'auto', looks: R.looks });
+    } catch (e) {
+      wrap.appendChild(el('p.bad', { text: `3D を初期化できなかった：${e.message}` }));
+      return;
+    }
+    app.onResize = () => view && view.resize();
+    const rows = new Map();
+    for (const r of race.results) {
+      const row = el('li', { class: myIds.includes(r.horseId) ? 'mine' : null, onclick: () => { view.setFocus(r.horseId); view.draw(); } },
+        [frameChip(r.frame, r.gate), el('span.rn', { text: r.name }), el('span.rg')]);
+      rows.set(r.horseId, row);
+      rankList.appendChild(row);
+    }
+    const shown = window.innerWidth < 700 ? 5 : 10;
+    const skillFx = skillEffects(R, race, fx, view);
+    const hud = createRaceHud(view, race, { mine: myIds, title: R.title ?? race.name });
+    wrap.querySelector('.view').appendChild(hud.node);
+    view.onFrame = (st) => {
+      skillFx.frame(st);
+      hud.frame(st);
+      for (const r of st.ranked) {
+        const row = rows.get(r.id);
+        if (!row) continue;
+        row.style.order = r.order;
+        row.dataset.n = r.order;
+        row.hidden = !(r.order <= shown || myIds.includes(r.id));
+        row.lastChild.textContent = r.gap < 0.1 ? '先頭' : `${r.gap.toFixed(1)}m`;
+      }
+    };
+    view.onFinish = () => {
+      sound.play('goal');
+      setTimeout(() => { if (app.screen === 'ik' && app.params.view === 'watch') go('result'); }, 1500);
+    };
+    for (const c of CAMERAS) {
+      camBar.appendChild(el('button.tab', {
+        text: c.name, class: c.id === view.camera ? 'on' : null,
+        onclick: (e) => { view.setCamera(c.id); [...camBar.children].forEach((b) => b.classList.remove('on')); e.currentTarget.classList.add('on'); view.draw(); },
+      }));
+    }
+    const sp = el('div.speedbar', [0.5, 1, 2, 4].map((s) => el('button.tab', {
+      text: `×${s}`, class: s === 1 ? 'on' : null,
+      onclick: (e) => { skillFx.setSpeed(s); [...sp.children].forEach((b) => b.classList.remove('on')); e.currentTarget.classList.add('on'); },
+    })));
+    ctrl.append(sp, button('最初から', () => { view.seek(0); view.play(); }, { cls: 'sm ghost' }), button('結果へ', () => go('result'), { cls: 'sm primary' }));
+    sound.play('gate');
+    view.play();
+  });
+  app.cleanup = () => { if (view) view.dispose(); view = null; app.onResize = null; };
+  return el('div.ik-w', wrap);
+}
+
+/**
+ * スキル発動の演出。スキルの効き目はレース全体に掛かっている（結果は走る前に決まっている）ので、
+ * 観戦では「その馬がスキルの場面に来たとき」に見せる（I.skillCue）。自分の馬は帯のカットイン、
+ * 相手の馬は小さな札。LM の固有スキルは画面を横切る大きなカットインと 3D の金の光、再生を少しだけ遅くする。
+ * 「最初から」で時間が戻ったら出し直す。
+ */
+function skillEffects(R, race, fx, view) {
+  const mine = new Set(R.mine);
+  const names = new Map(race.results.map((r) => [r.horseId, r.name]));
+  const cues = [];
+  for (const [hid, list] of Object.entries(R.fired ?? {})) {
+    const id = Number(hid);
+    if (!names.has(id)) continue;
+    for (const n of list ?? []) { const q = I.skillCue(n, race.distance); cues.push({ id, name: n, mine: mine.has(id), unique: q.unique, at: q.at, done: false }); }
+  }
+  cues.sort((a, b) => a.at - b.at);
+  // 固有スキルのカットインに馬の切り抜きを出す（撮ってある絵だけ）。エフェクトの形はここで読んでおく（prepHorseFx）
+  for (const c of cues.filter((x) => x.unique)) {
+    c.kind = R.looks?.get(c.id)?.fx ?? null;
+    if (!c.mine) continue;
+    const card = R.looks?.get(c.id)?.artCard ?? null;
+    // カードエディットで向きを決めた馬は、カットインもその向き（決めていなければ切り抜きの頭の向き・字は左へ流す）
+    const fd = card?.fxDir ? I.fxDirOf(card) : 0;
+    if (c.kind) c.nameFx = prepNameFx(c.name, c.kind, fd || 1);
+    if (card) cardArtIfReady(card).then((a) => {
+      c.img = a?.sticker?.url ?? null;
+      // 馬の走る向きは切り抜きの頭の位置から（頭が左なら左へ走る。粒は後ろへ流す）
+      if (c.img && c.kind) prepHorseFx(c.img, c.kind, fd || ((a.sticker.focus?.x ?? 0.3) < 0.5 ? -1 : 1)).then((v) => { c.horseFx = v; });
+    });
+  }
+  let speed = 1, slowUntil = 0, slowTimer = 0, lastT = 0, lane = 0;
+  const timers = new Set();
+  const later = (fn, ms) => { const t = setTimeout(() => { timers.delete(t); fn(); }, ms); timers.add(t); };
+  const clear = () => {
+    for (const t of timers) clearTimeout(t);
+    timers.clear();
+    fx.textContent = '';
+    clearTimeout(slowTimer);
+    slowUntil = 0;
+    view.setSpeed(speed);
+  };
+  const show = (c) => {
+    const kind = c.unique ? c.kind : null;
+    if (c.unique && c.mine) {
+      const F = kind ? I.SKILL_FX[kind] : null;
+      const node = el(`div.ik-ult${kind ? `.fx-${kind}` : ''}`, { style: F ? `--fxc:${F.color};--fxg:${F.glow};--fxk:${F.core}` : null }, [
+        el('div.lines'),
+        c.horseFx ? ultHorse(c.horseFx) : c.img ? el('img', { src: c.img, alt: '' }) : null,
+        el('div.t', [el('small', { text: F ? `固有スキル発動　${F.name}` : '固有スキル発動' }), !c.img && c.nameFx ? ultName(c.nameFx) : el('b', { text: c.name }), el('span', { text: names.get(c.id) })]),
+      ]);
+      fx.appendChild(node);
+      later(() => node.remove(), 2600);
+      sound.play('bell');
+      view.flare(c.id, { color: 0xffc83a, big: true, fx: kind });
+      // 一瞬だけ遅くして見せ場にする（利用者の再生速度は覚えて戻す）
+      view.setSpeed(speed * 0.35);
+      slowUntil = performance.now() + 1500;
+      clearTimeout(slowTimer);
+      slowTimer = setTimeout(() => { slowUntil = 0; view.setSpeed(speed); }, 1500);
+      return;
+    }
+    const cls = c.mine ? (c.unique ? 'uniq' : 'race') : 'npc';
+    const node = el(`div.ik-cut.${cls}`, { style: `--lane:${lane}` }, [
+      el('i', { text: c.mine ? 'SKILL' : '相手' }),
+      el('b', { text: c.name }),
+      el('small', { text: names.get(c.id) }),
+    ]);
+    lane = (lane + 1) % 3;
+    fx.appendChild(node);
+    later(() => node.remove(), c.mine ? 1900 : 1500);
+    if (c.mine) sound.play('win');
+    view.flare(c.id, { color: c.unique ? 0xffc83a : c.mine ? 0x5ec8ff : 0xff6a6a, big: c.unique, fx: kind });
+  };
+  return {
+    frame(st) {
+      if (st.time < lastT - 0.05) { clear(); for (const c of cues) c.done = false; }
+      lastT = st.time;
+      const s = new Map(st.ranked.map((r) => [r.id, r.s]));
+      for (const c of cues) {
+        if (c.done || (s.get(c.id) ?? 0) < c.at) continue;
+        c.done = true;
+        show(c);
+      }
+    },
+    setSpeed(x) { speed = x; if (!slowUntil) view.setSpeed(x); },
+  };
+}
+
+/**
+ * 固有スキルのカットインのエフェクト（skillfx.js）。形の読み出し（getImageData）はレースが始まる前に済ませる：
+ * 発動の瞬間に読むと、レースの 3D の描画が終わるまで待たされ、主スレッドが止まってカットインが描かれないまま消えた。
+ * 読み出す canvas は willReadFrequently（CPU 側）に置く（GPU の canvas から読むと描画の待ち行列ごと待つ）。
+ */
+const cpuCanvas = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; c.getContext('2d', { willReadFrequently: true }); return c; };
+/** 馬の切り抜き（ステッカー）の形から。余白を付けた大きさで読む（エフェクトが切り抜きの外へはみ出す）。 */
+function prepHorseFx(src, kind, dir = -1) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const PAD = 0.55;
+      // 表示は高さ 175px（×2.1 の余白）。毎コマ描くので画素を増やし過ぎない（画素密度の 1.5 倍まで）
+      const H = Math.round(175 * Math.min(1.5, window.devicePixelRatio || 1)), s = H / img.naturalHeight;
+      const iw = img.naturalWidth * s, ih = H;
+      const W = Math.round(iw * (1 + PAD * 2)), HH = Math.round(ih * (1 + PAD * 2));
+      const m = cpuCanvas(W, HH);
+      m.getContext('2d').drawImage(img, iw * PAD, ih * PAD, iw, ih);
+      const pt = fxPainter(kind, m, W, HH, 7, { dir });
+      resolve(pt ? { pt, W, H: HH, src } : null);
+    };
+    img.onerror = () => resolve(null);
+    img.src = src;
+  });
+}
+/** 切り抜きが無い馬（配合の育成馬は撮った絵を持たない）は、スキル名の字の形から。 */
+function prepNameFx(name, kind, dir = 1) {
+  const W = 760, H = 260;
+  const m = cpuCanvas(W, H);
+  const mg = m.getContext('2d');
+  const size = Math.min(76, (W * 0.86) / Math.max(4, name.length));
+  mg.font = `italic 900 ${size}px ${getComputedStyle(document.body).getPropertyValue('--font') || 'sans-serif'}`;
+  mg.textAlign = 'center'; mg.textBaseline = 'middle';
+  mg.fillStyle = '#fff';
+  mg.fillText(name, W / 2, H / 2);
+  // 字の帯は右へ滑り込むので、既定は粒を左へ流す（dir +1）
+  const pt = fxPainter(kind, m, W, H, 11, { unit: 0.7, dir });
+  if (!pt) return null;
+  // 字は CSS の見出しと同じ白 → 主の色のグラデーション
+  const F = I.SKILL_FX[kind];
+  const txt = document.createElement('canvas');
+  txt.width = W; txt.height = H;
+  const tg = txt.getContext('2d');
+  tg.font = mg.font; tg.textAlign = 'center'; tg.textBaseline = 'middle';
+  const gr = tg.createLinearGradient(0, H / 2 - size / 2, 0, H / 2 + size / 2);
+  gr.addColorStop(0.3, '#ffffff'); gr.addColorStop(0.8, F.color);
+  tg.fillStyle = 'rgba(30,10,0,.55)'; tg.fillText(name, W / 2, H / 2 + 4);
+  tg.fillStyle = gr; tg.fillText(name, W / 2, H / 2);
+  return { pt, W, H, txt };
+}
+/** 切り抜きを後ろ（オーラ）と前（稲妻・粒）の 2 枚の canvas で挟む。 */
+function ultHorse(v) {
+  const bk = el('canvas.bk', { width: v.W, height: v.H }), fr = el('canvas.fr', { width: v.W, height: v.H });
+  const box = el('div.ik-ultfx', [bk, el('img', { src: v.src, alt: '' }), fr]);
+  animateFx(box, v.pt, bk, fr);
+  return box;
+}
+function ultName(v) {
+  const cv = el('canvas.ik-ultname', { width: v.W, height: v.H });
+  const bk = document.createElement('canvas'), fr = document.createElement('canvas');
+  bk.width = fr.width = v.W; bk.height = fr.height = v.H;
+  const g = cv.getContext('2d');
+  animateFx(cv, v.pt, bk, fr, () => { g.clearRect(0, 0, v.W, v.H); g.drawImage(bk, 0, 0); g.drawImage(v.txt, 0, 0); g.drawImage(fr, 0, 0); });
+  return cv;
+}
+/** 2.6 秒のあいだ毎コマ描く（画面から外れたら止める）。 */
+function animateFx(node, pt, bk, fr, compose = null) {
+  const gb = bk.getContext('2d'), gf = fr.getContext('2d');
+  const t0 = performance.now();
+  const tick = () => {
+    const t = (performance.now() - t0) / 1000;
+    if (t > 2.7 || (t > 0.1 && !node.isConnected)) return;
+    gb.clearRect(0, 0, bk.width, bk.height);
+    gf.clearRect(0, 0, fr.width, fr.height);
+    pt.draw(gb, gf, t);
+    compose?.();
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}
+
+// ---------------------------------------------------------------- 完成馬
+
+/** 配合で作った育成馬の札（カードの代わり。切り抜き・名前・両親）。 */
+function foalPlate(c) {
+  const img = el('img.ik-foal-img', { alt: c.name, draggable: false });
+  stickerInto(img, c);
+  return el(`div.ik-foal.r-${c.rar}`, [
+    img,
+    el('div.ik-foal-n', [el(`span.rb.r-${c.rar}`, { text: c.rar }), el('b', { text: c.name }), el('small', { text: `${c.sex}・${c.coat}・${I.STYLE_NAMES[c.style < 0.25 ? 0 : c.style < 0.5 ? 1 : c.style < 0.75 ? 2 : 3]}` })]),
+    el('div.ik-foal-p', [el('span', ['父 ', el('b', { text: c.sire })]), el('span', ['母 ', el('b', { text: c.dam })])]),
+  ]);
+}
+
+function finishedCard(h) {
+  const c = I.horseCard(h);
+  return el(`div.ik-fin.${RCLS(h.rar)}`, [
+    el('div.fh', [el(`span.rk.rk-${h.rank.replace('+', 'p')}`, { text: h.rank }), el('b', { text: h.name }), el('small', { text: `評価点 ${h.rating}` })]),
+    el('div.fs', I.STATS.map((k) => el('span', [el('small', { text: I.STAT_SHORT[k] }), el('b', { text: I.gradeOfPts(h.stats[k]) }), el('i', { text: String(h.stats[k]) })]))),
+    el('div.fm', { text: `${h.starts}戦${h.wins}勝（重賞 ${h.gradedWins}・GI ${h.giWins}）　${c ? `${I.distCat(c.dist)}・${c.turf >= c.dirt ? '芝' : 'ダート'}` : ''}　対戦 ${h.battles}戦${h.battleWins}勝` }),
+  ]);
+}
+
+function stableView(app, go) {
+  const p = app.ik;
+  if (!p.finished.length) return [card('完成馬', [el('p', { text: 'まだ完成馬がいない。育成で 2 年を走り切ると、ここに並ぶ。' }), button('育成へ', () => go('run'), { cls: 'primary' })])];
+  const list = [...p.finished].sort((a, b) => b.rating - a.rating);
+  return [card(`完成馬（${list.length} 頭）`, [
+    el('div.ik-icons', list.map((h) => finishedIcon(h, go))),
+    el('p.note', { text: '押すと詳細（対戦・ホームに立たせる・手放す）。評価点の高い順。' }),
+  ])];
+}
+
+/**
+ * 完成馬の一覧の 1 マス（所持カードの cardIcon と同じ顔のアイコン）。右上は評価、下は戦績と評価点。
+ * 以前の横長の札（finishedCard）は 1 頭に 1 行を使い、頭数が増えると探しにくかった。
+ */
+function finishedIcon(h, go) {
+  const c = I.horseCard(h);
+  const face = el('span.ik-ico-face');
+  const node = el(`button.ik-ico.r-${h.rar}`, { onclick: () => go('horse', { id: h.id }), title: `${h.name}　評価点 ${h.rating}` }, [
+    el('span.ik-ico-ring', [face, el('span.ik-ico-rar', { text: h.rar })]),
+    el(`span.ik-ico-rk.rk-${h.rank.replace('+', 'p')}`, { text: h.rank }),
+    el('b.ik-ico-name', { text: h.name }),
+    el('small', { text: `${h.starts}戦${h.wins}勝${h.giWins ? `・GI${h.giWins}` : ''}　${h.rating}` }),
+  ]);
+  if (c) whenVisible(node, () => stickerInto(face, c, { mode: 'face', zoom: 2.4 }));
+  return node;
+}
+
+/** 脚質の名前（カードの style は 0 逃げ〜1 追込）。 */
+const styleName = (x) => (x < 0.25 ? '逃げ' : x < 0.5 ? '先行' : x < 0.75 ? '差し' : '追込');
+const MARK = (a) => (a >= 0.8 ? '◎' : a >= 0.7 ? '○' : a >= 0.6 ? '△' : '×');
+const r100 = (x) => Math.round(x / 100) * 100;
+
+/**
+ * 完成馬の詳細（牧場の馬の詳細 stable.js の detail と同じ組み立てを、育成モードの見た目で）。
+ * 見出し → 舞台（主役の切り抜き・情報の板・前後の馬へ送る） → タブ（詳細・成績・能力・血統） → 操作。
+ */
+function horseView(app, go) {
+  const p = app.ik;
+  const lineup = [...p.finished].sort((a, b) => b.rating - a.rating);
+  const h = lineup.find((x) => x.id === app.params.id) ?? lineup[0];
+  if (!h) return stableView(app, go);
+  const c = I.horseCard(h);
+  const at = lineup.indexOf(h);
+  const step = (d) => app.go('ik', { view: 'horse', id: lineup[(at + d + lineup.length) % lineup.length].id }, { replace: true });
+
+  // 成績の内訳（育成のレースの記録から）
+  const races = h.races ?? [];
+  const tally = (rs) => [1, 2, 3].map((n) => rs.filter((r) => r.order === n).length).concat(rs.filter((r) => r.order > 3).length);
+  const lines = [
+    ['全成績', races], ['芝', races.filter((r) => r.surface === '芝')], ['ダート', races.filter((r) => r.surface === 'ダート')],
+    ['GⅠ', races.filter((r) => r.grade === 'GI')], ['GⅡ', races.filter((r) => r.grade === 'GII')], ['GⅢ', races.filter((r) => r.grade === 'GIII')],
+  ];
+  const big = races.filter((r) => r.order === 1 && /^G/.test(r.grade ?? ''));
+  const lo = Math.max(1000, r100(h.dist - (h.range ?? 400))), hi = Math.min(3600, r100(h.dist + (h.range ?? 400)));
+  const ribbon = h.giWins ? `GI ${h.giWins}勝の${h.sex === '牝' ? '名牝' : '名馬'}` : h.gradedWins ? '重賞馬' : h.wins ? `${h.wins}勝の${styleName(h.style)}馬` : '未勝利';
+
+  const img = el('img.ikx-sticker', { alt: h.name, draggable: false });
+  if (c) stickerInto(img, c);
+  const info = el('section.ikx-info', [
+    el('div.ikx-ribbon', { text: ribbon }),
+    el('div.ikx-rank', [el(`b.rk-${h.rank.replace('+', 'p')}`, { text: h.rank }), el('small', { text: `評価点 ${h.rating}` })]),
+    el('dl.ikx-rows', [
+      el('dt', { text: '戦績' }), el('dd', { text: `${h.starts}戦${h.wins}勝` }),
+      el('dt', { text: 'ファン' }), el('dd', { text: `${(h.fans ?? 0).toLocaleString()}人` }),
+      el('dt', { text: '対戦' }), el('dd', { text: `${h.battles}戦${h.battleWins}勝` }),
+      el('dt', { text: '距離' }), el('dd', [el('em', { text: `${lo}m` }), ' 〜 ', el('em', { text: `${hi}m` })]),
+      el('dt', { text: '馬場' }), el('dd.ikx-chips', [
+        el('i', { text: `芝${MARK(h.turf)}` }), el('i', { text: `ダ${MARK(h.dirt)}` }), el('i', { text: `良${MARK(h.firm)}` }), el('i', { text: `重${MARK(h.soft)}` }),
+      ]),
+      el('dt', { text: '脚質' }), el('dd.ikx-style', ['逃げ', '先行', '差し', '追込'].map((s) => el('i', { text: s[0], class: s === styleName(h.style) ? 'on' : null }))),
+    ]),
+  ]);
+  const stage = el('div.ikx-stage', [
+    el('div.ikh-city'),
+    el('button.ikx-hero', { onclick: () => (h.art ? showMyCard(app, h) : c && !c.bred && showCard(app, c)), title: h.art ? 'カードを見る' : c?.bred ? h.name : 'カードを見る' }, img),
+    info,
+    lineup.length > 1 ? el('button.ikx-arrow.l', { onclick: () => step(-1), title: '前の馬' }, icon('back', { size: 24 })) : null,
+    lineup.length > 1 ? el('button.ikx-arrow.r', { onclick: () => step(1), title: '次の馬' }, icon('back', { size: 24 })) : null,
+  ]);
+
+  const TABS = [{ id: 'info', name: '詳細' }, { id: 'record', name: '成績' }, { id: 'abil', name: '能力' }, { id: 'ped', name: '血統' }];
+  app.ikHorseTab = TABS.some((t) => t.id === app.ikHorseTab) ? app.ikHorseTab : 'info';
+  const body = el('div.ikx-body');
+  const bar = el('nav.tabs');
+  const show = (tid) => {
+    app.ikHorseTab = tid;
+    bar.replaceChildren(...TABS.map((t) => el('button.tab', { text: t.name, class: t.id === tid ? 'on' : null, onclick: () => show(t.id) })));
+    body.replaceChildren(tabBody(tid));
+  };
+  const tabBody = (tid) => {
+    if (tid === 'record') {
+      return races.length ? table(['時期', 'レース', '距離', '着', '時計'], races.map((r) => [
+        I.SLOTS[r.slot]?.label ?? '', el('span', [r.grade ? el(`span.gr.${r.grade}`, { text: r.grade }) : null, ` ${r.name}`]),
+        `${r.surface}${r.distance}m`, el(`b${r.order === 1 ? '.win' : ''}`, { text: `${r.order}/${r.field}` }), r.time ? formatTime(r.time) : '—',
+      ]), { cls: 'ik-tbl' }) : el('p.note', { text: '記録が無い。' });
+    }
+    if (tid === 'abil') {
+      const plus = c ? I.plusOf(c) : null;
+      return el('div', [
+        el('div.ik-stats', I.STATS.map((k) => el('div.ik-stat', [
+          el('span.l', { text: I.STAT_LABEL[k] }),
+          el(`b.g.g-${I.gradeOfPts(h.stats[k]).replace('+', 'p')}`, { text: I.gradeOfPts(h.stats[k]) }),
+          el('span.n', { text: String(h.stats[k]) }),
+          el('span.bar', [el('i', { style: `width:${(h.stats[k] / 1200) * 100}%` }), plus ? el('em', { style: `left:${(I.capOf(plus[k], h.awaken ?? 0) / 1200) * 100}%` }) : null]),
+        ]))),
+        el('p.note', { text: '数字は育成で鍛えた点（1200 点が上限）。黄色の線はカードの +値で決まる伸びしろの上限。' }),
+      ]);
+    }
+    if (tid === 'ped') {
+      return el('div.ikx-ped', c ? [
+        el('div.pp.s', [el('small', { text: '父' }), el('b', { text: c.sire })]),
+        el('div.pp.d', [el('small', { text: '母' }), el('b', { text: c.dam })]),
+        el('div.pp.ds', [el('small', { text: '母の父' }), el('b', { text: c.damSire })]),
+        el('div.pp.ln', [el('small', { text: '系統' }), el('b', { text: c.line })]),
+      ] : [el('p.note', { text: 'カードが見つからない。' })]);
+    }
+    return el('div.ikx-cols', [
+      el('div', [
+        el('h4', { text: '成績の内訳（1着-2着-3着-着外）' }),
+        el('div.ikx-crs', lines.map(([l, rs]) => el('div', [el('span', { text: l }), el('b', { text: tally(rs).join('-') })]))),
+      ]),
+      el('div', [
+        el('h4', { text: '主な勝鞍' }),
+        big.length ? el('ul.ikx-wins', big.map((r) => el('li', [el(`span.gr.${r.grade}`, { text: r.grade }), ` ${r.name}`, el('small', { text: ` ${I.SLOTS[r.slot]?.label ?? ''}` })])))
+          : el('p.note', { text: '重賞の勝ち鞍はまだ無い。' }),
+        el('h4', { text: 'スキル' }),
+        skillTags(I.finishedSkills(h), I.uniqueOf(c)),
+        el('h4', { text: '馬具' }),
+        el('div.ik-gear', [el('span.gearline', gearChips(I.finishedSpec(h).gear)),
+          el('button.gchange', { text: '変更', onclick: () => gearPicker(h.name, I.finishedSpec(h).gear, (g) => { const r = I.setFinishedGear(p, h.id, g); save(app); app.render(); return r; }) })]),
+        el('h4', { text: '育てたカード' }),
+        el('div.ikx-sups', [
+          ...(c?.bred ? [I.cardById(h.sire), I.cardById(h.dam)].filter(Boolean).map((x, i) => el(`span.${RCLS(x.rar)}`, { text: `${i ? '母' : '父'} ${x.rar} ${x.name}` }))
+            : c ? [el(`span.${RCLS(c.rar)}`, { text: `育成 ${c.rar} ${c.name}` })] : []),
+          ...(h.supports ?? []).map((id) => I.cardById(id)).filter(Boolean).map((s) => el(`span.${RCLS(s.rar)}`, { text: `${s.rar} ${s.name}` }))]),
+      ]),
+    ]);
+  };
+  show(app.ikHorseTab);
+
+  return [
+    el('header.ikx-top', [
+      el(`span.rb.r-${h.rar}`, { text: h.rar }),
+      el('div.ikx-name', [el('small', { text: c ? epiOf(c) : '' }), el('b', { text: h.name })]),
+      el('span.ikx-sa', { text: `${h.sex}　${h.coat}` }),
+      lineup.length > 1 ? el('span.ikx-count', { text: `${at + 1} / ${lineup.length}` }) : null,
+    ]),
+    stage,
+    el('div.card.ikx-panel', [el('div.card-b', [bar, body])]),
+    el('div.ik-gbtns', [
+      button('この馬で対戦', () => { app.ikBattle = { ...(app.ikBattle ?? {}), horse: h.id }; go('battle'); }, { cls: 'primary' }),
+      button(h.art ? 'カードを編集' : 'カードにする', () => go('cardedit', { id: h.id }), { cls: h.art ? '' : 'primary' }),
+      h.art ? button('カードを見る', () => showMyCard(app, h)) : null,
+      c ? button('ホームに立たせる', () => { p.fav = c.id; save(app); toast(`${h.name}をホームに立たせた`); }) : null,
+      button('一覧へ', () => go('stable')),
+      button('手放す', async () => {
+        if (!await ask(`${h.name}を手放す？`, { ok: '手放す' })) return;
+        p.finished = p.finished.filter((x) => x !== h); save(app); go('stable');
+      }, { cls: 'ghost' }),
+    ]),
+  ];
+}
+
+// ---------------------------------------------------------------- カードエディット（完成馬をカードにする）
+
+/** 自分のカード（完成馬をカードにしたもの）を大きく見る。 */
+function showMyCard(app, h) {
+  const c = I.finishedCard(h);
+  let m = null;
+  m = modal(`${epithetOf(c)} ${c.name}`, [
+    el('div.ik-big', cardView(c, { scale: Math.min(0.7, (window.innerHeight - 170) / 880, (window.innerWidth - 60) / 630), tilt: 'full', eager: true })),
+    el('p.ik-record', { text: `戦績　${h.starts}戦${h.wins}勝（重賞 ${h.gradedWins}・GI ${h.giWins}）　評価 ${h.rank}` }),
+    el('div.ik-gbtns', [
+      button('カードを編集', () => { m.close(); app.go('ik', { view: 'cardedit', id: h.id }); }, { cls: 'primary' }),
+      button('完成馬を見る', () => { m.close(); app.go('ik', { view: 'horse', id: h.id }); }),
+    ]),
+  ], { wide: true });
+}
+
+/** 色の札（押すと選ぶ）。 */
+function swatches(list, cur, pick) {
+  return el('div.gear-colors', list.map((c) => el(`button.gear-c${cur === c ? '.on' : ''}`, { style: `background:${c}`, title: c, onclick: () => pick(c) })));
+}
+const SILK_COLORS = ['#f4f2ec', '#1c1c1c', '#c8202a', '#1f3f9e', '#e8b21a', '#2f8f4a', '#e86aa0', '#7a4fc0', '#f07a28', '#5fb6e0', '#7a3b1e', '#8d949c'];
+const deg = (r) => `${Math.round((r * 180) / Math.PI)}°`;
+const AXIS_NAMES = { x: '縦', y: '横', z: 'ひねり' };
+const RIDER_AXES = { x: '左右', y: '上下', z: '前後' };
+// 画面の上の骨の線（リグの点を結ぶ）。騎手の点は 'rider.' を付けた名前
+// （馬の部位の骨は、支点から先端へ stage.handles が返す piv → pts で引く）
+const RIG_BONES = [
+  ['rider.pelvis', 'rider.neck'], ['rider.neck', 'rider.head'], ['rider.neck', 'rider.handL'], ['rider.neck', 'rider.handR'],
+  ['rider.pelvis', 'rider.ankleL'], ['rider.pelvis', 'rider.ankleR'],
+];
+
+/**
+ * カードエディット（全画面の別ページ）。完成馬の一枚絵の撮り方を、生の 3D（撮影の舞台をそのまま動かす）を見ながら決める：
+ * 構図（構え・向き・背景・馬場・カメラをドラッグで回す）、ポーズ（脚の運び・騎手の姿勢・リグ）、馬具、勝負服とゼッケン、二つ名。
+ * リグは絵の上の点（関節）を掴んで動かす：馬の部位は支点の周りに回し（縦・横・ひねりの軸を選ぶ）、騎手の点（腰・肩・頭・手・足）は
+ * 画面の面の中で動かす（肘と膝は IK で付いてくる）。点の無い所をドラッグするとカメラが回る。
+ * 決めると h.art に残り、カードの絵（cardArt）はその撮り方で撮る。描画器はカードの絵と同じ 1 つ（artRenderer。落とし穴 23）。
+ * スライダーやドラッグは舞台を組み直さずに馬とカメラだけ動かす。形の変わる値（馬具・騎手の姿勢・服・構え・背景）は組み直す。
+ */
+function cardEditView(app, go) {
+  const p = app.ik;
+  const h = p.finished.find((x) => x.id === app.params.id);
+  if (!h) { queueMicrotask(() => go('stable')); return el('div'); }
+  if (app.ikEdit?.id !== h.id) {
+    const art = JSON.parse(JSON.stringify(h.art ?? I.defaultArt(h)));
+    art.rig ??= {};
+    art.rig.horse ??= {};
+    art.rig.rider ??= {};
+    app.ikEdit = { id: h.id, art, gear: { ...I.finishedSpec(h).gear }, tab: 'pose', part: 'neck', axis: 'x', handles: true, customSilks: !!art.silks };
+  }
+  const E = app.ikEdit;
+  const A = E.art;
+  const base = I.horseCard(h);
+  const isRider = (k) => k.startsWith('rider.');
+
+  // ---- 生の舞台
+  const canvas = el('canvas.ikce-cv', { width: ART_SIZE.w, height: ART_SIZE.h });
+  let stage = null;
+  let queued = false;
+  let rigDirty = false;
+  let hs = null;   // 最後に描いた点（画素）
+  const showHandles = () => E.handles && E.tab === 'pose';
+  const draw = () => {
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(() => {
+      queued = false;
+      if (!stage || !canvas.isConnected) return;
+      // 騎手の点のドラッグは騎手を作り直すので、動かした分をまとめて 1 コマに 1 回だけ当てる
+      if (rigDirty) { rigDirty = false; stage.setRig(A.rig); }
+      stage.render(artRenderer(), canvas, 3, A.fx in I.SKILL_FX ? { kind: A.fx, time: A.fxT ?? 0, seed: base.hid ?? 1 } : null);
+      hs = null;
+      if (showHandles()) drawHandles();
+    });
+  };
+  const drawHandles = () => {
+    const g = canvas.getContext('2d');
+    const hd = stage.handles(Object.keys(I.RIG_HORSE), Object.keys(I.RIG_RIDER), canvas.width, canvas.height);
+    hs = hd.pts;
+    canvas.rigPoints = hs;   // 確かめ用（Playwright で点の位置を拾う）
+    g.save();
+    g.lineWidth = 2;
+    for (const [k, a] of Object.entries(hd.piv)) {
+      if (k === 'body') continue;   // 胴の支点は地面の高さ（線を引くと鞍から地面へ棒が出る）
+      const b = hs[k];
+      g.strokeStyle = k === E.part ? '#ff5a3cdd' : '#7fe8ffaa';
+      g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); g.stroke();
+    }
+    for (const [a, b] of RIG_BONES) {
+      const pa = hs[a], pb = hs[b];
+      if (!pa || !pb) continue;
+      g.strokeStyle = isRider(a) ? '#ffd54acc' : '#7fe8ffcc';
+      g.beginPath(); g.moveTo(pa.x, pa.y); g.lineTo(pb.x, pb.y); g.stroke();
+    }
+    for (const [k, q] of Object.entries(hs)) {
+      const sel = k === E.part;
+      const moved = isRider(k) ? A.rig.rider[k.slice(6)]?.some((x) => x) : A.rig.horse[k]?.some((x) => x);
+      g.beginPath();
+      g.arc(q.x, q.y, sel ? 8 : 5.5, 0, Math.PI * 2);
+      g.fillStyle = sel ? '#ff5a3c' : moved ? '#f3a332' : isRider(k) ? '#ffd54a' : '#7fe8ff';
+      g.fill();
+      g.lineWidth = 2; g.strokeStyle = '#102326'; g.stroke();
+    }
+    g.restore();
+  };
+  const cam = () => A.camera ?? shotCamera({ shot: A.shot ?? 'profile' });
+  const build = () => {
+    stage?.dispose();
+    stage = createPoseStage({
+      hero: { id: base.hid ?? 1, coat: base.artCoat ?? base.coat, gate: A.gate ?? 1, frame: 1, marks: base.marks ?? null,
+        silks: (E.customSilks ? A.silks : null) ?? base.silks ?? null, legPose: A.legPose ?? null, gear: E.gear, rig: A.rig },
+      surface: A.surface ?? '芝', shot: A.shot ?? 'profile', phase: A.phase ?? 0.25, facing: A.facing ?? 'left', riderPose: A.pose ?? 'celebrate',
+      wind: A.wind !== false, backdrop: A.backdrop ?? 'sunset', camera: A.camera ?? null,
+    });
+    // 画面を離れる・描き直すときに捨てる係（捨てたあとに待っていた描画が走らないよう、ここで null にする）
+    app.ikStage = { dispose: () => { stage?.dispose(); stage = null; } };
+    draw();
+  };
+  // カメラを見る点の周りに回す（ドラッグ・ホイール・スライダー）
+  const orbit = (dAz, dEl, zoom = 1) => {
+    const c = cam();
+    const off = c.pos.map((x, i) => x - c.look[i]);
+    const r = Math.hypot(...off);
+    const az = Math.atan2(off[0], off[2]) + dAz;
+    let elv = Math.asin(Math.max(-1, Math.min(1, off[1] / r))) + dEl;
+    elv = Math.max(-0.12, Math.min(1.25, elv));
+    const pos = [c.look[0] + r * Math.cos(elv) * Math.sin(az), c.look[1] + r * Math.sin(elv), c.look[2] + r * Math.cos(elv) * Math.cos(az)];
+    pos[1] = Math.max(0.12, pos[1]);
+    A.camera = { pos, look: [...c.look], fov: Math.max(8, Math.min(70, c.fov * zoom)) };
+    stage?.setCamera(A.camera);
+    draw();
+    syncCamSliders();
+  };
+
+  // ---- 絵の上のドラッグ：点を掴めばリグ、点の無い所はカメラ
+  const at = (e) => {
+    const r = canvas.getBoundingClientRect();
+    return { x: (e.clientX - r.left) * canvas.width / r.width, y: (e.clientY - r.top) * canvas.height / r.height, s: canvas.width / r.width };
+  };
+  const pickHandle = (q) => {
+    if (!hs) return null;
+    let best = null, bd = 18 * q.s;
+    for (const [k, v] of Object.entries(hs)) {
+      const d = Math.hypot(v.x - q.x, v.y - q.y) - (k === E.part ? 4 * q.s : 0);   // 選んでいる点を優先
+      if (d < bd) { bd = d; best = k; }
+    }
+    return best;
+  };
+  let drag = null;
+  canvas.addEventListener('pointerdown', (e) => {
+    const q = at(e);
+    const k = showHandles() ? pickHandle(q) : null;
+    if (k && k !== E.part) selectPart(k);
+    drag = { q, k };
+    canvas.setPointerCapture(e.pointerId);
+  });
+  canvas.addEventListener('pointermove', (e) => {
+    if (!drag || !stage) return;
+    const q = at(e);
+    if (drag.k) {
+      if (isRider(drag.k)) {
+        const key = drag.k.slice(6);
+        const d = stage.dragRider(key, drag.q, q, canvas.width, canvas.height);
+        const cur = A.rig.rider[key] ?? [0, 0, 0];
+        A.rig.rider[key] = cur.map((x, i) => Math.max(-0.6, Math.min(0.6, x + d[i])));
+        rigDirty = true;
+      } else {
+        const info = I.RIG_HORSE[drag.k];
+        const axis = info.axes.includes(E.axis) ? E.axis : info.axes[0];
+        const da = stage.dragAngle(drag.k, axis, drag.q, q, canvas.width, canvas.height);
+        const cur = A.rig.horse[drag.k] ?? [0, 0, 0];
+        const i = 'xyz'.indexOf(axis);
+        cur[i] = Math.max(-2, Math.min(2, cur[i] + da));
+        A.rig.horse[drag.k] = cur;
+        stage.setRig(A.rig);
+      }
+      draw();
+      syncPartSliders();
+    } else {
+      orbit(-(q.x - drag.q.x) / q.s * 0.008, (q.y - drag.q.y) / q.s * 0.006);
+    }
+    drag.q = q;
+  });
+  const end = () => { drag = null; };
+  canvas.addEventListener('pointerup', end);
+  canvas.addEventListener('pointercancel', end);
+  canvas.addEventListener('wheel', (e) => { e.preventDefault(); orbit(0, 0, e.deltaY > 0 ? 1.08 : 1 / 1.08); }, { passive: false });
+
+  // ---- 操作の部品
+  const slider = (min, max, step, val, onInput, fmt = (v) => v.toFixed(2)) => {
+    const out = el('em', { text: fmt(val) });
+    const inp = el('input', { type: 'range', min, max, step, value: val });
+    inp.addEventListener('input', () => { const v = Number(inp.value); out.textContent = fmt(v); onInput(v); });
+    const node = el('span.ikce-sl', [inp, out]);
+    node.set = (v) => { inp.value = v; out.textContent = fmt(v); };
+    return node;
+  };
+  const row = (label, ctl) => el('div.ikce-row', [el('small', { text: label }), ctl]);
+  const chips = (opts, cur, pick, mark = () => false) => el('div.ikce-chips', Object.entries(opts).map(([k, v]) => el(`button.ikce-chip${cur === k ? '.on' : ''}${mark(k) ? '.set' : ''}`, { text: v, onclick: () => pick(k) })));
+  const panel = el('div.ikce-panel');
+  const tabsBar = el('nav.tabs.ikce-tabs');
+  const TABS = { pose: 'ポーズ', shot: '構図', fx: 'エフェクト', gear: '馬具', silks: '勝負服', name: '二つ名' };
+  const showTab = (t) => {
+    E.tab = t;
+    tabsBar.replaceChildren(...Object.entries(TABS).map(([id, n]) => el('button.tab', { text: n, class: id === t ? 'on' : null, onclick: () => showTab(id) })));
+    panel.replaceChildren(...tabBody(t));
+    hint.textContent = showHandles() ? '点を掴んで動かす・点の無い所はカメラ' : 'ドラッグでカメラを回す';
+    draw();
+  };
+  const hint = el('span.ikce-hint');
+  let camSl = null;
+  const syncCamSliders = () => {
+    if (!camSl) return;
+    const c = cam();
+    const off = c.pos.map((x, i) => x - c.look[i]);
+    camSl.az.set(Math.atan2(off[0], off[2]));
+    camSl.el.set(Math.asin(off[1] / Math.hypot(...off)));
+    camSl.fov.set(c.fov);
+  };
+  let partSl = null;
+  const syncPartSliders = () => {
+    if (!partSl) return;
+    const k = E.part;
+    const v = isRider(k) ? A.rig.rider[k.slice(6)] ?? [0, 0, 0] : A.rig.horse[k] ?? [0, 0, 0];
+    for (const [i, s] of Object.entries(partSl)) s.set(v[i]);
+  };
+  const selectPart = (k) => {
+    E.part = k;
+    if (!isRider(k) && !I.RIG_HORSE[k].axes.includes(E.axis)) E.axis = I.RIG_HORSE[k].axes[0];
+    if (E.tab === 'pose') showTab('pose');
+  };
+  const partLabel = (k) => (isRider(k) ? `騎手の${I.RIG_RIDER[k.slice(6)]}` : I.RIG_HORSE[k].name);
+  const tabBody = (t) => {
+    camSl = null; partSl = null;
+    if (t === 'pose') {
+      const k = E.part;
+      const hk = Object.fromEntries(Object.entries(I.RIG_HORSE).filter(([, v]) => !v.leg).map(([key, v]) => [key, v.name]));
+      const legs = Object.fromEntries(Object.entries(I.RIG_HORSE).filter(([, v]) => v.leg).map(([key, v]) => [key, v.name]));
+      const rk = Object.fromEntries(Object.entries(I.RIG_RIDER).map(([key, v]) => [`rider.${key}`, v]));
+      const movedH = (key) => A.rig.horse[key]?.some((x) => x);
+      const movedR = (key) => A.rig.rider[key.slice(6)]?.some((x) => x);
+      let ctl;
+      if (isRider(k)) {
+        const v = A.rig.rider[k.slice(6)] ?? [0, 0, 0];
+        partSl = Object.fromEntries([0, 1, 2].map((i) => [i, slider(-0.6, 0.6, 0.005, v[i], (x) => {
+          const cur = A.rig.rider[k.slice(6)] ?? [0, 0, 0];
+          cur[i] = x; A.rig.rider[k.slice(6)] = cur; rigDirty = true; draw();
+        }, (x) => `${Math.round(x * 100)}cm`)]));
+        ctl = [row('左右', partSl[0]), row('上下', partSl[1]), row('前後', partSl[2])];
+      } else {
+        const info = I.RIG_HORSE[k];
+        const v = A.rig.horse[k] ?? [0, 0, 0];
+        partSl = Object.fromEntries([...info.axes].map((a) => {
+          const i = 'xyz'.indexOf(a);
+          return [i, slider(-2, 2, 0.01, v[i], (x) => {
+            const cur = A.rig.horse[k] ?? [0, 0, 0];
+            cur[i] = x; A.rig.horse[k] = cur; stage?.setRig(A.rig); draw();
+          }, deg)];
+        }));
+        ctl = [
+          row('ドラッグの軸', chips(Object.fromEntries([...info.axes].map((a) => [a, AXIS_NAMES[a]])), E.axis, (a) => { E.axis = a; showTab('pose'); })),
+          ...[...info.axes].map((a) => row(AXIS_NAMES[a], partSl['xyz'.indexOf(a)])),
+        ];
+      }
+      return [
+        row('脚の運び', slider(0, 1, 0.005, A.phase ?? 0.25, (v) => { A.phase = v; stage?.pose(v, A.legPose ?? null); draw(); })),
+        row('騎手の姿勢', chips(I.ART_POSES, A.pose ?? 'celebrate', (key) => { A.pose = key; build(); showTab('pose'); })),
+        row('点', chips({ on: '表示', off: '隠す' }, E.handles ? 'on' : 'off', (v) => { E.handles = v === 'on'; showTab('pose'); })),
+        el('h4', { text: '部位（絵の点を押しても選べる）' }),
+        row('馬', chips(hk, k, selectPart, movedH)),
+        row('脚', chips(legs, k, selectPart, movedH)),
+        row('騎手', chips(rk, k, selectPart, movedR)),
+        el('div.ikce-part', [el('b', { text: partLabel(k) }), ...ctl]),
+        el('div.ik-gbtns', [
+          button('この部位を戻す', () => { if (isRider(k)) { delete A.rig.rider[k.slice(6)]; rigDirty = true; } else { delete A.rig.horse[k]; stage?.setRig(A.rig); } draw(); showTab('pose'); }, { cls: 'sm' }),
+          button('全部戻す', () => { A.rig = { horse: {}, rider: {} }; A.legPose = undefined; stage?.pose(A.phase ?? 0.25, null); rigDirty = true; draw(); showTab('pose'); }, { cls: 'sm ghost' }),
+        ]),
+        el('p.note', { text: '馬の部位は支点の周りに回す（縦・横・ひねりはドラッグの軸で選ぶ）。騎手の点は画面に沿って動かす（肘と膝は付いてくる）。橙の点は動かした部位。' }),
+      ];
+    }
+    if (t === 'shot') {
+      const shots = Object.fromEntries(I.ART_SHOTS.map((key) => [key, SHOTS[key]?.name ?? key]));
+      const c = cam();
+      const off = c.pos.map((x, i) => x - c.look[i]);
+      const r = Math.hypot(...off);
+      const aim = () => { const c2 = cam(); return c2.pos.map((x, i) => x - c2.look[i]); };
+      camSl = {
+        az: slider(-Math.PI, Math.PI, 0.01, Math.atan2(off[0], off[2]), (v) => { const o2 = aim(); orbit(v - Math.atan2(o2[0], o2[2]), 0); }, deg),
+        el: slider(-0.12, 1.25, 0.01, Math.asin(off[1] / r), (v) => { const o2 = aim(); orbit(0, v - Math.asin(o2[1] / Math.hypot(...o2))); }, deg),
+        fov: slider(8, 70, 0.5, c.fov, (v) => orbit(0, 0, v / cam().fov), (v) => `${v.toFixed(0)}°`),
+      };
+      return [
+        row('構え', chips(shots, A.shot ?? 'profile', (key) => { A.shot = key; A.camera = null; build(); showTab('shot'); })),
+        row('向き', chips({ left: '左へ走る', right: '右へ走る' }, A.facing ?? 'left', (key) => { A.facing = key; build(); showTab('shot'); })),
+        row('背景', chips(I.ART_BACKDROPS, A.backdrop ?? 'sunset', (key) => { A.backdrop = key; build(); showTab('shot'); })),
+        row('馬場', chips({ 芝: '芝', ダート: 'ダート' }, A.surface ?? '芝', (key) => { A.surface = key; build(); showTab('shot'); })),
+        row('風の筋', chips({ on: 'あり', off: 'なし' }, A.wind === false ? 'off' : 'on', (key) => { A.wind = key === 'on' ? undefined : false; build(); showTab('shot'); })),
+        el('p.note', { text: 'カメラは絵をドラッグで回し、ホイールで寄る。' }),
+        row('回り込み', camSl.az), row('高さ', camSl.el), row('画角', camSl.fov),
+        el('div.ik-gbtns', [button('カメラを構えに戻す', () => { A.camera = null; stage?.setCamera(cam()); draw(); syncCamSliders(); }, { cls: 'sm' })]),
+      ];
+    }
+    if (t === 'fx') {
+      // 固有スキルのエフェクト。絵に描くのは選んだときだけ（おまかせは絵に付けず、観戦は固有のカードの既定）
+      const uc = h.cardId ? I.uniqueCardOf(I.cardById(h.cardId)) : h.unique ? I.cardById(h.unique) : null;
+      const uq = uc ? I.uniqueOf(uc) : null;
+      const auto = uc ? I.uniqueFxOf(uc) : null;
+      const cur = A.fx ?? 'auto';
+      const pick = (k) => { A.fx = k === 'auto' ? undefined : k; showTab('fx'); };
+      // 向き：先頭（竜巻の細い側・稲妻の走る先）が向く方。粒は反対へ流れる。自動は馬の向き
+      const dirChip = (k, name) => el(`button.ikce-chip${(A.fxDir ?? 'auto') === k ? '.on' : ''}`, { onclick: () => { A.fxDir = k === 'auto' ? undefined : k; draw(); showTab('fx'); } }, [name]);
+      const chip = (k, name, color = null) => el(`button.ikce-chip.ikce-fx${cur === k ? '.on' : ''}`, { style: color ? `--c:${color}` : null, onclick: () => pick(k) }, [color ? el('i') : null, name]);
+      return [
+        row('エフェクト', el('div.ikce-chips', [
+          chip('auto', 'おまかせ'), chip('none', 'なし'),
+          ...Object.entries(I.SKILL_FX).map(([k, f]) => chip(k, f.name, f.color)),
+        ])),
+        row('カットインの向き', el('div.ikce-chips', [dirChip('auto', `自動（${A.facing === 'right' ? '右' : '左'}）`), dirChip('left', '← 左向き'), dirChip('right', '右向き →')])),
+        // 時間：止めた絵の時刻だけを進める（脚の運びを変えると馬の形が変わって粒の出どころも変わるので、エフェクトだけ動かすのはこちら）
+        A.fx in I.SKILL_FX ? row('時間', slider(0, I.FX_TIME_MAX, 0.02, A.fxT ?? 0, (v) => { A.fxT = v || undefined; draw(); }, (v) => `+${v.toFixed(2)} 秒`)) : null,
+        el('p.note', { text: uq
+          ? `固有スキル「${uq.name}」の発動（観戦の 3D とカットイン）にも、このエフェクトが出る。おまかせは絵に描かず、発動は${I.SKILL_FX[auto].name}。なしは発動の演出もエフェクトなし。`
+          : 'この馬は固有スキルを持たないので、エフェクトはカードの絵だけに付く（LM の親から固有を受け継いだ馬は発動にも出る）。' }),
+      ];
+    }
+    if (t === 'gear') {
+      return [
+        el('p.note', { text: '馬具はカードの絵とレース（対戦）の両方に効く。' }),
+        ...I.GEAR_KEYS.map((key) => {
+          const on = !!E.gear[key];
+          const colored = key === 'menko' || key === 'shadowRoll';
+          return el(`div.gear-row${on ? '.on' : ''}`, [
+            el('button.gear-tog', {
+              onclick: () => {
+                if (on) delete E.gear[key];
+                else {
+                  E.gear[key] = colored ? I.GEAR_COLORS[0] : true;
+                  if (key === 'blinker') delete E.gear.cheek;
+                  if (key === 'cheek') delete E.gear.blinker;
+                }
+                build(); showTab('gear');
+              },
+            }, [el('b', { text: I.GEAR[key].name }), el('small', { text: I.GEAR[key].desc })]),
+            colored && on ? swatches(I.GEAR_COLORS, E.gear[key], (c) => { E.gear[key] = c; build(); showTab('gear'); }) : null,
+          ]);
+        }),
+      ];
+    }
+    if (t === 'silks') {
+      const S = (A.silks ??= { body: '#c8202a', accent: '#f4f2ec', pattern: '輪', sleeve: 'plain' });
+      const set = (key, v) => { S[key] = v; E.customSilks = true; build(); showTab('silks'); };
+      return [
+        row('勝負服', chips({ orig: base.silks ? '元の服' : 'おまかせ', custom: '自分で決める' }, E.customSilks ? 'custom' : 'orig', (key) => { E.customSilks = key === 'custom'; build(); showTab('silks'); })),
+        ...(E.customSilks ? [
+          row('胴の色', swatches(SILK_COLORS, S.body, (c) => set('body', c))),
+          row('柄の色', swatches(SILK_COLORS, S.accent, (c) => set('accent', c))),
+          row('柄', chips(Object.fromEntries(I.SILK_PATTERNS.map((x) => [x, x])), S.pattern, (key) => set('pattern', key))),
+          row('袖', chips(I.SILK_SLEEVES, S.sleeve, (key) => set('sleeve', key))),
+          row('帽子', swatches(SILK_COLORS, typeof S.cap === 'number' ? `#${S.cap.toString(16).padStart(6, '0')}` : null, (c) => set('cap', parseInt(c.slice(1), 16)))),
+        ] : []),
+        row('ゼッケン', slider(1, 18, 1, A.gate ?? 1, (v) => { A.gate = v; clearTimeout(E.gt); E.gt = setTimeout(build, 200); }, (v) => String(v))),
+      ];
+    }
+    // 二つ名
+    const inp = el('input.ikce-name', { type: 'text', maxLength: 16, value: A.epithet ?? '', placeholder: epithetOf({ ...I.finishedCard(h), epithet: null }) });
+    inp.addEventListener('input', () => { A.epithet = inp.value; });
+    return [row('二つ名（16 字まで）', inp), el('p.note', { text: '空なら自動で付く（得意な能力と看板のレースから）。' })];
+  };
+
+  const save1 = () => {
+    if (!E.customSilks) A.silks = undefined;
+    I.setFinishedArt(p, h.id, A);
+    I.setFinishedGear(p, h.id, E.gear);
+    save(app);
+    app.ikEdit = null;
+    sound.play('bell');
+    toast(`${h.name}をカードにした`);
+    go('horse', { id: h.id });
+    showMyCard(app, h);
+  };
+  const leave = async () => {
+    if (!await ask('編集をやめて完成馬の画面へ戻る？（決めた撮り方は残らない）', { ok: 'やめる', cancel: '続ける' })) return;
+    app.ikEdit = null;
+    go('horse', { id: h.id });
+  };
+  build();
+  showTab(E.tab);
+  // 別のページ（全画面）。下のボタン列や上の帯を出さず、絵と操作だけにする
+  return el('div.ikce-full', [
+    el('header.ikce-top', [
+      el('button.ikp-back', { onclick: leave, title: '戻る' }, icon('back', { size: 24 })),
+      el('div.ikce-ttl', [el('b', { text: 'カード編集' }), el('small', { text: `${h.rar}　${h.name}` })]),
+      button(h.art ? '作り直す' : 'カードにする', save1, { cls: 'primary' }),
+    ]),
+    el('div.ikce-main', [
+      el('div.ikce-stagebox', [el('div.ikce-frame', [canvas, hint])]),
+      el('div.ikce-side', [tabsBar, panel]),
+    ]),
+  ]);
+}
+
+// ---------------------------------------------------------------- 対戦
+
+// ---------------------------------------------------------------- イベント
+
+/**
+ * イベントのバナー。報酬のカードの一枚絵（背景）と切り抜き（モンジューとエルコンドルパサー）を重ね、題と進みを載せる。
+ * 絵は撮影の舞台で撮ったものを使い回す（cardArt。WebGL を増やさない）。
+ */
+function eventBanner(app, ev, onclick = null) {
+  const c = I.cardById(ev.reward);
+  const st = I.eventState(app.ik, ev.id);
+  const bg = el('span.ikev-bg');
+  const hero = el('img.ikev-hero', { alt: c.name, draggable: false });
+  bgInto(bg, c);
+  stickerInto(hero, c, { mode: 'img' });
+  return el(`${onclick ? 'button' : 'div'}.ikev-banner`, { onclick }, [
+    bg, el('span.ikev-shade'), hero,
+    el('div.ikev-tx', [
+      el('span.ikev-tag', { text: 'EVENT' }),
+      el('small.ikev-en', { text: ev.en ?? String(ev.year) }),
+      el('b.ikev-ttl', { text: ev.race.name }),
+      el('span.ikev-sub', { text: `― ${c.epithet} ―` }),
+      el('span.ikev-rw', [el('i', { text: c.rar }), el('span', { text: `${c.name} を手に入れよう` })]),
+      el('span.ikev-stars', [1, 2, 3, 4, 5].map((n) => el(`i${st.cleared.includes(n) ? '.on' : ''}`, { text: '★' }))),
+    ]),
+  ]);
+}
+
+/**
+ * 対戦の画面のイベント：バナーを横に並べ、スワイプ（指・トラックパッド・マウスのドラッグ）か矢印・点で切り替える。
+ * 新しいイベントを先頭に。並びは CSS の scroll-snap（指の慣性に任せる）。見ていた 1 枚は app.ikEvSlide に覚える。
+ */
+function eventCarousel(app, go) {
+  const evs = [...I.EVENTS].reverse();
+  const track = el('div.ikev-track', evs.map((ev) => el('div.ikev-slide', [eventBanner(app, ev, () => { if (!dragged) go('event', { ev: ev.id }); })])));
+  const dots = el('div.ikev-dots', evs.map((ev, i) => el('button', { 'aria-label': ev.name, onclick: () => to(i) })));
+  const idx = () => Math.round(track.scrollLeft / Math.max(1, track.clientWidth));
+  const mark = () => {
+    const i = idx();
+    app.ikEvSlide = evs[i]?.id;
+    [...dots.children].forEach((d, k) => d.classList.toggle('on', k === i));
+    prev.disabled = i <= 0; next.disabled = i >= evs.length - 1;
+  };
+  const to = (i) => track.scrollTo({ left: Math.max(0, Math.min(evs.length - 1, i)) * track.clientWidth, behavior: 'smooth' });
+  const prev = el('button.ikev-arrow.prev', { 'aria-label': '前のイベント', onclick: () => to(idx() - 1), text: '‹' });
+  const next = el('button.ikev-arrow.next', { 'aria-label': '次のイベント', onclick: () => to(idx() + 1), text: '›' });
+  let raf = 0;
+  track.addEventListener('scroll', () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(mark); }, { passive: true });
+  // マウスのドラッグでも送る（指とトラックパッドは scroll-snap がそのまま効く）。動かしたらバナーの押下にしない
+  let dragged = false, sx = 0, sl = 0, down = false, ddx = 0;
+  // 押さえた要素に捕まえておく（window に付けると画面を描き直すたびに係が増える）
+  // 押した瞬間の既定の動き（絵の掴み・文字の選択）を止める。止めないと 1 歩目で掴みが始まり、以降の pointermove が来なかった
+  track.addEventListener('pointerdown', (e) => { if (e.pointerType !== 'mouse' || evs.length < 2) return; e.preventDefault(); down = true; dragged = false; sx = e.clientX; sl = track.scrollLeft; });
+  track.addEventListener('pointermove', (e) => {
+    if (!down) return;
+    const dx = ddx = e.clientX - sx;
+    if (!dragged && Math.abs(dx) > 6) { dragged = true; track.setPointerCapture(e.pointerId); track.classList.add('drag'); }
+    if (dragged) track.scrollLeft = sl - dx;
+  });
+  const up = () => { if (!down) return; down = false; if (dragged) {
+    // 少し動かしただけでも向きのほうへ 1 枚送る（半分まで引かないと戻るのは重い）
+    track.classList.remove('drag');
+    to(Math.round(sl / Math.max(1, track.clientWidth)) + (ddx < -40 ? 1 : ddx > 40 ? -1 : 0));
+  } setTimeout(() => { dragged = false; }, 0); };
+  track.addEventListener('pointerup', up);
+  track.addEventListener('pointercancel', up);
+  const wrap = el('div.ikev-car', [track, evs.length > 1 ? prev : null, evs.length > 1 ? next : null, evs.length > 1 ? dots : null]);
+  // 覚えていた 1 枚から（描いた後に幅が決まるので次のフレームで）
+  const start = Math.max(0, evs.findIndex((e) => e.id === app.ikEvSlide));
+  requestAnimationFrame(() => { track.scrollLeft = start * track.clientWidth; mark(); });
+  return wrap;
+}
+
+/** イベントの画面：バナー・難易度（☆1〜☆5）・出る馬・出走馬（史実の 14 頭）・報酬。 */
+function eventView(app, go) {
+  const p = app.ik;
+  const ev = I.EVENTS.find((e) => e.id === app.params.ev) ?? I.EVENTS.at(-1);
+  const st = I.eventState(p, ev.id);
+  const c = I.cardById(ev.reward);
+  // 難易度と出る馬はイベントごとに覚える（凱旋門賞で選んだ☆を BC クラシックへ持ち越さない）
+  app.ikEvent ??= {};
+  const E = app.ikEvent[ev.id] ??= {};
+  E.star ??= Math.min(5, (st.cleared.length ? Math.max(...st.cleared) : 0) + 1);
+  const turfs = [...p.finished].sort((a, b) => b.rating - a.rating);
+  if (turfs.length) E.horse = p.finished.some((h) => h.id === E.horse) ? E.horse : turfs[0].id;
+  const starBtns = el('div.ikev-diff', [1, 2, 3, 4, 5].map((n) => el(`button.ikev-star${E.star === n ? '.on' : ''}${st.cleared.includes(n) ? '.done' : ''}`, {
+    onclick: () => { E.star = n; go('event', { ev: ev.id }); },
+  }, [el('b', { text: '☆'.repeat(n) }), el('small', { text: st.cleared.includes(n) ? '勝利済み' : '報酬あり' })])));
+  const horseSel = el('select.inp', { onchange: (e) => { E.horse = Number(e.target.value); go('event', { ev: ev.id }); } },
+    turfs.map((h) => el('option', { value: String(h.id), text: `${h.rank} ${h.name}（${h.rating}）`, selected: h.id === E.horse })));
+  const me = p.finished.find((h) => h.id === E.horse);
+  const R = ev.race;
+  const D = R.distance;
+  const fitTxt = me ? [
+    R.surface === '芝' ? `芝 ${MARK(me.turf)}` : `ダート ${MARK(me.dirt)}`,
+    R.ground !== '良' ? `重い馬場 ${MARK(me.soft)}` : null,
+    `${D}m ${Math.abs(me.dist - D) <= (me.range ?? 400) ? '○' : Math.abs(me.dist - D) <= 800 ? '△' : '×'}`,
+  ].filter(Boolean).join('　') : '';
+  const run = () => {
+    const out = I.eventRace(p, E.horse, ev.id, E.star);
+    save(app);
+    if (out.reward?.isNew) app.ikNew = true;
+    app.ikRace = { race: out.result, looks: looksOf(out.field, p), mine: [100], order: out.order, back: 'event', backParams: { ev: ev.id },
+      title: `${ev.name}（${'☆'.repeat(E.star)}）`, fired: out.fired, reward: out.reward };
+    sound.play(out.order === 1 ? 'bell' : out.order <= 3 ? 'win' : 'ok');
+    go('result');
+  };
+  const lvl = (m) => {
+    const a = I.STATS.reduce((t, k) => t + m.ab[k], 0) / 5 + I.STAR_D[E.star];
+    return '★'.repeat(Math.max(1, Math.min(5, Math.round((a - 0.5) / 0.05))));
+  };
+  return [
+    eventBanner(app, ev),
+    el('p.ikev-blurb', { text: ev.blurb }),
+    card('難易度', [
+      starBtns,
+      el('p.note', { text: `各難易度で初めて勝つと ${c.name}（${c.rar}）を 1 枚。☆1〜☆5 の 5 つで 5 枚＝覚醒 MAX。いま ${st.cleared.length}/5（挑戦 ${st.tries} 回）。☆4 でほぼ史実の強さ。` }),
+    ]),
+    card('出る馬', turfs.length ? [
+      el('div.form', [el('label', ['完成馬', horseSel])]),
+      me ? styleSeg(I.horseRaceStyle(me), I.styleNameOf(me.style), (x) => { I.setHorseRaceStyle(me, x); save(app); }) : null,
+      el('p.note', { text: `${ev.stage}。${me ? `${me.name}：${fitTxt}` : ''}` }),
+      el('div.ik-gbtns', [button(`${'☆'.repeat(E.star)} で出走する`, run, { cls: 'primary big' })]),
+    ] : [el('p', { text: 'イベントには完成馬が要る。' }), button('育成へ', () => go('run'), { cls: 'primary' })]),
+    card(`出走馬（${ev.year} 年 ${ev.date}・${ev.field.length} 頭）`, [
+      table(['史実', '馬名', '', '脚質', `強さ（${'☆'.repeat(E.star)}）`], ev.field.map((m) => [
+        `${m.pos}着`, el(m.cardId === c.id ? 'b.mine' : 'span', { text: m.name }), `${m.sex}${m.age}`,
+        { 0.05: '逃げ', 0.3: '先行', 0.62: '差し', 0.88: '追込' }[m.style] ?? '', el('span.ikev-lv', { text: lvl(m) }),
+      ]), { cls: 'ik-tbl' }),
+    ]),
+    card('報酬', [
+      el('div.ikev-reward', [
+        cardView(c, { scale: fit(0.3), count: p.cards[c.id] ?? 0, dim: !p.cards[c.id], onClick: p.cards[c.id] ? (x) => showCard(app, x) : null }),
+        el('div', [
+          el('b', { text: `${c.rar} ${c.epithet} ${c.name}` }),
+          el('p.note', { text: `イベントの報酬でだけ手に入る（ガチャに出ない・かけらで交換できない）。${c.name}も出走馬として走り、最後の直線で固有スキル「${c.epithet}」を使う。` }),
+          el('p', { text: `所持 ${p.cards[c.id] ?? 0} 枚　${(p.cards[c.id] ?? 0) >= 5 ? '覚醒 MAX' : `覚醒 ${Math.max(0, (p.cards[c.id] ?? 0) - 1)}`}` }),
+        ]),
+      ]),
+    ]),
+  ];
+}
+function battleView(app, go) {
+  const p = app.ik;
+  if (!p.finished.length) return [card('対戦', [el('p', { text: '対戦には完成馬が要る。' }), button('育成へ', () => go('run'), { cls: 'primary' })])];
+  app.ikBattle ??= {};
+  const B = app.ikBattle;
+  B.horse = p.finished.some((h) => h.id === B.horse) ? B.horse : [...p.finished].sort((a, b) => b.rating - a.rating)[0].id;
+  B.race ??= I.BATTLE_RACES[0].id;
+  B.diff ??= 'normal';
+  B.own ??= [];
+  B.own = B.own.filter((id) => p.finished.some((h) => h.id === id));
+  const raceSel = el('select.inp', { onchange: (e) => { B.race = e.target.value; } },
+    I.BATTLE_RACES.map((r) => el('option', { value: r.id, text: `${r.name}（${r.surface}${r.distance}m）`, selected: r.id === B.race })));
+  // 脚質の札は出る馬に合わせて差し替える（馬を選び直しても画面は描き直さない）
+  const segOf = (id) => { const h = p.finished.find((x) => x.id === id); return styleSeg(I.horseRaceStyle(h), I.styleNameOf(h.style), (x) => { I.setHorseRaceStyle(h, x); save(app); }); };
+  let seg = segOf(B.horse);
+  const horseSel = el('select.inp', { onchange: (e) => { B.horse = Number(e.target.value); const n = segOf(B.horse); seg.replaceWith(n); seg = n; } },
+    [...p.finished].sort((a, b) => b.rating - a.rating).map((h) => el('option', { value: String(h.id), text: `${h.rank} ${h.name}（${h.rating}）`, selected: h.id === B.horse })));
+  const diffTabs = tabs(Object.entries(I.DIFFICULTY).map(([id, d]) => ({ id, name: d.name })), B.diff, (id) => { B.diff = id; go('battle'); });
+  const runNpc = () => {
+    const out = I.battleNpc(p, B.horse, B.race, B.diff);
+    save(app);
+    app.ikRace = { race: out.result, looks: looksOf(out.field, p), mine: [100], order: out.order, back: 'battle', title: `ランク戦 ${out.race.name}（${I.DIFFICULTY[B.diff].name}）`, fired: out.fired };
+    sound.play(out.order === 1 ? 'bell' : out.order <= 3 ? 'win' : 'ok');
+    go('result');
+  };
+  const runOwn = () => {
+    if (B.own.length < 2) return toast('2 頭以上を選ぶ', { bad: true });
+    const out = I.battleOwn(p, B.own, B.race);
+    save(app);
+    app.ikRace = { race: out.result, looks: looksOf(out.field, p), mine: out.field.map((f) => f.id), back: 'battle', title: `完成馬対決 ${out.race.name}`, fired: out.fired };
+    sound.play('bell');
+    go('result');
+  };
+  return [
+    eventCarousel(app, go),
+    card('舞台', [el('div.form', [el('label', ['レース', raceSel])])]),
+    el('div.ik-cols', [
+      card('NPC とのランク戦', [
+        el('p.note', { text: '相手は全カードの名馬を育て上げた姿（12 頭立て）。強さは自分の馬に合わせて難しさで変わる。' }),
+        el('div.form', [el('label', ['出る馬', horseSel])]),
+        seg,
+        diffTabs,
+        button('出走する', runNpc, { cls: 'primary big' }),
+      ]),
+      card('自分の完成馬どうし', [
+        el('p.note', { text: '2〜16 頭を選んで走らせる。' }),
+        el('div.ik-pick', p.finished.map((h) => el('label.check', [
+          el('input', { type: 'checkbox', checked: B.own.includes(h.id), onchange: (e) => { B.own = e.target.checked ? [...B.own, h.id] : B.own.filter((x) => x !== h.id); } }),
+          el('span', { text: `${h.rank} ${h.name}` }),
+        ]))),
+        button('走らせる', runOwn, { cls: 'primary' }),
+      ]),
+    ]),
+  ];
+}

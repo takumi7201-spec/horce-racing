@@ -23,8 +23,9 @@ import {
   effectiveAbility, distanceAptitude, surfaceAptitude, groundAptitude,
   styleLabel, STYLE_TARGET, horseAge,
 } from './horse.js';
-import { buildTrack, curvatureAt, gradeAt, SURFACE, posToWorld } from './course.js';
+import { buildTrack, curvatureAt, gradeAt, SURFACE, posToWorld, getCourse } from './course.js';
 import { clamp, clamp01, lerp, formatMargin } from '../core/util.js';
+import { gearEffect } from './gear.js';
 
 /** 馬 1 頭が横に必要とする幅（m）。進路の取り合いの判定に使う。 */
 const BODY_W = 2.2;
@@ -63,6 +64,8 @@ function prepareRunner(entry, spec, rng) {
 
   let vMax = (PHYS.V_BASE + PHYS.V_SPEED_GAIN * eff.speed) * apt * ge.speed * jkSpeed * wPen;
   if (spec.surface === SURFACE.DIRT) vMax -= PHYS.V_DIRT_PENALTY;
+  // 競馬場ごとの補正（米国のダート）。日本の競馬場は持たない（0）。
+  vMax += (spec.surface === SURFACE.DIRT ? getCourse(spec.courseId).dirt : getCourse(spec.courseId).turf).vAdj ?? 0;
 
   // 適性は速度ではなく余力に効かせる。
   // マイラーが 3200m を持たないのも、ダート馬が芝で止まるのもこの項。
@@ -85,9 +88,14 @@ function prepareRunner(entry, spec, rng) {
     240, Math.min(1000, spec.distance - 180),
   );
 
-  // ゲート。気性と騎手で出遅れる。
+  // 馬具（世界のレースは entry.gear、育成モードは馬の raceGear。持たない馬は何も変わらない）。
+  // 効き目は気性に足す量で、気性の悪い馬ほど効く（gear.js）。育成モードの馬は気性を持たない（一律 0.6）ので、
+  // 馬具の効き目だけ気性 gearTemper（0.35）の馬として測る。
+  const gx = gearEffect(entry.gear ?? horse.raceGear, horse.gearTemper ?? horse.temper);
+
+  // ゲート。気性と騎手で出遅れる（メンコ・シャドーロールで音や影に驚かない）。
   const gateDelay = Math.max(0, PHYS.GATE_BASE
-    + rng.normal(0, 0.17) * (1.6 - horse.temper)
+    + rng.normal(0, 0.17) * (1.6 - (horse.temper + gx.start))
     - (jk.skill - 0.5) * 0.12);
 
   return {
@@ -99,8 +107,8 @@ function prepareRunner(entry, spec, rng) {
     // 掛かりやすさ。気性が悪いと道中で引っ張り合いになり余力を使う。
     // 平均的な気性（0.5）では掛からない。ここを緩くすると全馬の回顧が
     // 「終始掛かり気味」になり、言葉として意味を失う。
-    pull: clamp01((0.52 - horse.temper) * 2.4 - jk.skill * 0.4),
-    guts: eff.guts, spirit: horse.spirit,
+    pull: clamp01((0.52 - (horse.temper + gx.pull)) * 2.4 - jk.skill * 0.4),
+    guts: eff.guts, spirit: horse.spirit, focus: gx.focus,
     accMax: PHYS.ACC_MAX_BASE + PHYS.ACC_MAX_GAIN * eff.power,
     // 状態
     p: 0, v: 0, s: 0, off: 0, hpLeft: hp, busted: false, bustT: 0,
@@ -212,6 +220,8 @@ export function simulateRace(spec, rng, opts = {}) {
       // 残り 400m は根性と底力で粘る。
       if (rem < 400) {
         vCap *= 1 + PHYS.GUTS_GAIN * (r.guts * 0.7 + r.spirit * 0.3) * (1 - rem / 400);
+        // ブリンカー：前だけを見て、追ってから集中する
+        if (r.focus) vCap *= 1 + r.focus * (1 - rem / 400);
       }
 
       // --- 目標速度 ---
@@ -404,6 +414,7 @@ export function simulateRace(spec, rng, opts = {}) {
 
   return {
     raceId: spec.raceId, name: spec.name, classId: spec.classId, grade: spec.grade,
+    abroad: spec.abroad ?? null,
     courseId: spec.courseId, courseName: track.courseName,
     surface: spec.surface, distance: dist, ground: spec.ground, weather: spec.weather,
     year: spec.year, week: spec.week,

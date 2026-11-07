@@ -5,6 +5,8 @@ import { el, card, table, button, kv, bar, modal, toast, tabs, ask } from '../do
 import * as G from '../../sim/game.js';
 import { formatMoney } from '../../core/util.js';
 import { horseImg } from '../horse-sprite.js';
+import { icon } from '../icons.js';
+import { pedMarks, pedWithToggle } from './stable.js';
 
 export function farmScreen(app) {
   const g = app.game;
@@ -17,13 +19,20 @@ export function farmScreen(app) {
     { id: 'mares', name: `繁殖牝馬セール${mark(G.saleOpen(g, 'mare'))}` },
     { id: 'foal', name: `当歳セール${mark(G.saleOpen(g, 'foal'))}` },
     { id: 'overseas', name: `海外・庭先${mark(G.saleOpen(g, 'overseas') || G.saleOpen(g, 'private'))}` },
+    { id: 'direct', name: '牧場取引（通年）' },
+    { id: 'facilities', name: `施設${G.facilities(g).some((f) => f.build) ? '（建設中）' : ''}` },
     { id: 'entry', name: `入厩・馬名登録${mark(G.entryOpen(g))}` },
   ], tab, (id) => app.go('farm', { tab: id, damId: app.params.damId }, { replace: true }));
 
   const body = tab === 'stallions' ? stallionBook(app)
     : tab === 'mares' ? mareSaleView(app)
       : tab === 'foal' ? horseSaleView(app, 'foal')
-        : tab === 'overseas' ? el('div', [overseasView(app), horseSaleView(app, 'private')])
+        : tab === 'overseas' ? el('div', [overseasView(app), horseSaleView(app, 'private'), mareSaleView(app, 'pMare')])
+          : tab === 'facilities' ? facilitiesView(app)
+          : tab === 'direct' ? el('div', [
+            el('p.note', { text: `セールの外でも、牧場から直接買える。相対取引なので割高（セール価格のおよそ ${G.DIRECT_PREMIUM} 倍）。顔ぶれは 12 週ごとに入れ替わる。史実の名馬になる幼駒と実在の名牝は出ない。` }),
+            horseSaleView(app, 'dFoal'), horseSaleView(app, 'dYearling'), mareSaleView(app, 'dMare'),
+          ])
           : tab === 'entry' ? entryView(app)
             : matingView(app);
   return el('div', [nav, body]);
@@ -61,28 +70,46 @@ function matingView(app) {
   const evalBox = el('div.mating-eval');
   let sireId = null;
 
+  const fm = G.fame(g);
+  // 並べ替えと「自分の種牡馬だけ」。画面を作り直しても残るよう app に覚える。
+  const opt = app.matingOpt ??= { sort: 'fee', mine: false };
+  const sortSel = el('select.inp', [
+    ['fee', '種付料の高い順'], ['rank', 'ランクの高い順'], ['burst', '爆発力の高い順'], ['risk', '危険度の低い順'],
+  ].map(([v, t]) => el('option', { value: v, text: t, selected: opt.sort === v ? '' : null })));
+  sortSel.value = opt.sort;
+  const mineBox = el('input', { type: 'checkbox' });
+  mineBox.checked = opt.mine;
+  const RANK_CLS = { S: 'rk-s', A: 'rk-a', B: 'rk-b', C: 'rk-c', D: 'rk-d', E: 'rk-e' };
+  const rankChip = (r) => el(`b.rank.${RANK_CLS[r] ?? 'rk-e'}`, { text: r });
+
   const renderList = () => {
     list.textContent = '';
+    opt.sort = sortSel.value;
+    opt.mine = mineBox.checked;
     const maxFee = Number(budgetInput.value) || Infinity;
-    const ss = G.stallions(g, { maxFee, search: search.value.trim() }).slice(0, 60);
+    const ss = G.matingCandidates(g, damId, { maxFee, search: search.value.trim(), mine: opt.mine, sort: opt.sort }).slice(0, 80);
     if (!ss.length) {
-      list.appendChild(el('p.empty', { text: 'その条件の種牡馬は居ない。予算を上げてみる。' }));
+      list.appendChild(el('p.empty', { text: opt.mine ? '自分の種牡馬が居ない。重賞を勝った牡馬や実在の牡馬を引退させると種牡馬になる。' : 'その条件の種牡馬は居ない。予算を上げてみる。' }));
       return;
     }
-    list.appendChild(table(['種牡馬', '年齢', '系統', '因子', '種付料', '産駒', '評価', ''],
+    // 列が多いので年齢は名前の下に添える（系統の列が細くなって 1 文字ずつ折り返していた）。
+    // 行を押すと選ぶ（「選ぶ」の列は幅を食って危険度の列がはみ出したので外した）。
+    list.appendChild(table(['種牡馬', '系統', '因子', '種付料', 'ランク', '爆発力', '危険度'],
       ss.map((s) => {
-        const ev = damId ? G.evaluateMating(g, damId, s.id) : null;
+        const ev = s.ev;
         return {
           cells: [
-            sireName(s), `${s.age}歳`, s.line, factorChips(s.factors),
-            formatMoney(s.fee), `${s.foals}頭`,
-            ev ? el('span.stars', { text: '★'.repeat(ev.stars) + '☆'.repeat(5 - ev.stars) }) : '—',
-            button('選ぶ', () => { sireId = s.id; renderEval(); }, { cls: 'sm' }),
+            el('div', [sireName(s), el('small.age', { text: `${s.age}歳` })]), el('small.line', { text: s.line }), factorChips(s.factors),
+            s.mine ? el('span.free', { text: '無料' }) : formatMoney(s.fee),
+            s.locked ? el('small.locked', { text: `名声${fm.need}〜`, title: `海外の種牡馬は名声 ${fm.need} から（いま ${fm.fame}）` })
+              : ev ? rankChip(ev.rank) : '—',
+            ev ? el('b.tb', { text: String(ev.burst) }) : '—',
+            ev ? (ev.blocked ? el('small.locked', { text: '種付不可' }) : el('span', { text: String(ev.riskPoints), class: ev.riskPoints >= 4 ? 'tr' : null })) : '—',
           ],
           cls: sireId === s.id ? 'sel' : null,
-          onclick: () => { sireId = s.id; renderEval(); renderList(); },
+          onclick: s.locked ? null : () => { sireId = s.id; renderEval(); renderList(); },
         };
-      }), { align: [, 'c', , , 'r', 'c', 'c'] }));
+      }), { align: [, , , 'r', 'c', 'c', 'c'] }));
   };
 
   const renderEval = () => {
@@ -95,15 +122,28 @@ function matingView(app) {
     const sire = G.getHorse(g, sireId);
     evalBox.appendChild(el('div', [
       el('h3', { text: `${sire.name} × ${dam.name}` }),
-      el('div.stars.big', { text: '★'.repeat(ev.stars) + '☆'.repeat(5 - ev.stars) }),
+      el('div.rank-line', [rankChip(ev.rank), el('div.stars.big', { text: '★'.repeat(ev.stars) + '☆'.repeat(5 - ev.stars) })]),
       kv([
-        ['種付料', formatMoney(ev.fee)],
+        ['種付料', ev.fee === 0 ? '無料（自分の種牡馬）' : formatMoney(ev.fee)],
         ['父の系統', ev.sireLine],
         ['母の父の系統', ev.damSireLine],
         ['ニックス', `${ev.nicks.grade}（産駒 ${ev.nicks.samples} 頭の実績）`],
         ['血の活力', ev.vigor.label],
-        ['近交の危うさ', bar(ev.risk, { color: ev.risk > 0.4 ? '#c75' : '#687' })],
+        ['爆発力', el('span', [el('b', { text: `${ev.burst}` }), el('small', { text: `　${ev.burstComment}` })])],
+        ['危険度', el('span', [bar(ev.risk, { color: ev.riskPoints >= 4 ? '#c75' : '#687' }), el('small', { text: ` ${ev.riskComment}` })])],
       ]),
+      ev.blocked ? el('p.warn', { text: ev.blocked }) : null,
+      ev.theories.length
+        ? el('div', [
+          el('h4', { text: `成立する配合理論（${ev.theories.length}）` }),
+          el('ul.inb.theories', ev.theories.map((t) => el('li', [
+            el('i.tchip', { text: t.name }),
+            el('b.tb', { text: t.burst ? ` 爆発力 +${t.burst}` : '' }),
+            t.risk ? el('b.tr', { text: ` 危険度 +${t.risk}` }) : null,
+            el('br'), el('small', { text: t.text }),
+          ]))),
+        ])
+        : el('p.note', { text: '成立する配合理論は無い。' }),
       ev.factors.list.length
         ? el('div', [
           el('h4', { text: '受け継ぐ因子（3 代まで）' }),
@@ -119,13 +159,13 @@ function matingView(app) {
         ])
         : el('p.note', { text: 'インブリードは入らない（アウトブリード）。' }),
       el('p.comment', { text: ev.comment }),
-      button(`この配合で種付けする（${formatMoney(ev.fee)}）`, () => {
+      button(ev.fee === 0 ? 'この配合で種付けする（無料）' : `この配合で種付けする（${formatMoney(ev.fee)}）`, () => {
         const r = G.bookMating(g, damId, sireId);
         if (!r.ok) return toast(r.why, { bad: true });
         toast(`${sire.name} との配合を予約した`);
         app.render();
         return undefined;
-      }, { cls: 'primary big', disabled: g.world.player.money < ev.fee || !G.matingOpen(g) || !!dam.pregnancy }),
+      }, { cls: 'primary big', disabled: g.world.player.money < ev.fee || !G.matingOpen(g) || !!dam.pregnancy || !!ev.blocked }),
       el('p.note', {
         text: dam.pregnancy ? `${dam.name} は受胎している（${dv.pregnancy.year}年 4 月に出産）。`
           : '種付けは 5〜6 月。6 月末に受胎が分かり、翌年 4 月に生まれる。不受胎なら種付料は返る。',
@@ -135,6 +175,8 @@ function matingView(app) {
 
   budgetInput.addEventListener('input', renderList);
   search.addEventListener('input', renderList);
+  sortSel.addEventListener('change', renderList);
+  mineBox.addEventListener('change', renderList);
   renderList();
   renderEval();
 
@@ -166,19 +208,32 @@ function matingView(app) {
           }, { cls: 'sm ghost' }),
         ]), { align: [, , 'r'] })) : null,
       card('種牡馬を探す', [
+        el('p.note', { text: fm.abroadOk
+          ? `名声 ${fm.fame}。海外の種牡馬にも種付けできる。`
+          : `名声 ${fm.fame}。海外の種牡馬は名声 ${fm.need} から（レースに勝つと上がる。GI は +15、重賞は +5〜8）。` }),
         el('div.form-row', [
           el('label', ['予算（万円）', budgetInput]),
           el('label', ['名前', search]),
         ]),
+        el('div.form-row', [
+          el('label', ['並べ替え', sortSel]),
+          el('label.chk', [mineBox, '自分の種牡馬だけ（種付料無料）']),
+        ]),
+        el('p.note', { text: 'ランクは S〜E（親の格・爆発力・距離の噛み合い）。爆発力は仔の素質の上振れの大きさ、危険度は丈夫さと気性を削る度合い（0〜7）。行を押すと右に評価が出る。' }),
         list,
       ]),
     ]),
     el('div.col', [
       dv ? card(`${dv.name} の血統`, pedigreeMini(g, damId)) : null,
       card('配合の評価', evalBox),
+      card('配合理論', [
+        el('p.note', { text: '「ウイニングポスト 10 2026 攻略」の配合理論に合わせた。成り立った理論は爆発力（スピードの底上げ）とサブパラを上げ、近親やラインブリードは危険度が上がる。ウマソナ・ライバル・牝系・ドラマ因子・繋養地域に関わる理論はこのゲームには無い。' }),
+        el('ul.howto', G.theoryGuide().map((t) => el('li', [el('b', { text: t.name }), el('br'), el('small', { text: t.text })]))),
+      ]),
       card('配合の考えかた', el('ul.howto', [
-        el('li', { text: '3×4 のインブリードがいちばん効く。近すぎる配合は能力より丈夫さを削る。' }),
-        el('li', { text: 'ニックス（父系 × 母父系の相性）は産駒 12 頭ぶんの実績が出るまで「？」のまま。' }),
+        el('li', { text: '3×4 のインブリード（奇跡の血量）が効く。近すぎる配合は爆発力が大きいぶん、丈夫さと気性を削る（危険度）。' }),
+        el('li', { text: '爆発力は、仔のスピードの底上げの上限。0〜(爆発力−1) の抽選で決まり、サブパラは理論ごとに上がる。' }),
+        el('li', { text: 'ニックス（父系 × 母方の系統の相性）は産駒 12 頭ぶんの実績が出るまで「？」のまま。成立すると爆発力が上がる。' }),
         el('li', { text: '父と母で得意距離が離れていると、中途半端な仔が出やすい。' }),
         el('li', { text: '両親の能力はそのまま伝わらない。平均へ戻る力が働く（名馬の仔が凡馬で終わることもある）。' }),
       ])),
@@ -198,9 +253,10 @@ function pedigreeMini(g, id) {
   };
   walk(tree.sire, 1);
   walk(tree.dam, 1);
-  return el('div.ped.mini', cols.map((cells) => el('div.ped-col', cells.map((n) =>
+  const ped = el('div.ped.mini', cols.map((cells) => el('div.ped-col', cells.map((n) =>
     el('div.ped-cell', { class: n ? (n.sex === '牡' ? 'male' : 'female') : 'blank' },
-      el('span', { text: n ? n.name : '—' }))))));
+      n ? [el('span', { text: n.name }), pedMarks(n)] : el('span', { text: '—' }))))));
+  return pedWithToggle(ped);
 }
 
 // ---------------------------------------------------------------- 種牡馬名鑑
@@ -239,21 +295,26 @@ const factorChips = (list) => (list?.length
  * 実在の名牝と、ほかの牧場の繁殖牝馬。代表産駒は実在の仔
  * （イクイノックスの母ならイクイノックス）を先に出す。受胎中の馬はお腹の仔ごと買う。
  */
-function mareSaleView(app) {
+function mareSaleView(app, kind = 'mare') {
   const g = app.game;
-  const open = G.saleOpen(g, 'mare');
-  const lots = G.mareSale(g);
+  const direct = kind === 'dMare';
+  const lots = kind === 'mare' ? G.mareSale(g) : G.directSale(g, kind);
+  const open = direct ? true : kind === 'pMare' ? G.saleOpen(g, 'private') : G.saleOpen(g, 'mare');
   const money = g.world.player.money;
   const list = lots.map((m) => m.id);
-  return card(`繁殖牝馬セール（${lots.length} 頭）`, [
-    seasonNote(g, open, '10 月', '繁殖牝馬セール'),
-    el('p.note', { text: '値段は格と年齢、母としての実績（GI 馬の母）、受胎していれば父の種付料で決まる。' }),
+  const title = direct ? '繁殖牝馬（牧場取引）' : kind === 'pMare' ? '繁殖牝馬（庭先取引）' : '繁殖牝馬セール';
+  return card(`${title}（${lots.length} 頭）`, [
+    direct ? null : seasonNote(g, open, kind === 'pMare' ? '3 月・7 月・12 月' : '10 月', kind === 'pMare' ? '庭先取引' : '繁殖牝馬セール'),
+    el('p.note', { text: kind === 'mare'
+      ? '値段は格と年齢、母としての実績（GI 馬の母）、受胎していれば父の種付料で決まる。'
+      : direct ? '値段は格と年齢、母としての実績で決まる（相対取引なのでセールより高い）。'
+        : '庭先取引の開催中だけ、ほかの牧場が手放す繁殖牝馬を直接買える。' }),
     table(['繁殖牝馬', '年齢', '父', '母の父', '代表勝鞍', '代表産駒', '産駒', '受胎', '価格', ''],
       lots.map((m) => ({
         cells: [
           sireName(m), `${m.age}歳`, m.sire, m.damSire, m.bestWin ?? '—', m.bestFoal ?? '—', `${m.foals}頭`,
           m.inFoal ?? '空胎', formatMoney(m.price),
-          m.sold ? el('span.mine', { text: '落札済み' }) : buyButton(app, 'mare', m, open && money >= m.price),
+          m.sold ? el('span.mine', { text: '落札済み' }) : buyButton(app, kind, m, open && money >= m.price),
         ],
         onclick: () => app.go('stable', { id: m.id, list }),
       })), { align: [, 'c', , , , , 'c', , 'r'] }),
@@ -268,7 +329,7 @@ function buyButton(app, kind, lot, enabled) {
     const r = G.buyLot(app.game, kind, lot.id);
     if (!r.ok) { toast(r.why, { bad: true }); return; }
     // 庭先の 1 歳馬は年明けに 2 歳で入厩し、幼駒から現役馬へ移る（名前もそのとき正式になる）。
-    toast(kind === 'private'
+    toast(kind === 'private' || kind === 'dYearling'
       ? `${lot.name} を購入した。年明けに 2 歳で入厩し、現役馬に移る`
       : `${lot.name} を ${formatMoney(r.price)} で購入した`);
     app.render();
@@ -280,18 +341,21 @@ function buyButton(app, kind, lot, enabled) {
 const SALE_TEXT = {
   foal: { title: '当歳セール（0 歳）', when: '8 月', what: '当歳セール',
     note: '今年 4 月に生まれた幼駒。見られるのは血統と馬体だけで、能力は走らせるまで分からない。' },
-  private: { title: '庭先取引（1 歳）', when: '12 月 3〜4 週', what: '庭先取引',
-    note: 'セールで売れ残った 1 歳馬を牧場から直接買う。12 月 4 週が最終チャンス（年明けには入厩する）。' },
+  private: { title: '庭先取引（1 歳）', when: '3 月・7 月・12 月', what: '庭先取引',
+    note: 'セールで売れ残った 1 歳馬を牧場から直接買う。春（3 月）・夏（7 月）・冬（12 月）に開く。冬の 4 週が最終チャンス（年明けには入厩する）。' },
+  dFoal: { title: '牧場取引：当歳（0 歳）', note: '4 月に生まれた幼駒を、いつでも直接買える。見られるのは血統と馬体だけ。' },
+  dYearling: { title: '牧場取引：1 歳', note: '1 歳馬をいつでも直接買える。年明けに 2 歳で入厩し、現役馬に移る。' },
 };
 
 function horseSaleView(app, kind) {
   const g = app.game;
   const t = SALE_TEXT[kind];
-  const open = G.saleOpen(g, kind);
-  const lots = kind === 'foal' ? G.foalSale(g) : G.privateSale(g);
+  const direct = kind === 'dFoal' || kind === 'dYearling';
+  const open = direct ? true : G.saleOpen(g, kind);
+  const lots = direct ? G.directSale(g, kind) : kind === 'foal' ? G.foalSale(g) : G.privateSale(g);
   const money = g.world.player.money;
   return card(t.title, [
-    seasonNote(g, open, t.when, t.what),
+    direct ? null : seasonNote(g, open, t.when, t.what),
     el('p.note', { text: t.note }),
     lots.length ? table(['', '馬名', '性', '毛色', '父', '母', '母の父', '馬体', 'インブリード', '価格', ''],
       lots.map((x) => [
@@ -307,7 +371,7 @@ function horseSaleView(app, kind) {
         formatMoney(x.price),
         x.sold ? el('span.mine', { text: '落札済み' }) : buyButton(app, kind, x, open && money >= x.price),
       ]), { align: ['c', , 'c', 'c', , , , 'c', , 'r'] })
-      : el('p.empty', { text: kind === 'foal' ? '上場馬が居ない（幼駒は 4 月に生まれる）。' : '上場馬が居ない。' }),
+      : el('p.empty', { text: kind === 'foal' || kind === 'dFoal' ? '上場馬が居ない（幼駒は 4 月に生まれる）。' : '上場馬が居ない。' }),
   ]);
 }
 
@@ -378,5 +442,58 @@ function entryView(app) {
         return [horseImg(c.coat, { size: 'xs', age: 1 }), el('b', { text: c.name }), c.sire, c.dam, input, sel];
       }))
       : el('p.empty', { text: '来年 2 歳になる馬が居ない。' }),
+  ]);
+}
+
+// ---------------------------------------------------------------- 牧場施設
+
+/**
+ * 牧場施設。建てると自分の馬だけに効く。完成まで工期がかかり、完成後は毎週の維持費が要る。
+ * 効果は小さいので、資金が少ないうちは先に馬を買うほうが得になる。
+ */
+function facilitiesView(app) {
+  const g = app.game;
+  const list = G.facilities(g);
+  const sum = G.facilitySummary(g);
+  const money = g.world.player.money;
+  const building = list.filter((f) => f.build).length;
+  const cardOf = (f) => {
+    const pct = f.build ? Math.round((1 - f.build.weeksLeft / f.build.total) * 100) : 0;
+    return el('div.fac', { class: f.level > 0 ? 'built' : null }, [
+      el('div.fac-h', [
+        el('span.fac-i', icon(f.icon, { size: 22 })),
+        el('div', [el('b', { text: f.name }), el('small', { text: f.desc })]),
+        el('span.fac-lv', { text: f.level ? `Lv ${f.level} / ${f.maxLevel}` : `未建設（最大 Lv ${f.maxLevel}）` }),
+      ]),
+      el('div.fac-pips', Array.from({ length: f.maxLevel }, (_, i) => el('i', { class: i < f.level ? 'on' : (f.build && i === f.level ? 'wip' : null) }))),
+      f.current ? el('p.fac-now', { text: `いまの効果：${f.current.text}　維持費 ${f.upkeep}万/週` }) : null,
+      f.build
+        ? el('div.fac-wip', [
+          el('span', { text: `Lv ${f.build.to} を建設中（あと ${f.build.weeksLeft} 週）` }),
+          el('span.fac-bar', el('i', { style: `width:${pct}%` })),
+        ])
+        : f.next
+          ? el('div.fac-next', [
+            el('div', [
+              el('b', { text: `次：Lv ${f.level + 1}` }),
+              el('small', { text: `${f.next.text}` }),
+              el('small', { text: `費用 ${formatMoney(f.next.cost)}・工期 ${f.next.weeks} 週・維持費 ${f.next.upkeep}万/週` }),
+            ]),
+            button('建設する', async () => {
+              if (!await ask(`${f.name} Lv ${f.level + 1} を ${formatMoney(f.next.cost)} で建設する？（工期 ${f.next.weeks} 週）`, { ok: '建設する' })) return;
+              const r = G.buildFacility(g, f.id);
+              if (!r.ok) return toast(r.why, { bad: true });
+              toast(`${r.name} Lv ${r.level} の建設を始めた（${r.weeks} 週）`);
+              app.render();
+            }, { cls: 'sm primary', disabled: !f.canBuild }),
+          ])
+          : el('p.fac-now', { text: '最大まで建てた' }),
+      !f.canBuild && f.next && !f.build ? el('small.fac-why', { text: f.why }) : null,
+    ]);
+  };
+  return card('牧場施設', [
+    el('p.note', { text: `建てると自分の馬だけに効く（ほかの馬主の馬には効かない）。同時に建設できるのは ${G.facilityLimit} つまで。完成後は毎週の維持費が要る。` }),
+    el('p.note', { text: `維持費の合計 ${sum.upkeep}万/週・建設中 ${building} つ・資金 ${formatMoney(money)}` }),
+    el('div.fac-list', list.map(cardOf)),
   ]);
 }
