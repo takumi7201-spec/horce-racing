@@ -1259,12 +1259,17 @@ canvas.race3d { width: 100%; height: 100%; display: block; }
 .tc-art .f { filter: saturate(1.12) contrast(1.06); }
 .tc-art .hb { position: absolute; inset: 0; background: var(--holo); background-size: var(--holo-size); background-position: calc(50% + var(--px)) calc(50% + var(--py));
   mix-blend-mode: overlay; opacity: calc(var(--hop) * var(--hk, 1) * (.55 + var(--tilt) * .9)); }
-/* 模様ごとの合成と強さ。点や雲の模様は overlay だと明るい背景に溶けて見えないので screen で光として足す。
-   銀河は暗い地に星を置く（overlay だと地が写真を暗くする）。 */
-.tc[data-holo="glitter"] .tc-art .hb { mix-blend-mode: screen; --hk: 1.5; }
-.tc[data-holo="cracked"] .tc-art .hb { --hk: 1.5; }
-.tc[data-holo="galaxy"] .tc-art .hb { mix-blend-mode: screen; --hk: 1.1; }
-.tc[data-holo="aurora"] .tc-art .hb { mix-blend-mode: screen; --hk: 2; }
+/* 馬の居るあたり（絵の中央の下寄り）はホロを弱める。全面に同じ強さで掛けると、明るい模様の上で馬の輪郭が溶けて見にくかった
+   （「白飛びしてる。モデルが見にくい」）。止まった覆い（mask）なので、傾けても描き直しの手間は増えない */
+.tc-art .hb, .tc-art .hbg, .tc-art .hb2 {
+  -webkit-mask-image: radial-gradient(ellipse 58% 42% at 50% 60%, #0005 0%, #0008 45%, #000 100%);
+  mask-image: radial-gradient(ellipse 58% 42% at 50% 60%, #0005 0%, #0008 45%, #000 100%); }
+/* 模様ごとの合成と強さ。点の模様（ラメ）は overlay だと明るい背景に溶けて見えないので screen で光として足す。
+   銀河とオーロラの雲は screen で足すと絵全体が白く飛んだ（明るい芝と空に光を重ねるため）。雲は soft-light で色だけ乗せ、強さも抑える。 */
+.tc[data-holo="glitter"] .tc-art .hb { mix-blend-mode: screen; --hk: 0.9; }
+.tc[data-holo="cracked"] .tc-art .hb { --hk: 1.05; }
+.tc[data-holo="galaxy"] .tc-art .hb { mix-blend-mode: soft-light; --hk: 1.2; }
+.tc[data-holo="aurora"] .tc-art .hb { mix-blend-mode: soft-light; --hk: 1.4; }
 .tc-art .hbg { position: absolute; inset: 0; background: radial-gradient(circle at 1px 1px, #fff 0 .7px, transparent 1.4px), repeating-linear-gradient(45deg, #ffffff22 0 1px, transparent 1px 4px), repeating-linear-gradient(-45deg, #ffffff18 0 1px, transparent 1px 5px);
   background-size: 6px 6px, auto, auto; mix-blend-mode: overlay; opacity: calc(var(--hop) * 1.2);
   -webkit-mask: linear-gradient(115deg, #0004, #000 40%, #0004 60%, #000); -webkit-mask-size: 200% 200%; -webkit-mask-position: calc(50% + var(--px)) calc(50% + var(--py)); }
