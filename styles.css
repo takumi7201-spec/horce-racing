@@ -1251,7 +1251,7 @@ canvas.race3d { width: 100%; height: 100%; display: block; }
 .tc-art .b, .tc-art .f, .tc-art .xb, .tc-art .xf { position: absolute; inset: 0; background-position: center; background-size: cover; }
 .tc-art .b { filter: blur(6px) saturate(1.1) brightness(1.06); transform: scale(1.03); }
 /* 絵が届くまではホロと光を出さない（暗い地に模様だけが出て、崩れたカードに見えた） */
-.tc:not(.ready) .tc-art .hb, .tc:not(.ready) .tc-art .hbg, .tc:not(.ready) .tc-art .hb2, .tc:not(.ready) .tc-glow, .tc.tc:not(.ready) .tc-lowholo { opacity: 0; }
+.tc:not(.ready) .tc-art .hb, .tc:not(.ready) .tc-art .hbg, .tc:not(.ready) .tc-art .hb2, .tc.tc:not(.ready) .tc-lowholo { opacity: 0; }
 .tc:not(.ready) .tc-art { background: linear-gradient(110deg, #13261a 30%, #1d3a26 50%, #13261a 70%) 0 0 / 300% 100%; animation: tc-wait 1.6s linear infinite; }
 @keyframes tc-wait { to { background-position: -150% 0; } }
 /* cardart.js がぼかしを焼き込んだ背景（CSS で毎回ぼかさない） */
@@ -1278,9 +1278,7 @@ canvas.race3d { width: 100%; height: 100%; display: block; }
 .tc-art .olr { position: absolute; inset: 0; background: var(--foil); background-size: 180% 100%; background-position: calc(50% + var(--px)) 0; opacity: 0;
   -webkit-mask-size: cover; mask-size: cover; -webkit-mask-position: center; mask-position: center; -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
   filter: drop-shadow(0 1px 0 #0009) drop-shadow(0 -0.5px 0 #fff8); }
-.tc-warm { position: absolute; inset: 0 0 262px 0; background: linear-gradient(160deg, #ffb84d40, transparent 50%, #4a2a0044); mix-blend-mode: soft-light; }
 .tc-vig { position: absolute; inset: 0 0 262px 0; box-shadow: inset 0 0 120px #000a; }
-.tc-glow { position: absolute; inset: 0 0 262px 0; opacity: var(--sun); mix-blend-mode: screen; }
 .tc-sparks { position: absolute; inset: 0 0 262px 0; opacity: 0; transition: opacity .4s; }
 .tc.ready .tc-sparks { opacity: 1; }
 .tc .sp { position: absolute; background: radial-gradient(circle, #fff 0, #fff6 30%, transparent 70%); border-radius: 50%; box-shadow: 0 0 8px #ffe9a0; }

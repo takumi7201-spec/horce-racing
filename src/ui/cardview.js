@@ -124,7 +124,6 @@ export function cardView(c, { scale = 0.4, onClick = null, count = 0, dim = fals
     '--holo': holoBg, '--holo-size': holoSize, '--hop': H?.op ?? 0, '--foil': foil ?? 'none', '--sun': T.sun,
   };
   const art = el('div.tc-art', [el('div.b'), el('div.hb'), el('div.hbg'), el('div.hb2'), el('div.xb'), el('div.f'), el('div.xf'), el('div.olr')]);
-  const glow = el('div.tc-glow');
   const sparks = el('div.tc-sparks', Array.from({ length: T.sparks }, (_, i) => {
     const x = (i * 37 + 11) % 100, y = (i * 53 + 7) % 62, s = 6 + ((i * 7) % 14), o = 0.5 + ((i * 13) % 5) / 10;
     return el('i.sp', { style: `left:${x}%;top:${y}%;width:${s}px;height:${s}px;opacity:${o}` });
@@ -142,7 +141,8 @@ export function cardView(c, { scale = 0.4, onClick = null, count = 0, dim = fals
     : [el('span', { text: `${packLine(c)}　${c.race.year} ${c.race.name} 優勝` }), el('span', { text: `No.${String(no).padStart(2, '0')}/${PACK_SIZE[c.pack]}` })];
   const card = el(`div.tc.r-${c.rar}${foil ? '.foiled' : ''}`, { style: Object.entries(vars).map(([k, v]) => `${k}:${v}`).join(';') }, [
     el('div.tc-in', [
-      art, el('div.tc-warm'), el('div.tc-vig'), glow, sparks,
+      // 絵の上に光（日の光芒・暖色の照り）は重ねない。明るく照らすと馬が白っぽく沈み、模様と溶けて見にくかった（「カードは照らさなくていい」）
+      art, el('div.tc-vig'), sparks,
       el('div.tc-race', [
         el(`b${foil ? '.foil' : ''}`, { text: c.race.name, style: `font-size:${c.race.name.length > 16 ? 19 : c.race.name.length > 12 ? 24 : 30}px` }),
         el('small', { text: c.race.info }),
@@ -197,10 +197,6 @@ export function cardView(c, { scale = 0.4, onClick = null, count = 0, dim = fals
         o.style.maskImage = `url(${a.ring})`;
         o.style.opacity = '1';
       }
-      const sx = a.sun?.visible ? Math.min(0.9, Math.max(0.1, a.sun.x)) : 0.55;
-      const sy = a.sun?.visible ? Math.min(0.4, Math.max(0.05, a.sun.y)) : 0.12;
-      const at = `${(sx * 100).toFixed(1)}% ${(sy * 100).toFixed(1)}%`;
-      glow.style.background = `radial-gradient(circle at ${at},#fff8d8 0%,#ffe08acc 7%,#ffc84a44 20%,transparent 42%),${T.rays ? `repeating-conic-gradient(from 0deg at ${at},#fff3b8${Math.round(T.rays * 34).toString(16).padStart(2, '0')} 0deg 3deg,transparent 3deg 9deg),` : ''}linear-gradient(180deg,#ffd36a33,transparent 40%,transparent 70%,#0d1a10 100%)`;
       card.classList.add('ready');
     }).catch(() => {}));
   return wrap;
