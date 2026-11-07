@@ -258,45 +258,56 @@ function drawAura(b, f, t, k, c, still) {
 let SOFT = true;
 
 // ---- イナズマ（2D）
-// 参考の絵（アニメ調の稲妻）：折れの少ない角ばった帯で、折れ目で太り先で細る。帯は中抜き（明るいアクアの縁・暗い青緑の中）で、
-// 所々の節は中まで明るく塗る。外に柔らかい光。枝の先は鉤に巻く。軸は横（走る向き）：馬の頭から出た幹がすぐ後ろで数本の指に割れ、
-// 胴を包んで尾の後ろの着弾点で一つに集まる。着弾点は黄緑の光と、後ろへ開く棘の冠。
-// 形は 0.08 秒ごとに作り直す（瞬く）が、割れる所と着弾点はシードで決めて動かさない（構図が跳ねない）。
+// 参考の絵（アニメ調の稲妻、利用者が挙げた絵）：左の頭に緑に光る矢じり（< の形の 2 本の弧と、その間の薄い膜）があり、そこから長い筋が
+// 後ろ（右）へ流れる。筋は長い区間がゆるく曲がり、ときどき鋭く折れ、先は針のように細る。細い所は明るい線、幅の広い所だけ
+// 暗い青緑の中抜き（明るい縁）になる。枝は途中から斜めに分かれて針の先で終わる。
+// 以前の版は短い折れの多いジグザグ・節ごとに膨らむ太さ・先の巻いた鉤・着弾点の棘の冠で「茨のように見える」と言われた。
+// 馬に当てるとき：矢じりは馬の頭、筋は胴と騎手を上下から包んで尾の後ろへ流れ、いちばん太い 1 本は絵の端まで伸びる（「馬の頭から尻尾にかけて出る」）。
+// 形は 0.09 秒ごとに作り直す（瞬く）が、筋の行き先はシードで決めて動かさない（構図が跳ねない）。
 const THUNDER_HIT = '#a8ff5c';
-/** 稲妻の背骨：(x0,y0) から (x1,y1) まで n 節。jag は横のずれ、bow は弓なりの膨らみ（指が馬を回る）。太さは折れ目で太り、端は w0・w1 倍。 */
-function boltSpine(r, x0, y0, x1, y1, n, jag, bow, W, w0 = 0.35, w1 = 0.12) {
-  const dx = x1 - x0, dy = y1 - y0, L = Math.hypot(dx, dy) || 1;
-  const px = -dy / L, py = dx / L;
-  const pts = [], ws = [];
-  for (let i = 0; i <= n; i++) {
-    const end = i === 0 || i === n;
-    // 折れ目の間隔も揃えない（等間隔だと機械の歯に見える）
-    const q = end ? i / n : (i + (r() - 0.5) * 0.55) / n;
-    const off = (end ? 0 : (r() - 0.5) * 2 * jag) + bow * Math.sin(q * Math.PI) ** 0.85;
-    pts.push([x0 + dx * q + px * off, y0 + dy * q + py * off]);
-    ws.push(i === 0 ? W * w0 : i === n ? W * w1 : W * (0.6 + r() * 0.75));
+/**
+ * 筋（2D）：(x0,y0) から角度 a0 で出て、行き先 (x1,y1) へ向かう。向きは毎歩少し揺れ、ときどき鋭く折れ、行き先へ引き戻される（不規則に曲がる）。
+ * 太さは W を基準に低い周波数でうねり、ときどき幅の広い刃（中抜きが見える）を持ち、先は 0 へ細る。w0 は出だしの太さの割合。
+ */
+function strand2(r, x0, y0, a0, x1, y1, W, { w0 = 0.4, blade = 0.5, kink = 0.25 } = {}) {
+  const L = Math.hypot(x1 - x0, y1 - y0) * 1.05;
+  const n = 7 + Math.floor(r() * 5);
+  const steps = Array.from({ length: n }, () => 0.5 + r());
+  const sum = steps.reduce((p, v) => p + v, 0);
+  const pts = [[x0, y0]];
+  let x = x0, y = y0, a = a0;
+  for (let i = 0; i < n; i++) {
+    const ta = Math.atan2(y1 - y, x1 - x);
+    let da = ta - a;
+    while (da > Math.PI) da -= Math.PI * 2;
+    while (da < -Math.PI) da += Math.PI * 2;
+    a += da * 0.45 + (r() - 0.5) * 0.24 + (r() < kink ? (r() < 0.5 ? -1 : 1) * (0.25 + r() * 0.35) : 0);
+    const st = (steps[i] / sum) * L;
+    x += Math.cos(a) * st; y += Math.sin(a) * st;
+    pts.push([x, y]);
   }
-  return { pts, ws };
+  return widthen(r, pts, W, w0, blade);
 }
-/** 枝の先を鉤に巻く（参考の絵の巻いた先）。turn は巻く向き（±1）。 */
-function boltHook(b, turn) {
-  const { pts, ws } = b;
-  const n = pts.length;
-  let [x, y] = pts[n - 1];
-  const [ax, ay] = pts[n - 2];
-  let a = Math.atan2(y - ay, x - ax);
-  let L = Math.hypot(x - ax, y - ay) * 0.6;
-  const w = ws[n - 2];
-  ws[n - 1] = w * 0.75;
-  for (let i = 0; i < 3; i++) {
-    a += turn * (0.95 + i * 0.3);
-    L *= 0.7;
-    x += Math.cos(a) * L; y += Math.sin(a) * L;
-    pts.push([x, y]); ws.push(w * (0.55 - i * 0.17));
+/** 折れ線を 3 つずつ割って、点ごとの太さを付ける（太さは位置で滑らかに。点の位置は割っても直線のまま＝折れ目は鋭いまま）。 */
+function widthen(r, pts, W, w0, blade) {
+  const P = [];
+  for (let i = 0; i < pts.length - 1; i++) for (let j = 0; j < 3; j++) {
+    const t = j / 3;
+    P.push([pts[i][0] + (pts[i + 1][0] - pts[i][0]) * t, pts[i][1] + (pts[i + 1][1] - pts[i][1]) * t]);
   }
-  return b;
+  P.push(pts[pts.length - 1]);
+  const ph = r() * 6.283, fq = 5 + r() * 6;
+  const sb = r() < blade ? 0.3 + r() * 0.4 : -9, bw = 1.6 + r() * 1.4;
+  const ws = P.map((_, i) => {
+    const sq = i / (P.length - 1);
+    const wav = 0.62 + 0.38 * Math.sin(sq * fq + ph);
+    const bump = 1 + bw * Math.exp(-(((sq - sb) / 0.09) ** 2));
+    const head = w0 + (1 - w0) * smooth(0, 0.12, sq);
+    return W * wav * bump * head * (1 - sq) ** 0.75;
+  });
+  return { pts: P, ws };
 }
-/** 先の割合 q まで（空から落ちてくる途中）。 */
+/** 先の割合 q まで（頭から伸びていく途中）。 */
 function boltCut(b, q) {
   if (q >= 1) return b;
   const { pts, ws } = b;
@@ -309,17 +320,25 @@ function boltCut(b, q) {
     if (left >= seg[i - 1]) { P.push(pts[i]); Wd.push(ws[i]); left -= seg[i - 1]; continue; }
     const f = left / (seg[i - 1] || 1);
     P.push([pts[i - 1][0] + (pts[i][0] - pts[i - 1][0]) * f, pts[i - 1][1] + (pts[i][1] - pts[i - 1][1]) * f]);
-    // 落ちてくる先は尖らせる
-    Wd.push(ws[i] * 0.35);
+    // 伸びてくる先は尖らせる
+    Wd.push(0);
     break;
   }
   return { pts: P, ws: Wd };
 }
+/** 筋から枝を出す：位置 sq（0〜1）から局所の向き ± ひらき、長さ len、針の先で終わる。 */
+function branch2(r, st, sq, side, len, W) {
+  const i = Math.max(1, Math.min(st.pts.length - 2, Math.round(sq * (st.pts.length - 1))));
+  const [x, y] = st.pts[i], [px, py] = st.pts[i - 1];
+  const a = Math.atan2(y - py, x - px) + side * (0.35 + r() * 0.5);
+  const tx = x + Math.cos(a) * len, ty = y + Math.sin(a) * len;
+  return strand2(r, x, y, a, tx + Math.cos(a + side * 0.4) * len * 0.2, ty + Math.sin(a + side * 0.4) * len * 0.2, Math.min(W, st.ws[i] * 0.8), { w0: 0.9, blade: 0.25, kink: 0.25 });
+}
 /**
- * 稲妻の帯を描く。外の光（加算）→ 中（暗い青緑。fill の割合の節は明るく塗る）→ 縁（アクアの線と内の細い白）。
- * 帯の縁は折れ目で角の二等分の向きへ、太さを角の半分の cos で割って伸ばす（角ばった結晶の形になる）。
+ * 筋を描く：外の柔らかい光（加算）→ 中（暗い青緑）→ 縁（明るいアクアの線と内の細い白）。縁の線は一定の太さなので、
+ * 細い所は縁どうしが重なって明るい線になり、幅の広い所だけ中抜きに見える（参考の絵と同じ）。
  */
-function drawBolt(g, b, F, u, k, r, { glow = 1, inner = 0.85, fill = 0.3 } = {}) {
+function drawStrand(g, b, F, u, k, { glow = 1, inner = 0.88 } = {}) {
   const { pts, ws } = b;
   const n = pts.length;
   if (n < 2 || k <= 0) return;
@@ -334,89 +353,26 @@ function drawBolt(g, b, F, u, k, r, { glow = 1, inner = 0.85, fill = 0.3 } = {})
     let nx = p1x + p2x, ny = p1y + p2y;
     const nl = Math.hypot(nx, ny);
     if (nl < 1e-3) { nx = p1x; ny = p1y; } else { nx /= nl; ny /= nl; }
-    const m = ws[i] / Math.max(0.45, nx * p1x + ny * p1y);
+    const m = ws[i] / Math.max(0.5, nx * p1x + ny * p1y);
     Ls.push([p[0] + nx * m, p[1] + ny * m]); Rs.push([p[0] - nx * m, p[1] - ny * m]);
   }
   let wAvg = 0;
   for (const v of ws) wAvg += v / n;
   const spine = () => { g.beginPath(); g.moveTo(pts[0][0], pts[0][1]); for (let i = 1; i < n; i++) g.lineTo(pts[i][0], pts[i][1]); };
   const outline = () => { g.beginPath(); g.moveTo(Ls[0][0], Ls[0][1]); for (let i = 1; i < n; i++) g.lineTo(Ls[i][0], Ls[i][1]); for (let i = n - 1; i >= 0; i--) g.lineTo(Rs[i][0], Rs[i][1]); g.closePath(); };
-  // 外の柔らかい光
   g.globalCompositeOperation = 'lighter';
   g.lineJoin = 'round'; g.lineCap = 'round';
-  g.shadowColor = F.glow; g.shadowBlur = SOFT ? 26 * u : 0;
-  g.strokeStyle = rgba(F.glow, 0.17 * k * glow); g.lineWidth = wAvg * 7.5; spine(); g.stroke();
+  g.shadowColor = F.glow; g.shadowBlur = SOFT ? 22 * u : 0;
+  g.strokeStyle = rgba(F.glow, 0.14 * k * glow); g.lineWidth = Math.max(3 * u, wAvg * 6); spine(); g.stroke();
   g.shadowBlur = 0;
-  g.strokeStyle = rgba(F.glow, 0.3 * k * glow); g.lineWidth = wAvg * 4; spine(); g.stroke();
-  // 中：暗い青緑（中抜き）。所々の節は中まで明るく
+  g.strokeStyle = rgba(F.glow, 0.26 * k * glow); g.lineWidth = Math.max(2 * u, wAvg * 3); spine(); g.stroke();
   g.globalCompositeOperation = 'source-over';
   g.fillStyle = rgba(F.deep ?? F.glow, inner * k); outline(); g.fill();
-  g.fillStyle = rgba(mixHex(F.color, F.core, 0.5), 0.95 * k);
-  for (let i = 0; i < n - 1; i++) {
-    if (r() >= fill) continue;
-    g.beginPath(); g.moveTo(Ls[i][0], Ls[i][1]); g.lineTo(Ls[i + 1][0], Ls[i + 1][1]); g.lineTo(Rs[i + 1][0], Rs[i + 1][1]); g.lineTo(Rs[i][0], Rs[i][1]); g.closePath(); g.fill();
-  }
-  // 縁：明るいアクアの線と、その内の細い白
-  g.lineJoin = 'miter'; g.miterLimit = 3;
-  g.strokeStyle = rgba(F.color, k); g.lineWidth = Math.max(1.2, 2.8 * u); outline(); g.stroke();
+  g.lineJoin = 'round';
+  g.strokeStyle = rgba(F.color, k); g.lineWidth = Math.max(1.3, 2.6 * u); outline(); g.stroke();
   g.globalCompositeOperation = 'lighter';
-  g.strokeStyle = rgba(F.core, 0.75 * k); g.lineWidth = Math.max(0.7, 1.1 * u); outline(); g.stroke();
+  g.strokeStyle = rgba(F.core, 0.6 * k); g.lineWidth = Math.max(0.6, 0.9 * u); outline(); g.stroke();
 }
-/** 着弾点：軸の向きに伸びた黄緑の光と玉、fd の向き（画面の x）へ開く棘の冠（奥の半周は形の後ろ、手前は前）と火花。 */
-function thunderImpact(b, f, x, y, c, k, grow, T, r, fd) {
-  const { F, u, P } = c;
-  const H = F.hit ?? THUNDER_HIT;
-  const pulse = 0.88 + 0.12 * Math.sin(T * 37);
-  for (const [g, a, R, sy] of [[b, 0.7, 150, 0.5], [b, 0.85, 70, 0.8], [f, 0.5, 30, 0.9]]) {
-    const rr = R * u * (0.45 + 0.55 * grow) * pulse;
-    g.save(); g.translate(x, y); g.scale(1, sy);
-    g.globalCompositeOperation = 'lighter';
-    const gr = g.createRadialGradient(0, 0, 0, 0, 0, rr);
-    gr.addColorStop(0, rgba(F.core, a * k)); gr.addColorStop(0.22, rgba(H, a * 0.9 * k)); gr.addColorStop(0.6, rgba(H, a * 0.28 * k)); gr.addColorStop(1, rgba(H, 0));
-    g.fillStyle = gr; g.beginPath(); g.arc(0, 0, rr, 0, 6.283); g.fill();
-    g.restore();
-  }
-  // 冠：着弾点を囲む縦の輪（真横から見るので幅の狭い楕円）から fd の向きへ開く棘
-  const N = 9;
-  for (let i = 0; i < N; i++) {
-    const th = ((i + r() * 0.6) / N) * Math.PI * 2;
-    const ey = Math.cos(th), ez = Math.sin(th);
-    const bx = x + ez * 6 * u, by = y + ey * 28 * u;
-    const len = (48 + r() * 78) * u * grow * (0.7 + 0.3 * Math.abs(ey));
-    const lean = ey * (0.25 + r() * 0.55);
-    const tx = bx + fd * len, ty = by + lean * len;
-    const wb = (6 + r() * 7) * u;
-    const dx = tx - bx, dy = ty - by, l = Math.hypot(dx, dy) || 1;
-    const px = (-dy / l) * wb, py = (dx / l) * wb;
-    const front = ez > 0.2;
-    const g = front ? f : b;
-    const a = front ? 0.75 : 0.95;
-    g.globalCompositeOperation = 'source-over';
-    const gr = g.createLinearGradient(bx, by, tx, ty);
-    gr.addColorStop(0, rgba(H, a * k)); gr.addColorStop(0.55, rgba(F.color, a * 0.95 * k)); gr.addColorStop(1, rgba(F.core, a * k));
-    g.fillStyle = gr;
-    g.beginPath(); g.moveTo(bx + px, by + py); g.lineTo(tx, ty); g.lineTo(bx - px, by - py); g.closePath(); g.fill();
-    g.globalCompositeOperation = 'lighter';
-    g.strokeStyle = rgba(F.core, 0.55 * k); g.lineWidth = Math.max(0.7, 1.1 * u); g.lineJoin = 'miter';
-    g.stroke();
-  }
-  // 火花：着弾点から fd の向きと上下へ飛び、少し落ちる
-  f.globalCompositeOperation = 'lighter';
-  f.lineCap = 'round';
-  for (let i = 0; i < 16; i++) {
-    const m = P.motes[i];
-    const q = (T * (1.6 + m.c) + m.a) % 1;
-    const vx = fd * (220 + m.d * 260) * u, vy = (m.b - 0.5) * 300 * u;
-    const at = (s) => [x + vx * s, y + vy * s + 200 * u * s * s];
-    const [x1, y1] = at(q * 0.7), [x0, y0] = at(Math.max(0, q * 0.7 - 0.035));
-    f.strokeStyle = rgba(i % 3 ? F.color : H, (1 - q) * 0.95 * k * grow);
-    f.lineWidth = Math.max(0.8, 2.2 * u * (1 - q));
-    f.beginPath(); f.moveTo(x0, y0); f.lineTo(x1, y1); f.stroke();
-  }
-}
-// 横向きの稲妻：馬の頭から尻尾へ走る。頭で光った太い幹がすぐ後ろ（項のあたり）で指に割れ、胴を上下から包んで流れ、
-// 尾の後ろの着弾点で一つに集まって後ろへ弾ける（参考の絵の「上から落ちて割れ、下の一点へ集まる」を頭から尾へ寝かせた形）。
-// 縦（空から足元へ）→ 後ろから来て鼻先の前へ → 頭から前へ、と試して「馬の頭から尻尾にかけて出る」に落ち着いた。
 /** 形の頭（鼻先の側の縁）の位置。鼻先から形の幅の 1 割以内の縁の点の平均の高さ。 */
 function headOf(c) {
   if (c.head) return c.head;
@@ -431,98 +387,81 @@ function headOf(c) {
 function thunder2D(b, f, t, k, c, still) {
   const { F, box, u, w, h } = c;
   const T = still ? 1.2 + c.s : t;
-  const fi = Math.floor(T / 0.08);
+  const fi = Math.floor(T / 0.09);
   const r = rngOf(c.seed * 31 + fi * 977);
   const rs = rngOf(c.seed * 131 + 7);
-  const W = 15 * u;
-  const tr = c.trail || 1;           // 後ろの向き（画面の x）
+  const W = 13 * u;
+  const tr = c.trail || 1;            // 後ろの向き（画面の x）
+  const back = tr > 0 ? 0 : Math.PI;  // 後ろへの角度
   const hd = headOf(c);
-  const cy = box.y0 + box.h * 0.6;   // 胴の高さ（形の上は騎手）
+  const ox = hd.x - tr * 18 * u, oy = hd.y;
   const tailX = tr > 0 ? box.x1 : box.x0;
-  const ox = hd.x + tr * 6 * u, oy = hd.y;
-  const sx = ox + tr * Math.max(36 * u, box.w * 0.14), sy = oy + (cy - oy) * 0.3;
-  // 着弾点は尾の後ろ。絵の端の手前まで
-  const room = (tr > 0 ? w - tailX : tailX) - 40 * u;
-  const ix = tailX + tr * Math.max(16 * u, Math.min(box.w * 0.16, room)), iy = cy + (rs() - 0.5) * box.h * 0.08;
-  // 指の膨らみは上下（胴と騎手を包む）。絵の上下の端を越えない
-  const bowMax = Math.min(box.h * 0.6 + 16 * u, box.w * 0.5);
-  const py = (ix - sx) / (Math.hypot(ix - sx, iy - sy) || 1);
-  const roomY = (v) => Math.max(16 * u, (v * py > 0 ? h - Math.max(sy, iy) : Math.min(sy, iy)) - 16 * u);
-  const bows = [-1, -0.45, 0.4, 0.85].map((v) => Math.sign(v) * Math.min(Math.abs(v) * bowMax * (0.85 + rs() * 0.25), roomY(v) * Math.abs(v)));
-  // 走る：頭が光り、幹 0〜0.06 秒、指 0.05〜0.2 秒で尾へ、着弾 0.18 秒から
-  const gTrunk = still ? 1 : clamp01(T / 0.06);
-  const gFing = still ? 1 : clamp01((T - 0.05) / 0.15);
-  const gHit = still ? 1 : ease((T - 0.18) / 0.18);
-  const fl = still ? 1 : 0.82 + 0.18 * r();
+  const edgeX = tr > 0 ? w + 20 * u : -20 * u;
+  const H = F.hit ?? THUNDER_HIT;
+  // 伸びる：頭が光り、矢じりは 0〜0.08 秒、筋は 0.04 秒から 0.2 秒で尾まで
+  const gHead = still ? 1 : clamp01(T / 0.08);
+  const gS = (d) => (still ? 1 : clamp01((T - d) / 0.16));
+  const fl = still ? 1 : 0.85 + 0.15 * r();
   const kk = k * fl;
-  // 指：割れる所から胴を包んで尾の後ろへ。外の 2 本は形の後ろ、内の 1 本は前（中を薄くして馬を透かす）
-  if (gFing > 0) {
-    for (const [i, bow] of bows.entries()) {
-      if (!still && r() < 0.12) continue;
-      const fg = boltSpine(r, sx, sy, ix, iy, 5, 14 * u, bow, W * 0.85, 0.9, 0.2);
-      const front = i === 2;
-      drawBolt(front ? f : b, boltCut(fg, gFing), F, u, kk * (front ? 0.85 : 1), r, { inner: front ? 0.5 : 0.85, fill: front ? 0.15 : 0.3 });
-      // 指から外へ出る鉤の小枝
-      if (gFing > 0.6 && r() < 0.6) {
-        const [px, py0] = fg.pts[1 + Math.floor(r() * 3)];
-        const side = Math.sign(py0 - cy) || 1;
-        const tw = boltSpine(r, px, py0, px + tr * (20 + r() * 40) * u, py0 + side * (30 + r() * 40) * u, 3, 8 * u, 0, W * 0.45, 0.8, 0.5);
-        drawBolt(b, boltHook(tw, side * tr), F, u, kk * 0.85, r, { glow: 0.6, inner: 0.75, fill: 0.2 });
-      }
+  const clampY = (y) => Math.max(14 * u, Math.min(h - 14 * u, y));
+  // 筋の行き先（シードで決める）：上（騎手の上）・中（胴を抜ける）・下（腹の下）・太い 1 本（絵の端まで）
+  const ends = [
+    { y: clampY(box.y0 - box.h * 0.05 + rs() * box.h * 0.1), x: tailX + tr * box.w * (0.1 + rs() * 0.15), a: -0.55, W: 0.9, layer: b },
+    { y: clampY(box.y0 + box.h * (0.5 + rs() * 0.1)), x: tailX + tr * box.w * (0.2 + rs() * 0.15), a: -0.1, W: 0.75, layer: f, front: true },
+    { y: clampY(box.y1 - box.h * (0.05 + rs() * 0.1)), x: tailX + tr * box.w * (0.05 + rs() * 0.15), a: 0.5, W: 0.8, layer: b },
+    { y: clampY(box.y0 + box.h * (0.7 + rs() * 0.2)), x: edgeX, a: 0.2, W: 1.5, layer: b, main: true },
+  ];
+  // 矢じり：頭から後ろへ上下に開く 2 本の弧と、その間の薄い膜（頭の緑から透明へ）
+  const arm = box.w * 0.36;
+  const chev = [-1, 1].map((sg) => strand2(r, ox, oy, back - tr * sg * 1.15, ox + tr * arm, oy + sg * arm * 0.7, W * 1.6, { w0: 0.7, blade: 0.7, kink: 0.1 }));
+  if (gHead > 0) {
+    const [up, dn] = chev.map((st) => boltCut(st, gHead));
+    const g = f;
+    g.save();
+    // 膜：暗い青緑（普通の合成。明るい地の前でも見える）の上に、頭の緑の光（加算）
+    const mem = () => {
+      g.beginPath(); g.moveTo(ox, oy);
+      for (const p of up.pts.slice(0, Math.ceil(up.pts.length * 0.75))) g.lineTo(p[0], p[1]);
+      for (const p of dn.pts.slice(0, Math.ceil(dn.pts.length * 0.75)).reverse()) g.lineTo(p[0], p[1]);
+      g.closePath();
+    };
+    g.globalCompositeOperation = 'source-over';
+    const gd = g.createLinearGradient(ox, oy, ox + tr * arm, oy);
+    gd.addColorStop(0, rgba(F.deep ?? F.glow, 0.55 * kk)); gd.addColorStop(1, rgba(F.deep ?? F.glow, 0));
+    g.fillStyle = gd; mem(); g.fill();
+    g.globalCompositeOperation = 'lighter';
+    const gr = g.createLinearGradient(ox, oy, ox + tr * arm, oy);
+    gr.addColorStop(0, rgba(H, 0.6 * kk)); gr.addColorStop(0.45, rgba(F.glow, 0.25 * kk)); gr.addColorStop(1, rgba(F.glow, 0));
+    g.fillStyle = gr; mem(); g.fill();
+    g.restore();
+  }
+  // 筋（と枝）。中の筋は形の前を通るので薄く
+  for (const [i, e] of ends.entries()) {
+    const sx = ox + tr * 10 * u, sy = oy + (e.main ? 4 : (i - 1.5) * 6) * u;
+    const st = strand2(r, sx, sy, back + tr * e.a, e.x, e.y, W * e.W, { w0: 0.5, blade: e.main ? 0.8 : 0.55 });
+    const q = gS(0.04 + i * 0.015);
+    if (q <= 0) continue;
+    drawStrand(e.layer, boltCut(st, q), F, u, kk * (e.front ? 0.8 : 1), { inner: e.front ? 0.45 : 0.88, glow: e.main ? 1.2 : 1 });
+    const nb = e.main ? 2 : r() < 0.7 ? 1 : 0;
+    for (let j = 0; j < nb; j++) {
+      const sq = 0.3 + r() * 0.45;
+      if (q < sq + 0.1) continue;
+      const side = r() < 0.5 ? -1 : 1;
+      drawStrand(e.layer, branch2(r, st, sq, side, box.w * (0.12 + r() * 0.16), W * 0.6), F, u, kk * (e.front ? 0.75 : 0.95), { inner: e.front ? 0.45 : 0.85, glow: 0.7 });
     }
   }
-  // 頭から出る太い幹と、頭から散る小さな稲妻（先は鉤）。頭は馬の前の層
-  const trunk = boltSpine(r, ox, oy, sx, sy, 2, 6 * u, 0, W * 1.2, 0.75, 1);
-  drawBolt(f, boltCut(trunk, gTrunk), F, u, kk, r, { glow: 1.3, fill: 0.4 });
-  const n = still ? 4 : 2 + Math.floor(r() * 3);
-  for (let i = 0; i < n; i++) {
-    const a = -Math.PI / 2 + (r() - 0.5) * 2.4;
-    const dx = -tr * Math.cos(a) * 0.6, dy = Math.sin(a);
-    const L = (30 + r() * 50) * u;
-    const eb = boltSpine(r, ox, oy, ox + dx * L, oy + dy * L, 3, 8 * u, 0, W * 0.4, 0.6, 0.5);
-    drawBolt(f, boltHook(eb, r() < 0.5 ? -1 : 1), F, u, kk * (0.7 + r() * 0.3), r, { glow: 0.6, inner: 0.7, fill: 0.2 });
-  }
-  glint(f, ox, oy, 52 * u * (0.85 + 0.15 * fl), F.color, F.core, kk);
-  glint(f, sx, sy, 34 * u * (0.8 + 0.2 * fl), F.color, F.core, kk * gFing);
-  if (gHit > 0) thunderImpact(b, f, ix, iy, c, kk, gHit, T, r, tr);
-  // 着弾の閃光と、ときどきの瞬き
+  for (const st of chev) drawStrand(f, boltCut(st, gHead), F, u, kk, { glow: 1.1 });
+  // 頭の光（緑の芯）
+  const R0 = 60 * u * (0.9 + 0.1 * fl);
+  f.globalCompositeOperation = 'lighter';
+  const hg = f.createRadialGradient(ox, oy, 0, ox, oy, R0);
+  hg.addColorStop(0, rgba(F.core, 0.95 * kk)); hg.addColorStop(0.2, rgba(H, 0.8 * kk)); hg.addColorStop(0.55, rgba(H, 0.25 * kk)); hg.addColorStop(1, rgba(H, 0));
+  f.fillStyle = hg; f.beginPath(); f.arc(ox, oy, R0, 0, 6.283); f.fill();
+  // 発動の閃光と、ときどきの瞬き
   if (!still) {
-    const fa = (T >= 0.18 ? 0.4 * (1 - smooth(0.18, 0.4, T)) : 0) + (fi % 9 === 0 && T > 0.5 ? 0.1 : 0);
-    if (fa > 0) { f.globalCompositeOperation = 'lighter'; f.fillStyle = rgba(F.hit ?? THUNDER_HIT, fa * k * 0.6); f.fillRect(0, 0, w, h); f.fillStyle = rgba(F.core, fa * k * 0.5); f.fillRect(0, 0, w, h); }
+    const fa = 0.35 * (1 - smooth(0, 0.25, T)) + (fi % 9 === 0 && T > 0.5 ? 0.08 : 0);
+    if (fa > 0) { f.globalCompositeOperation = 'lighter'; f.fillStyle = rgba(H, fa * k * 0.5); f.fillRect(0, 0, w, h); f.fillStyle = rgba(F.core, fa * k * 0.4); f.fillRect(0, 0, w, h); }
   }
-}
-function star(g, x, y, R, n, inner, rot = 0) {
-  g.beginPath();
-  for (let i = 0; i < n * 2; i++) {
-    const a = rot + (i / (n * 2)) * Math.PI * 2 - Math.PI / 2;
-    const rr = i % 2 ? R * inner : R;
-    g.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr);
-  }
-  g.closePath();
-}
-function glint(g, x, y, R, col, core, a) {
-  g.globalCompositeOperation = 'lighter';
-  const gr = g.createRadialGradient(x, y, 0, x, y, R);
-  gr.addColorStop(0, rgba(core, a)); gr.addColorStop(0.3, rgba(col, a * 0.6)); gr.addColorStop(1, rgba(col, 0));
-  g.fillStyle = gr;
-  star(g, x, y, R, 4, 0.16);
-  g.fill();
-}
-function petal(g, x, y, s, rot, F, a) {
-  g.save();
-  g.translate(x, y); g.rotate(rot);
-  g.globalCompositeOperation = 'source-over';
-  const gr = g.createLinearGradient(0, -s, 0, s);
-  gr.addColorStop(0, rgba(F.core, a)); gr.addColorStop(1, rgba(F.color, a));
-  g.fillStyle = gr;
-  g.beginPath();
-  g.moveTo(0, s);
-  g.bezierCurveTo(s * 0.9, s * 0.4, s * 0.7, -s * 0.8, s * 0.18, -s);
-  g.lineTo(0, -s * 0.72);
-  g.lineTo(-s * 0.18, -s);
-  g.bezierCurveTo(-s * 0.7, -s * 0.8, -s * 0.9, s * 0.4, 0, s);
-  g.fill();
-  g.restore();
 }
 
 // ---- 疾風の竜巻（2D）
@@ -1252,7 +1191,8 @@ const KIND3 = {
   // 流星の飾り（四芒星・光の筋・閃光）は彗星が受け持つ
   comet: { shape: 'star', n: 0, blend: 'add', life: [0.5, 1], born: () => ({}) },
   // イナズマの飾り：着弾点から跳ねる火花（稲妻の帯と冠は makeThunder3d）
-  thunder: { shape: 'star', n: 18, blend: 'add', life: [0.3, 0.6], born: (r) => { const a = r() * Math.PI * 2; return { p: [0, 1.45, -2.3], v: [Math.cos(a) * (1 + r() * 1.5), Math.sin(a) * (1 + r() * 1.5), -3 - r() * 4], s: 0.22 + r() * 0.3 }; } },
+  // イナズマの飾り（矢じり・筋・頭の光）は makeThunder3d が受け持つ
+  thunder: { shape: 'star', n: 0, blend: 'add', life: [0.3, 0.6], born: () => ({}) },
 };
 
 // ---- 疾風の竜巻（3D）。2D の galeTornado2D と同じ形：走る向きに寝た漏斗（鼻先の前で細く尾の後ろへ開く）の面を、
@@ -1790,36 +1730,36 @@ function makeComet3d(F, r) {
   };
 }
 
-// ---- イナズマ（3D）。2D の thunder2D と同じ形：軸は横（走る向き、馬の組の z）。馬の頭（毎コマ頭の組から求める。首と一緒に揺れる）から
-// 出た太い幹がすぐ後ろで指に割れ、胴を上下左右から包んで尾の後ろの着弾点へ集まり、後ろへ弾ける。
-// 帯はカメラへ面を向ける角ばった帯（折れ目で太り先で細る。折れ目は角の二等分の向きへ伸ばす）で、シェーダで中抜きに塗る
-// （明るいアクアの縁・暗い青緑の中、所々の節は中まで明るく）。外の光は加算の太い帯。着弾点は黄緑の光と、上へ開く棘の冠
-// （後ろへ開く。棘もカメラへ向けた帯。平たい板にすると横から見て線になる）。帯は全部 2 つの形（中身・光）にまとめて描く（描く回数を増やさない）。
-// CY 着弾点の高さ（胴）、IZ 着弾点（尾の後ろ）、HEAD 頭の組が無いときの頭の位置、SPLIT 割れる所の頭からの後ろへの距離
-const THUNDER3 = { CY: 1.45, IZ: -2.3, HEAD: [0, 2.0, 1.55], SPLIT: 0.6, RE: 0.07 };
+// ---- イナズマ（3D）。2D の thunder2D と同じ筋の作り方（参考の絵：緑に光る矢じりの頭から、長い筋が不規則に曲がりながら後ろへ流れ、先は針に細る）。
+// 頭（毎コマ頭の組から求める。首と一緒に揺れる）に矢じり（上下左右へ開いて後ろへ曲がる 4 本の弧）と緑の光、そこから胴と騎手を包む筋が
+// 尾の後ろへ流れ、いちばん太い 1 本は遠く後ろまで伸びる。筋はカメラへ面を向ける帯で、シェーダで縁を一定の太さ（m）で塗る：
+// 細い所は縁どうしが重なって明るい線、幅の広い所だけ暗い青緑の中抜きになる（縁を帯の幅の割合で塗ると、細い所まで暗い芯が出て茨に見えた）。
+// 帯は全部 2 つの形（中身・光）にまとめて描く（描く回数を増やさない）。
+// HEAD 頭の組が無いときの頭の位置、RE 形を作り直す間隔（秒）、RIM 縁の太さ（m）
+const THUNDER3 = { HEAD: [0, 2.0, 1.55], RE: 0.09, RIM: 0.032 };
 const THUNDER_VS = `
-attribute float aFill; attribute float aAlpha;
-varying vec2 vUv; varying float vFill; varying float vAlpha;
-void main() { vUv = uv; vFill = aFill; vAlpha = aAlpha; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`;
+attribute float aFill; attribute float aAlpha; attribute float aW;
+varying vec2 vUv; varying float vFill; varying float vAlpha; varying float vW;
+void main() { vUv = uv; vFill = aFill; vAlpha = aAlpha; vW = aW; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`;
 const THUNDER_FS = `
 uniform vec3 cRim; uniform vec3 cDeep; uniform vec3 cCore; uniform vec3 cHit; uniform vec3 cGlow;
-uniform float uFade; uniform float uGlow;
-varying vec2 vUv; varying float vFill; varying float vAlpha;
+uniform float uFade; uniform float uGlow; uniform float uRim;
+varying vec2 vUv; varying float vFill; varying float vAlpha; varying float vW;
 void main() {
   float d = abs(vUv.y - 0.5) * 2.0;
   vec3 col; float a;
   if (uGlow > 0.5) {
-    // 外の光：芯から外へ柔らかく消える（着弾の冠の棘は黄緑の光）
-    col = vFill > 1.5 ? cHit : cGlow;
-    a = pow(max(0.0, 1.0 - d), 2.6) * 0.42;
+    // 外の光：芯から外へ柔らかく消える（頭の近くは緑）
+    col = mix(cGlow, cHit, vFill);
+    a = pow(max(0.0, 1.0 - d), 2.2) * 0.45;
   } else {
-    float rim = smoothstep(0.56, 0.68, d);
-    float hl = smoothstep(0.62, 0.7, d) * (1.0 - smoothstep(0.76, 0.84, d));
-    vec3 lit = mix(cRim, cCore, 0.5);
-    vec3 inner = vFill > 1.5 ? mix(cHit, lit, smoothstep(0.35, 1.0, vUv.x)) : mix(cDeep, lit, vFill);
-    col = mix(inner, cRim, rim);
-    col = mix(col, cCore, hl * 0.75);
-    a = (1.0 - smoothstep(0.86, 1.0, d)) * (vFill > 0.5 ? 0.97 : mix(0.82, 1.0, rim));
+    // 縁からの距離（m）。縁は一定の太さ、内は暗い青緑（頭の近くは緑がかる）
+    float edge = (1.0 - d) * vW;
+    float rim = 1.0 - smoothstep(uRim * 0.7, uRim, edge);
+    vec3 inner = mix(cDeep, mix(cDeep, cHit, 0.55), vFill);
+    col = mix(inner, mix(cRim, cHit, vFill * 0.6), rim);
+    col = mix(col, cCore, (1.0 - smoothstep(uRim * 0.25, uRim * 0.6, edge)) * 0.35);
+    a = smoothstep(0.0, uRim * 0.25, edge) * mix(0.86, 1.0, rim);
   }
   gl_FragColor = vec4(col, a * uFade * vAlpha);
   #include <colorspace_fragment>
@@ -1837,27 +1777,59 @@ function thunderDiscTex(F) {
   ribbonTexCache.set(key, t);
   return t;
 }
+/** 筋（3D）：from から dir0 の向きに出て to へ向かう。向きは毎歩少し揺れ、ときどき鋭く折れ、行き先へ引き戻される。太さは 2D の widthen と同じ。 */
+function strand3(r, from, dir0, to, W, { w0 = 0.4, blade = 0.5, kink = 0.25 } = {}) {
+  const L = from.distanceTo(to) * 1.05;
+  const n = 7 + Math.floor(r() * 5);
+  const steps = Array.from({ length: n }, () => 0.5 + r());
+  const sum = steps.reduce((p, v) => p + v, 0);
+  const pts = [from.clone()];
+  const p = from.clone(), dir = dir0.clone().normalize(), tg = new THREE.Vector3(), rn = new THREE.Vector3();
+  const perp = (mag) => {
+    rn.set(r() - 0.5, r() - 0.5, r() - 0.5);
+    rn.addScaledVector(dir, -rn.dot(dir));
+    return rn.lengthSq() > 1e-8 ? rn.normalize().multiplyScalar(mag) : rn.set(0, 0, 0);
+  };
+  for (let i = 0; i < n; i++) {
+    tg.subVectors(to, p).normalize();
+    dir.addScaledVector(tg.sub(dir), 0.45).add(perp(0.24));
+    if (r() < kink) dir.add(perp(0.25 + r() * 0.35));
+    dir.normalize();
+    p.addScaledVector(dir, (steps[i] / sum) * L);
+    pts.push(p.clone());
+  }
+  // 3 つずつ割って点ごとの太さ（位置は直線のまま＝折れ目は鋭いまま）
+  const P = [];
+  for (let i = 0; i < pts.length - 1; i++) for (let j = 0; j < 3; j++) P.push(new THREE.Vector3().lerpVectors(pts[i], pts[i + 1], j / 3));
+  P.push(pts[pts.length - 1]);
+  const ph = r() * 6.283, fq = 5 + r() * 6;
+  const sb = r() < blade ? 0.3 + r() * 0.4 : -9, bw = 1.6 + r() * 1.4;
+  const ws = P.map((_, i) => {
+    const sq = i / (P.length - 1);
+    return W * (0.62 + 0.38 * Math.sin(sq * fq + ph)) * (1 + bw * Math.exp(-(((sq - sb) / 0.09) ** 2))) * (w0 + (1 - w0) * smooth(0, 0.12, sq)) * (1 - sq) ** 0.75;
+  });
+  return { pts: P, ws };
+}
 function makeThunder3d(F, seed, source = null) {
-  const { CY, IZ, HEAD, SPLIT, RE } = THUNDER3;
+  const { HEAD, RE, RIM } = THUNDER3;
   const group = new THREE.Group();
   const H = F.hit ?? THUNDER_HIT;
   const mat = (glow) => new THREE.ShaderMaterial({
     uniforms: {
       cRim: { value: new THREE.Color(F.color) }, cDeep: { value: new THREE.Color(F.deep ?? F.glow) }, cCore: { value: new THREE.Color(F.core) },
-      cHit: { value: new THREE.Color(H) }, cGlow: { value: new THREE.Color(F.glow) }, uFade: { value: 0 }, uGlow: { value: glow ? 1 : 0 },
+      cHit: { value: new THREE.Color(H) }, cGlow: { value: new THREE.Color(F.glow) }, uFade: { value: 0 }, uGlow: { value: glow ? 1 : 0 }, uRim: { value: RIM },
     },
     vertexShader: THUNDER_VS, fragmentShader: THUNDER_FS,
-    // 帯は深度を見る（馬の向こう側を回る指は馬に隠れる。切ると籠の奥の指が馬の上に描かれて平たく見えた）
+    // 帯は深度を見る（馬の向こう側を通る筋は馬に隠れる。切ると奥の筋が馬の上に描かれて平たく見えた）
     transparent: true, depthWrite: false, side: THREE.DoubleSide,
     blending: glow ? THREE.AdditiveBlending : THREE.NormalBlending,
   });
-  const MAXQ = 220;
+  const MAXQ = 760;
   const buf = (m, order) => {
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(MAXQ * 12), 3));
     geo.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(MAXQ * 8), 2));
-    geo.setAttribute('aFill', new THREE.BufferAttribute(new Float32Array(MAXQ * 4), 1));
-    geo.setAttribute('aAlpha', new THREE.BufferAttribute(new Float32Array(MAXQ * 4), 1));
+    for (const k of ['aFill', 'aAlpha', 'aW']) geo.setAttribute(k, new THREE.BufferAttribute(new Float32Array(MAXQ * 4), 1));
     const idx = new Uint16Array(MAXQ * 6);
     for (let q = 0; q < MAXQ; q++) { const a = q * 4; idx.set([a, a + 1, a + 2, a + 1, a + 3, a + 2], q * 6); }
     geo.setIndex(new THREE.BufferAttribute(idx, 1));
@@ -1869,153 +1841,95 @@ function makeThunder3d(F, seed, source = null) {
     return mesh;
   };
   const glowMesh = buf(mat(true), 21), body = buf(mat(false), 22);
-  // 着弾点の光（玉・地を這う円盤）と閃光
-  const spr = (map, color, scale, order, add = true) => {
-    const s = new THREE.Sprite(new THREE.SpriteMaterial({ map, color, transparent: true, opacity: 0, depthTest: false, depthWrite: false, blending: add ? THREE.AdditiveBlending : THREE.NormalBlending }));
-    s.renderOrder = order; s.scale.setScalar(scale);
+  // 頭の緑の光と白い芯、発動の閃光
+  const spr = (map, color, order) => {
+    const s = new THREE.Sprite(new THREE.SpriteMaterial({ map, color, transparent: true, opacity: 0, depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending }));
+    s.renderOrder = order;
     group.add(s);
     return s;
   };
-  const orb = spr(tex('soft'), H, 2.4, 23);
-  const orbCore = spr(tex('soft'), '#ffffff', 1.0, 24);
-  const splitGlow = spr(tex('star'), F.core, 2.2, 24);
-  const flash = spr(thunderDiscTex(F), '#ffffff', 1, 25);
-  const disc = new THREE.Mesh(new THREE.CircleGeometry(1, 40), new THREE.MeshBasicMaterial({ map: thunderDiscTex(F), color: H, transparent: true, opacity: 0, depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }));
-  disc.rotation.x = -Math.PI / 2;
-  // 地を這う光は着弾点の真下（地面に映る光）
-  disc.position.set(0, 0.06, IZ);
-  disc.renderOrder = 20;
-  group.add(disc);
-  // 頭（O）と割れる所（S）は毎コマ頭の組から求める。着弾点（I）は動かさない
-  const O = new THREE.Vector3(...HEAD), S = new THREE.Vector3(), I = new THREE.Vector3(0, CY, IZ);
+  const orb = spr(tex('soft'), H, 23);
+  const orbCore = spr(tex('soft'), '#ffffff', 24);
+  const flash = spr(thunderDiscTex(F), '#ffffff', 25);
+  // 頭（O）は毎コマ頭の組から求める
+  const O = new THREE.Vector3(...HEAD);
   const headObj = source?.getObjectByName('head') ?? null;
   let headC = null;
   headObj?.traverse((o) => { if (!headC && o.isMesh && o.geometry) { o.geometry.computeBoundingBox(); headC = o.geometry.boundingBox.getCenter(new THREE.Vector3()); } });
-  const headGlow = spr(tex('star'), F.core, 2.6, 24);
-  // 構図（指の回る向き）はシードで決めて動かさない
+  // 筋の行き先（シードで決めて動かさない）：上（騎手の上）・左右（胴の脇）・下（腹の下）・太い 1 本（遠く後ろ）。off は軸からの向き（カメラ側の判定）
   const rs = rngOf(seed * 131 + 7);
-  const fingerA = [0, 1, 2, 3].map((i) => (i / 4) * Math.PI * 2 + 0.45 + (rs() - 0.5) * 0.5);
-  const v = new THREE.Vector3(), w3 = new THREE.Vector3(), t1 = new THREE.Vector3(), t2 = new THREE.Vector3();
+  const ENDS = [
+    { to: [(rs() - 0.5) * 0.6, 2.8 + rs() * 0.3, -2.2 - rs() * 0.8], W: 0.15, a: 0.04 },
+    { to: [0.6 + rs() * 0.2, 1.4 + rs() * 0.3, -2.6 - rs() * 0.6], W: 0.13, a: 0.06 },
+    { to: [-0.6 - rs() * 0.2, 1.3 + rs() * 0.3, -2.6 - rs() * 0.6], W: 0.13, a: 0.07 },
+    { to: [(rs() - 0.5) * 0.5, 0.35 + rs() * 0.2, -2.0 - rs() * 0.6], W: 0.14, a: 0.05 },
+    { to: [(rs() - 0.5) * 1.0, 1.0 + rs() * 0.4, -8 - rs() * 3], W: 0.26, a: 0.04, main: true },
+  ];
+  const v = new THREE.Vector3(), t1 = new THREE.Vector3(), t2 = new THREE.Vector3();
   const s1 = new THREE.Vector3(), s2 = new THREE.Vector3(), nrm = new THREE.Vector3();
-  const camC = new THREE.Vector3();
-  // 背骨：from → to を n 節。jag は横の揺れ、bow は弓なりの膨らみ（ベクトル）
-  const spine = (r, from, to, n, jag, bow, W, w0, w1) => {
-    const pts = [], ws = [], fill = [];
-    const ax = t1.subVectors(to, from).clone().normalize();
-    for (let i = 0; i <= n; i++) {
-      const end = i === 0 || i === n;
-      const q = end ? i / n : (i + (r() - 0.5) * 0.55) / n;
-      const p = new THREE.Vector3().lerpVectors(from, to, q);
-      if (bow) p.addScaledVector(bow, Math.sin(Math.PI * q) ** 0.85);
-      if (!end) {
-        // 軸に直交する向きへずらす
-        w3.set(r() - 0.5, r() - 0.5, r() - 0.5);
-        w3.addScaledVector(ax, -w3.dot(ax)).multiplyScalar(2 * jag);
-        p.add(w3);
-      }
-      pts.push(p);
-      ws.push(i === 0 ? W * w0 : i === n ? W * w1 : W * (0.6 + r() * 0.75));
-      fill.push(r() < 0.3 ? 1 : 0);
-    }
-    return { pts, ws, fill };
-  };
-  // 枝の先を鉤に巻く（巻く面はカメラから見た横と進む向き。横から見ても巻いて見える）
-  const hook = (b, turn, camL) => {
-    const { pts, ws, fill } = b;
-    const n = pts.length;
-    const d = t1.subVectors(pts[n - 1], pts[n - 2]);
-    let L = d.length() * 0.6;
-    d.normalize();
-    const side = t2.subVectors(camL, pts[n - 1]).cross(d).normalize();
-    const w = ws[n - 2];
-    ws[n - 1] = w * 0.75;
-    let a = 0;
-    const p = pts[n - 1].clone();
-    for (let i = 0; i < 3; i++) {
-      a += turn * (0.95 + i * 0.3);
-      L *= 0.7;
-      p.addScaledVector(d, Math.cos(a) * L).addScaledVector(side, Math.sin(a) * L);
-      pts.push(p.clone()); ws.push(w * (0.55 - i * 0.17)); fill.push(0);
-    }
-    return b;
-  };
+  const camC = new THREE.Vector3(), BACK = new THREE.Vector3(0, 0, -1);
   let bolts = [];
-  // 形は 0.07 秒ごとに同じ乱数で作るが、頭が首と一緒に動くので毎コマ今の頭の位置で組み直す
-  const rebuild = (fi, camL) => {
+  // 形は RE 秒ごとに同じ乱数で作るが、頭が首と一緒に動くので毎コマ今の頭の位置で組み直す（数百の点だけ）
+  const rebuild = (fi) => {
     const r = rngOf(seed * 31 + fi * 977);
     bolts = [];
-    const fl = 0.82 + 0.18 * r();
-    // 頭から出る太い幹
-    const trunk = spine(r, O, S, 2, 0.05, null, 0.3, 0.75, 1);
-    bolts.push({ b: trunk, at: 0, dur: 0.06, k: fl, kind: 0 });
-    // 指：割れる所から胴を包んで尾の後ろの着弾点へ（軸に直交する向きへ膨らむ。下は地面に潜らないよう浅く）
-    for (const a of fingerA) {
-      if (r() < 0.12) continue;
-      const sa = Math.sin(a);
-      const bow = new THREE.Vector3(Math.cos(a) * 0.95, sa * (sa < 0 ? 0.95 : 1.3), 0).multiplyScalar(0.85 + r() * 0.3);
-      const fg = spine(r, S, I, 6, 0.18, bow, 0.2, 0.9, 0.2);
-      bolts.push({ b: fg, at: 0.05, dur: 0.15, k: fl, kind: 0, bow });
-      // 指から外へ出る鉤の小枝
-      if (r() < 0.6) {
-        const p0 = fg.pts[2 + Math.floor(r() * 3)];
-        const out = new THREE.Vector3(p0.x, p0.y - CY, 0).normalize();
-        const to = p0.clone().addScaledVector(out, 0.6 + r() * 0.6).add(new THREE.Vector3(0, 0, -0.3 - r() * 0.6));
-        to.y = Math.max(0.15, to.y);
-        bolts.push({ b: hook(spine(r, p0, to, 3, 0.12, null, 0.1, 0.8, 0.5), r() < 0.5 ? -1 : 1, camL), at: 0.15, dur: 0.06, k: fl * 0.85, kind: 0 });
+    // 矢じり：頭から上下左右へ開いて後ろへ曲がる弧（上下を長く、左右は短く）
+    for (const [ox, oy, len] of [[0, 1, 2.2], [0, -1, 1.7], [1, 0, 1.2], [-1, 0, 1.2]]) {
+      const out = new THREE.Vector3(ox, oy, 0);
+      const dir0 = BACK.clone().multiplyScalar(Math.cos(1.1)).addScaledVector(out, Math.sin(1.1));
+      const to = O.clone().addScaledVector(BACK, len).addScaledVector(out, len * 0.65);
+      to.y = Math.max(0.2, to.y);
+      bolts.push({ b: strand3(r, O, dir0, to, 0.22, { w0: 0.8, blade: 0.8, kink: 0.1 }), at: 0, dur: 0.08 });
+    }
+    // 筋（と枝）：頭のすぐ後ろから胴を包んで後ろへ
+    for (const [i, e] of ENDS.entries()) {
+      const from = O.clone().addScaledVector(BACK, 0.2);
+      const to = new THREE.Vector3(...e.to);
+      const st = strand3(r, from, new THREE.Vector3(to.x - from.x, (to.y - from.y) * 1.5, -1), to, e.W, { w0: 0.5, blade: e.main ? 0.85 : 0.55 });
+      const off = new THREE.Vector3(to.x, to.y - 1.45, 0);
+      bolts.push({ b: st, at: e.a, dur: e.main ? 0.22 : 0.16, off });
+      const nb = e.main ? 2 : r() < 0.7 ? 1 : 0;
+      for (let j = 0; j < nb; j++) {
+        const sq = 0.3 + r() * 0.45;
+        const k = Math.max(1, Math.round(sq * (st.pts.length - 1)));
+        const p0 = st.pts[k], d0 = new THREE.Vector3().subVectors(p0, st.pts[k - 1]).normalize();
+        const side = new THREE.Vector3(r() - 0.5, r() - 0.5, r() - 0.5);
+        side.addScaledVector(d0, -side.dot(d0)).normalize();
+        const dir = d0.clone().multiplyScalar(Math.cos(0.6)).addScaledVector(side, Math.sin(0.6));
+        const to2 = p0.clone().addScaledVector(dir, 0.6 + r() * 0.8);
+        to2.y = Math.max(0.15, to2.y);
+        bolts.push({ b: strand3(r, p0, dir, to2, Math.min(0.08, st.ws[k] * 0.8), { w0: 0.9, blade: 0.25 }), at: e.a + (e.main ? 0.22 : 0.16) * sq, dur: 0.08, off });
       }
-    }
-    // 頭から散る小さな稲妻（先は鉤）
-    for (let i = 0; i < 3; i++) {
-      const a = r() * Math.PI * 2;
-      const dir = new THREE.Vector3(Math.cos(a) * 0.9, 0.4 + Math.abs(Math.sin(a)) * 0.6, 0.3 + r() * 0.5).normalize();
-      const to = O.clone().addScaledVector(dir, 0.6 + r() * 0.7);
-      bolts.push({ b: hook(spine(r, O, to, 3, 0.1, null, 0.09, 0.6, 0.5), r() < 0.5 ? -1 : 1, camL), at: 0.02, dur: 0.06, k: fl * (0.7 + r() * 0.3), kind: 0 });
-    }
-    // 冠の棘：着弾点を囲む輪（軸に直交）から後ろへ開く
-    for (let i = 0; i < 9; i++) {
-      const th = ((i + r() * 0.6) / 9) * Math.PI * 2;
-      const base = new THREE.Vector3(I.x + Math.cos(th) * 0.3, I.y + Math.sin(th) * 0.38, I.z);
-      const len = 0.55 + r() * 0.9, lean = 0.2 + r() * 0.5;
-      const tip = base.clone().add(new THREE.Vector3(Math.cos(th) * lean * len, Math.sin(th) * lean * len, -len));
-      tip.y = Math.max(0.05, tip.y);
-      const mid = base.clone().lerp(tip, 0.5).add(new THREE.Vector3(Math.cos(th) * 0.06, Math.sin(th) * 0.06, 0));
-      const wb = 0.08 + r() * 0.08;
-      bolts.push({ b: { pts: [base, mid, tip], ws: [wb, wb * 0.55, 0.004], fill: [2, 2] }, at: 0.18, dur: 0.18, k: 1, kind: 2, grow: true });
     }
   };
   // 帯を書く（カメラへ面を向ける。折れ目は角の二等分の向き）
   const write = (mesh, wmul, T, camL) => {
-    const pos = mesh.geometry.attributes.position.array, uv = mesh.geometry.attributes.uv.array, fa = mesh.geometry.attributes.aFill.array;
-    const al = mesh.geometry.attributes.aAlpha.array;
+    const A = mesh.geometry.attributes;
+    const pos = A.position.array, uv = A.uv.array, fa = A.aFill.array, al = A.aAlpha.array, aw = A.aW.array;
     let q = 0;
     for (const B of bolts) {
       const g = clamp01((T - B.at) / B.dur);
       if (g <= 0) continue;
-      // カメラの側を回る指は薄く、中を明るく塗らない（馬の前を横切って、馬が帯の膜の向こうに隠れた。2D の前の指と同じ）
-      const front = B.bow ? clamp01((B.bow.x * camL.x + B.bow.y * (camL.y - CY)) / (B.bow.length() * Math.hypot(camL.x, camL.y - CY) || 1) * 1.6) : 0;
-      const ba = 1 - 0.5 * front;
-      const { pts, ws, fill } = B.b;
+      // カメラの側を通る筋は薄く（馬の前を横切って、馬が帯の膜の向こうに隠れる。2D の前の筋と同じ）
+      const front = B.off ? clamp01((B.off.x * camL.x + B.off.y * (camL.y - 1.45)) / (B.off.length() * Math.hypot(camL.x, camL.y - 1.45) || 1) * 1.6) : 0;
+      const ba = 1 - 0.45 * front;
+      const { pts, ws } = B.b;
       const n = pts.length;
-      // 落ちてくる途中は先の割合 g まで（冠の棘は伸びる）
+      // 頭から伸びていく途中は先の割合 g まで（伸びる先は尖らせる）
       let tot = 0;
       for (let i = 1; i < n; i++) tot += pts[i].distanceTo(pts[i - 1]);
-      const lim = B.grow ? tot : tot * g;
-      const sc = B.grow ? ease(g) : 1;
-      const P = [], Wd = [], Fl = [], U = [];
+      const lim = tot * g;
+      const P = [], Wd = [];
       let acc = 0;
       for (let i = 0; i < n; i++) {
         const l = i ? pts[i].distanceTo(pts[i - 1]) : 0;
-        if (i && acc + l > lim + 1e-6) {
-          const f = (lim - acc) / (l || 1);
-          P.push(new THREE.Vector3().lerpVectors(pts[i - 1], pts[i], f)); Wd.push(ws[i] * 0.35); Fl.push(fill[i - 1] ?? 0); U.push(1);
-          break;
-        }
+        if (i && acc + l > lim + 1e-6) { P.push(new THREE.Vector3().lerpVectors(pts[i - 1], pts[i], (lim - acc) / (l || 1))); Wd.push(0); break; }
         acc += l;
-        P.push(B.grow ? pts[0].clone().lerp(pts[i], sc) : pts[i]); Wd.push(ws[i]); Fl.push(fill[i] ?? 0); U.push(tot ? acc / tot : 0);
+        P.push(pts[i]); Wd.push(ws[i]);
       }
       const m = P.length;
       if (m < 2) continue;
-      const Ls = [], Rs = [];
+      const Ls = [], Rs = [], Fl = [], Wm = [];
       for (let i = 0; i < m; i++) {
         const p = P[i];
         s1.subVectors(p, P[Math.max(0, i - 1)]);
@@ -2027,29 +1941,28 @@ function makeThunder3d(F, seed, source = null) {
         t2.crossVectors(v, s2).normalize();
         nrm.addVectors(t1, t2);
         if (nrm.lengthSq() < 1e-6) nrm.copy(t1); else nrm.normalize();
-        const mm = (Wd[i] * wmul) / Math.max(0.45, nrm.dot(t1));
+        const w = Wd[i] * wmul;
+        const mm = w / Math.max(0.5, nrm.dot(t1));
         Ls.push(p.clone().addScaledVector(nrm, mm)); Rs.push(p.clone().addScaledVector(nrm, -mm));
+        Fl.push(clamp01(1 - p.distanceTo(O) / 1.6));
+        Wm.push(w);
       }
       for (let i = 0; i < m - 1 && q < MAXQ; i++, q++) {
-        const o = q * 12;
-        pos.set([Ls[i].x, Ls[i].y, Ls[i].z, Rs[i].x, Rs[i].y, Rs[i].z, Ls[i + 1].x, Ls[i + 1].y, Ls[i + 1].z, Rs[i + 1].x, Rs[i + 1].y, Rs[i + 1].z], o);
-        uv.set([U[i], 1, U[i], 0, U[i + 1], 1, U[i + 1], 0], q * 8);
-        const f = B.kind === 2 ? 2 : front > 0.3 ? 0 : Fl[i];
-        fa.set([f, f, f, f], q * 4);
+        pos.set([Ls[i].x, Ls[i].y, Ls[i].z, Rs[i].x, Rs[i].y, Rs[i].z, Ls[i + 1].x, Ls[i + 1].y, Ls[i + 1].z, Rs[i + 1].x, Rs[i + 1].y, Rs[i + 1].z], q * 12);
+        uv.set([0, 1, 0, 0, 1, 1, 1, 0], q * 8);
+        fa.set([Fl[i], Fl[i], Fl[i + 1], Fl[i + 1]], q * 4);
         al.set([ba, ba, ba, ba], q * 4);
+        aw.set([Wm[i], Wm[i], Wm[i + 1], Wm[i + 1]], q * 4);
       }
     }
     mesh.geometry.setDrawRange(0, q * 6);
-    mesh.geometry.attributes.position.needsUpdate = true;
-    mesh.geometry.attributes.uv.needsUpdate = true;
-    mesh.geometry.attributes.aFill.needsUpdate = true;
-    mesh.geometry.attributes.aAlpha.needsUpdate = true;
+    for (const k of ['position', 'uv', 'aFill', 'aAlpha', 'aW']) A[k].needsUpdate = true;
   };
   return {
     group,
     update(T, fade, camF, end) {
       // 観戦は遠いカメラでも読めるようにエフェクトの組を拡大する（最大 4 倍）が、稲妻は拡大を打ち消して馬を包む大きさのまま、
-      // 太さだけ √ 倍にする。拡大したままだと、望遠のカメラで幹が画面を縦に割る白い柱になり、籠が隣の馬まで呑み込んだ
+      // 太さだけ √ 倍にする。拡大したままだと、望遠のカメラで太い筋が画面を割る白い柱になり、隣の馬まで呑み込んだ
       group.parent?.updateMatrixWorld();
       const wsP = group.parent ? group.parent.matrixWorld.getMaxScaleOnAxis() : 1;
       group.scale.setScalar(1 / wsP);
@@ -2061,38 +1974,26 @@ function makeThunder3d(F, seed, source = null) {
         headObj.updateWorldMatrix(true, false);
         group.worldToLocal(headObj.localToWorld(O.copy(headC).multiplyScalar(1.45)));
       }
-      S.set(O.x, O.y + (CY - O.y) * 0.3, O.z - SPLIT);
-      rebuild(Math.floor(T / RE), camL);
+      rebuild(Math.floor(T / RE));
       write(body, wW, T, camL);
-      write(glowMesh, 2.6 * wW, T, camL);
-      // カメラが籠の中（騎手視点・ごく近いマーク）だと帯が画面を覆うので薄める
+      write(glowMesh, 3 * wW, T, camL);
+      // カメラがごく近い（騎手視点・近いマーク）と帯が画面を覆うので薄める
       const dc = Math.hypot(camL.x, camL.y - 1.6, camL.z);
       const nearK = 0.3 + 0.7 * smooth(2.2, 5.5, dc);
-      const fl = bolts[0]?.k ?? 1;
-      body.material.uniforms.uFade.value = fade * fl * nearK;
-      glowMesh.material.uniforms.uFade.value = fade * fl * nearK;
-      const gh = ease((T - 0.18) / 0.18);
-      const pulse = 0.88 + 0.12 * Math.sin(T * 37);
-      headGlow.position.copy(O);
-      headGlow.scale.setScalar(1.8 * (0.85 + 0.15 * fl) * wW);
-      headGlow.material.opacity = 0.85 * fade * nearK;
-      orb.position.copy(I);
-      orb.scale.setScalar(2.1 * gh * pulse * wW);
-      orb.material.opacity = 0.75 * fade * gh;
-      orbCore.position.copy(orb.position);
-      orbCore.scale.setScalar(0.8 * gh * pulse * wW);
-      orbCore.material.opacity = 0.8 * fade * gh;
-      disc.scale.setScalar(2.0 * (0.5 + 0.5 * gh) * pulse * wW);
-      disc.material.opacity = 0.45 * fade * gh;
-      splitGlow.position.copy(S);
-      splitGlow.scale.setScalar(2.0 * (0.85 + 0.15 * fl) * wW);
-      splitGlow.material.opacity = 0.7 * fade * clamp01((T - 0.05) / 0.1) * nearK;
-      // 着弾の閃光（0.18 秒から 0.25 秒で消える）
-      const fq = (T - 0.18) / 0.25;
-      flash.position.copy(I);
-      flash.scale.setScalar((3 + ease(fq) * 7) * wW);
-      flash.material.opacity = fq > 0 && fq < 1 ? (1 - fq) * 0.9 * nearK : 0;
-      if (T > end) { flash.material.opacity = 0; }
+      const fl = 0.85 + 0.15 * ((h32(Math.floor(T / RE) + seed) % 1000) / 1000);
+      for (const m of [body, glowMesh]) { m.material.uniforms.uFade.value = fade * fl * nearK; m.material.uniforms.uRim.value = RIM * wW; }
+      const pulse = 0.9 + 0.1 * Math.sin(T * 31);
+      orb.position.copy(O);
+      orb.scale.setScalar(1.1 * pulse * wW);
+      orb.material.opacity = 0.85 * fade * nearK;
+      orbCore.position.copy(O);
+      orbCore.scale.setScalar(0.4 * pulse * wW);
+      orbCore.material.opacity = 0.9 * fade * nearK;
+      // 発動の閃光（頭から。0.25 秒で消える）
+      const fq = T / 0.25;
+      flash.position.copy(O);
+      flash.scale.setScalar((2 + ease(fq) * 5) * wW);
+      flash.material.opacity = fq < 1 && T <= end ? (1 - fq) * 0.85 * nearK : 0;
     },
   };
 }
