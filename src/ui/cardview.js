@@ -186,7 +186,8 @@ export function cardView(c, { scale = 0.4, onClick = null, count = 0, dim = fals
       art.querySelector('.f').style.backgroundImage = `url(${a.fg})`;
       // 固有スキルのエフェクト（カードエディットで選んだ完成馬のカード）：形の後ろのオーラと前の稲妻・粒
       if (a.fx) {
-        art.querySelector('.xb').style.backgroundImage = `url(${a.fx.back})`;
+        // 後ろの層は 3D のエフェクトでは使わない（null）
+        if (a.fx.back) art.querySelector('.xb').style.backgroundImage = `url(${a.fx.back})`;
         art.querySelector('.xf').style.backgroundImage = `url(${a.fx.front})`;
         card.dataset.fx = c.fxArt;
       }
