@@ -132,10 +132,22 @@ export function cardArt(card) {
 
 /** カードの絵を撮る描画器（カードエディットの生の舞台もこれで描く。WebGL を増やさない：落とし穴 23）。 */
 export function artRenderer() {
-  renderer ??= new THREE.WebGLRenderer({ canvas: document.createElement('canvas'), antialias: true, alpha: true, preserveDrawingBuffer: false });
+  // 描画器の WebGL が失われていたら作り直す。スマホは観戦の 3D や放牧地と合わせて WebGL が増えたとき・メモリが足りないとき・
+  // 裏へ回ったときに古いコンテキストから捨てる。失われた描画器を使い回すと、カード編集の絵とカードの撮影が真っ黒のまま戻らなかった。
+  // 形・材質・布は描画器に紐づかないので、新しい描画器がそのまま上げ直す。
+  if (renderer && (lost || renderer.getContext().isContextLost())) {
+    try { renderer.dispose(); } catch { /* 失われた後は捨てる処理が失敗してもよい */ }
+    renderer = null;
+  }
+  if (!renderer) {
+    lost = false;
+    renderer = new THREE.WebGLRenderer({ canvas: document.createElement('canvas'), antialias: true, alpha: true, preserveDrawingBuffer: false });
+    renderer.domElement.addEventListener('webglcontextlost', () => { lost = true; });
+  }
   renderer.setPixelRatio(1);
   return renderer;
 }
+let lost = false;
 export const ART_SIZE = { w: W, h: H };
 
 /** 撮ってある絵だけを返す（無ければ null）。レース観戦の途中で撮ると、観戦の WebGL の横にもう 1 つ作ることになる（落とし穴 23）。 */

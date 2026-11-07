@@ -464,6 +464,41 @@ function thunder2D(b, f, t, k, c, still) {
   }
 }
 
+// 星・きらめき・花びら（金色の光・氷結・桜吹雪・星屑の飾り、3D の粒の布、イナズマの頭の光で使う）
+function star(g, x, y, R, n, inner, rot = 0) {
+  g.beginPath();
+  for (let i = 0; i < n * 2; i++) {
+    const a = rot + (i / (n * 2)) * Math.PI * 2 - Math.PI / 2;
+    const rr = i % 2 ? R * inner : R;
+    g.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr);
+  }
+  g.closePath();
+}
+function glint(g, x, y, R, col, core, a) {
+  g.globalCompositeOperation = 'lighter';
+  const gr = g.createRadialGradient(x, y, 0, x, y, R);
+  gr.addColorStop(0, rgba(core, a)); gr.addColorStop(0.3, rgba(col, a * 0.6)); gr.addColorStop(1, rgba(col, 0));
+  g.fillStyle = gr;
+  star(g, x, y, R, 4, 0.16);
+  g.fill();
+}
+function petal(g, x, y, s, rot, F, a) {
+  g.save();
+  g.translate(x, y); g.rotate(rot);
+  g.globalCompositeOperation = 'source-over';
+  const gr = g.createLinearGradient(0, -s, 0, s);
+  gr.addColorStop(0, rgba(F.core, a)); gr.addColorStop(1, rgba(F.color, a));
+  g.fillStyle = gr;
+  g.beginPath();
+  g.moveTo(0, s);
+  g.bezierCurveTo(s * 0.9, s * 0.4, s * 0.7, -s * 0.8, s * 0.18, -s);
+  g.lineTo(0, -s * 0.72);
+  g.lineTo(-s * 0.18, -s);
+  g.bezierCurveTo(-s * 0.7, -s * 0.8, -s * 0.9, s * 0.4, 0, s);
+  g.fill();
+  g.restore();
+}
+
 // ---- 疾風の竜巻（2D）
 // 帯はセル調：光の色（暗い縁）→ 主の色 → 芯の白を、少しずつ細くして重ね塗りする（半透明の重ねで段を付けない。くっきり塗り分ける）。
 // 帯は漏斗の面に沿う縦の壁で、手前の半周（画面の下側）は馬の前、奥の半周は馬の後ろへ描く。帯の尾は細って消え、縁はちぎれて揺れる。
