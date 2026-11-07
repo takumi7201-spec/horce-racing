@@ -20,7 +20,10 @@ const TITLES = {
   gacha: ['ガチャ', 'GACHA'], cards: ['所持カード', 'MY CARDS'], book: ['カード図鑑', 'CARD BOOK'], run: ['育成', 'TRAINING'], horse: ['完成馬', 'HORSE'],
   stable: ['完成馬', 'STABLE'], deck: ['編成', 'DECK'], battle: ['対戦', 'BATTLE'], result: ['レース結果', 'RESULT'], event: ['イベント', 'EVENT'],
   cardedit: ['カード編集', 'CARD EDIT'], mission: ['ミッション', 'MISSION'], rival: ['ライバルレース', 'RIVAL RACE'],
+  npc: ['ランク戦', 'RANK MATCH'], own: ['完成馬対決', 'STABLE MATCH'],
 };
+/** 画面の同一性（戻る履歴の鍵）。画面と、その画面が何を見ているか（馬・イベント）。 */
+const histKey = (pr) => [pr.view ?? 'home', pr.id ?? '', pr.ev ?? ''].join(':');
 /** 端末の今日（'YYYY-MM-DD'、0:00 で切り替わる）。ライバルレースの 1 日の上限に使う（sim は日付を作らない）。 */
 const todayKey = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 /** 弾の短い名前（タブ用）。イベントの報酬は「イベント」。 */
@@ -60,20 +63,34 @@ export function ikuseiScreen(app) {
   // カードエディットの生の舞台は、画面を描き直すたびに捨てる（作ったまま離れると three.js の形と布が残る）
   if (app.ikStage) { app.ikStage.dispose(); app.ikStage = null; }
   if (view !== 'cardedit') app.ikEdit = null;
+  // 来た道（戻るボタンの行き先）。ホームで空にし、同じ画面へ戻ってきたらそこまで切り詰める（行き来で積み上がらない）。
+  // 以前は戻るボタンがいつもホームへ飛んでいた
+  app.ikHist ??= [];
+  if (view === 'home') app.ikHist = [];
+  else if (view !== 'watch' && view !== 'cardedit') {
+    const k = histKey(app.params);
+    const i = app.ikHist.findIndex((e) => e.k === k);
+    if (i >= 0) { app.ikHist.length = i + 1; app.ikHist[i].params = { ...app.params }; } else app.ikHist.push({ k, params: { ...app.params } });
+  }
+  const back = () => {
+    app.ikHist.pop();
+    const prev = app.ikHist.at(-1);
+    if (prev) app.go('ik', prev.params); else go('home');
+  };
   if (view === 'watch') return watchView(app);
   // カード編集は全画面の別ページ（下のボタン列を出さず、絵を大きく）
   if (view === 'cardedit') return cardEditView(app, go);
   // 背景（空・網点・街）は画面の外に固定して敷く。中身だけが流れる（background-attachment: fixed はスマホで効かない）。
   const sky = el('div.ik-sky', [el('b.ik-water', { text: 'WINNING ROAD' })]);
   if (view === 'home') return el('div.ikh-wrap', [sky, homeView(app, go)]);
-  const body = { gacha: gachaView, cards: cardsView, book: bookView, run: runView, stable: stableView, horse: horseView, battle: battleView, result: resultView, event: eventView, deck: deckOnlyView, cardedit: cardEditView, mission: missionView, rival: rivalView }[view] ?? gachaView;
-  const navId = view === 'result' ? (app.ikRace?.back ?? 'run') : view === 'horse' || view === 'deck' || view === 'cardedit' ? 'stable' : view === 'book' ? 'cards' : view === 'event' || view === 'rival' ? 'battle' : view === 'mission' ? 'gacha' : view;
+  const body = { gacha: gachaView, cards: cardsView, book: bookView, run: runView, stable: stableView, horse: horseView, battle: battleView, result: resultView, event: eventView, deck: deckOnlyView, cardedit: cardEditView, mission: missionView, rival: rivalView, npc: npcView, own: ownView }[view] ?? gachaView;
+  const navId = view === 'result' ? (app.ikRace?.back ?? 'run') : view === 'horse' || view === 'deck' || view === 'cardedit' ? 'stable' : view === 'book' ? 'cards' : ['event', 'rival', 'npc', 'own'].includes(view) ? 'battle' : view === 'mission' ? 'gacha' : view;
   const [jp, en] = TITLES[view] ?? ['', ''];
   return el('div.ikp-wrap', [
     sky,
     el('div.ikp', [
       el('header.ikp-top', [
-        el('button.ikp-back', { onclick: () => go('home'), title: 'ホームへ' }, icon('back', { size: 26 })),
+        el('button.ikp-back', { onclick: back, title: '戻る' }, icon('back', { size: 26 })),
         el('div.ikp-title', [el('b', { text: jp }), el('small', { text: en })]),
         shardPill(app, go),
         coinPill(app, go),
@@ -2137,17 +2154,23 @@ const fitOf = (h, race) => {
  * 選び直しても画面ごと描き直さない（描き直すとスクロールが先頭へ戻る。落とし穴 77）：印を付け替えて onPick を呼ぶだけ。
  * 並べ替えは app.ikPickSort に覚える（画面をまたいで同じ）。
  */
-function horsePicker(app, selId, onPick, { race = null } = {}) {
+function horsePicker(app, selId, onPick, { race = null, multi = false } = {}) {
   const p = app.ik;
   app.ikPickSort ??= { by: 'rating', rev: false };
   const S = app.ikPickSort;
   const grid = el('div.ik-hpick');
-  let sel = selId;
+  // multi は何頭でも選べる（完成馬対決）。selId は id の配列で、押すたびに足し引きする
+  const sel = new Set(multi ? selId : [selId]);
   const icon1 = (h) => {
     const c = I.horseCard(h);
     const face = el('span.ik-ico-face');
-    const node = el(`button.ik-ico.ik-hp.r-${h.rar}${h.id === sel ? '.sel' : ''}`, {
-      onclick: () => { sel = h.id; for (const n of grid.children) n.classList.toggle('sel', n === node); onPick(h); },
+    const node = el(`button.ik-ico.ik-hp.r-${h.rar}${sel.has(h.id) ? '.sel' : ''}${multi ? '.multi' : ''}`, {
+      onclick: () => {
+        if (multi) { if (sel.has(h.id)) sel.delete(h.id); else sel.add(h.id); node.classList.toggle('sel', sel.has(h.id)); onPick(h, [...sel]); return; }
+        sel.clear(); sel.add(h.id);
+        for (const n of grid.children) n.classList.toggle('sel', n === node);
+        onPick(h);
+      },
       title: `${h.name}　評価点 ${h.rating}`,
     }, [
       el('span.ik-ico-ring', [face, el('span.ik-ico-rar', { text: h.rar })]),
@@ -2182,25 +2205,47 @@ function horsePicker(app, selId, onPick, { race = null } = {}) {
 /** ライバルレースのバナーの絵（イクイノックス）。 */
 const RIVAL_ART = 'P2-17';
 
-/** ライバルレースのバナー（イベントのバナーと同じ組み立て）。今日のウイコインと勝った☆を載せる。 */
-function rivalBanner(app, onclick = null) {
-  const c = I.cardById(RIVAL_ART);
-  const rs = I.rivalState(app.ik, todayKey());
+/**
+ * 対戦の各ページのバナー（イベントのバナーと同じ組み立て）：カードの一枚絵を背景に、切り抜きと題を載せる。
+ * onclick があれば押せる（対戦の画面の一覧）、無ければページの頭の飾り。
+ */
+function modeBanner({ art, tag, en, title, sub, line = null, stars = null, cls = '' }, onclick = null) {
+  const c = I.cardById(art);
   const bg = el('span.ikev-bg');
   const hero = el('img.ikev-hero', { alt: c.name, draggable: false });
   bgInto(bg, c);
   stickerInto(hero, c, { mode: 'img' });
-  return el(`${onclick ? 'button' : 'div'}.ikev-banner.ik-rvb`, { onclick }, [
+  return el(`${onclick ? 'button' : 'div'}.ikev-banner.ik-mode${cls}`, { onclick }, [
     bg, el('span.ikev-shade'), hero,
     el('div.ikev-tx', [
-      el('span.ikev-tag', { text: 'DAILY' }),
-      el('small.ikev-en', { text: 'RIVAL RACE' }),
-      el('b.ikev-ttl', { text: 'ライバルレース' }),
-      el('span.ikev-sub', { text: '― 名馬に挑み、ウイコインを掴め ―' }),
-      el('span.ikev-rw.ik-rvb-coin', [ic('wcoin', 16), el('span', { text: `今日 ${rs.got}/${I.RIVAL_DAILY} 枚（0:00 に戻る）` })]),
-      el('span.ikev-stars', [1, 2, 3, 4, 5].map((n) => el(`i${rs.cleared.includes(n) ? '.on' : ''}`, { text: '★' }))),
+      el('span.ikev-tag', { text: tag }),
+      el('small.ikev-en', { text: en }),
+      el('b.ikev-ttl', { text: title }),
+      el('span.ikev-sub', { text: `― ${sub} ―` }),
+      line,
+      stars ? el('span.ikev-stars', [1, 2, 3, 4, 5].map((n) => el(`i${stars.includes(n) ? '.on' : ''}`, { text: '★' }))) : null,
     ]),
   ]);
+}
+
+/** ライバルレースのバナー。今日のウイコインと勝った☆を載せる。 */
+function rivalBanner(app, onclick = null) {
+  const rs = I.rivalState(app.ik, todayKey());
+  return modeBanner({ art: RIVAL_ART, tag: 'DAILY', en: 'RIVAL RACE', title: 'ライバルレース', sub: '名馬に挑み、ウイコインを掴め', cls: '.ik-rvb', stars: rs.cleared,
+    line: el('span.ikev-rw.ik-rvb-coin', [ic('wcoin', 16), el('span', { text: `今日 ${rs.got}/${I.RIVAL_DAILY} 枚（0:00 に戻る）` })]) }, onclick);
+}
+
+/** ランク戦・完成馬対決のバナーの絵（オルフェーヴル・ウオッカ）。 */
+const NPC_ART = 'P1-17', OWN_ART = 'P4-02';
+const winsOf = (p) => p.finished.reduce((a, h) => [a[0] + (h.battles ?? 0), a[1] + (h.battleWins ?? 0)], [0, 0]);
+function npcBanner(app, onclick = null) {
+  const [n, w] = winsOf(app.ik);
+  return modeBanner({ art: NPC_ART, tag: 'RANK', en: 'RANK MATCH', title: 'ランク戦', sub: '育て上げた名馬たちと競う',
+    line: el('span.ikev-rw', [el('i', { text: '12頭' }), el('span', { text: `相手は自分の馬の強さに合わせる　対戦 ${n} 戦 ${w} 勝` })]) }, onclick);
+}
+function ownBanner(app, onclick = null) {
+  return modeBanner({ art: OWN_ART, tag: 'STABLE', en: 'STABLE MATCH', title: '完成馬対決', sub: '自分の完成馬どうしで最強を決める',
+    line: el('span.ikev-rw', [el('i', { text: '2〜16頭' }), el('span', { text: `完成馬 ${app.ik.finished.length} 頭から選んで走らせる` })]) }, onclick);
 }
 
 /**
@@ -2282,56 +2327,116 @@ function rivalView(app, go) {
   ];
 }
 
+/** 対戦の画面：イベント（横に送る）・ライバルレース・ランク戦・完成馬対決のバナーを並べ、押すとそれぞれの特設ページへ。 */
 function battleView(app, go) {
   const p = app.ik;
-  if (!p.finished.length) return [card('対戦', [el('p', { text: '対戦には完成馬が要る。' }), button('育成へ', () => go('run'), { cls: 'primary' })])];
-  app.ikBattle ??= {};
-  const B = app.ikBattle;
-  B.horse = p.finished.some((h) => h.id === B.horse) ? B.horse : [...p.finished].sort((a, b) => b.rating - a.rating)[0].id;
-  B.race ??= I.BATTLE_RACES[0].id;
-  B.diff ??= 'normal';
-  B.own ??= [];
-  B.own = B.own.filter((id) => p.finished.some((h) => h.id === id));
-  const raceSel = el('select.inp', { onchange: (e) => { B.race = e.target.value; } },
-    I.BATTLE_RACES.map((r) => el('option', { value: r.id, text: `${r.name}（${r.surface}${r.distance}m）`, selected: r.id === B.race })));
-  // 脚質の札は出る馬に合わせて差し替える（馬を選び直しても画面は描き直さない）
-  const segOf = (id) => { const h = p.finished.find((x) => x.id === id); return styleSeg(I.horseRaceStyle(h), I.styleNameOf(h.style), (x) => { I.setHorseRaceStyle(h, x); save(app); }); };
-  let seg = segOf(B.horse);
-  const horseSel = horsePicker(app, B.horse, (h) => { B.horse = h.id; const n = segOf(B.horse); seg.replaceWith(n); seg = n; });
-  const diffTabs = tabs(Object.entries(I.DIFFICULTY).map(([id, d]) => ({ id, name: d.name })), B.diff, (id) => { B.diff = id; go('battle'); });
-  const runNpc = () => {
-    const out = I.battleNpc(p, B.horse, B.race, B.diff);
-    save(app);
-    app.ikRace = { race: out.result, looks: looksOf(out.field, p), mine: [100], order: out.order, back: 'battle', title: `ランク戦 ${out.race.name}（${I.DIFFICULTY[B.diff].name}）`, fired: out.fired };
-    sound.play(out.order === 1 ? 'bell' : out.order <= 3 ? 'win' : 'ok');
-    go('result');
-  };
-  const runOwn = () => {
-    if (B.own.length < 2) return toast('2 頭以上を選ぶ', { bad: true });
-    const out = I.battleOwn(p, B.own, B.race);
-    save(app);
-    app.ikRace = { race: out.result, looks: looksOf(out.field, p), mine: out.field.map((f) => f.id), back: 'battle', title: `完成馬対決 ${out.race.name}`, fired: out.fired };
-    sound.play('bell');
-    go('result');
-  };
   return [
     eventCarousel(app, go),
     rivalBanner(app, () => go('rival')),
-    card('出る馬と舞台', [el('div.form', [el('label', ['レース', raceSel])]), horseSel, seg]),
-    el('div.ik-cols', [
-      card('NPC とのランク戦', [
-        el('p.note', { text: '相手は全カードの名馬を育て上げた姿（12 頭立て）。強さは自分の馬に合わせて難しさで変わる。' }),
-        diffTabs,
-        button('出走する', runNpc, { cls: 'primary big' }),
+    el('div.ik-modes', [npcBanner(app, () => go('npc')), ownBanner(app, () => go('own'))]),
+    p.finished.length ? null : card('対戦', [el('p', { text: '対戦には完成馬が要る。' }), button('育成へ', () => go('run'), { cls: 'primary' })]),
+  ];
+}
+
+/** 舞台（GI 10 戦）を札で選ぶ。選び直したら onPick（画面ごとは描き直さない）。 */
+function raceChips(cur, onPick) {
+  const box = el('div.ik-rv-races', I.BATTLE_RACES.map((r) => el(`button.ik-hs${r.id === cur ? '.on' : ''}`, {
+    onclick: (e) => { for (const b of box.children) b.classList.toggle('on', b === e.currentTarget); onPick(r); },
+  }, `${r.name} ${r.surface === '芝' ? '芝' : 'ダ'}${r.distance}`)));
+  return box;
+}
+
+/** 対戦の状態（出る馬・舞台・難しさ・完成馬対決の顔ぶれ）。ページをまたいで覚える。 */
+function battleState(app) {
+  const p = app.ik;
+  app.ikBattle ??= {};
+  const B = app.ikBattle;
+  const best = [...p.finished].sort((a, b) => b.rating - a.rating)[0];
+  B.horse = p.finished.some((h) => h.id === B.horse) ? B.horse : best?.id;
+  B.race ??= I.BATTLE_RACES[0].id;
+  B.diff ??= 'normal';
+  B.own = (B.own ?? []).filter((id) => p.finished.some((h) => h.id === id));
+  return B;
+}
+
+/** 難しさの説明（ランク戦）。 */
+const DIFF_NOTE = { normal: '自分の馬より一回り弱い相手。勝ちやすい', hard: '自分の馬とほぼ同じ強さ', legend: '自分の馬より強い相手。勝てたら本物' };
+
+/** ランク戦の特設ページ：バナー → 相手の強さ → 出る馬（舞台・アイコン・脚質）→ 出走。 */
+function npcView(app, go) {
+  const p = app.ik;
+  const B = battleState(app);
+  if (!p.finished.length) return [npcBanner(app), card('ランク戦', [el('p', { text: 'ランク戦には完成馬が要る。' }), button('育成へ', () => go('run'), { cls: 'primary' })])];
+  const race = () => I.BATTLE_RACES.find((r) => r.id === B.race) ?? I.BATTLE_RACES[0];
+  const diffs = el('div.ikev-diff.ik-npc-diff', Object.entries(I.DIFFICULTY).map(([id, d]) => el(`button.ikev-star${B.diff === id ? '.on' : ''}`, {
+    onclick: (e) => { B.diff = id; for (const b of diffs.children) b.classList.toggle('on', b === e.currentTarget); },
+  }, [el('b', { text: d.name }), el('small', { text: DIFF_NOTE[id] ?? '' })])));
+  const meBox = el('div.ik-rv-me');
+  const drawMe = () => {
+    const me = p.finished.find((h) => h.id === B.horse);
+    meBox.replaceChildren(
+      styleSeg(I.horseRaceStyle(me), I.styleNameOf(me.style), (x) => { I.setHorseRaceStyle(me, x); save(app); }),
+      el('p.note', { text: `${me.name}：${fitOf(me, race())}　対戦 ${me.battles ?? 0} 戦 ${me.battleWins ?? 0} 勝` }),
+    );
+  };
+  drawMe();
+  const mkPicker = () => horsePicker(app, B.horse, (h) => { B.horse = h.id; drawMe(); }, { race: race() });
+  let picker = mkPicker();
+  const run = () => {
+    const out = I.battleNpc(p, B.horse, B.race, B.diff);
+    save(app);
+    app.ikRace = { race: out.result, looks: looksOf(out.field, p), mine: [100], order: out.order, back: 'npc', title: `ランク戦 ${out.race.name}（${I.DIFFICULTY[B.diff].name}）`, fired: out.fired };
+    sound.play(out.order === 1 ? 'bell' : out.order <= 3 ? 'win' : 'ok');
+    go('result');
+  };
+  return [
+    npcBanner(app),
+    el('p.ikev-blurb', { text: '相手は全カードの名馬を「育て上げた姿」にした 11 頭（12 頭立て）。強さは自分の馬の能力に合わせ、難しさで上下する。舞台の馬場に向いた名馬が集まる。' }),
+    card('相手の強さ', [diffs]),
+    card('出る馬', [
+      el('div.form', [el('label', ['舞台（GI）', raceChips(B.race, (r) => { B.race = r.id; picker.replaceWith(picker = mkPicker()); drawMe(); })])]),
+      picker,
+      meBox,
+      el('div.ik-gbtns', [button('出走する', run, { cls: 'primary big' })]),
+    ]),
+  ];
+}
+
+/** 完成馬対決の特設ページ：バナー → 舞台 → 出る馬（アイコンで何頭でも選ぶ）→ 走らせる。 */
+function ownView(app, go) {
+  const p = app.ik;
+  const B = battleState(app);
+  if (p.finished.length < 2) return [ownBanner(app), card('完成馬対決', [el('p', { text: `完成馬対決には完成馬が 2 頭以上要る（いま ${p.finished.length} 頭）。` }), button('育成へ', () => go('run'), { cls: 'primary' })])];
+  const race = () => I.BATTLE_RACES.find((r) => r.id === B.race) ?? I.BATTLE_RACES[0];
+  const count = el('p.ik-own-n');
+  const runBtn = button('走らせる', () => {
+    if (B.own.length < 2) return toast('2 頭以上を選ぶ', { bad: true });
+    const out = I.battleOwn(p, B.own, B.race);
+    save(app);
+    app.ikRace = { race: out.result, looks: looksOf(out.field, p), mine: out.field.map((f) => f.id), back: 'own', title: `完成馬対決 ${out.race.name}`, fired: out.fired };
+    sound.play('bell');
+    go('result');
+  }, { cls: 'primary big' });
+  const drawCount = () => {
+    count.textContent = `${B.own.length} 頭を選んだ（2〜16 頭）`;
+    runBtn.disabled = B.own.length < 2 || B.own.length > 16;
+  };
+  drawCount();
+  const mkPicker = () => horsePicker(app, B.own, (h, ids) => { B.own = ids; drawCount(); }, { race: race(), multi: true });
+  let picker = mkPicker();
+  const top = [...p.finished].sort((a, b) => b.rating - a.rating);
+  return [
+    ownBanner(app),
+    el('p.ikev-blurb', { text: '自分の完成馬どうしを同じ舞台で走らせる。スキルは発動し、結果は対戦の成績に残る。' }),
+    card('出る馬', [
+      el('div.form', [el('label', ['舞台（GI）', raceChips(B.race, (r) => { B.race = r.id; picker.replaceWith(picker = mkPicker()); })])]),
+      el('div.ik-gbtns.left', [
+        button('上位 16 頭', () => { B.own = top.slice(0, 16).map((h) => h.id); picker.replaceWith(picker = mkPicker()); drawCount(); }),
+        button('全部外す', () => { B.own = []; picker.replaceWith(picker = mkPicker()); drawCount(); }, { cls: 'ghost' }),
       ]),
-      card('自分の完成馬どうし', [
-        el('p.note', { text: '2〜16 頭を選んで走らせる。' }),
-        el('div.ik-pick', p.finished.map((h) => el('label.check', [
-          el('input', { type: 'checkbox', checked: B.own.includes(h.id), onchange: (e) => { B.own = e.target.checked ? [...B.own, h.id] : B.own.filter((x) => x !== h.id); } }),
-          el('span', { text: `${h.rank} ${h.name}` }),
-        ]))),
-        button('走らせる', runOwn, { cls: 'primary' }),
-      ]),
+      picker,
+      count,
+      el('div.ik-gbtns', [runBtn]),
     ]),
   ];
 }

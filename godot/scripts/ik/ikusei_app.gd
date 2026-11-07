@@ -31,7 +31,7 @@ const RAR_TEXT := {LM = "#8a3fd6", SSR = "#b07a10", SR = "#5d6b7c", R = "#9a5a22
 const HOLO := {LM = 1.0, SSR = 0.8, SR = 0.65, R = 0.5, N = 0.0}
 const TITLES := {gacha = ["ガチャ", "GACHA"], cards = ["所持カード", "MY CARDS"], book = ["カード図鑑", "CARD BOOK"], deck = ["編成", "DECK"],
 	train = ["育成", "TRAINING"], finished = ["完成馬", "STABLE"], horse = ["完成馬", "HORSE"], battle = ["対戦", "BATTLE"], event = ["イベント", "EVENT"],
-	mission = ["ミッション", "MISSION"], rival = ["ライバルレース", "RIVAL RACE"]}
+	mission = ["ミッション", "MISSION"], rival = ["ライバルレース", "RIVAL RACE"], npc = ["ランク戦", "RANK MATCH"], own = ["完成馬対決", "STABLE MATCH"]}
 
 var p: Dictionary
 var screen := "home"
@@ -49,6 +49,8 @@ var ev_slide := ""
 ## 出る馬の並べ替え（評価値・脚質・距離・芝ダート。同じ札を押すと向きが逆）。画面をまたいで同じ
 var pick_sort := {by = "rating", rev = false}
 var _last_screen := ""
+## 戻る履歴（{k, s, o}）。以前は戻るボタンがいつもホームへ飛んでいた
+var hist := []
 
 
 func _ready() -> void:
@@ -345,6 +347,22 @@ func _rar_badge(rar: String, size := 13) -> Control:
 # ------------------------------------------------------------------ 画面の切り替え
 
 func go(name: String, o := {}) -> void:
+	# 来た道（戻るボタンの行き先）。ホームで空にし、同じ画面へ戻ってきたらそこまで切り詰める（行き来で積み上がらない）。
+	# 鍵は画面と、その画面が何を見ているか（イベント・完成馬）。同じ鍵の選び直し（難易度・舞台・出る馬）は最後の状態に書き換える
+	if name == "home":
+		hist.clear()
+	else:
+		var k := "%s:%s:%s" % [name, o.get("ev", ""), o.get("id", "") if name == "horse" else ""]
+		var at := -1
+		for i in hist.size():
+			if hist[i].k == k:
+				at = i
+				break
+		if at >= 0:
+			hist.resize(at + 1)
+			hist[at].o = o.duplicate()
+		else:
+			hist.append({k = k, s = name, o = o.duplicate()})
 	var same := name == screen and o.hash() == opts.hash()
 	screen = name
 	opts = o
@@ -383,6 +401,8 @@ func render(animate := true) -> void:
 			"event": content = _event()
 			"mission": content = _mission()
 			"rival": content = _rival_page()
+			"npc": content = _npc_page()
+			"own": content = _own_page()
 			_: content = _gacha()
 		page = _scrolled(content)
 	body.add_child(page)
@@ -438,7 +458,7 @@ func _render_top() -> void:
 	var back := UI.box({c = [Color.WHITE], radius = 999.0, border = 0.0, shadow = Vector2(0, 3), shadow_color = Color(0, 0, 0, 0.25), pad = Vector4(8, 8, 8, 8)})
 	back.custom_minimum_size = Vector2(44, 44)
 	back.add_child(UI.icon("back", 26, INK))
-	back.press(go.bind("home"))
+	back.press(_back)
 	h.add_child(back)
 	var tt: Array = TITLES.get(screen, ["", ""])
 	h.add_child(UI.outlined(tt[0], 30, Color.WHITE, "title", Color("#0d2a2e"), 5))
@@ -454,6 +474,17 @@ func _render_top() -> void:
 	h.add_child(_shard_pill())
 	h.add_child(_coin_pill())
 	top.add_child(h)
+
+
+## 戻る：来た道を 1 つ戻る（無ければホーム）
+func _back() -> void:
+	if not hist.is_empty():
+		hist.pop_back()
+	if hist.is_empty():
+		go("home")
+	else:
+		var e: Dictionary = hist.back()
+		go(e.s, e.o)
 
 
 ## かけらの札（緑の宝石・数）。余りがあれば橙の点
@@ -2326,10 +2357,16 @@ func _horse_head(h: Dictionary, c: Dictionary) -> Control:
 
 # ------------------------------------------------------------------ 対戦
 
+## 対戦の画面：イベント（横に送る）・ライバルレース・ランク戦・完成馬対決のバナー。押すとそれぞれの特設ページへ
 func _battle() -> Control:
 	var page := UI.vbox(18)
 	page.add_child(_event_carousel())
 	page.add_child(_rival_banner(true))
+	var two := UI.hbox(14)
+	for b in [_npc_banner(true), _own_banner(true)]:
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		two.add_child(b)
+	page.add_child(two)
 	if p.finished.is_empty():
 		var v0 := UI.vbox(10)
 		v0.add_child(UI.label("対戦には完成馬が要る。", 14, INK))
@@ -2337,45 +2374,165 @@ func _battle() -> Control:
 		b.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 		v0.add_child(b)
 		page.add_child(UI.section("対戦", v0))
-		return page
-	var hid = opts.get("id", p.finished[p.finished.size() - 1].id)
-	var race_id: String = opts.get("race", IK.battle_races()[0].id)
-	var diff: String = opts.get("diff", "normal")
-	var v := UI.vbox(12)
-	v.add_child(UI.label("出す馬", 12, Color("#4a5b58"), "black"))
-	v.add_child(_horse_picker(hid, func(id) -> void: go("battle", {id = id, race = race_id, diff = diff})))
-	v.add_child(UI.label("舞台（GI）", 12, Color("#4a5b58"), "black"))
+	return page
+
+
+## 対戦の各ページのバナー（イベントのバナーと同じ組み立て）。nav の screen があれば押すとそのページへ
+func _mode_banner(art: String, tag: String, title: String, sub: String, line: String, nav := "", w := -1.0) -> Control:
+	var bw := W() if w < 0 else w
+	var lay := Control.new()
+	lay.custom_minimum_size.y = 190
+	lay.clip_contents = true
+	lay.mouse_filter = Control.MOUSE_FILTER_STOP if nav != "" else Control.MOUSE_FILTER_IGNORE
+	if nav != "":
+		lay.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		lay.gui_input.connect(func(e: InputEvent) -> void:
+			if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
+				go(nav))
+	var bg := _img(_bg_tex(art), true)
+	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	lay.add_child(bg)
+	lay.add_child(_shade(0.92, 0.05))
+	var st := _img(_sticker_tex(art))
+	# 半分の幅のバナー（対戦の画面に 2 枚並べる）は切り抜きを小さく右へ寄せる（題と説明に重なった）
+	st.size = Vector2(340, 230) if w < 0 else Vector2(230, 156)
+	st.position = Vector2(bw - 380, -16) if w < 0 else Vector2(bw - 236, 34)
+	lay.add_child(st)
+	var v := UI.vbox(3)
+	v.position = Vector2(20, 14)
+	var chip := UI.box({c = [SUN], radius = 6.0, border = 0.0, shadow = Vector2.ZERO, pad = Vector4(8, 1, 8, 2)})
+	chip.add_child(UI.label(tag, 12, INK, "title"))
+	chip.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	chip.rotation = -0.04
+	v.add_child(chip)
+	v.add_child(UI.outlined(title, 36, Color("#fff4dc"), "title", Color("#0d2a2e"), 6))
+	v.add_child(UI.outlined("― %s ―" % sub, 14, Color.WHITE, "black", Color("#0d2a2e"), 4))
+	v.add_child(UI.outlined(line, 15, Color("#ffd36a"), "black", Color("#0d2a2e"), 4))
+	lay.add_child(v)
+	return _framed(lay)
+
+
+func _npc_banner(nav := false) -> Control:
+	var n := 0
+	var w := 0
+	for h in p.finished:
+		n += int(h.get("battles", 0))
+		w += int(h.get("battleWins", 0))
+	return _mode_banner("P1-17", "RANK MATCH", "ランク戦", "育て上げた名馬たちと競う", "12 頭立て　対戦 %d 戦 %d 勝" % [n, w], "npc" if nav else "", (W() - 14) / 2.0 if nav else -1.0)
+
+
+func _own_banner(nav := false) -> Control:
+	return _mode_banner("P4-02", "STABLE MATCH", "完成馬対決", "自分の完成馬どうしで最強を決める", "2〜16 頭・完成馬 %d 頭から選ぶ" % p.finished.size(), "own" if nav else "", (W() - 14) / 2.0 if nav else -1.0)
+
+
+## 舞台（GI 10 戦）の札。押すと on_pick(race_id)
+func _race_chips(cur: String, on_pick: Callable) -> Control:
 	var rf := HFlowContainer.new()
 	rf.add_theme_constant_override("h_separation", 8)
 	rf.add_theme_constant_override("v_separation", 8)
 	for r in IK.battle_races():
-		rf.add_child(UI.chip("%s　%s%s%dm" % [r.name, IK.data().courses[r.courseId].short, "芝" if r.surface == "芝" else "ダ", int(r.distance)], r.id == race_id,
-			go.bind("battle", {id = hid, race = r.id, diff = diff}), 13))
-	v.add_child(rf)
-	v.add_child(UI.label("相手の強さ", 12, Color("#4a5b58"), "black"))
-	var dr := UI.hbox(8)
+		rf.add_child(UI.chip("%s　%s%dm" % [r.name, "芝" if r.surface == "芝" else "ダ", int(r.distance)], r.id == cur, on_pick.bind(r.id), 13))
+	return rf
+
+
+func _race_of(id: String) -> Dictionary:
+	for r in IK.battle_races():
+		if r.id == id:
+			return r
+	return IK.battle_races()[0]
+
+
+func _best_id():
+	var best: Dictionary = p.finished[0]
+	for h in p.finished:
+		if float(h.rating) > float(best.rating):
+			best = h
+	return best.id
+
+
+## ランク戦の特設ページ：バナー → 相手の強さ → 出る馬（舞台・アイコン・脚質）→ 出走
+func _npc_page() -> Control:
+	var page := UI.vbox(18)
+	page.add_child(_npc_banner())
+	if p.finished.is_empty():
+		page.add_child(UI.section("ランク戦", UI.label("ランク戦には完成馬が要る。", 14, INK)))
+		return page
+	var hid = opts.get("id", null)
+	if hid == null or IK.find_finished(p, hid) == null:
+		hid = _best_id()
+	var race_id: String = opts.get("race", IK.battle_races()[0].id)
+	var diff: String = opts.get("diff", "normal")
+	var o := func(k: String, val) -> Dictionary:
+		var d := {id = hid, race = race_id, diff = diff}
+		d[k] = val
+		return d
+	var dv := UI.vbox(10)
+	dv.add_child(_wrap("相手は全カードの名馬を「育て上げた姿」にした 11 頭（12 頭立て）。強さは自分の馬の能力に合わせ、難しさで上下する。", 13, 900, Color("#4a5b58")))
+	var dr := UI.hbox(10)
+	var notes := {normal = "一回り弱い相手", hard = "ほぼ同じ強さ", legend = "自分より強い相手"}
 	var diffs: Dictionary = IK.data().difficulty
 	for k in diffs:
-		dr.add_child(UI.chip(diffs[k].name, k == diff, go.bind("battle", {id = hid, race = race_id, diff = k}), 14))
-	v.add_child(dr)
+		dr.add_child(UI.chip("%s　%s" % [diffs[k].name, notes.get(k, "")], k == diff, func() -> void: go("npc", o.call("diff", k)), 14))
+	dv.add_child(dr)
+	page.add_child(UI.section("相手の強さ", dv))
+	var v := UI.vbox(10)
+	v.add_child(UI.label("舞台（GI）", 12, Color("#4a5b58"), "black"))
+	v.add_child(_race_chips(race_id, func(id: String) -> void: go("npc", o.call("race", id))))
+	v.add_child(UI.label("出る馬", 12, Color("#4a5b58"), "black"))
+	v.add_child(_horse_picker(hid, func(id) -> void: go("npc", o.call("id", id)), _race_of(race_id)))
 	var hb = IK.find_finished(p, hid)
-	if hb != null:
-		v.add_child(_style_row(IK.horse_race_style(hb), IK.style_name_of(float(hb.style)), func(x: String) -> void: IK.set_race_style(hb, x)))
-	var row := UI.hbox(12)
-	row.add_child(UI.button("ランク戦を走る", func() -> void:
+	v.add_child(_style_row(IK.horse_race_style(hb), IK.style_name_of(float(hb.style)), func(x: String) -> void: IK.set_race_style(hb, x)))
+	v.add_child(UI.label("%s：%s　対戦 %d 戦 %d 勝" % [hb.name, _fit_of(hb, _race_of(race_id)), int(hb.get("battles", 0)), int(hb.get("battleWins", 0))], 13, Color("#4a5b58"), "black"))
+	var bt := UI.button("出走する", func() -> void:
 		var r := IK.battle_npc(p, hid, race_id, diff)
 		save()
-		var h = IK.find_finished(p, hid)
-		_watch(r.result, [100], r.fired, _result.bind(r.result, [100], r.fired, "ランク戦　%s %d 着" % [h.name, int(r.order)], null)), "primary", 20, "sword"))
-	if p.finished.size() >= 2:
-		row.add_child(UI.button("完成馬どうしで走らせる（%d 頭）" % mini(16, p.finished.size()), func() -> void:
-			var ids: Array = p.finished.map(func(h): return h.id).slice(0, 16)
-			var r := IK.battle_own(p, ids, race_id)
-			save()
-			var mine := range(ids.size()).map(func(i): return 100 + i)
-			_watch(r.result, mine, r.fired, _result.bind(r.result, mine, r.fired, "完成馬どうし　%s" % r.race.name, null)), "paper", 15))
-	v.add_child(row)
-	page.add_child(UI.section("ランク戦", v))
+		_watch(r.result, [100], r.fired, _result.bind(r.result, [100], r.fired, "ランク戦　%s %d 着" % [hb.name, int(r.order)], null)), "primary", 20, "sword")
+	bt.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	v.add_child(bt)
+	page.add_child(UI.section("出る馬", v))
+	return page
+
+
+## 完成馬対決の特設ページ：バナー → 舞台 → 出る馬（アイコンを押して何頭でも選ぶ）→ 走らせる
+func _own_page() -> Control:
+	var page := UI.vbox(18)
+	page.add_child(_own_banner())
+	if p.finished.size() < 2:
+		page.add_child(UI.section("完成馬対決", UI.label("完成馬対決には完成馬が 2 頭以上要る（いま %d 頭）。" % p.finished.size(), 14, INK)))
+		return page
+	var race_id: String = opts.get("race", IK.battle_races()[0].id)
+	var sel: Array = (opts.get("sel", []) as Array).filter(func(id): return IK.find_finished(p, id) != null)
+	var v := UI.vbox(10)
+	v.add_child(_wrap("自分の完成馬どうしを同じ舞台で走らせる。スキルは発動し、結果は対戦の成績に残る。", 13, 900, Color("#4a5b58")))
+	v.add_child(UI.label("舞台（GI）", 12, Color("#4a5b58"), "black"))
+	v.add_child(_race_chips(race_id, func(id: String) -> void: go("own", {race = id, sel = sel})))
+	var quick := UI.hbox(10)
+	quick.add_child(UI.button("上位 16 頭", func() -> void:
+		var top: Array = IK.Sim.stable_sort(p.finished.duplicate(), func(a, b): return float(a.rating) > float(b.rating))
+		go("own", {race = race_id, sel = top.slice(0, 16).map(func(h): return h.id)}), "paper", 14))
+	quick.add_child(UI.button("全部外す", func() -> void: go("own", {race = race_id, sel = []}), "paper", 14))
+	v.add_child(quick)
+	v.add_child(_horse_picker(sel, func(id) -> void:
+		var ns := sel.duplicate()
+		var at := -1
+		for i in ns.size():
+			if int(ns[i]) == int(id):
+				at = i
+		if at >= 0:
+			ns.remove_at(at)
+		else:
+			ns.append(id)
+		go("own", {race = race_id, sel = ns}), _race_of(race_id)))
+	v.add_child(UI.label("%d 頭を選んだ（2〜16 頭）" % sel.size(), 15, INK, "black"))
+	var ok := sel.size() >= 2 and sel.size() <= 16
+	var bt := UI.button("走らせる", func() -> void:
+		var r := IK.battle_own(p, sel, race_id)
+		save()
+		var mine := range(sel.size()).map(func(i): return 100 + i)
+		_watch(r.result, mine, r.fired, _result.bind(r.result, mine, r.fired, "完成馬対決　%s" % r.race.name, null)), "primary" if ok else "off", 20, "sword")
+	bt.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	v.add_child(bt)
+	page.add_child(UI.section("出る馬", v))
 	return page
 
 
@@ -2411,7 +2568,8 @@ func _horse_picker(sel_id, on_pick: Callable, race = null) -> Control:
 	hf.add_theme_constant_override("v_separation", 10)
 	for h in list:
 		var l2 := "%s・%s %dm" % [IK.horse_race_style(h), IK.dist_cat(float(h.dist)), roundi(float(h.dist) / 100.0) * 100]
-		var t := _tile(IK.horse_card(h), h.name, l2, on_pick.bind(h.id), {sel = int(h.id) == int(sel_id), badge = h.rank})
+		var on: bool = (sel_id as Array).has(h.id) or (sel_id as Array).has(int(h.id)) if sel_id is Array else int(h.id) == int(sel_id)
+		var t := _tile(IK.horse_card(h), h.name, l2, on_pick.bind(h.id), {sel = on, badge = h.rank})
 		var l3 := "芝%s ダ%s　%d" % [_mark(float(h.turf)), _mark(float(h.dirt)), int(h.rating)]
 		if race != null:
 			l3 += "\n" + _fit_of(h, race)
@@ -2435,39 +2593,12 @@ func _fit_of(h: Dictionary, race: Dictionary) -> String:
 	return "%s %dm%s" % [surf, int(race.distance), "○" if d <= rg else ("△" if d <= 800 else "×")]
 
 
-## ライバルレースのバナー（イベントのバナーと同じ組み立て。絵はイクイノックス）。nav なら押すと特設ページ
+## ライバルレースのバナー（絵はイクイノックス）。nav なら押すと特設ページ
 func _rival_banner(nav := false) -> Control:
 	var rs := IK.rival_state(p, _today())
 	var cleared: Array = (rs.cleared as Array).map(func(x): return int(x))
-	var art := "P2-17"
-	var lay := Control.new()
-	lay.custom_minimum_size.y = 190
-	lay.mouse_filter = Control.MOUSE_FILTER_STOP if nav else Control.MOUSE_FILTER_IGNORE
-	if nav:
-		lay.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-		lay.gui_input.connect(func(e: InputEvent) -> void:
-			if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
-				go("rival"))
-	var bg := _img(_bg_tex(art), true)
-	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
-	lay.add_child(bg)
-	lay.add_child(_shade(0.92, 0.05))
-	var st := _img(_sticker_tex(art))
-	st.size = Vector2(340, 230)
-	st.position = Vector2(W() - 380, -16)
-	lay.add_child(st)
-	var v := UI.vbox(3)
-	v.position = Vector2(20, 14)
-	var chip := UI.box({c = [SUN], radius = 6.0, border = 0.0, shadow = Vector2.ZERO, pad = Vector4(8, 1, 8, 2)})
-	chip.add_child(UI.label("DAILY　RIVAL RACE", 12, INK, "title"))
-	chip.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
-	chip.rotation = -0.04
-	v.add_child(chip)
-	v.add_child(UI.outlined("ライバルレース", 36, Color("#fff4dc"), "title", Color("#0d2a2e"), 6))
-	v.add_child(UI.outlined("― 名馬に挑み、ウイコインを掴め ―", 14, Color.WHITE, "black", Color("#0d2a2e"), 4))
-	v.add_child(UI.outlined(" ".join(range(1, 6).map(func(x): return ("★" if cleared.has(x) else "☆") + str(x))) + "　今日 %d/%d 枚（0:00 に戻る）" % [int(rs.got), int(IK.data().rival.daily)], 15, Color("#ffd36a"), "black", Color("#0d2a2e"), 4))
-	lay.add_child(v)
-	return _framed(lay)
+	var line := " ".join(range(1, 6).map(func(x): return ("★" if cleared.has(x) else "☆") + str(x))) + "　今日 %d/%d 枚（0:00 に戻る）" % [int(rs.got), int(IK.data().rival.daily)]
+	return _mode_banner("P2-17", "DAILY　RIVAL RACE", "ライバルレース", "名馬に挑み、ウイコインを掴め", line, "rival" if nav else "")
 
 
 ## ライバルレースの特設ページ（イベントの画面と同じ並び）：バナー → 難易度 → 舞台 → 出る馬（アイコン・並べ替え）→ 出走・スキップ。
