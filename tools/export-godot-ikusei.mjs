@@ -64,6 +64,7 @@ const data = {
   events: IK.EVENTS, starD: IK.STAR_D,
   graded, combos, battleRaces: IK.BATTLE_RACES, difficulty: IK.DIFFICULTY,
   rates: IK.RATES, shardValue: IK.SHARD_VALUE, shardCost: IK.SHARD_COST, awaken: IK.AWAKEN,
+  coinStart: IK.COIN_START, rival: { daily: IK.RIVAL_DAILY, coins: IK.RIVAL_COINS, level: IK.RIVAL_LEVEL, field: IK.RIVAL_FIELD },
   slots: IK.SLOTS, moods: IK.MOODS,
   raceSkills: strip(raceSkillDefs), supportSkills: strip(supportSkillDefs), skillFx: IK.SKILL_FX,
   courses,

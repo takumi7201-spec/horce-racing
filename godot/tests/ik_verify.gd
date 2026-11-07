@@ -69,8 +69,12 @@ func scenario(seed: int) -> Dictionary:
 	var b := IK.battle_npc(p, h.id, "japan-cup", "normal")
 	var e := IK.event_race(p, h.id, "arc1999", 1)
 	var e2 := IK.event_race(p, h.id, "bc1989", 3)
+	# ライバルレース（☆2、勝てば次の日に同じ☆をスキップ）とウイコインの残高
+	var rv := IK.rival_race(p, h.id, "arima-kinen", 2, "2026-11-07")
+	var skip := IK.rival_skip(p, 2, "2026-11-08")
 	return {pulls = pulls, steps = steps, stats = h.stats, rating = h.rating, skills = h.skills, name = h.name, sex = h.sex, coat = h.coat,
-		battle = orders(b.result), event = orders(e.result), event2 = orders(e2.result)}
+		battle = orders(b.result), event = orders(e.result), event2 = orders(e2.result), rival = orders(rv.result),
+		coins = [IK.coins_of(p), int(rv.coins), skip, IK.mission_gain(p, {sire = sire.id, dam = dam.id, supports = sup}).size(), IK.missions_of(p).size()]}
 
 
 func race_check(r: Dictionary) -> Array:

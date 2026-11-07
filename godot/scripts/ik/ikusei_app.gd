@@ -30,7 +30,8 @@ const RAR_COL := {LM = Color("#b46cff"), SSR = Color("#e8b33a"), SR = Color("#b9
 const RAR_TEXT := {LM = "#8a3fd6", SSR = "#b07a10", SR = "#5d6b7c", R = "#9a5a22", N = "#3d8a2c"}
 const HOLO := {LM = 1.0, SSR = 0.8, SR = 0.65, R = 0.5, N = 0.0}
 const TITLES := {gacha = ["ガチャ", "GACHA"], cards = ["所持カード", "MY CARDS"], book = ["カード図鑑", "CARD BOOK"], deck = ["編成", "DECK"],
-	train = ["育成", "TRAINING"], finished = ["完成馬", "STABLE"], horse = ["完成馬", "HORSE"], battle = ["対戦", "BATTLE"], event = ["イベント", "EVENT"]}
+	train = ["育成", "TRAINING"], finished = ["完成馬", "STABLE"], horse = ["完成馬", "HORSE"], battle = ["対戦", "BATTLE"], event = ["イベント", "EVENT"],
+	mission = ["ミッション", "MISSION"]}
 
 var p: Dictionary
 var screen := "home"
@@ -171,6 +172,7 @@ func _shoot(path: String, wait: float, scrolly := 0) -> void:
 ## 確かめ用：決まった手でカードを集めて 1 頭育て、2 頭目を育成中にしたプロフィール（--demo=シード）。保存はしない
 func _demo(seed: int) -> void:
 	p = IK.new_profile(seed)
+	p.coins = 67
 	IK.pull(p, 60)
 	var own := IK.owned(p)
 	var ms := own.filter(func(c): return c.sex == "牡")
@@ -370,6 +372,7 @@ func render(animate := true) -> void:
 			"horse": content = _horse()
 			"battle": content = _battle()
 			"event": content = _event()
+			"mission": content = _mission()
 			_: content = _gacha()
 		page = _scrolled(content)
 	body.add_child(page)
@@ -452,19 +455,26 @@ func _shard_pill() -> Control:
 	return b
 
 
-## 通貨の札（試作なので何度でも引ける：∞）
+## ウイコインの札（ガチャ 1 回 1 枚）。押すとガチャ、＋はミッション（集め方）
 func _coin_pill() -> Control:
 	var b := UI.box({c = [INK], radius = 999.0, border = 2.5, border_color = Color.WHITE, shadow = Vector2(0, 3), shadow_color = Color(0, 0, 0, 0.3), pad = Vector4(6, 4, 6, 5)})
 	b.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	var h := UI.hbox(6)
-	h.add_child(UI.icon("coin", 20, Color("#f6cf86")))
-	h.add_child(UI.label("∞", 20, SUN, "black"))
+	h.add_child(UI.icon("wcoin", 20, SUN))
+	h.add_child(UI.label(str(IK.coins_of(p)), 20, Color("#f6cf86"), "black"))
 	var plus := UI.box({c = [SUN], radius = 999.0, border = 0.0, shadow = Vector2.ZERO, pad = Vector4(5, 0, 5, 1)})
 	plus.add_child(UI.label("+", 16, INK, "black"))
+	plus.press(go.bind("mission"))
 	h.add_child(plus)
 	b.add_child(h)
 	b.press(go.bind("gacha"))
 	return b
+
+
+## 端末の今日（'YYYY-MM-DD'、0:00 で切り替わる）。ライバルレースの 1 日の上限に使う
+func _today() -> String:
+	var d := Time.get_date_dict_from_system()
+	return "%04d-%02d-%02d" % [int(d.year), int(d.month), int(d.day)]
 
 
 ## 下のボタン列（ゲームの .ik-dock）：傾いた札 4 枚と菱形のガチャ
@@ -767,9 +777,9 @@ func _home() -> Control:
 	left.add_child(_round_entry(null, Color("#eee6c8"), "遊びかた", LEAF, "", _howto, "book"))
 	layer.add_child(left)
 
-	# 右の列：丸いボタン（図鑑・競馬場・完成馬）
+	# 右の列：丸いボタン（ミッション・図鑑・競馬場・完成馬）
 	var right := UI.vbox(10)
-	for it in [["book", "図鑑", go.bind("book")], ["flag", "競馬場", func() -> void: get_tree().change_scene_to_file("res://scenes/racecourse.tscn")], ["trophy", "完成馬", go.bind("finished")]]:
+	for it in [["trophy", "ミッション", go.bind("mission")], ["book", "図鑑", go.bind("book")], ["flag", "競馬場", func() -> void: get_tree().change_scene_to_file("res://scenes/racecourse.tscn")], ["trophy", "完成馬", go.bind("finished")]]:
 		var rbt := UI.box({c = [INK], radius = 999.0, border = 2.5, border_color = Color.WHITE, shadow = Vector2(0, 3), shadow_color = Color(0, 0, 0, 0.3), pad = Vector4(4, 7, 4, 5)})
 		rbt.custom_minimum_size = Vector2(54, 54)
 		var rv := UI.vbox(0, BoxContainer.ALIGNMENT_CENTER)
@@ -906,8 +916,9 @@ func _ticket(a: String, bb: String, img: Texture2D, caption: String, cb: Callabl
 func _howto() -> void:
 	var v := UI.vbox(8)
 	v.add_child(UI.label("遊びかた", 24, INK, "title"))
-	for line in ["① ガチャでカードを集める（何度でも引ける）。同じカードの 2〜5 枚目は覚醒が上がる。",
-			"② 編成で、育てる馬 1 枚とサポート 4 枚を選ぶ。",
+	for line in ["① ガチャでカードを集める（1 回にウイコイン 1 枚）。同じカードの 2〜5 枚目は覚醒が上がる。",
+			"ウイコインは、ミッション（カードを初めて編成して育成を終えると 1 枚ずつ）と、対戦のライバルレース（1 日 10 枚まで、0:00 に戻る）で集める。",
+			"② 編成で、父（牡）× 母（牝）の配合とサポート 4 枚を選ぶ。",
 			"③ 育成は 2 歳 7 月〜3 歳 12 月。練習 3 回とレース 1 戦を 10 回くり返す。サポートが来ている練習は伸びが大きく、得意の練習なら友情。",
 			"④ 育て上げた完成馬で、ランク戦・完成馬どうしの対戦・イベント（凱旋門賞 1999）に挑む。",
 			"レースはゲーム本体と同じ計算で走り、Godot の競馬場で観戦できる。"]:
@@ -954,15 +965,18 @@ func _gacha() -> Control:
 		cc.add_child(_reveal(got, opts.get("reveal", false)))
 		v.add_child(cc)
 	var btns := UI.hbox(16, BoxContainer.ALIGNMENT_CENTER)
-	var b1 := UI.button("1回引く", func() -> void: _do_pull(1), "primary", 15)
+	var coins := IK.coins_of(p)
+	var b1 := UI.button("1回引く（1枚）", func() -> void: _do_pull(1), "primary" if coins >= 1 else "off", 15, "wcoin")
 	b1.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	btns.add_child(b1)
-	var b10 := UI.button("10 回引く", func() -> void: _do_pull(10), "primary", 21)
+	var b10 := UI.button("10 回引く（10枚）", func() -> void: _do_pull(10), "primary" if coins >= 10 else "off", 21, "wcoin")
 	b10.pad = Vector4(28, 11, 28, 13)
 	btns.add_child(b10)
 	v.add_child(btns)
 	var rates: Dictionary = IK.data().rates
-	v.add_child(UI.label("排出率 " + "・".join(IK.RARITIES.map(func(r): return "%s %d%%" % [r, roundi(float(rates[r]) * 100)])) + "　通算 %d 回" % int(p.pulls), 12, Color("#4a5b58")))
+	v.add_child(UI.label("ウイコイン %d 枚（1 回 1 枚）　排出率 " % coins + "・".join(IK.RARITIES.map(func(r): return "%s %d%%" % [r, roundi(float(rates[r]) * 100)])) + "　通算 %d 回" % int(p.pulls), 12, Color("#4a5b58")))
+	if coins < 10:
+		v.add_child(_coin_howto())
 	page.add_child(UI.section("ガチャ" if got.is_empty() else "ガチャの結果（カードを押すと大きく見る）", v))
 	if not got.is_empty():
 		page.add_child(_gacha_banner())
@@ -1070,6 +1084,9 @@ func _framed(lay: Control) -> Control:
 
 
 func _do_pull(n: int) -> void:
+	if IK.coins_of(p) < n:
+		toast("ウイコインが足りない（あと %d 枚）" % (n - IK.coins_of(p)))
+		return
 	var got := IK.pull(p, n)
 	save()
 	go("gacha", {got = got, reveal = true, k = p.pulls})
@@ -1798,10 +1815,15 @@ func _train() -> Control:
 	if IK.run_done(run):
 		var dv := UI.vbox(10)
 		dv.add_child(UI.label("育成が終わった（%d 戦 %d 勝、うち重賞 %d 勝）" % [int(run.starts), int(run.wins), int(run.gradedWins)], 17, INK, "black"))
+		var gain := IK.mission_gain(p).size()
+		if gain > 0:
+			dv.add_child(_coin_note("ミッション：初めて編成したカード %d 枚 → ウイコイン +%d" % [gain, gain]))
 		var fb := UI.button("完成馬にする", func() -> void:
 			var h := IK.finish_run(p)
 			save()
-			go("horse", {id = h.id}), "primary", 20)
+			go("horse", {id = h.id})
+			if gain > 0:
+				toast("ミッション達成：ウイコイン +%d（いま %d 枚）" % [gain, IK.coins_of(p)]), "primary", 20)
 		fb.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 		dv.add_child(fb)
 		page.add_child(UI.section("完成", dv))
@@ -2338,6 +2360,118 @@ func _battle() -> Control:
 			_watch(r.result, mine, r.fired, _result.bind(r.result, mine, r.fired, "完成馬どうし　%s" % r.race.name, null)), "paper", 15))
 	v.add_child(row)
 	page.add_child(UI.section("ランク戦", v))
+	page.add_child(_rival(hid, race_id, diff))
+	return page
+
+
+## ライバルレース：☆1〜☆5。相手は名馬のカードを難易度の強さにした 9 頭。勝つとウイコイン（1 日 10 枚まで、0:00 で戻る）。
+## 勝ったことのある☆はスキップで受け取れる。出す馬と舞台はランク戦と同じ選択。
+func _rival(hid, race_id: String, diff: String) -> Control:
+	var today := _today()
+	var rs := IK.rival_state(p, today)
+	var R: Dictionary = IK.data().rival
+	var cleared: Array = rs.cleared
+	var is_cl := func(n: int) -> bool: return cleared.has(n) or cleared.has(float(n))
+	var top_cl := 0
+	for c in cleared:
+		top_cl = maxi(top_cl, int(c))
+	var star: int = int(opts.get("star", mini(5, top_cl + 1)))
+	var v := UI.vbox(10)
+	var head := UI.hbox(10)
+	var pill := UI.box({c = [INK], radius = 999.0, border = 0.0, shadow = Vector2.ZERO, pad = Vector4(10, 4, 14, 5)})
+	var ph := UI.hbox(6)
+	ph.add_child(UI.icon("wcoin", 18, SUN))
+	ph.add_child(UI.label("今日 %d/%d" % [int(rs.got), int(R.daily)], 16, Color("#f6cf86"), "black"))
+	ph.add_child(UI.label("0:00 に戻る", 11, Color("#cfe3e0")))
+	pill.add_child(ph)
+	head.add_child(pill)
+	v.add_child(head)
+	v.add_child(_wrap("相手は名馬のカードを難易度の強さにした %d 頭（自分の馬に合わせない）。勝つとウイコイン（☆1・☆2 は 1 枚、☆3・☆4 は 2 枚、☆5 は 3 枚、1 日 %d 枚まで）。勝ったことのある☆はスキップで受け取れる。出す馬・舞台・脚質は上のランク戦の欄で選ぶ。" % [int(R.field) - 1, int(R.daily)], 12, 900, Color("#4a5b58")))
+	var sr := UI.hbox(8)
+	for n in range(1, 6):
+		var lbl := "%s　%d枚%s" % ["☆".repeat(n), int(R.coins[str(n)]), "　勝利済み" if is_cl.call(n) else ""]
+		sr.add_child(UI.chip(lbl, n == star, go.bind("battle", {id = hid, race = race_id, diff = diff, star = n}), 13))
+	v.add_child(sr)
+	var row := UI.hbox(12)
+	row.add_child(UI.button("%s で出走する" % "☆".repeat(star), func() -> void:
+		var r := IK.rival_race(p, hid, race_id, star, today)
+		save()
+		var h = IK.find_finished(p, hid)
+		var got := IK.rival_state(p, today)
+		var note := "ウイコイン +%d（今日 %d/%d）" % [int(r.coins), int(got.got), int(R.daily)] if int(r.coins) > 0 else ("今日のウイコインは受け取り済み" if int(r.order) == 1 else "勝てばウイコイン")
+		_watch(r.result, [100], r.fired, _result.bind(r.result, [100], r.fired, "ライバルレース %s　%s %d 着" % ["☆".repeat(star), h.name, int(r.order)], _coin_note(note))), "primary", 20, "sword"))
+	var why := IK.can_rival_skip(p, star, today)
+	row.add_child(UI.button("スキップ（+%d）" % mini(int(R.coins[str(star)]), int(rs.left)) if why == "" else "スキップ（%s）" % why, func() -> void:
+		var n := IK.rival_skip(p, star, today)
+		save()
+		go("battle", {id = hid, race = race_id, diff = diff, star = star})
+		toast("スキップ：ウイコイン +%d" % n), "paper" if why == "" else "off", 15))
+	v.add_child(row)
+	return UI.section("ライバルレース", v)
+
+
+## ウイコインの知らせの帯（紺の地に金の字）
+func _coin_note(text: String) -> Control:
+	var b := UI.box({c = [INK], radius = 999.0, border = 0.0, shadow = Vector2.ZERO, pad = Vector4(12, 5, 16, 6)})
+	b.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	var h := UI.hbox(6)
+	h.add_child(UI.icon("wcoin", 18, SUN))
+	h.add_child(UI.label(text, 14, Color("#f6cf86"), "black"))
+	b.add_child(h)
+	return b
+
+
+## ウイコインの集め方（ガチャで足りないとき・ミッションの頭）
+func _coin_howto() -> Control:
+	var rs := IK.rival_state(p, _today())
+	var pend := IK.mission_gain(p).size()
+	var h := UI.hbox(12)
+	for it in [["trophy", "ミッション", "いまの育成を終えると +%d 枚" % pend if pend > 0 else "初めて編成したカードの育成を終えると 1 枚ずつ", go.bind("mission")],
+			["sword", "ライバルレース", "今日 %d/%d 枚（0:00 に戻る）" % [int(rs.got), int(IK.data().rival.daily)], go.bind("battle")]]:
+		var b := UI.box({c = [PAPER], radius = 14.0, border = 2.5, shadow = Vector2(0, 3), pad = Vector4(12, 8, 14, 9)})
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var r := UI.hbox(10)
+		r.add_child(UI.icon(it[0], 22, TEAL2))
+		var tv := UI.vbox(1)
+		tv.add_child(UI.label(it[1], 15, INK, "black"))
+		tv.add_child(UI.label(it[2], 12, Color("#4a5f63")))
+		r.add_child(tv)
+		b.add_child(r)
+		b.press(it[3])
+		h.add_child(b)
+	return h
+
+
+## ミッション：カードを初めて編成して育成を終えると、そのカード 1 枚ごとにウイコイン 1 枚
+func _mission() -> Control:
+	var page := UI.vbox(18)
+	page.add_child(_coin_howto())
+	var done := IK.missions_of(p)
+	var pend := IK.mission_gain(p)
+	var own := IK.owned(p)
+	var todo := own.filter(func(c): return not done.has(c.id))
+	var total := IK.cards().filter(func(c): return IK.in_packs(c) or IK.count_of(p, c.id) > 0).size()
+	var v := UI.vbox(10)
+	v.add_child(_wrap("カードを父・母・サポートのどれかで初めて編成し、その育成を最後まで終えると、カード 1 枚ごとにウイコイン 1 枚（カードごとに 1 度だけ）。", 13, 900, Color("#4a5b58")))
+	if p.run != null:
+		v.add_child(_coin_note("いまの育成を終えると +%d 枚" % pend.size() if pend.size() > 0 else "いまの育成のカードはどれも達成済み"))
+	var cols := _cols(W() - 30, 120)
+	var g := _grid(cols, 10, 14)
+	for c in todo:
+		g.add_child(_tile(c, c.name, "%s・%s" % ["芝" if float(c.turf) >= float(c.dirt) else "ダ", IK.dist_cat(float(c.dist))], _show_card.bind(c), {badge = "育成中" if pend.has(c.id) else "+1", count = IK.count_of(p, c.id)}))
+	if todo.is_empty():
+		v.add_child(UI.label("持っているカードはすべて達成済み。", 14, INK))
+	else:
+		v.add_child(g)
+	var bt := UI.button("育成へ" if p.run != null else "編成へ", func() -> void: go("train" if p.run != null else "deck"), "primary", 16)
+	bt.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	v.add_child(bt)
+	page.add_child(UI.section("ミッション　初編成で育成完了（%d/%d）" % [done.size(), total], v))
+	if not done.is_empty():
+		var g2 := _grid(cols, 10, 14)
+		for c in own.filter(func(c): return done.has(c.id)):
+			g2.add_child(_tile(c, c.name, "達成", _show_card.bind(c), {badge = "達成", dim = true, count = IK.count_of(p, c.id)}))
+		page.add_child(UI.section("達成済み（%d）" % done.size(), g2))
 	return page
 
 

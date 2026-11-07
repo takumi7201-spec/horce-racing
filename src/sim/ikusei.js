@@ -208,19 +208,52 @@ const RAR_BONUS = { LM: 1.3, SSR: 1.2, SR: 1.1, R: 1.05, N: 1.0 };
 
 /** 新しいプロフィール。cards は持っているカード（id → 枚数）。 */
 export function newProfile(seed = 1) {
-  return { v: 1, seed: typeof seed === 'number' ? seed : hashSeed(String(seed)), pulls: 0, cards: {}, finished: [], run: null, nextId: 1, battles: 0, shards: 0 };
+  return { v: 1, seed: typeof seed === 'number' ? seed : hashSeed(String(seed)), pulls: 0, cards: {}, finished: [], run: null, nextId: 1, battles: 0, shards: 0, coins: COIN_START, missions: [] };
+}
+
+// ---------------------------------------------------------------- ウイコイン
+//
+// ガチャは 1 回 1 枚のウイコインを使う。得るのは二つだけ：
+// - ミッション：カードを初めて編成（父・母・サポート）して育成を終えると、そのカード 1 枚ごとに 1 枚（カードごとに 1 度だけ）。
+// - ライバルレース（rivalRace）：勝つと難易度に応じて。1 日（端末の 0:00 で切り替え）に 10 枚まで。
+// 日付は sim では作らない（ブラウザと Node で同じ結果にする）。画面が端末の今日（'YYYY-MM-DD'）を渡す。
+
+/** 新しいプロフィールのウイコイン（最初の 30 回で配合に要る牡・牝とサポートがそろう）。 */
+export const COIN_START = 30;
+export const coinsOf = (profile) => profile.coins ?? COIN_START;
+
+/** 育成に編成したカード（父・母・サポート。カード 1 枚を育てた古い育成は trainee）。 */
+const formedOf = (o) => [...new Set([o.sire, o.dam, o.trainee ?? o.cardId, ...(o.supports ?? [])].filter((id) => typeof id === 'string' && cardById(id)))];
+/** ミッションを終えたカード。 */
+export const missionsOf = (profile) => profile.missions ?? [];
+/** この育成を終えたら達成になるカード（まだ達成していないもの）。 */
+export const missionGain = (profile, run = profile.run) => (run ? formedOf(run).filter((id) => !missionsOf(profile).includes(id)) : []);
+
+/**
+ * ウイコインより前のプロフィールを直す。持っている完成馬の編成はミッションを終えたことにして、その数だけ配る
+ * （初めから遊んでいた人が損をしない）。直し終えたら何もしない。
+ */
+export function migrateProfile(profile) {
+  if (profile.coins != null && profile.missions) return profile;
+  const done = [...new Set(profile.finished.flatMap(formedOf))];
+  profile.missions = done;
+  profile.coins = COIN_START + done.length;
+  return profile;
 }
 
 // ---------------------------------------------------------------- ガチャ
 
-/** 排出率。試作なので回数の制限は無い。 */
+/** 排出率。 */
 export const RATES = { LM: 0.02, SSR: 0.06, SR: 0.15, R: 0.27, N: 0.50 };
 
 /**
  * ガチャを n 回引く。pack は 'P1'・'P2'・'ALL'。
  * 乱数は (シード, 引いた通算回数) から 1 回ずつ作る。引く前に何を見ても結果は変わらない。
+ * 1 回 1 枚のウイコインを使う（足りなければ引かない）。
  */
 export function pull(profile, n = 1, pack = 'ALL') {
+  if (coinsOf(profile) < n) throw new Error(`ウイコインが足りない（あと ${n - coinsOf(profile)} 枚）`);
+  profile.coins = coinsOf(profile) - n;
   const got = [];
   for (let i = 0; i < n; i++) {
     const rng = makeRng(hashSeed(`gacha:${profile.seed}:${profile.pulls}`));
@@ -852,6 +885,10 @@ export function finishRun(profile) {
   };
   horse.rating = ratingOf(horse);
   horse.rank = rankOf(horse.rating);
+  // ミッション：初めて編成したカードは 1 枚ごとにウイコイン 1 枚
+  const gain = missionGain(profile, run);
+  profile.missions = [...missionsOf(profile), ...gain];
+  profile.coins = coinsOf(profile) + gain.length;
   profile.finished.push(horse);
   profile.run = null;
   return horse;
@@ -974,6 +1011,91 @@ export function eventRace(profile, horseId, eventId, star, style = null) {
   return { race, result: res, field, order: mine.order, fired, reward, star };
 }
 
+// ---------------------------------------------------------------- ライバルレース
+
+/** 1 日に得られるウイコイン。 */
+export const RIVAL_DAILY = 10;
+/** 勝ったときのウイコイン（難易度ごと）。 */
+export const RIVAL_COINS = { 1: 1, 2: 1, 3: 2, 4: 2, 5: 3 };
+/** 相手の能力の平均（難易度ごと）。自分の馬に合わせない（ランク戦と違って、強くなるほど上の難易度が勝てるようになる）。 */
+export const RIVAL_LEVEL = { 1: 0.58, 2: 0.64, 3: 0.70, 4: 0.76, 5: 0.82 };
+export const RIVAL_FIELD = 10;
+
+/** ライバルレースの今日の進み（today は 'YYYY-MM-DD'。日が変わっていれば今日の分は 0 から）。 */
+export function rivalState(profile, today) {
+  const st = profile.rival ?? { day: null, got: 0, cleared: [], tries: 0 };
+  const got = st.day === today ? st.got : 0;
+  return { cleared: st.cleared, tries: st.tries, got, left: Math.max(0, RIVAL_DAILY - got) };
+}
+/** 勝つかスキップしたら今日のウイコインを足す（上限まで）。足した枚数を返す。 */
+function rivalPay(profile, today, star) {
+  const st = profile.rival ??= { day: null, got: 0, cleared: [], tries: 0 };
+  if (st.day !== today) { st.day = today; st.got = 0; }
+  const n = Math.min(RIVAL_COINS[star], RIVAL_DAILY - st.got);
+  st.got += n;
+  profile.coins = coinsOf(profile) + n;
+  return n;
+}
+
+/**
+ * ライバルレース。相手は名馬のカード（LM・SSR・SR から、舞台の馬場に向いた馬）を難易度の強さ（RIVAL_LEVEL）にした 9 頭。
+ * 勝つと難易度に応じたウイコイン（1 日 RIVAL_DAILY 枚まで）。勝った難易度は次からスキップできる（rivalSkip）。
+ * 乱数は (シード, 挑んだ回数) から。
+ */
+export function rivalRace(profile, horseId, raceId, star, today, style = null) {
+  const me = profile.finished.find((h) => h.id === horseId);
+  if (!me) throw new Error('完成馬が無い');
+  setRaceStyle(me, style);
+  star = Math.max(1, Math.min(5, star | 0));
+  const st = profile.rival ??= { day: null, got: 0, cleared: [], tries: 0 };
+  const race0 = BATTLE_RACES.find((r) => r.id === raceId) ?? BATTLE_RACES[0];
+  const key = `rival:${profile.seed}:${st.tries}`;
+  const race = { ...race0, ground: groundOf(`rground:${profile.seed}:${st.tries}`) };
+  const rng = makeRng(hashSeed(key));
+  const dirt = race.surface === 'ダート';
+  const pool = CARDS.filter((c) => c.pack in PACKS && ['LM', 'SSR', 'SR'].includes(c.rar) && c.name !== me.name && (dirt === (c.dirt > c.turf)));
+  const ms = finishedSpec(me, 0);
+  const mine0 = withSkills(ms, finishedSkills(me), horseSrc(me), race, true, me.awaken ?? 0, ms.style);
+  const field = [mine0.spec];
+  const fired = { 100: mine0.fired };
+  const used = new Set();
+  for (let i = 1; i < RIVAL_FIELD; i++) {
+    let c = pool[rng.int(pool.length)];
+    for (let t = 0; t < 8 && used.has(c.id); t++) c = pool[rng.int(pool.length)];
+    used.add(c.id);
+    const avg = STATS.reduce((s, k) => s + c.v[k], 0) / 5;
+    const ab = Object.fromEntries(STATS.map((k) => [k, clamp(RIVAL_LEVEL[star] + (c.v[k] - avg) + rng.normal(0, 0.012), 0.4, 0.95)]));
+    const npc = withSkills({ id: 200 + i, name: c.name, sex: c.sex, coat: c.coat, marks: c.marks, ab, dist: c.dist, range: c.range, turf: c.turf, dirt: c.dirt, firm: c.firm, soft: c.soft, style: c.style, cardId: c.id, gear: cleanGear(c.gear) },
+      skillsOf(c).race, c.id, race, true);
+    field.push(npc.spec);
+    fired[200 + i] = npc.fired;
+  }
+  const res = runRace(race, field, key);
+  st.tries++;
+  const mine = res.results.find((r) => r.horseId === 100);
+  me.battles++;
+  let coins = 0, first = false;
+  if (mine.order === 1) {
+    me.battleWins++;
+    if (!st.cleared.includes(star)) { st.cleared.push(star); st.cleared.sort(); first = true; }
+    coins = rivalPay(profile, today, star);
+  }
+  return { race, result: res, field, order: mine.order, fired, star, coins, first };
+}
+
+/** 勝ったことのある難易度は走らずに勝ったことにする（今日の上限まで）。できないなら理由。 */
+export function canRivalSkip(profile, star, today) {
+  const s = rivalState(profile, today);
+  if (!s.cleared.includes(star)) return 'まだ勝っていない難易度';
+  if (!s.left) return '今日のウイコインは受け取り済み';
+  return null;
+}
+export function rivalSkip(profile, star, today) {
+  const why = canRivalSkip(profile, star, today);
+  if (why) throw new Error(why);
+  return rivalPay(profile, today, star);
+}
+
 /** 自分の完成馬どうしの対戦（2〜16 頭）。 */
 export function battleOwn(profile, horseIds, raceId) {
   const race = { ...(BATTLE_RACES.find((r) => r.id === raceId) ?? BATTLE_RACES[0]), ground: groundOf(`bground:${profile.seed}:${profile.battles}`) };
@@ -1004,7 +1126,7 @@ const KEY = 'keiba-ikusei-v1';
 export function loadProfile(storage) {
   try {
     const s = storage?.getItem(KEY);
-    if (s) return JSON.parse(s);
+    if (s) return migrateProfile(JSON.parse(s));
   } catch { /* 読めなければ新しく */ }
   return newProfile(Date.now() & 0xffffff);
 }

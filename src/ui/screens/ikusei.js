@@ -19,8 +19,10 @@ import * as sound from '../sound.js';
 const TITLES = {
   gacha: ['ガチャ', 'GACHA'], cards: ['所持カード', 'MY CARDS'], book: ['カード図鑑', 'CARD BOOK'], run: ['育成', 'TRAINING'], horse: ['完成馬', 'HORSE'],
   stable: ['完成馬', 'STABLE'], deck: ['編成', 'DECK'], battle: ['対戦', 'BATTLE'], result: ['レース結果', 'RESULT'], event: ['イベント', 'EVENT'],
-  cardedit: ['カード編集', 'CARD EDIT'],
+  cardedit: ['カード編集', 'CARD EDIT'], mission: ['ミッション', 'MISSION'],
 };
+/** 端末の今日（'YYYY-MM-DD'、0:00 で切り替わる）。ライバルレースの 1 日の上限に使う（sim は日付を作らない）。 */
+const todayKey = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 /** 弾の短い名前（タブ用）。イベントの報酬は「イベント」。 */
 const packTab = (id) => (id in I.PACKS ? `第${id.slice(1)}弾` : I.PACK_NAMES[id]);
 
@@ -39,6 +41,8 @@ const SVG = {
   mute: '<path d="M4.5 9.5h3l4.5-4v13l-4.5-4h-3z"/><path d="m15.5 9.5 5 5M20.5 9.5l-5 5"/>',
   exit: '<path d="M10 4.5H5.5v15H10"/><path d="M14 8l4 4-4 4M18 12H9"/>',
   sword: '<path d="M14.5 4.5h5v5L10 19l-2-2-2 2-1-1 2-2-2-2z"/><path d="m13 8 3 3"/>',
+  // ウイコイン（W の刻印の硬貨）。icons.js の coin は円の印なので、ガチャのトークンには使わない
+  wcoin: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="6.3" stroke-width="1.2" opacity=".55"/><path d="M8 9.3l1.6 5.6L12 10.4l2.4 4.5L16 9.3"/>',
   fist: '<path d="M7 11V7.5a1.5 1.5 0 0 1 3 0V10m0-2.5V6.5a1.5 1.5 0 0 1 3 0V10m0-2.5a1.5 1.5 0 0 1 3 0V10m0-1a1.5 1.5 0 0 1 3 0v4.5c0 4-2.7 6.5-6.5 6.5S7 17.5 7 14.5V11a1.5 1.5 0 0 1-2 0"/>',
 };
 const svg = (name, size = 24) => {
@@ -62,8 +66,8 @@ export function ikuseiScreen(app) {
   // 背景（空・網点・街）は画面の外に固定して敷く。中身だけが流れる（background-attachment: fixed はスマホで効かない）。
   const sky = el('div.ik-sky', [el('b.ik-water', { text: 'WINNING ROAD' })]);
   if (view === 'home') return el('div.ikh-wrap', [sky, homeView(app, go)]);
-  const body = { gacha: gachaView, cards: cardsView, book: bookView, run: runView, stable: stableView, horse: horseView, battle: battleView, result: resultView, event: eventView, deck: deckOnlyView, cardedit: cardEditView }[view] ?? gachaView;
-  const navId = view === 'result' ? (app.ikRace?.back ?? 'run') : view === 'horse' || view === 'deck' || view === 'cardedit' ? 'stable' : view === 'book' ? 'cards' : view === 'event' ? 'battle' : view;
+  const body = { gacha: gachaView, cards: cardsView, book: bookView, run: runView, stable: stableView, horse: horseView, battle: battleView, result: resultView, event: eventView, deck: deckOnlyView, cardedit: cardEditView, mission: missionView }[view] ?? gachaView;
+  const navId = view === 'result' ? (app.ikRace?.back ?? 'run') : view === 'horse' || view === 'deck' || view === 'cardedit' ? 'stable' : view === 'book' ? 'cards' : view === 'event' ? 'battle' : view === 'mission' ? 'gacha' : view;
   const [jp, en] = TITLES[view] ?? ['', ''];
   return el('div.ikp-wrap', [
     sky,
@@ -72,7 +76,7 @@ export function ikuseiScreen(app) {
         el('button.ikp-back', { onclick: () => go('home'), title: 'ホームへ' }, icon('back', { size: 26 })),
         el('div.ikp-title', [el('b', { text: jp }), el('small', { text: en })]),
         shardPill(app, go),
-        coinPill(go),
+        coinPill(app, go),
       ]),
       el('div.ik.ikp-body', body(app, go)),
     ]),
@@ -119,7 +123,6 @@ function bgInto(node, c) {
   cardArt(c).then((a) => { node.style.backgroundImage = `url(${a.bg})`; node.classList.add('ready'); }).catch(() => {});
 }
 
-/** 右上の通貨（試作なのでガチャは何度でも引ける）。 */
 /** かけらの数（押すと所持カードの交換の欄へ）。 */
 function shardPill(app, go) {
   const n = I.shardsOf(app.ik);
@@ -129,9 +132,11 @@ function shardPill(app, go) {
   ]);
 }
 
-function coinPill(go) {
-  return el('button.ik-coin', { onclick: () => go('gacha'), title: 'ガチャへ' }, [
-    el('span.cn', icon('coin', { size: 20 })), el('b', { text: '∞' }), el('i.plus', { text: '+' }),
+/** ウイコインの数（ガチャ 1 回 1 枚）。＋はミッションへ（集め方）。 */
+function coinPill(app, go) {
+  return el('span.ik-coin', [
+    el('button.ik-coin-n', { onclick: () => go('gacha'), title: 'ウイコイン（ガチャ 1 回 1 枚）' }, [el('span.cn', ic('wcoin', 20)), el('b', { text: I.coinsOf(app.ik).toLocaleString() })]),
+    el('button.plus', { onclick: () => go('mission'), title: 'ウイコインを集める', text: '+' }),
   ]);
 }
 
@@ -197,7 +202,7 @@ function homeView(app, go) {
     el('div.ikh-power', [svg('fist', 16), el('b', { text: power.toLocaleString() })]),
     el('div.ikh-sp'),
     shardPill(app, go),
-    coinPill(go),
+    coinPill(app, go),
   ]);
 
   // 左の列：開催中のパック・遊びかた
@@ -219,7 +224,9 @@ function homeView(app, go) {
 
   // 右の列：丸いボタン
   const muteIc = el('span', ic(sound.isMuted() ? 'mute' : 'sound', 24));
+  const pend = I.missionGain(p).length;
   const right = el('nav.ikh-right', [
+    el('button.ikh-rb', { onclick: () => go('mission'), title: 'ミッション（ウイコインを集める）' }, [ic('trophy', 24), el('small', { text: 'ミッション' }), pend ? el('i.ik-badge', { text: `+${pend}` }) : null]),
     el('button.ikh-rb', { onclick: () => go('book'), title: 'カード図鑑' }, [ic('book', 24), el('small', { text: '図鑑' })]),
     el('button.ikh-rb', {
       onclick: () => { sound.setMuted(!sound.isMuted()); muteIc.replaceChildren(ic(sound.isMuted() ? 'mute' : 'sound', 24)); sound.play('ok'); },
@@ -274,7 +281,8 @@ function pickFavorite(app, go) {
 
 function showHowto() {
   modal('遊びかた', [el('ul.howto', [
-    el('li', { text: 'ガチャ：第 1 弾【世界の英雄たち】・第 2 弾【異国を制する者たち】。排出率 LM 2%・SSR 6%・SR 15%・R 27%・N 50%。試作なので回数の制限は無い。' }),
+    el('li', { text: `ガチャ：1 回にウイコイン 1 枚。排出率 LM 2%・SSR 6%・SR 15%・R 27%・N 50%。` }),
+    el('li', { text: `ウイコインの集め方：ミッション（カードを初めて編成して育成を終えると、そのカード 1 枚ごとに 1 枚）と、対戦のライバルレース（☆1〜☆5。勝つと 1〜3 枚、1 日 ${I.RIVAL_DAILY} 枚まで。0:00 に戻る。勝った☆はスキップできる）。` }),
     el('li', { text: '育てる馬：カードの能力が出発点、+値が伸びしろ（+5 で上限 1200 点、+1 で 720 点）。距離・馬場の適性もカードのまま。' }),
     el('li', { text: 'サポート：練習場に顔を出すと伸びが増える。得意な練習（カードのいちばん高い能力）で会うと「友情」でさらに伸びる。レア度が高いほど友情が強い。' }),
     el('li', { text: '1 戦ごとに 3 回の練習。体力が 50 を切ると練習に失敗しやすくなる（賢さの練習は失敗しない）。休むと体力が戻る。' }),
@@ -283,14 +291,57 @@ function showHowto() {
   ])]);
 }
 
+// ---------------------------------------------------------------- ウイコイン
+
+/** ウイコインの集め方（ガチャで足りないとき・ミッションの画面の頭）。 */
+function coinHowto(app, go) {
+  const p = app.ik;
+  const rs = I.rivalState(p, todayKey());
+  const pend = I.missionGain(p).length;
+  return el('div.ik-howcoin', [
+    el('button.ik-howc', { onclick: () => go('mission') }, [ic('trophy', 22), el('span', [el('b', { text: 'ミッション' }),
+      el('small', { text: pend ? `いまの育成を終えると +${pend} 枚` : '初めて編成したカードの育成を終えると 1 枚ずつ' })])]),
+    el('button.ik-howc', { onclick: () => go('battle') }, [ic('sword', 22), el('span', [el('b', { text: 'ライバルレース' }),
+      el('small', { text: `今日 ${rs.got}/${I.RIVAL_DAILY} 枚（0:00 に戻る）` })])]),
+  ]);
+}
+
+/** ミッション：カードを初めて編成して育成を終えると、そのカード 1 枚ごとにウイコイン 1 枚。 */
+function missionView(app, go) {
+  const p = app.ik;
+  const done = new Set(I.missionsOf(p));
+  const pend = new Set(I.missionGain(p));
+  const have = I.owned(p);
+  const todo = have.filter((c) => !done.has(c.id));
+  const total = I.CARDS.filter((c) => c.pack in I.PACKS || p.cards[c.id]).length;
+  const icons = (xs) => el('div.ik-icons', xs.map((c) => {
+    const n = cardIcon(app, c, p.cards[c.id]);
+    if (done.has(c.id)) n.classList.add('ms-done');
+    n.append(el(`i.ik-ms${done.has(c.id) ? '.ok' : pend.has(c.id) ? '.now' : ''}`, { text: done.has(c.id) ? '達成' : pend.has(c.id) ? '育成中' : '+1' }));
+    return n;
+  }));
+  return [
+    coinHowto(app, go),
+    card(`ミッション　初編成で育成完了（${done.size}/${total}）`, [
+      el('p.note', { text: 'カードを父・母・サポートのどれかで初めて編成し、その育成を最後まで終えると、カード 1 枚ごとにウイコイン 1 枚（カードごとに 1 度だけ）。' }),
+      p.run ? el('p', { text: pend.size ? `いまの育成（${I.traineeCard(p.run).name}）を終えると +${pend.size} 枚。` : 'いまの育成のカードはどれも達成済み。' }) : null,
+      todo.length ? icons(todo) : el('p.note', { text: '持っているカードはすべて達成済み。' }),
+      el('div.ik-gbtns', [button(p.run ? '育成へ' : '編成へ', () => go('run'), { cls: 'primary' })]),
+    ]),
+    done.size ? card(`達成済み（${done.size}）`, [icons(have.filter((c) => done.has(c.id)))]) : null,
+  ];
+}
+
 // ---------------------------------------------------------------- ガチャ
 
 function gachaView(app, go) {
   const p = app.ik;
   const last = app.ikLast ?? [];
   // ガチャは一つ（弾を選ばず全カードから引く）。弾はカードの通し番号と図鑑の区分にだけ残す
+  const coins = I.coinsOf(p);
   const pull = (n) => {
-    const got = I.pull(p, n, 'ALL');
+    let got;
+    try { got = I.pull(p, n, 'ALL'); } catch (e) { return toast(e.message, { bad: true }); }
     save(app);
     app.ikLast = got;
     if (got.some((g) => g.isNew)) app.ikNew = true;   // 下のボタン列の「カード」に NEW を付ける（図鑑を開くまで）
@@ -302,10 +353,11 @@ function gachaView(app, go) {
     gachaBanner(app),
     card('ガチャ', [
       el('div.ik-gbtns', [
-        button('1 回引く', () => pull(1), { cls: 'primary' }),
-        button('10 回引く', () => pull(10), { cls: 'primary big' }),
+        el('button.btn.primary.ik-cost', { onclick: () => pull(1), disabled: coins < 1 }, ['1 回引く', el('small', [ic('wcoin', 14), el('b', { text: '1' })])]),
+        el('button.btn.primary.big.ik-cost', { onclick: () => pull(10), disabled: coins < 10 }, ['10 回引く', el('small', [ic('wcoin', 14), el('b', { text: '10' })])]),
       ]),
-      el('p.note', { text: `排出率 ${Object.entries(I.RATES).map(([k, v]) => `${k} ${Math.round(v * 100)}%`).join('・')}　通算 ${p.pulls} 回` }),
+      el('p.note', { text: `ウイコイン ${coins} 枚（1 回 1 枚）　排出率 ${Object.entries(I.RATES).map(([k, v]) => `${k} ${Math.round(v * 100)}%`).join('・')}　通算 ${p.pulls} 回` }),
+      coins < 10 ? coinHowto(app, go) : null,
     ]),
     last.length ? card(`引いたカード（${last.length} 枚）`, [pulledGrid(app, last)]) : null,
   ];
@@ -695,6 +747,7 @@ function deckView(app, go) {
         : el('p.note', { text: '牡のカードを押すと父、牝のカードを押すと母に入る。両親が決まると、生まれる仔の名前と脚質を決められる。続けてサポートを 4 枚選ぶ。選んだカードをもう一度押すと外れる。' }),
       d.supports.length ? el('div.ik-deckskills', d.supports.map((id) => el('div', [el('small', { text: `${I.cardById(id).name}（サポート${awkLabel(p, id)}）` }), skillTags(I.skillsOf(I.cardById(id), I.awakenOfCard(p, id)).support, null, { small: true })]))) : null,
       el('p.note', { text: 'サポートと友情練習を 2 回すると（覚醒 3 なら 1 回）、そのサポートのレーススキルを覚える（完成馬に残る）。同じカードを重ねて持つと覚醒して強くなる（育成馬の覚醒は両親の平均）。' }),
+      (() => { const g = I.missionGain(p, { sire: d.sire, dam: d.dam, supports: d.supports }).length; return g ? el('p.ik-msgain', [ic('wcoin', 16), `初めて編成するカード ${g} 枚：育成を終えるとウイコイン +${g}`]) : null; })(),
       el('div.ik-gbtns', [
         start,
         button('おまかせ', () => {
@@ -957,11 +1010,15 @@ function trainView(app, go) {
   if (done) {
     action = card('育成完了', [
       el('p', { text: `${c.name}の 2 年が終わった。${run.starts}戦${run.wins}勝（GI ${run.giWins}勝）。` }),
+      I.missionGain(p).length ? el('p.ik-msgain', [ic('wcoin', 16), `ミッション：初めて編成したカード ${I.missionGain(p).length} 枚 → ウイコイン +${I.missionGain(p).length}`]) : null,
       button('完成馬として登録する', () => {
+        const gain = I.missionGain(p).length;
         const h = I.finishRun(p);
         save(app);
         sound.play('bell');
-        modal('完成！', [finishedCard(h), el('p.note', { text: '完成馬は「対戦」で戦わせられる。' })]);
+        modal('完成！', [finishedCard(h),
+          gain ? el('p.ik-msgain', [ic('wcoin', 16), `ミッション達成：ウイコイン +${gain}（いま ${I.coinsOf(p)} 枚）`]) : null,
+          el('p.note', { text: '完成馬は「対戦」で戦わせられる。' })]);
         go('stable');
       }, { cls: 'primary big' }),
     ]);
@@ -1067,6 +1124,10 @@ function resultView(app, go) {
           el('b', { text: `${R.reward.card.name}を${R.reward.isNew ? '手に入れた！' : `重ねた（${R.reward.awaken >= 4 ? '覚醒 MAX' : `覚醒 ${R.reward.awaken}`}）`}` }),
         ]),
       ]) : null,
+      R.rival ? el('div.ik-rvgot', [ic('wcoin', 22), el('div', [
+        el('small', { text: `ライバルレース ${'☆'.repeat(R.rival.star)}${R.rival.first ? '　初勝利（次からスキップできる）' : ''}` }),
+        el('b', { text: R.rival.coins ? `ウイコイン +${R.rival.coins}（今日 ${R.rival.got}/${I.RIVAL_DAILY}）` : R.order === 1 ? `今日のウイコインは受け取り済み（${I.RIVAL_DAILY}/${I.RIVAL_DAILY}）` : '勝てばウイコイン' }),
+      ])]) : null,
       R.fired ? el('div.ik-fired', res.results.filter((r) => mine.has(r.horseId) && R.fired[r.horseId]?.length).map((r) =>
         el('div', [el('b', { text: `${r.name}　発動` }), ...R.fired[r.horseId].map((n) => el('span.ik-sk.race', n))]))) : null,
       table(['着', '', '馬名', 'タイム', '着差', '上がり', '脚質'], res.results.map((r) => [
@@ -2047,6 +2108,51 @@ function eventView(app, go) {
     ]),
   ];
 }
+/**
+ * ライバルレース：☆1〜☆5。相手は名馬のカードを難易度の強さにした 9 頭（自分の馬に合わせない）。
+ * 勝つとウイコイン（☆ごとの枚数、1 日 I.RIVAL_DAILY 枚まで、端末の 0:00 で戻る）。勝ったことのある☆はスキップで受け取れる。
+ * 出る馬と舞台は対戦の画面の上の欄（B）を使う。
+ */
+function rivalCard(app, go, B) {
+  const p = app.ik;
+  const today = todayKey();
+  const rs = I.rivalState(p, today);
+  B.star ??= Math.min(5, (rs.cleared.length ? Math.max(...rs.cleared) : 0) + 1);
+  const stars = el('div.ikev-diff.ik-rv-diff', [1, 2, 3, 4, 5].map((n) => el(`button.ikev-star${B.star === n ? '.on' : ''}${rs.cleared.includes(n) ? '.done' : ''}`, {
+    onclick: () => { B.star = n; go('battle'); },
+  }, [el('b', { text: '☆'.repeat(n) }), el('small', { text: `${rs.cleared.includes(n) ? '勝利済み・' : ''}${I.RIVAL_COINS[n]} 枚` })])));
+  const run = () => {
+    const out = I.rivalRace(p, B.horse, B.race, B.star, today);
+    save(app);
+    const st = I.rivalState(p, today);
+    app.ikRace = { race: out.result, looks: looksOf(out.field, p), mine: [100], order: out.order, back: 'battle',
+      title: `ライバルレース ${out.race.name}（${'☆'.repeat(B.star)}）`, fired: out.fired, rival: { star: B.star, coins: out.coins, first: out.first, got: st.got } };
+    sound.play(out.order === 1 ? 'bell' : out.order <= 3 ? 'win' : 'ok');
+    go('result');
+  };
+  const why = I.canRivalSkip(p, B.star, today);
+  const skip = () => {
+    const n = I.rivalSkip(p, B.star, today);
+    save(app);
+    sound.play('win');
+    toast(`スキップ：ウイコイン +${n}（今日 ${I.rivalState(p, today).got}/${I.RIVAL_DAILY}）`);
+    go('battle');
+  };
+  return card('ライバルレース', [
+    el('div.ik-rv-head', [
+      el('span.ik-rv-coin', [ic('wcoin', 18), el('b', { text: `今日 ${rs.got}/${I.RIVAL_DAILY}` }), el('small', { text: '0:00 に戻る' })]),
+      el('span.ik-rv-bar', [el('i', { style: `width:${(rs.got / I.RIVAL_DAILY) * 100}%` })]),
+    ]),
+    el('p.note', { text: `相手は名馬のカードを難易度の強さにした ${I.RIVAL_FIELD - 1} 頭（自分の馬に合わせない）。勝つとウイコイン（☆1・☆2 は 1 枚、☆3・☆4 は 2 枚、☆5 は 3 枚、1 日 ${I.RIVAL_DAILY} 枚まで）。勝ったことのある☆はスキップで受け取れる。` }),
+    stars,
+    el('div.ik-gbtns', [
+      button(`${'☆'.repeat(B.star)} で出走する`, run, { cls: 'primary big' }),
+      button(why && rs.cleared.includes(B.star) ? 'スキップ（受け取り済み）' : `スキップ（+${Math.min(I.RIVAL_COINS[B.star], rs.left)}）`, skip, { disabled: !!why, title: why ?? '' }),
+    ]),
+    !rs.left ? el('p.note', { text: '今日のウイコインは受け取り済み。走ることはできる（ウイコインは出ない）。' }) : null,
+  ]);
+}
+
 function battleView(app, go) {
   const p = app.ik;
   if (!p.finished.length) return [card('対戦', [el('p', { text: '対戦には完成馬が要る。' }), button('育成へ', () => go('run'), { cls: 'primary' })])];
@@ -2082,12 +2188,11 @@ function battleView(app, go) {
   };
   return [
     eventCarousel(app, go),
-    card('舞台', [el('div.form', [el('label', ['レース', raceSel])])]),
+    card('出る馬と舞台', [el('div.form', [el('label', ['出る馬', horseSel]), el('label', ['レース', raceSel])]), seg]),
+    rivalCard(app, go, B),
     el('div.ik-cols', [
       card('NPC とのランク戦', [
         el('p.note', { text: '相手は全カードの名馬を育て上げた姿（12 頭立て）。強さは自分の馬に合わせて難しさで変わる。' }),
-        el('div.form', [el('label', ['出る馬', horseSel])]),
-        seg,
         diffTabs,
         button('出走する', runNpc, { cls: 'primary big' }),
       ]),

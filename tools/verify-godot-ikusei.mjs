@@ -2,7 +2,7 @@
 //
 //   node tools/verify-godot-ikusei.mjs      （Godot は /tmp/godot/Godot_v4.7.2-stable_linux.x86_64、GODOT で変えられる）
 //
-// 同じ筋書き（決まった手で 30 回引き、1 頭を育て、ランク戦とイベントを走る）を両方で回して比べる。
+// 同じ筋書き（決まった手で 30 回引き、1 頭を育て、ランク戦・イベント・ライバルレースを走り、ウイコインの残高を見る）を両方で回して比べる。
 // ガチャ・練習は乱数と整数だけなので一致するはず。レースは log・cos・pow の最後の桁が違う（V8 の fdlibm と C の数学関数）ので、
 // まれに着順が入れ替わりうる。着順の一致と時計の差を出す。
 
@@ -47,7 +47,12 @@ function scenario(seed) {
   const b = IK.battleNpc(p, h.id, 'japan-cup', 'normal');
   const e = IK.eventRace(p, h.id, 'arc1999', 1);
   const e2 = IK.eventRace(p, h.id, 'bc1989', 3);
-  return { pulls, steps, stats: h.stats, rating: h.rating, skills: h.skills, name: h.name, sex: h.sex, coat: h.coat, battle: orders(b.result), event: orders(e.result), event2: orders(e2.result) };
+  // ライバルレース（☆2、勝てば次の日に同じ☆をスキップ）とウイコインの残高
+  const rv = IK.rivalRace(p, h.id, 'arima-kinen', 2, '2026-11-07');
+  let skip = 0;
+  try { skip = IK.rivalSkip(p, 2, '2026-11-08'); } catch { /* 勝っていない */ }
+  return { pulls, steps, stats: h.stats, rating: h.rating, skills: h.skills, name: h.name, sex: h.sex, coat: h.coat, battle: orders(b.result), event: orders(e.result), event2: orders(e2.result),
+    rival: orders(rv.result), coins: [IK.coinsOf(p), rv.coins, skip, IK.missionGain(p, { sire: sire.id, dam: dam.id, supports: sup }).length, IK.missionsOf(p).length] };
 }
 
 function raceCheck(r) {
@@ -90,8 +95,10 @@ js.scenarios.forEach((s, k) => {
   if (!same(s.stats, g.stats)) { bad++; console.log(`✗ 種 ${k}：完成の能力 ${JSON.stringify(s.stats)} / ${JSON.stringify(g.stats)}`); }
   if (s.name !== g.name || s.sex !== g.sex || s.coat !== g.coat) { bad++; console.log(`✗ 種 ${k}：育成馬 ${s.name}・${s.sex}・${s.coat} / ${g.name}・${g.sex}・${g.coat}`); }
   if (!same(s.skills, g.skills)) { bad++; console.log(`✗ 種 ${k}：スキル ${s.skills} / ${g.skills}`); }
-  maxDt = Math.max(maxDt, cmpOrder(`種 ${k} ランク戦`, s.battle, g.battle), cmpOrder(`種 ${k} イベント`, s.event, g.event), cmpOrder(`種 ${k} イベント（BC）`, s.event2, g.event2));
-  nRace += 3;
+  maxDt = Math.max(maxDt, cmpOrder(`種 ${k} ランク戦`, s.battle, g.battle), cmpOrder(`種 ${k} イベント`, s.event, g.event), cmpOrder(`種 ${k} イベント（BC）`, s.event2, g.event2),
+    cmpOrder(`種 ${k} ライバルレース`, s.rival, g.rival));
+  if (!same(s.coins, g.coins)) { bad++; console.log(`✗ 種 ${k}：ウイコイン ${s.coins} / ${g.coins}`); }
+  nRace += 4;
 });
 js.races.forEach((r, i) => { nRace++; maxDt = Math.max(maxDt, cmpOrder(`舞台 ${IK.BATTLE_RACES[i].id}`, r, gd.races[i])); });
 console.log(`${bad ? '✗' : '✓'} 不一致 ${bad} 件（レース ${nRace} 戦、時計の差の最大 ${maxDt.toFixed(3)} 秒）　Godot ${gd.ms}ms`);

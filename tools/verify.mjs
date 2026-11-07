@@ -1101,7 +1101,9 @@ section('カード育成モード');
   const ga = I.pull(a, 30).map((x) => x.card.id).join();
   const gb = [...I.pull(b, 10), ...I.pull(b, 20)].map((x) => x.card.id).join();
   check('ガチャは引き方（10 回＋20 回）によらず同じ順に出る', ga === gb);
-  const big = I.newProfile(11);
+  // ガチャはウイコインを 1 回 1 枚使う。検証では多く引くので持たせる（rich）
+  const rich = (pp) => { pp.coins = 1e7; return pp; };
+  const big = rich(I.newProfile(11));
   const got = I.pull(big, 2000);
   const lm = got.filter((x) => x.card.rar === 'LM').length / 2000, nn = got.filter((x) => x.card.rar === 'N').length / 2000;
   check(`排出率（LM ${(lm * 100).toFixed(1)}%・N ${(nn * 100).toFixed(1)}%）`, lm > 0.01 && lm < 0.035 && nn > 0.45 && nn < 0.55);
@@ -1155,7 +1157,12 @@ section('カード育成モード');
     else if (run.energy < 45) I.rest(run);
     else I.train(run, I.STATS[k++ % 5]);
   }
+  const formed = [run.sire, run.dam, ...run.supports];
+  const gain0 = I.missionGain(big), coin0 = I.coinsOf(big);
   const h = I.finishRun(big);
+  check(`ミッション：初めて編成した 6 枚の育成を終えるとウイコイン 6 枚（${coin0} → ${I.coinsOf(big)}）、同じカードは 2 度目に数えない`,
+    gain0.length === 6 && formed.every((id) => I.missionsOf(big).includes(id)) && I.coinsOf(big) === coin0 + 6
+    && I.missionGain(big, { sire: run.sire, dam: run.dam, supports: run.supports }).length === 0);
   check(`育成は 10 戦で終わり、完成馬になる（${h.name} ${h.starts}戦${h.wins}勝・評価 ${h.rank}）`, h.starts === 10 && big.finished.length === 1 && big.run === null);
   I.setFinishedGear(big, h.id, { bandage: true, menko: '#e8b21a' });
   check('完成馬の馬具を決められ、対戦と絵（horseCard）に残る', I.finishedSpec(h).gear.bandage === true && I.horseCard(h).gear.menko === '#e8b21a');
@@ -1241,7 +1248,7 @@ section('カード育成モード');
     return { sum: I.STATS.reduce((a, k) => a + r.stats[k], 0), skills: I.runSkills(r).length, aw: r.awaken.t };
   };
   const a1 = awRun(1), a5 = awRun(5);
-  const gg = I.pull(I.newProfile(3), 300);
+  const gg = I.pull(rich(I.newProfile(3)), 300);
   check(`覚醒：5 枚（覚醒 4）は 1 枚より育つ（能力の合計 ${a1.sum} → ${a5.sum}、スキル ${a1.skills} → ${a5.skills}）`,
     a1.aw === 0 && a5.aw === 4 && a5.sum > a1.sum + 150 && a5.skills > a1.skills && gg.some((g) => g.awaken === 4) && gg.every((g) => g.awaken <= 4));
   // かけら：覚醒 MAX（5 枚）を超えた余りだけを替え、かけらで好きなカードを 1 枚もらえる
@@ -1258,7 +1265,7 @@ section('カード育成モード');
   // イベント：1999 年の凱旋門賞。報酬のモンジューはガチャにもかけらにも出ず、☆1〜☆5 の初勝利で 5 枚（完凸）
   const mj = I.CARDS.find((c) => c.name === 'モンジュー');
   const ev = I.EVENTS.find((e) => e.id === 'arc1999');
-  const gp = I.newProfile(5);
+  const gp = rich(I.newProfile(5));
   const noEv = I.pull(gp, 3000).every((g) => !I.isEventCard(g.card));
   check(`イベント：モンジュー（LM・二つ名「聳え立つ巨城、地に落ちず」）は報酬だけ（ガチャ 3000 回に出ない・かけらで交換できない）`,
     mj?.rar === 'LM' && mj.epithet === '聳え立つ巨城、地に落ちず' && ev.reward === mj.id && noEv && !!I.canBuyWithShards({ ...gp, shards: 9999 }, mj.id));
@@ -1282,10 +1289,39 @@ section('カード育成モード');
   const egRow = bl.field.find((f) => f.name === 'イージーゴア');
   check(`イベント：1989 年の BC クラシック（ガルフストリーム ダ2000m・良、史実の 8 頭）。☆1〜☆5 の初勝利でサンデーサイレンス（LM「後世まで届け、至極の遺伝子」）5 枚（挑戦 ${bcTried.length} 回）`,
     ss?.rar === 'LM' && ss.name === 'サンデーサイレンス' && ss.epithet === '後世まで届け、至極の遺伝子' && I.isEventCard(ss) && bc.reward === ss.id
-    && noEv && !I.pull(I.newProfile(9), 3000).some((g) => g.card.id === ss.id)
+    && noEv && !I.pull(rich(I.newProfile(9)), 3000).some((g) => g.card.id === ss.id)
     && bc.field.length === 8 && bl.result.results.length === 9 && bl.race.courseId === 'gulfstream' && bl.race.surface === 'ダート' && bl.race.distance === 2000
     && egRow?.cardId === 'P1-40' && egRow.dirt === 0.9 && bp.cards[ss.id] === 5 && I.eventState(bp, 'bc1989').cleared.join() === '1,2,3,4,5'
     && I.eventState(bp, 'arc1999').tries === 0 && peekHorseId() === idBefore);
+  // ウイコイン：ガチャは 1 回 1 枚。新しいプロフィールは 30 枚、足りなければ引けない。古いプロフィールは完成馬の編成をミッション済みにして配る
+  {
+    const cp = I.newProfile(31);
+    const ok30 = I.pull(cp, 30).length === 30 && I.coinsOf(cp) === 0;
+    let refused = false;
+    try { I.pull(cp, 1); } catch { refused = true; }
+    const old = { ...I.newProfile(32), coins: undefined, missions: undefined, finished: [{ sire: 'P1-01', dam: 'P4-01', supports: ['P1-02', 'P1-03', 'P1-04', 'P1-01'] }] };
+    I.migrateProfile(old);
+    check(`ウイコイン：新しいプロフィールは ${I.COIN_START} 枚で 30 回引けて 31 回目は引けない、古いプロフィールは完成馬の編成ぶん（${old.coins - I.COIN_START} 枚）を配る`,
+      ok30 && refused && cp.pulls === 30 && old.coins === I.COIN_START + 5 && old.missions.length === 5 && I.migrateProfile(old).coins === I.COIN_START + 5);
+    // ライバルレース：☆1〜☆5、勝つと難易度に応じたウイコイン（1 日 10 枚まで、日が変わると 0 から）、勝った難易度はスキップできる
+    const rp = I.newProfile(33);
+    rp.finished.push({ ...h, id: 997, battles: 0, battleWins: 0, stats: Object.fromEntries(I.STATS.map((k) => [k, 1200])) });
+    const day = '2026-11-07', next = '2026-11-08';
+    const noSkip = I.canRivalSkip(rp, 1, day);
+    let w = null;
+    for (let t = 0; t < 10 && !w; t++) { const o = I.rivalRace(rp, 997, 'japan-cup', 1, day); if (o.order === 1) w = o; }
+    const c1 = I.coinsOf(rp);
+    let skips = 0;
+    while (!I.canRivalSkip(rp, 1, day)) { I.rivalSkip(rp, 1, day); skips++; }
+    const capped = I.rivalState(rp, day);
+    const c2 = I.coinsOf(rp);
+    const nd = I.rivalState(rp, next);
+    I.rivalSkip(rp, 1, next);
+    check(`ライバルレース：${w?.result.results.length} 頭立て、☆1 で勝つと ${w?.coins} 枚、スキップで今日の上限 ${I.RIVAL_DAILY} 枚まで（${skips} 回）、翌日はまた 0 から`,
+      !!noSkip && w?.coins === I.RIVAL_COINS[1] && w.first && w.result.results.length === I.RIVAL_FIELD && c1 === 30 + 1
+      && capped.got === I.RIVAL_DAILY && capped.left === 0 && c2 === 30 + I.RIVAL_DAILY
+      && nd.got === 0 && nd.left === I.RIVAL_DAILY && I.coinsOf(rp) === 30 + I.RIVAL_DAILY + 1 && !!I.canRivalSkip(rp, 5, next) && peekHorseId() === idBefore);
+  }
   // 脚質はレースごとに選べる。先行で出した馬が、サポートから覚えた「逃げ切り」で逃げにならない（自分の馬だけ。相手のカードは今までどおり）
   {
     const { applyRaceSkills } = await import('../src/sim/ikusei-skills.js');
@@ -1294,7 +1330,7 @@ section('カード育成モード');
     const sen = applyRaceSkills(base, ['front', 'closer'], rc, { lock: 0.37 });
     const nige = applyRaceSkills({ ...base, style: 0.12 }, ['front', 'closer'], rc, { lock: 0.12 });
     const npc = applyRaceSkills(base, ['front'], rc, {});
-    const rp = I.newProfile(21);
+    const rp = rich(I.newProfile(21));
     I.pull(rp, 60);
     const own = I.owned(rp);
     const sire = own.find((c) => c.sex === '牡'), dam = own.find((c) => c.sex === '牝');

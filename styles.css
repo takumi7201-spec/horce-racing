@@ -1517,7 +1517,9 @@ b.win { color: #e0207a; }
 .ik-coin { display: flex; align-items: center; gap: 5px; background: var(--ink); color: #ffe066; border: 2.5px solid #fff; border-radius: 999px; padding: 3px 4px 3px 5px;
   font: 900 19px/1 var(--font); cursor: pointer; box-shadow: 0 3px 0 #0004; }
 .ik-coin .cn { color: #ffd23d; display: grid; }
-.ik-coin .plus { font-style: normal; width: 22px; height: 22px; border-radius: 50%; background: #ffd23d; color: var(--ink); display: grid; place-items: center; font-weight: 900; }
+.ik-coin .plus { font-style: normal; width: 22px; height: 22px; border-radius: 50%; background: #ffd23d; color: var(--ink); display: grid; place-items: center; font-weight: 900;
+  border: 0; padding: 0; font-size: 17px; cursor: pointer; }
+.ik-coin-n { display: flex; align-items: center; gap: 5px; background: none; border: 0; padding: 0; color: inherit; font: inherit; cursor: pointer; }
 
 /* ホーム */
 .ikh { position: relative; z-index: 1; height: 100vh; height: 100dvh; max-width: 540px; margin: 0 auto; display: flex; flex-direction: column; padding: 6px 10px 46px; }
@@ -2318,3 +2320,39 @@ button.ikev-banner:active { transform: translateY(3px); box-shadow: 0 3px 0 var(
 /* 育成モードの本文はスクロールバーの幅をいつも取っておく。中身が伸びてスクロールできるようになった瞬間に、
    スクロールバーのぶん本文が狭くなって「少し小さくなった」（Windows・Mac の常時表示のスクロールバー）。両側に取って中央をずらさない */
 .ikm { scrollbar-gutter: stable both-edges; }
+
+/* ウイコイン：ガチャの値段・集め方・ミッション・ライバルレース */
+.ik-cost { display: inline-flex; align-items: center; gap: 8px; }
+.ik-cost small { display: inline-flex; align-items: center; gap: 2px; padding: 1px 7px 1px 4px; border-radius: 999px; background: #0003; font-size: 13px; color: #fff3c8; }
+.ik-cost small .ico { color: var(--sun); }
+.ik-howcoin { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin: 10px 0 4px; }
+.ik-howc { display: flex; align-items: center; gap: 10px; text-align: left; padding: 10px 14px; border-radius: 14px; border: 2.5px solid var(--ink);
+  background: var(--paper); color: var(--ink); box-shadow: 0 3px 0 var(--ink); cursor: pointer; font-family: inherit; }
+.ik-howc .ico { color: var(--teal); flex: none; }
+.ik-howc span { display: grid; gap: 2px; }
+.ik-howc b { font: 900 15px/1.2 var(--font); }
+.ik-howc small { font-size: 12px; color: #4a5f63; }
+.ik-howc:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--ink); }
+.ik-ico { position: relative; }
+.ik-ico.ms-done { opacity: .62; }
+.ik-ms { position: absolute; top: 2px; left: 2px; z-index: 2; font: normal 900 11px/1 var(--font); padding: 3px 6px; border-radius: 999px;
+  background: var(--sun); color: var(--ink); border: 2px solid #fff; box-shadow: 0 0 0 1.5px var(--ink); }
+.ik-ms.ok { background: var(--leaf); }
+.ik-ms.now { background: #ff3d6e; color: #fff; }
+.ik-msgain { display: flex; align-items: center; gap: 6px; margin: 8px 0; padding: 6px 12px; border-radius: 999px; width: fit-content;
+  background: var(--ink); color: #f6cf86; font: 900 14px/1.3 var(--font); }
+.ik-msgain .ico { color: var(--sun); }
+.ik-rv-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 6px; }
+.ik-rv-coin { display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px 4px 8px; border-radius: 999px; background: var(--ink); color: #f6cf86; }
+.ik-rv-coin .ico { color: var(--sun); }
+.ik-rv-coin b { font: 900 16px/1 var(--font); }
+.ik-rv-coin small { font-size: 11px; color: #cfe3e0; }
+.ik-rv-bar { flex: 1; min-width: 120px; height: 10px; border-radius: 999px; background: #0002; border: 2px solid var(--ink); overflow: hidden; }
+.ik-rv-bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--leaf), var(--sun)); }
+.ik-rvgot { display: flex; align-items: center; gap: 12px; margin: 8px 0 12px; padding: 10px 14px; border-radius: 14px; border: 2.5px solid var(--ink);
+  background: var(--paper); box-shadow: 0 3px 0 var(--ink); }
+.ik-rvgot > .ico { color: var(--sun); }
+.ik-rvgot div { display: grid; gap: 2px; }
+.ik-rvgot small { font-size: 12px; color: #4a5f63; }
+.ik-rvgot b { font: 900 17px/1.2 var(--font); color: var(--ink); }
+.ikh-rb { position: relative; }

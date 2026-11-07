@@ -328,14 +328,14 @@ static func style_name(x: float) -> String:
 # ------------------------------------------------------------------ プロフィール
 
 static func new_profile(seed: int) -> Dictionary:
-	return {v = 1, seed = seed, pulls = 0, cards = {}, finished = [], run = null, nextId = 1, battles = 0, shards = 0}
+	return {v = 1, seed = seed, pulls = 0, cards = {}, finished = [], run = null, nextId = 1, battles = 0, shards = 0, coins = int(data().coinStart), missions = []}
 
 
 static func load_profile() -> Dictionary:
 	if FileAccess.file_exists(SAVE_PATH):
 		var p = JSON.parse_string(FileAccess.get_file_as_string(SAVE_PATH))
 		if p is Dictionary:
-			return p
+			return migrate_profile(p)
 	return new_profile(int(Time.get_unix_time_from_system() * 1000.0) & 0xffffff)
 
 
@@ -404,10 +404,59 @@ static func buy_with_shards(p: Dictionary, id: String) -> Dictionary:
 	return {card = c, isNew = is_new, awaken = count_of(p, id) - 1 if count_of(p, id) >= 2 else 0}
 
 
+# ------------------------------------------------------------------ ウイコイン
+# ガチャは 1 回 1 枚。得るのはミッション（初めて編成したカードの育成を終える、1 枚ごとに 1 枚）と
+# ライバルレース（1 日 10 枚まで。日付は画面が渡す 'YYYY-MM-DD'）。JS の ikusei.js と同じ。
+
+static func coins_of(p: Dictionary) -> int:
+	return int(p.get("coins", data().coinStart)) if p.get("coins") != null else int(data().coinStart)
+
+
+static func missions_of(p: Dictionary) -> Array:
+	return p.get("missions", []) if p.get("missions") != null else []
+
+
+## 育成に編成したカード（父・母・サポート、カード 1 枚の古い育成は trainee）。重なりは 1 つ。
+static func _formed_of(o: Dictionary) -> Array:
+	var out := []
+	for id in [o.get("sire"), o.get("dam"), o.get("trainee") if o.get("trainee") != null else o.get("cardId")] + Array(o.get("supports", [])):
+		if id is String and card(id) != null and not out.has(id):
+			out.append(id)
+	return out
+
+
+## この育成を終えたら達成になるカード。
+static func mission_gain(p: Dictionary, run = null) -> Array:
+	if run == null:
+		run = p.get("run")
+	if run == null:
+		return []
+	var done := missions_of(p)
+	return _formed_of(run).filter(func(id): return not done.has(id))
+
+
+## ウイコインより前のプロフィール：完成馬の編成をミッション済みにして、その数だけ配る。
+static func migrate_profile(p: Dictionary) -> Dictionary:
+	if p.get("coins") != null and p.get("missions") != null:
+		return p
+	var done := []
+	for h in p.get("finished", []):
+		for id in _formed_of(h):
+			if not done.has(id):
+				done.append(id)
+	p.missions = done
+	p.coins = int(data().coinStart) + done.size()
+	return p
+
+
 # ------------------------------------------------------------------ ガチャ
 
 ## n 回引く。乱数は (シード, 引いた通算回数) から 1 回ずつ（引く前に何を見ても結果は変わらない）。
 static func pull(p: Dictionary, n := 1) -> Array:
+	# 1 回 1 枚のウイコイン（足りなければ引かない）
+	if coins_of(p) < n:
+		return []
+	p.coins = coins_of(p) - n
 	var got := []
 	for i in n:
 		var rng = rng_of(["gacha", p.seed, p.pulls])
@@ -962,6 +1011,10 @@ static func finish_run(p: Dictionary) -> Dictionary:
 		h.unique = c.unique
 	h.rating = rating_of(h)
 	h.rank = rank_of(h.rating)
+	# ミッション：初めて編成したカードは 1 枚ごとにウイコイン 1 枚
+	var gain := mission_gain(p, run)
+	p.missions = missions_of(p) + gain
+	p.coins = coins_of(p) + gain.size()
 	p.finished.append(h)
 	p.run = null
 	return h
@@ -1094,6 +1147,108 @@ static func event_race(p: Dictionary, horse_id, event_id: String, star: int, sty
 			p.cards[c.id] = count_of(p, c.id) + 1
 			reward = {card = c, isNew = is_new, awaken = count_of(p, c.id) - 1, star = star}
 	return {race = race, result = res, field = field, order = mine.order, fired = fired, reward = reward, star = star}
+
+
+# ------------------------------------------------------------------ ライバルレース
+
+static func _rival_st(p: Dictionary) -> Dictionary:
+	if p.get("rival") == null:
+		p.rival = {day = null, got = 0, cleared = [], tries = 0}
+	return p.rival
+
+
+## 今日の進み（today は 'YYYY-MM-DD'。日が変わっていれば今日の分は 0 から）。
+static func rival_state(p: Dictionary, today: String) -> Dictionary:
+	var st: Dictionary = p.get("rival") if p.get("rival") != null else {day = null, got = 0, cleared = [], tries = 0}
+	var got := int(st.got) if st.day == today else 0
+	return {cleared = st.cleared, tries = int(st.tries), got = got, left = maxi(0, int(data().rival.daily) - got)}
+
+
+static func _rival_cleared(st: Dictionary, star: int) -> bool:
+	return (st.cleared as Array).has(star) or (st.cleared as Array).has(float(star))
+
+
+static func _rival_pay(p: Dictionary, today: String, star: int) -> int:
+	var st := _rival_st(p)
+	if st.day != today:
+		st.day = today
+		st.got = 0
+	var n := mini(int(data().rival.coins[str(star)]), int(data().rival.daily) - int(st.got))
+	st.got = int(st.got) + n
+	p.coins = coins_of(p) + n
+	return n
+
+
+## ライバルレース。相手は名馬のカード（LM・SSR・SR、舞台の馬場に向いた馬）を難易度の強さにした 9 頭。勝つとウイコイン（1 日の上限まで）。
+static func rival_race(p: Dictionary, horse_id, race_id: String, star: int, today: String, style = null) -> Dictionary:
+	var me: Dictionary = find_finished(p, horse_id)
+	set_race_style(me, style)
+	star = clampi(star, 1, 5)
+	var st := _rival_st(p)
+	var race0: Dictionary = battle_races()[0]
+	for r in battle_races():
+		if r.id == race_id:
+			race0 = r
+	var k := key(["rival", p.seed, st.tries])
+	var race := race0.duplicate()
+	race.ground = ground_of(key(["rground", p.seed, st.tries]))
+	var rng = Rng.make(Rng.hash_seed(k))
+	var dirt: bool = race.surface == "ダート"
+	var pool := cards().filter(func(c): return in_packs(c) and ["LM", "SSR", "SR"].has(c.rar) and c.name != me.name and (dirt == (c.dirt > c.turf)))
+	var level: float = data().rival.level[str(star)]
+	var ms := finished_spec(me, 0)
+	var mine0 := _with_skills(ms, finished_skills(me), _horse_src(me), race, true, int(me.get("awaken", 0)), ms.style)
+	var field := [mine0.spec]
+	var fired := {100: mine0.fired}
+	var used := {}
+	for i in range(1, int(data().rival.field)):
+		var c: Dictionary = pool[rng.int_n(pool.size())]
+		var t := 0
+		while t < 8 and used.has(c.id):
+			c = pool[rng.int_n(pool.size())]
+			t += 1
+		used[c.id] = true
+		var avg := 0.0
+		for s in STATS:
+			avg += float(c.v[s])
+		avg /= 5.0
+		var ab := {}
+		for s in STATS:
+			ab[s] = clampf_(level + (float(c.v[s]) - avg) + rng.normal(0, 0.012), 0.4, 0.95)
+		var npc := _with_skills({id = 200 + i, name = c.name, sex = c.sex, coat = c.coat, marks = c.marks, ab = ab, dist = c.dist, range = c.range,
+			turf = c.turf, dirt = c.dirt, firm = c.firm, soft = c.soft, style = c.style, cardId = c.id, gear = clean_gear(c.get("gear"))}, skills_of(c).race, c.id, race, true)
+		field.append(npc.spec)
+		fired[200 + i] = npc.fired
+	var res := run_race(race, field, k)
+	st.tries = int(st.tries) + 1
+	var mine: Dictionary = res.results.filter(func(r): return int(r.horseId) == 100)[0]
+	me.battles = int(me.battles) + 1
+	var coins := 0
+	var first := false
+	if int(mine.order) == 1:
+		me.battleWins = int(me.battleWins) + 1
+		if not _rival_cleared(st, star):
+			st.cleared.append(star)
+			st.cleared.sort()
+			first = true
+		coins = _rival_pay(p, today, star)
+	return {race = race, result = res, field = field, order = mine.order, fired = fired, star = star, coins = coins, first = first}
+
+
+## 勝った難易度は走らずに勝ったことにする（今日の上限まで）。できないなら理由。
+static func can_rival_skip(p: Dictionary, star: int, today: String) -> String:
+	var s := rival_state(p, today)
+	if not ((s.cleared as Array).has(star) or (s.cleared as Array).has(float(star))):
+		return "まだ勝っていない難易度"
+	if int(s.left) <= 0:
+		return "今日のウイコインは受け取り済み"
+	return ""
+
+
+static func rival_skip(p: Dictionary, star: int, today: String) -> int:
+	if can_rival_skip(p, star, today) != "":
+		return 0
+	return _rival_pay(p, today, star)
 
 
 ## 自分の完成馬どうしの対戦（2〜16 頭）。
