@@ -507,7 +507,7 @@ export function createRaceView(canvas, race, opts = {}) {
     });
     const col = mk(new THREE.CylinderGeometry(1.25, 1.6, 1, 24, 1, true), { map: flareTexture() });
     col.renderOrder = 18;
-    // 疾風は竜巻が柱の代わり（柱が竜巻の芯を白く塗りつぶした）
+    // 疾風・流星・イナズマは竜巻・彗星・稲妻が柱の代わり（柱が竜巻の芯を白く塗りつぶした）
     col.visible = !fx3?.noPillar;
     g.add(col);
     if (fx3) g.add(fx3.group);

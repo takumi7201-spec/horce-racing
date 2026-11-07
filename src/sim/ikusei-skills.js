@@ -102,7 +102,8 @@ export function skillsOf(card, awaken = 0) {
  */
 export const SKILL_FX = {
   radiance: { name: '金色の光', color: '#ffd54a', glow: '#ffa318', core: '#fff7d0' },
-  thunder: { name: 'イナズマ', color: '#fff05a', glow: '#58b8ff', core: '#ffffff' },
+  // イナズマ：アニメ調の稲妻（アクアの縁・暗い青緑の中抜き）。deep は帯の中、hit は着弾点の黄緑
+  thunder: { name: 'イナズマ', color: '#5ff6ee', glow: '#16b4c8', core: '#ecfffd', deep: '#0b4652', hit: '#a8ff5c' },
   flame: { name: '燃えるオーラ', color: '#ff8a1e', glow: '#ff3a12', core: '#fff0a0' },
   frost: { name: '氷結', color: '#a8f2ff', glow: '#3aa8ff', core: '#ffffff' },
   sakura: { name: '桜吹雪', color: '#ffb6d2', glow: '#ff5f9e', core: '#fff2f8' },
