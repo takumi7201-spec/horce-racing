@@ -107,13 +107,13 @@ func setup(k: String, fx: Dictionary, seed: int, src: Node3D = null) -> void:
 			t.color_ramp = _ramp([cols.core, cols.color])
 			_add(t)
 		"thunder":
-			# 後ろから走って馬を包み、鼻先の前へ着弾する稲妻（ゲームの makeThunder3d と同じ形）。光の柱の代わり。飾りは着弾点から前へ飛ぶ火花
+			# 頭から出て胴を包み、尾の後ろへ着弾する稲妻（ゲームの makeThunder3d と同じ形）。光の柱の代わり。飾りは着弾点から後ろへ飛ぶ火花
 			var sp := _soft_parts("star", 18, [0.3, 0.6], Vector3(0.15, 0.15, 0.05), 4.5, 1.5, [0.22, 0.52], cols.core, true)
 			sp.position = Vector3(0, THU_CY, THU_IZ)
-			sp.direction = Vector3(0, 0, 1)
+			sp.direction = Vector3(0, 0, -1)
 			sp.spread = 40.0
 			_add(sp)
-			_thunder_setup()
+			_thunder_setup(src)
 
 
 ## オーラ：馬の体の表面から湧き、上がる・外へ広がる・後ろへ流れる粒。粒は馬と一緒に動く（local_coords）。
@@ -1019,23 +1019,26 @@ func _comet_flare_texture() -> Texture2D:
 
 
 # ------------------------------------------------------------------ イナズマ
-## ゲームの makeThunder3d と同じ形：軸は横（走る向き、z）。後ろから走ってきた幹が尾の後ろで指に割れ、馬を包んで鼻先の前の着弾点へ集まる。
+## ゲームの makeThunder3d と同じ形：軸は横（走る向き、z）。馬の頭（毎コマ頭の組から求める）から出た太い幹がすぐ後ろで指に割れ、
+## 胴を包んで尾の後ろの着弾点へ集まり、後ろへ弾ける。
 ## 帯はカメラへ面を向ける角ばった帯
 ## （折れ目で太り先で細る。折れ目は角の二等分の向きへ伸ばす）で、シェーダで中抜きに塗る（アクアの縁・暗い青緑の中、所々の節は中まで明るく）。
 ## 外の光は加算の太い帯。着弾点は黄緑の光と、上へ開く棘の冠（棘もカメラへ向けた帯）。形は 0.07 秒ごとに作り直す（瞬く）。
 ## 拡大しない組（thu_root）に置き、太さだけ √ 倍にする（拡大すると望遠のカメラで幹が白い柱になり、籠が隣の馬まで呑み込んだ）。
-const THU_CY := 1.45     # 軸の高さ（胴と騎手の間）
-const THU_SZ := -2.4     # 割れる所（尾の後ろ）
-const THU_IZ := 2.45     # 着弾点（鼻先の前）
-const THU_BACK := 16.0   # 幹の起点の後ろへの距離
+const THU_CY := 1.45     # 着弾点の高さ（胴）
+const THU_IZ := -2.3     # 着弾点（尾の後ろ）
+const THU_HEAD := Vector3(0, 2.0, 1.55)   # 頭の組が無いときの頭の位置
+const THU_SPLIT := 0.6   # 割れる所の頭からの後ろへの距離
 const THU_RE := 0.07
 var thu_root := Node3D.new()
 var thu_seed := 1
 var thu_body: MeshInstance3D
 var thu_glow: MeshInstance3D
 var thu_bolts: Array = []
-var thu_frame := -1
-var thu_k := Vector3.ZERO
+var thu_head: Node3D
+var thu_headc := Vector3.ZERO
+var thu_o := THU_HEAD
+var thu_hg: MeshInstance3D
 var thu_fa: Array = []
 var thu_orb: MeshInstance3D
 var thu_core: MeshInstance3D
@@ -1087,8 +1090,15 @@ void fragment() {
 	return sh
 
 
-func _thunder_setup() -> void:
+func _thunder_setup(src: Node3D) -> void:
 	add_child(thu_root)
+	# 頭の組（項が原点）と、その中の頭の形の中心。毎コマ頭の位置を求める（首と一緒に揺れる）
+	if src != null and "head" in src and src.get("head") != null:
+		thu_head = src.get("head")
+		for mi in thu_head.find_children("*", "MeshInstance3D", true, false):
+			if mi.mesh != null:
+				thu_headc = thu_head.to_local(mi.to_global(mi.mesh.get_aabb().get_center()))
+				break
 	for glow in [true, false]:
 		var mi := MeshInstance3D.new()
 		mi.mesh = ImmediateMesh.new()
@@ -1111,14 +1121,14 @@ func _thunder_setup() -> void:
 	# 構図（空の起点・指の回る向き）はシードで決めて動かさない
 	var rs := RandomNumberGenerator.new()
 	rs.seed = hash(thu_seed * 131 + 7)
-	thu_k = Vector3((rs.randf() - 0.5) * 2.4, THU_CY + (rs.randf() - 0.5) * 2.0, THU_SZ - THU_BACK)
 	for i in 4:
 		thu_fa.append(i / 4.0 * TAU + 0.45 + (rs.randf() - 0.5) * 0.5)
 	thu_orb = _tor_quad(_texture("soft"), cols.hit, 4, false, thu_root)
 	thu_core = _tor_quad(_texture("soft"), Color.WHITE, 5, false, thu_root)
 	thu_split = _tor_quad(_texture("star"), cols.core, 5, false, thu_root)
 	thu_flash = _tor_quad(_thunder_disc_texture(), Color.WHITE, 6, false, thu_root)
-	for q in [thu_orb, thu_core, thu_split, thu_flash]:
+	thu_hg = _tor_quad(_texture("star"), cols.core, 5, false, thu_root)
+	for q in [thu_orb, thu_core, thu_split, thu_flash, thu_hg]:
 		((q as MeshInstance3D).mesh as QuadMesh).material.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
 	# 地を這う黄緑の光（平たい円盤）
 	thu_disc = MeshInstance3D.new()
@@ -1180,50 +1190,56 @@ func _thu_hook(b: Dictionary, turn: float, cl: Vector3) -> Dictionary:
 	return b
 
 
+## 形は 0.07 秒ごとに同じ乱数で作るが、頭が首と一緒に動くので毎コマ今の頭の位置で組み直す
 func _thu_rebuild(fi: int, cl: Vector3) -> void:
 	var r := RandomNumberGenerator.new()
 	r.seed = hash(thu_seed * 31 + fi * 977)
 	thu_bolts.clear()
 	var fl := 0.82 + 0.18 * r.randf()
-	var S := Vector3(0, THU_CY, THU_SZ)
+	var O := thu_o
+	var S := Vector3(O.x, O.y + (THU_CY - O.y) * 0.3, O.z - THU_SPLIT)
 	var I := Vector3(0, THU_CY, THU_IZ)
-	var trunk := _thu_spine(r, thu_k, S, 6, 0.75, Vector3.ZERO, 0.27, 0.45, 0.9)
-	thu_bolts.append({b = trunk, at = 0.0, dur = 0.1, k = fl, kind = 0, bow = Vector3.ZERO, grow = false})
-	# 幹から出る鉤の小枝
-	for i in 2:
-		var p0: Vector3 = trunk.pts[2 + int(r.randf() * 3.0)]
-		var a := r.randf() * TAU
-		var to := Vector3(p0.x + cos(a) * (1.0 + r.randf() * 1.0), maxf(0.2, p0.y + sin(a) * (0.8 + r.randf() * 1.0)), p0.z - 0.8 - r.randf() * 1.2)
-		thu_bolts.append({b = _thu_hook(_thu_spine(r, p0, to, 3, 0.25, Vector3.ZERO, 0.14, 0.8, 0.5), 1.0 if i else -1.0, cl), at = 0.12, dur = 0.08, k = fl * 0.9, kind = 0, bow = Vector3.ZERO, grow = false})
-	# 指：馬を包んで着弾点へ集まる（軸に直交する向きへ膨らむ。下は地面に潜らないよう浅く）
+	# 頭から出る太い幹
+	var trunk := _thu_spine(r, O, S, 2, 0.05, Vector3.ZERO, 0.3, 0.75, 1.0)
+	thu_bolts.append({b = trunk, at = 0.0, dur = 0.06, k = fl, kind = 0, bow = Vector3.ZERO, grow = false})
+	# 指：割れる所から胴を包んで尾の後ろの着弾点へ（軸に直交する向きへ膨らむ。下は地面に潜らないよう浅く）
 	for a in thu_fa:
-		if r.randf() < 0.15:
+		if r.randf() < 0.12:
 			continue
 		var sa: float = sin(a)
-		var bow := Vector3(cos(a) * 1.05, sa * (1.0 if sa < 0.0 else 1.3), 0) * (0.85 + r.randf() * 0.3)
-		thu_bolts.append({b = _thu_spine(r, S, I, 6, 0.2, bow, 0.2, 0.9, 0.18), at = 0.08, dur = 0.14, k = fl, kind = 0, bow = bow, grow = false})
-	# 体の周りから外へ走る小さな稲妻（先は鉤）
+		var bow := Vector3(cos(a) * 0.95, sa * (0.95 if sa < 0.0 else 1.3), 0) * (0.85 + r.randf() * 0.3)
+		var fg := _thu_spine(r, S, I, 6, 0.18, bow, 0.2, 0.9, 0.2)
+		thu_bolts.append({b = fg, at = 0.05, dur = 0.15, k = fl, kind = 0, bow = bow, grow = false})
+		# 指から外へ出る鉤の小枝
+		if r.randf() < 0.6:
+			var p0: Vector3 = fg.pts[2 + int(r.randf() * 3.0)]
+			var out := Vector3(p0.x, p0.y - THU_CY, 0).normalized()
+			var to := p0 + out * (0.6 + r.randf() * 0.6) + Vector3(0, 0, -0.3 - r.randf() * 0.6)
+			to.y = maxf(0.15, to.y)
+			var turn := -1.0 if r.randf() < 0.5 else 1.0
+			thu_bolts.append({b = _thu_hook(_thu_spine(r, p0, to, 3, 0.12, Vector3.ZERO, 0.1, 0.8, 0.5), turn, cl), at = 0.15, dur = 0.06, k = fl * 0.85, kind = 0, bow = Vector3.ZERO, grow = false})
+	# 頭から散る小さな稲妻（先は鉤）
 	for i in 3:
 		var a := r.randf() * TAU
-		var p0 := Vector3(cos(a) * 0.45, 1.0 + r.randf() * 1.3, sin(a) * 1.1)
-		var dir := Vector3(cos(a), (r.randf() - 0.3) * 0.7, sin(a) * 1.2).normalized()
-		var to := p0 + dir * (1.1 + r.randf() * 0.9)
+		var dir := Vector3(cos(a) * 0.9, 0.4 + absf(sin(a)) * 0.6, 0.3 + r.randf() * 0.5).normalized()
+		var to := O + dir * (0.6 + r.randf() * 0.7)
+		var k2 := fl * (0.7 + r.randf() * 0.3)
 		var turn := -1.0 if r.randf() < 0.5 else 1.0
-		thu_bolts.append({b = _thu_hook(_thu_spine(r, p0, to, 3, 0.15, Vector3.ZERO, 0.11, 0.6, 0.5), turn, cl), at = 0.2, dur = 0.06, k = fl, kind = 0, bow = Vector3.ZERO, grow = false})
-	# 冠の棘：着弾点を囲む輪（軸に直交）から前へ開く
+		thu_bolts.append({b = _thu_hook(_thu_spine(r, O, to, 3, 0.1, Vector3.ZERO, 0.09, 0.6, 0.5), turn, cl), at = 0.02, dur = 0.06, k = k2, kind = 0, bow = Vector3.ZERO, grow = false})
+	# 冠の棘：着弾点を囲む輪（軸に直交）から後ろへ開く
 	for i in 9:
 		var th := ((i + r.randf() * 0.6) / 9.0) * TAU
 		var base := Vector3(I.x + cos(th) * 0.3, I.y + sin(th) * 0.38, I.z)
 		var ln := 0.55 + r.randf() * 0.9
 		var lean := 0.2 + r.randf() * 0.5
-		var tip := base + Vector3(cos(th) * lean * ln, sin(th) * lean * ln, ln)
+		var tip := base + Vector3(cos(th) * lean * ln, sin(th) * lean * ln, -ln)
 		tip.y = maxf(0.05, tip.y)
 		var mid := base.lerp(tip, 0.5) + Vector3(cos(th) * 0.06, sin(th) * 0.06, 0)
 		var wb := 0.08 + r.randf() * 0.08
 		var pts: Array[Vector3] = [base, mid, tip]
 		var ws: Array[float] = [wb, wb * 0.55, 0.004]
 		var fill: Array[float] = [2.0, 2.0, 2.0]
-		thu_bolts.append({b = {pts = pts, ws = ws, fill = fill}, at = 0.2, dur = 0.18, k = 1.0, kind = 2, bow = Vector3.ZERO, grow = true})
+		thu_bolts.append({b = {pts = pts, ws = ws, fill = fill}, at = 0.18, dur = 0.18, k = 1.0, kind = 2, bow = Vector3.ZERO, grow = true})
 
 
 ## 帯を書く（カメラへ面を向ける。折れ目は角の二等分の向きへ、太さを角の半分の cos で割って伸ばす）
@@ -1309,10 +1325,10 @@ func _thunder_update(fade: float, cam: Camera3D, sc: float) -> void:
 	var T := age
 	var cl := thu_root.to_local(cam.global_position) if cam else Vector3(30, 2, 0)
 	var wW := minf(2.0, sqrt(sc))
-	var fi := int(floor(T / THU_RE))
-	if fi != thu_frame:
-		thu_frame = fi
-		_thu_rebuild(fi, cl)
+	# 頭の位置（頭の形の中心から鼻先寄り。項が頭の組の原点）
+	if thu_head != null:
+		thu_o = thu_root.to_local(thu_head.to_global(thu_headc * 1.45))
+	_thu_rebuild(int(floor(T / THU_RE)), cl)
 	_thu_write(thu_body.mesh, wW, T, cl)
 	_thu_write(thu_glow.mesh, 2.6 * wW, T, cl)
 	# カメラが籠の中（騎手視点・ごく近いカメラ）だと帯が画面を覆うので薄める
@@ -1321,10 +1337,13 @@ func _thunder_update(fade: float, cam: Camera3D, sc: float) -> void:
 	var fl: float = thu_bolts[0].k if not thu_bolts.is_empty() else 1.0
 	for mi in [thu_body, thu_glow]:
 		((mi as MeshInstance3D).material_override as ShaderMaterial).set_shader_parameter("u_fade", fade * fl * near_k)
-	var gh := _ease((T - 0.2) / 0.18)
+	var gh := _ease((T - 0.18) / 0.18)
 	var pulse := 0.88 + 0.12 * sin(T * 37.0)
 	var a_of := func(q: MeshInstance3D, a: float) -> void:
 		((q.mesh as QuadMesh).material as StandardMaterial3D).albedo_color.a = clampf(a, 0.0, 1.0)
+	thu_hg.position = thu_o
+	thu_hg.scale = Vector3.ONE * 1.8 * (0.85 + 0.15 * fl) * wW
+	a_of.call(thu_hg, 0.85 * fade * near_k)
 	thu_orb.position = Vector3(0, THU_CY, THU_IZ)
 	thu_orb.scale = Vector3.ONE * maxf(0.001, 2.1 * gh * pulse * wW)
 	a_of.call(thu_orb, 0.75 * fade * gh)
@@ -1333,11 +1352,11 @@ func _thunder_update(fade: float, cam: Camera3D, sc: float) -> void:
 	a_of.call(thu_core, 0.8 * fade * gh)
 	thu_disc.scale = Vector3.ONE * maxf(0.001, 2.0 * (0.5 + 0.5 * gh) * pulse * wW)
 	(((thu_disc.mesh as PlaneMesh).material) as StandardMaterial3D).albedo_color.a = 0.45 * fade * gh
-	thu_split.position = Vector3(0, THU_CY, THU_SZ)
+	thu_split.position = Vector3(thu_o.x, thu_o.y + (THU_CY - thu_o.y) * 0.3, thu_o.z - THU_SPLIT)
 	thu_split.scale = Vector3.ONE * 2.0 * (0.85 + 0.15 * fl) * wW
-	a_of.call(thu_split, 0.9 * fade * clampf((T - 0.08) / 0.1, 0.0, 1.0) * near_k)
-	# 着弾の閃光（0.2 秒から 0.25 秒で消える）
-	var fq := (T - 0.2) / 0.25
+	a_of.call(thu_split, 0.7 * fade * clampf((T - 0.05) / 0.1, 0.0, 1.0) * near_k)
+	# 着弾の閃光（0.18 秒から 0.25 秒で消える）
+	var fq := (T - 0.18) / 0.25
 	thu_flash.position = Vector3(0, THU_CY, THU_IZ)
 	thu_flash.scale = Vector3.ONE * (3.0 + _ease(fq) * 7.0) * wW
 	a_of.call(thu_flash, (1.0 - fq) * 0.9 * near_k if fq > 0.0 and fq < 1.0 else 0.0)
