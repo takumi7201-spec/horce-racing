@@ -1257,6 +1257,8 @@ canvas.race3d { width: 100%; height: 100%; display: block; }
 /* cardart.js がぼかしを焼き込んだ背景（CSS で毎回ぼかさない） */
 .tc-art .b.baked { filter: none; transform: none; }
 .tc-art .f { filter: saturate(1.12) contrast(1.06); }
+/* エフェクトにも馬と同じ強調を掛ける（馬だけ彩度とコントラストを上げると、エフェクトが相対的に褪せて見本より薄く見えた） */
+.tc-art .xf { filter: saturate(1.25) contrast(1.06) brightness(1.06); }
 .tc-art .hb { position: absolute; inset: 0; background: var(--holo); background-size: var(--holo-size); background-position: calc(50% + var(--px)) calc(50% + var(--py));
   mix-blend-mode: overlay; opacity: calc(var(--hop) * var(--hk, 1) * (.55 + var(--tilt) * .9)); }
 /* 馬の居るあたり（絵の中央の下寄り）はホロを弱める。全面に同じ強さで掛けると、明るい模様の上で馬の輪郭が溶けて見にくかった
@@ -1278,7 +1280,9 @@ canvas.race3d { width: 100%; height: 100%; display: block; }
 .tc-art .olr { position: absolute; inset: 0; background: var(--foil); background-size: 180% 100%; background-position: calc(50% + var(--px)) 0; opacity: 0;
   -webkit-mask-size: cover; mask-size: cover; -webkit-mask-position: center; mask-position: center; -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
   filter: drop-shadow(0 1px 0 #0009) drop-shadow(0 -0.5px 0 #fff8); }
-.tc-vig { position: absolute; inset: 0 0 262px 0; box-shadow: inset 0 0 120px #000a; }
+/* 縁を暗くする影は絵の中で、固有スキルのエフェクト（.xf）の下に敷く。上に掛けていたときは、彗星の尾や竜巻の帯のように
+   絵の端まで広がるエフェクトが縁で 67% 暗く沈み、カードエディットの見本より薄く見えた（「カード作成後、エフェクトが薄くなる」） */
+.tc-art .vg { position: absolute; inset: 0; box-shadow: inset 0 0 120px #000a; pointer-events: none; }
 .tc-sparks { position: absolute; inset: 0 0 262px 0; opacity: 0; transition: opacity .4s; }
 .tc.ready .tc-sparks { opacity: 1; }
 .tc .sp { position: absolute; background: radial-gradient(circle, #fff 0, #fff6 30%, transparent 70%); border-radius: 50%; box-shadow: 0 0 8px #ffe9a0; }

@@ -123,7 +123,7 @@ export function cardView(c, { scale = 0.4, onClick = null, count = 0, dim = fals
     '--frame': T.frame, '--line': T.line, '--glow': T.glow, '--ink': T.ink, '--badge': T.badge, '--badge-ink': T.badgeInk,
     '--holo': holoBg, '--holo-size': holoSize, '--hop': H?.op ?? 0, '--foil': foil ?? 'none', '--sun': T.sun,
   };
-  const art = el('div.tc-art', [el('div.b'), el('div.hb'), el('div.hbg'), el('div.hb2'), el('div.xb'), el('div.f'), el('div.xf'), el('div.olr')]);
+  const art = el('div.tc-art', [el('div.b'), el('div.hb'), el('div.hbg'), el('div.hb2'), el('div.xb'), el('div.f'), el('div.vg'), el('div.xf'), el('div.olr')]);
   const sparks = el('div.tc-sparks', Array.from({ length: T.sparks }, (_, i) => {
     const x = (i * 37 + 11) % 100, y = (i * 53 + 7) % 62, s = 6 + ((i * 7) % 14), o = 0.5 + ((i * 13) % 5) / 10;
     return el('i.sp', { style: `left:${x}%;top:${y}%;width:${s}px;height:${s}px;opacity:${o}` });
@@ -142,7 +142,7 @@ export function cardView(c, { scale = 0.4, onClick = null, count = 0, dim = fals
   const card = el(`div.tc.r-${c.rar}${foil ? '.foiled' : ''}`, { style: Object.entries(vars).map(([k, v]) => `${k}:${v}`).join(';') }, [
     el('div.tc-in', [
       // 絵の上に光（日の光芒・暖色の照り）は重ねない。明るく照らすと馬が白っぽく沈み、模様と溶けて見にくかった（「カードは照らさなくていい」）
-      art, el('div.tc-vig'), sparks,
+      art, sparks,
       el('div.tc-race', [
         el(`b${foil ? '.foil' : ''}`, { text: c.race.name, style: `font-size:${c.race.name.length > 16 ? 19 : c.race.name.length > 12 ? 24 : 30}px` }),
         el('small', { text: c.race.info }),
