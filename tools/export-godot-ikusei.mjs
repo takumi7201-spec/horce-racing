@@ -69,6 +69,9 @@ const data = {
   eventRate: IK.EVENT_RATE,
   trainEvents: IK.TRAIN_EVENTS.map((e) => ({ ...e, choices: e.choices.map((c) => ({ ...c, hint: IK.effectText(c.effects),
     riskHint: c.risk ? `${Math.round(c.risk.p * 100)}%で${IK.effectText(c.risk)}` : null })) })),
+  // 1 日・週のミッション、ランク戦の段位、殿堂、カードの組み合わせ（落とし穴 120）
+  quests: IK.QUESTS, rankTiers: IK.RANK_TIERS, rankGain: [1, 2, 3, 4, 5, 6].map(IK.RANK_GAIN), rankDiff: IK.RANK_DIFF, hallMax: IK.HALL_MAX,
+  comboStep: IK.COMBO_STEP, comboKinds: IK.COMBO_KINDS,
   slots: IK.SLOTS, moods: IK.MOODS,
   raceSkills: strip(raceSkillDefs), supportSkills: strip(supportSkillDefs), skillFx: IK.SKILL_FX,
   courses,

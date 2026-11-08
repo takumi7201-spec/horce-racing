@@ -120,7 +120,7 @@ const HASH_FX = SKILL_FX_KEYS.slice(0, 8);
 const FX_OF = {
   'P4-03': 'thunder', 'P2-17': 'thunder', 'P4-06': 'star', 'P4-10': 'star', 'P4-09': 'radiance', 'P2-40': 'radiance',
   'EV-02': 'shadow', 'P1-40': 'flame', 'P1-17': 'flame', 'P4-02': 'gale', 'P2-10': 'gale', 'P4-01': 'sakura', 'P1-15': 'sakura',
-  'EV-01': 'frost', 'P4-08': 'frost',
+  'EV-01': 'frost', 'P4-08': 'frost', 'EV-03': 'radiance',
   // 一度も背を見せず＝誰も追いつけない流れ星
   'P4-07': 'comet',
 };

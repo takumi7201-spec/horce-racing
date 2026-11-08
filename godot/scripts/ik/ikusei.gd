@@ -443,6 +443,9 @@ static func migrate_profile(p: Dictionary) -> Dictionary:
 			continue
 		m.star = clampi(int(floor(float(m.val) / MEM_STEP + 0.5)), 1, 5)
 		m.val = int(m.star) * MEM_STEP
+	# 記録は持っている完成馬と因子メモリーから起こす
+	if p.get("rec") == null:
+		_rec_from_old(p)
 	if p.get("coins") != null and p.get("missions") != null:
 		return p
 	var done := []
@@ -840,6 +843,13 @@ static func start_run(p: Dictionary, breed: Dictionary, support_ids: Array, memo
 	if rv != null:
 		p.run.rival = {cardId = rv, meets = rival_meets(goal), log = []}
 		p.run.log.append("ライバル：%s" % card(rv).name)
+	var combo := combo_of([s.id, d.id] + support_ids)
+	if not combo.is_empty():
+		p.run.combo = combo
+		var parts := []
+		for x in combo:
+			parts.append("%s%s %d枚" % [data().comboKinds[x.kind], x.label, int(x.n)])
+		p.run.log.append("組み合わせ：%s（練習 +%d%%）" % ["・".join(parts), jround((combo_mul(p.run) - 1) * 100)])
 	# 因子メモリー：レーススキルを最初から覚えている
 	for m in mems:
 		if m.skill != null and not run_skills(p.run).has(m.skill):
@@ -905,7 +915,7 @@ static func training_preview(run: Dictionary, kind: String) -> Dictionary:
 	var tr: Dictionary = TRAIN[kind]
 	var idx: Array = training_board(run)[kind]
 	var here := idx.map(func(i): return card(run.supports[i]))
-	var mul: float = MOOD_MUL[int(run.mood)] * (1 + 0.12 * here.size()) * (1 + 0.08 * (float(run.levels[kind]) - 1))
+	var mul: float = MOOD_MUL[int(run.mood)] * (1 + 0.12 * here.size()) * (1 + 0.08 * (float(run.levels[kind]) - 1)) * combo_mul(run)
 	var cost: int = tr.cost
 	var fail_mul := 1.0
 	var fired := []
@@ -1347,6 +1357,7 @@ static func _close_run(p: Dictionary) -> Dictionary:
 		h.rival = {cardId = run.rival.cardId, won = rr.won, lost = rr.lost}
 	h.rating = rating_of(h)
 	h.rank = rank_of(h.rating)
+	_note_run(p, run, h)
 	# ミッション：初めて編成したカードは 1 枚ごとにウイコイン 1 枚
 	var gain := mission_gain(p, run)
 	p.missions = missions_of(p) + gain
@@ -1429,7 +1440,9 @@ static func battle_npc(p: Dictionary, horse_id, race_id: String, diff := "normal
 	me.battles = int(me.battles) + 1
 	if int(mine.order) == 1:
 		me.battleWins = int(me.battleWins) + 1
-	return {race = race, result = res, field = field, order = mine.order, fired = fired}
+	var fast := _note_battle(p, "rank", race, mine, me.name)
+	var rank := _ladder_move(p, int(mine.order), diff)
+	return {race = race, result = res, field = field, order = mine.order, fired = fired, rank = rank, fast = fast}
 
 
 static func event_state(p: Dictionary, id: String) -> Dictionary:
@@ -1481,7 +1494,8 @@ static func event_race(p: Dictionary, horse_id, event_id: String, star: int, sty
 			var is_new := count_of(p, c.id) == 0
 			p.cards[c.id] = count_of(p, c.id) + 1
 			reward = {card = c, isNew = is_new, awaken = count_of(p, c.id) - 1, star = star}
-	return {race = race, result = res, field = field, order = mine.order, fired = fired, reward = reward, star = star}
+	var fast := _note_battle(p, "event", race, mine, me.name)
+	return {race = race, result = res, field = field, order = mine.order, fired = fired, reward = reward, star = star, fast = fast}
 
 
 # ------------------------------------------------------------------ ライバルレース
@@ -1567,7 +1581,10 @@ static func rival_race(p: Dictionary, horse_id, race_id: String, star: int, toda
 			st.cleared.sort()
 			first = true
 		coins = _rival_pay(p, today, star)
-	return {race = race, result = res, field = field, order = mine.order, fired = fired, star = star, coins = coins, first = first}
+		if star >= 3:
+			_bump(p, "rival3w")
+	var fast := _note_battle(p, "rival", race, mine, me.name)
+	return {race = race, result = res, field = field, order = mine.order, fired = fired, star = star, coins = coins, first = first, fast = fast}
 
 
 ## 勝った難易度は走らずに勝ったことにする（今日の上限まで）。できないなら理由。
@@ -1583,6 +1600,10 @@ static func can_rival_skip(p: Dictionary, star: int, today: String) -> String:
 static func rival_skip(p: Dictionary, star: int, today: String) -> int:
 	if can_rival_skip(p, star, today) != "":
 		return 0
+	# スキップも勝ちに数える（ミッションの「ライバルレースで n 勝」）
+	_bump(p, "rivalw")
+	if star >= 3:
+		_bump(p, "rival3w")
 	return _rival_pay(p, today, star)
 
 
@@ -1615,4 +1636,339 @@ static func battle_own(p: Dictionary, horse_ids: Array, race_id: String) -> Dict
 		list[i].battles = int(list[i].battles) + 1
 		if int(r.order) == 1:
 			list[i].battleWins = int(list[i].battleWins) + 1
-	return {race = race, result = res, field = field, fired = fired}
+	var top = null
+	for r in res.results:
+		if int(r.order) == 1:
+			top = r
+			break
+	var ti := int(top.horseId) - 100
+	var fast := _note_battle(p, "own", race, top, list[ti].name if ti >= 0 and ti < list.size() else String(top.name))
+	return {race = race, result = res, field = field, fired = fired, fast = fast}
+
+
+# ------------------------------------------------------------------ 記録（通算の数・最速の時計・最高の馬）
+# JS の ikusei.js と同じ。数は p.rec に積み、1 日・週のミッションはこの数の差で進みを見る。
+
+static func rec_of(p: Dictionary) -> Dictionary:
+	return p.get("rec") if p.get("rec") != null else {}
+
+
+static func _bump(p: Dictionary, k: String, n := 1) -> void:
+	if p.get("rec") == null:
+		p.rec = {}
+	p.rec[k] = int(p.rec.get(k, 0)) + n
+
+
+## 舞台の鍵（場|馬場|距離）。距離は JSON で小数になるので "%d" で書く（"2500.0" にしない）。
+static func stage_key(r: Dictionary) -> String:
+	return "%s|%s|%d" % [r.courseId, r.surface, int(r.distance)]
+
+
+static func stage_label(k: String) -> String:
+	var a := k.split("|")
+	var cs: Dictionary = data().courses
+	var nm: String = cs[a[0]].name if cs.has(a[0]) else a[0]
+	return "%s %s%sm" % [nm, "ダ" if a[1] == "ダート" else "芝", a[2]]
+
+
+static func _note_time(p: Dictionary, race: Dictionary, t: float, horse: String, mode: String) -> bool:
+	if not (t > 0):
+		return false
+	if p.get("rec") == null:
+		p.rec = {}
+	if p.rec.get("fast") == null:
+		p.rec.fast = {}
+	var fast: Dictionary = p.rec.fast
+	var k := stage_key(race)
+	if fast.has(k) and float(fast[k].t) <= t:
+		return false
+	fast[k] = {t = jround(t * 100) / 100.0, horse = horse, race = race.name, ground = race.get("ground") if race.get("ground") != null else "良", mode = mode}
+	return true
+
+
+static func _note_run(p: Dictionary, run: Dictionary, h: Dictionary) -> void:
+	_bump(p, "runs")
+	_bump(p, "starts", int(run.starts))
+	_bump(p, "wins", int(run.wins))
+	_bump(p, "giWins", int(run.giWins))
+	if run.get("goal") != null and run.goal.done:
+		_bump(p, "goals")
+	var best = p.rec.get("best")
+	if best == null or int(h.rating) > int(best.rating):
+		p.rec.best = {rating = h.rating, rank = h.rank, name = h.name, id = h.id}
+	for r in run.races:
+		if r.get("time") != null and float(r.time) > 0:
+			_note_time(p, r, float(r.time), h.name, "育成")
+
+
+const BATTLE_MODE_NAME := {rank = "ランク戦", rival = "ライバル", event = "イベント", own = "完成馬対決"}
+
+
+static func _note_battle(p: Dictionary, mode: String, race: Dictionary, row, name: String) -> bool:
+	_bump(p, "battles")
+	_bump(p, mode)
+	if row != null and int(row.order) == 1 and mode != "own":
+		_bump(p, "battleWins")
+		_bump(p, mode + "w")
+	return _note_time(p, race, float(row.time), name, BATTLE_MODE_NAME[mode]) if row != null else false
+
+
+static func _rec_from_old(p: Dictionary) -> void:
+	var hs: Array = Array(p.get("finished", [])) + memories_of(p).map(func(m): return m.horse)
+	var rec := {runs = hs.size(), starts = 0, wins = 0, giWins = 0, goals = 0, battles = 0, battleWins = 0, fast = {}}
+	p.rec = rec
+	for h in hs:
+		rec.starts += int(h.get("starts", 0))
+		rec.wins += int(h.get("wins", 0))
+		rec.giWins += int(h.get("giWins", 0))
+		if h.get("goal") != null and h.goal.get("done", false):
+			rec.goals += 1
+		rec.battles += int(h.get("battles", 0))
+		rec.battleWins += int(h.get("battleWins", 0))
+		if rec.get("best") == null or int(h.rating) > int(rec.best.rating):
+			rec.best = {rating = h.rating, rank = h.rank, name = h.name, id = h.id}
+		for r in h.get("races", []):
+			if r.get("time") != null and float(r.time) > 0 and r.get("courseId") != null:
+				_note_time(p, r, float(r.time), h.name, "育成")
+
+
+# ------------------------------------------------------------------ 1 日のミッション・週のミッション
+# 進みは記録の数の、その日・週の始めからの差。始めの数は roll_quests が写す（画面が描くたびに呼ぶ）。
+
+static func _quest_keys() -> Array:
+	var out := []
+	for q in Array(data().quests.daily) + Array(data().quests.weekly):
+		if not out.has(q.key):
+			out.append(q.key)
+	return out
+
+
+## 日付（'YYYY-MM-DD'）の通し日数（1970-01-01 が 0）。
+static func day_number(today: String) -> int:
+	var a := today.split("-")
+	var y := int(a[0])
+	var m := int(a[1])
+	var d := int(a[2])
+	if m <= 2:
+		y -= 1
+	var era := floori(y / 400.0)
+	var yoe := y - era * 400
+	var doy := floori((153 * (m + (-3 if m > 2 else 9)) + 2) / 5.0) + d - 1
+	return era * 146097 + yoe * 365 + floori(yoe / 4.0) - floori(yoe / 100.0) + doy - 719468
+
+
+static func week_number(today: String) -> int:
+	return floori((day_number(today) + 3) / 7.0)
+
+
+static func days_to_week_end(today: String) -> int:
+	return 7 - posmod(day_number(today) + 3, 7)
+
+
+static func _snap_rec(p: Dictionary) -> Dictionary:
+	var out := {}
+	var r := rec_of(p)
+	for k in _quest_keys():
+		out[k] = int(r.get(k, 0))
+	return out
+
+
+static func roll_quests(p: Dictionary, today: String) -> Dictionary:
+	if p.get("quest") == null:
+		p.quest = {day = null, dBase = {}, dGot = [], week = null, wBase = {}, wGot = []}
+	var q: Dictionary = p.quest
+	var wk := week_number(today)
+	if q.day != today:
+		q.day = today
+		q.dBase = _snap_rec(p)
+		q.dGot = []
+	if q.week == null or int(q.week) != wk:
+		q.week = wk
+		q.wBase = _snap_rec(p)
+		q.wGot = []
+	return q
+
+
+static func quest_state(p: Dictionary, today: String) -> Dictionary:
+	var q: Dictionary = p.get("quest") if p.get("quest") != null else {}
+	var cur := _snap_rec(p)
+	var same_day: bool = q.get("day") == today
+	var same_week: bool = q.get("week") != null and int(q.week) == week_number(today)
+	var mk := func(defs: Array, base, got: Array) -> Array:
+		var out := []
+		for d in defs:
+			var b: int = int(base.get(d.key, 0)) if base != null else int(cur[d.key])
+			var have: int = mini(int(d.need), maxi(0, int(cur[d.key]) - b))
+			var got_it := got.has(d.id)
+			var x: Dictionary = (d as Dictionary).duplicate()
+			x.have = have
+			x.done = have >= int(d.need)
+			x.got = got_it
+			x.ready = have >= int(d.need) and not got_it
+			out.append(x)
+		return out
+	var daily: Array = mk.call(data().quests.daily, q.dBase if same_day else null, q.dGot if same_day else [])
+	var weekly: Array = mk.call(data().quests.weekly, q.wBase if same_week else null, q.wGot if same_week else [])
+	var ready := 0
+	for x in daily + weekly:
+		if x.ready:
+			ready += 1
+	return {daily = daily, weekly = weekly, ready = ready, weekLeft = days_to_week_end(today)}
+
+
+static func claim_quest(p: Dictionary, id: String, today: String) -> int:
+	var q := roll_quests(p, today)
+	var st := quest_state(p, today)
+	for x in st.daily + st.weekly:
+		if x.id == id:
+			if not x.ready:
+				return 0
+			(q.dGot if String(x.id).begins_with("d_") else q.wGot).append(x.id)
+			p.coins = coins_of(p) + int(x.coins)
+			return int(x.coins)
+	return 0
+
+
+static func claim_all_quests(p: Dictionary, today: String) -> int:
+	var st := quest_state(p, today)
+	var n := 0
+	for x in st.daily + st.weekly:
+		if x.ready:
+			n += claim_quest(p, x.id, today)
+	return n
+
+
+# ------------------------------------------------------------------ ランク戦の段位
+# 着順で点が上下し（0 より下がらない）、初めて届いた段位でウイコイン。JS の ladderMove と同じ。
+
+static func tier_of(pts: int) -> int:
+	var t := 0
+	var tiers: Array = data().rankTiers
+	for i in tiers.size():
+		if pts >= int(tiers[i].at):
+			t = i
+	return t
+
+
+static func _ladder(p: Dictionary) -> Dictionary:
+	return p.get("ladder") if p.get("ladder") != null else {pts = 0, best = 0}
+
+
+static func ladder_state(p: Dictionary) -> Dictionary:
+	var l := _ladder(p)
+	var pts := int(l.pts)
+	var tiers: Array = data().rankTiers
+	var tier := tier_of(pts)
+	var nx = tiers[tier + 1] if tier + 1 < tiers.size() else null
+	var lo := int(tiers[tier].at)
+	return {pts = pts, best = int(l.best), tier = tier, name = tiers[tier].name, next = nx.name if nx != null else null,
+		toNext = int(nx.at) - pts if nx != null else 0, frac = float(pts - lo) / float(int(nx.at) - lo) if nx != null else 1.0}
+
+
+static func rank_gain(order: int) -> int:
+	var g: Array = data().rankGain
+	return int(g[clampi(order, 1, 6) - 1])
+
+
+static func _ladder_move(p: Dictionary, order: int, diff: String) -> Dictionary:
+	if p.get("ladder") == null:
+		p.ladder = {pts = 0, best = 0}
+	var l: Dictionary = p.ladder
+	var from := tier_of(int(l.pts))
+	var from_pts := int(l.pts)
+	var g := rank_gain(order)
+	var m: Dictionary = data().rankDiff.get(diff, data().rankDiff.normal)
+	var delta := jround(g * (float(m.up) if g > 0 else float(m.down)))
+	l.pts = maxi(0, from_pts + delta)
+	var to := tier_of(int(l.pts))
+	var coins := 0
+	for i in range(int(l.best) + 1, to + 1):
+		coins += int(data().rankTiers[i].coins)
+	if to > int(l.best):
+		l.best = to
+	p.coins = coins_of(p) + coins
+	return {from = from, to = to, fromPts = from_pts, pts = int(l.pts), delta = int(l.pts) - from_pts, coins = coins, promoted = to > from, demoted = to < from}
+
+
+# ------------------------------------------------------------------ 殿堂
+
+static func hall_of(p: Dictionary) -> Array:
+	var out := []
+	for id in p.get("hall", []) if p.get("hall") != null else []:
+		if find_finished(p, id) != null:
+			out.append(int(id))
+	return out
+
+
+## 殿堂に入れる・外す。入れられなければ理由。
+static func set_hall(p: Dictionary, id, on: bool) -> String:
+	var cur := hall_of(p)
+	if not on:
+		p.hall = cur.filter(func(x): return x != int(id))
+		return ""
+	if cur.has(int(id)):
+		return ""
+	if cur.size() >= int(data().hallMax):
+		return "殿堂は %d 頭まで（外してから）" % int(data().hallMax)
+	if find_finished(p, id) == null:
+		return "完成馬が無い"
+	p.hall = cur + [int(id)]
+	return ""
+
+
+static func release_finished(p: Dictionary, id) -> String:
+	if hall_of(p).has(int(id)):
+		return "殿堂の馬は手放せない（殿堂から外してから）"
+	p.finished = Array(p.finished).filter(func(h): return int(h.id) != int(id))
+	if p.get("fav") == "B%d" % int(id):
+		p.fav = null
+	return ""
+
+
+# ------------------------------------------------------------------ カードの組み合わせ
+# 同じ弾・父系・年代が 3 枚以上で練習の伸びが +2〜5%（種類ごとにいちばん多い組。同じ数なら編成の並びで先に出たほう）。
+
+static func _combo_key(kind: String, c: Dictionary) -> Variant:
+	if kind == "pack":
+		return c.pack
+	if kind == "line":
+		return c.line if c.get("line") != null and String(c.line) != "" else null
+	var yr = c.get("race", {}).get("year") if c.get("race") != null else null
+	return "%d" % (floori(float(yr) / 10.0) * 10) if yr != null else null
+
+
+static func _combo_label(kind: String, k: String) -> String:
+	if kind == "pack":
+		return "【%s】" % data().packNames.get(k, k)
+	if kind == "line":
+		return k
+	return k + "年代"
+
+
+static func combo_of(ids: Array) -> Array:
+	var out := []
+	for kind in ["pack", "line", "era"]:
+		var n := {}
+		for id in ids:
+			var c = card(id)
+			if c == null:
+				continue
+			var k = _combo_key(kind, c)
+			if k != null:
+				n[k] = int(n.get(k, 0)) + 1
+		var bk = null
+		var bn := 0
+		for k in n:
+			if int(n[k]) > bn:
+				bk = k
+				bn = int(n[k])
+		if bn >= 3:
+			out.append({kind = kind, key = bk, label = _combo_label(kind, bk), n = bn, bonus = float(data().comboStep[str(mini(6, bn))])})
+	return out
+
+
+static func combo_mul(run: Dictionary) -> float:
+	var s := 0.0
+	for x in run.get("combo", []) if run.get("combo") != null else []:
+		s += float(x.bonus)
+	return 1.0 + s

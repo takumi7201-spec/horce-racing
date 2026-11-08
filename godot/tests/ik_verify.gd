@@ -31,6 +31,7 @@ func orders(res: Dictionary) -> Array:
 
 func scenario(seed: int) -> Dictionary:
 	var p := IK.new_profile(seed)
+	IK.roll_quests(p, "2026-11-07")
 	var pulls := IK.pull(p, 30).map(func(g): return g.card.id)
 	var own := IK.owned(p)
 	# 育成馬は配合（最初の牡 × 最初の牝）。脚質は選べるうちのいちばん後ろ（脚質のスキルの受け継ぎも見る）
@@ -84,9 +85,38 @@ func scenario(seed: int) -> Dictionary:
 	var e2 := IK.event_race(p, h.id, "bc1989", 3)
 	# ライバルレース（☆2、勝てば次の日に同じ☆をスキップ）とウイコインの残高
 	var rv := IK.rival_race(p, h.id, "arima-kinen", 2, "2026-11-07")
+	var qs := IK.quest_state(p, "2026-11-07")
+	var claimed := IK.claim_all_quests(p, "2026-11-07")
 	var skip := IK.rival_skip(p, 2, "2026-11-08")
+	IK.roll_quests(p, "2026-11-08")
+	var e3 := IK.event_race(p, h.id, "arima1990", 2)
+	var b2 := IK.battle_npc(p, h.id, "arima-kinen", "legend")
+	var qs2 := IK.quest_state(p, "2026-11-08")
+	var hall := [IK.set_hall(p, h.id, true) == "", IK.hall_of(p)]
+	var rel := IK.release_finished(p, h.id)
+	var rec := IK.rec_of(p)
+	var qv := func(q: Dictionary) -> Array:
+		var out := []
+		for x in q.daily + q.weekly:
+			out.append([x.id, int(x.have), x.got, x.ready])
+		return out
+	var rk := []
+	for k in ["runs", "starts", "wins", "giWins", "goals", "battles", "battleWins", "rank", "rankw", "rival", "rivalw", "rival3w", "event", "eventw"]:
+		rk.append(int(rec.get(k, 0)))
+	var fast := []
+	var fk: Array = rec.get("fast", {}).keys()
+	fk.sort()
+	for k in fk:
+		var f: Dictionary = rec.fast[k]
+		fast.append([k, IK.jround(float(f.t) * 100), f.horse, f.race, f.mode, f.ground])
+	var extra := {
+		combo = [run.get("combo"), IK.combo_of(["P1-01", "P1-02", "P1-05", "P1-06", "P1-07", "P1-03"]), IK.combo_of(["EV-03", "P1-19", "P4-36", "P1-17", "P2-01", "P3-01"])],
+		ladder = [b.rank, b2.rank, IK.ladder_state(p)], quests = [qv.call(qs), qs.ready, claimed, qv.call(qs2), qs2.weekLeft, IK.week_number("2026-11-08"), IK.day_number("2026-11-08")],
+		rec = rk, best = rec.get("best"), fast = fast, hall = hall, rel = rel, stage = IK.stage_label("nakayama|芝|2500"),
+	}
 	return {pulls = pulls, steps = steps, stats = h.stats, rating = h.rating, skills = h.skills, name = h.name, sex = h.sex, coat = h.coat,
-		battle = orders(b.result), event = orders(e.result), event2 = orders(e2.result), rival = orders(rv.result), memory = memory, goalrival = goalrival,
+		battle = orders(b.result), event = orders(e.result), event2 = orders(e2.result), event3 = orders(e3.result), battle2 = orders(b2.result), extra = extra,
+		rival = orders(rv.result), memory = memory, goalrival = goalrival,
 		coins = [IK.coins_of(p), int(rv.coins), skip, IK.mission_gain(p, {sire = sire.id, dam = dam.id, supports = sup}).size(), IK.missions_of(p).size()]}
 
 

@@ -15,6 +15,7 @@ const orders = (res) => res.results.map((r) => [r.horseId, Math.round(r.time * 1
 
 function scenario(seed) {
   const p = IK.newProfile(seed);
+  IK.rollQuests(p, '2026-11-07');
   const pulls = IK.pull(p, 30).map((g) => g.card.id);
   const own = IK.owned(p);
   // 育成馬は配合（最初の牡 × 最初の牝）。脚質は選べるうちのいちばん後ろ（脚質のスキルの受け継ぎも見る）
@@ -60,8 +61,27 @@ function scenario(seed) {
   // ライバルレース（☆2、勝てば次の日に同じ☆をスキップ）とウイコインの残高
   const rv = IK.rivalRace(p, h.id, 'arima-kinen', 2, '2026-11-07');
   let skip = 0;
+  // 1 日・週のミッション、段位、記録、殿堂、組み合わせ、イベント第 3 弾（1990 年の有馬記念）
+  const qs = IK.questState(p, '2026-11-07');
+  const claimed = IK.claimAllQuests(p, '2026-11-07');
   try { skip = IK.rivalSkip(p, 2, '2026-11-08'); } catch { /* 勝っていない */ }
-  return { pulls, steps, stats: h.stats, rating: h.rating, skills: h.skills, name: h.name, sex: h.sex, coat: h.coat, battle: orders(b.result), event: orders(e.result), event2: orders(e2.result),
+  IK.rollQuests(p, '2026-11-08');
+  const e3 = IK.eventRace(p, h.id, 'arima1990', 2);
+  const b2 = IK.battleNpc(p, h.id, 'arima-kinen', 'legend');
+  const qs2 = IK.questState(p, '2026-11-08');
+  const hall = [IK.setHall(p, h.id, true), IK.hallOf(p)];
+  let rel = '';
+  try { IK.releaseFinished(p, h.id); } catch (er) { rel = er.message; }
+  const rec = IK.recOf(p);
+  const qv = (q) => [...q.daily, ...q.weekly].map((x) => [x.id, x.have, x.got, x.ready]);
+  const extra = {
+    combo: [run.combo ?? null, IK.comboOf(['P1-01', 'P1-02', 'P1-05', 'P1-06', 'P1-07', 'P1-03']), IK.comboOf(['EV-03', 'P1-19', 'P4-36', 'P1-17', 'P2-01', 'P3-01'])],
+    ladder: [b.rank, b2.rank, IK.ladderState(p)], quests: [qv(qs), qs.ready, claimed, qv(qs2), qs2.weekLeft, IK.weekNumber('2026-11-08'), IK.dayNumber('2026-11-08')],
+    rec: ['runs', 'starts', 'wins', 'giWins', 'goals', 'battles', 'battleWins', 'rank', 'rankw', 'rival', 'rivalw', 'rival3w', 'event', 'eventw'].map((k) => rec[k] ?? 0),
+    best: rec.best, fast: Object.keys(rec.fast ?? {}).sort().map((k) => [k, Math.round(rec.fast[k].t * 100), rec.fast[k].horse, rec.fast[k].race, rec.fast[k].mode, rec.fast[k].ground]),
+    hall, rel, stage: IK.stageLabel('nakayama|芝|2500'),
+  };
+  return { pulls, steps, stats: h.stats, rating: h.rating, skills: h.skills, name: h.name, sex: h.sex, coat: h.coat, battle: orders(b.result), event: orders(e.result), event2: orders(e2.result), event3: orders(e3.result), battle2: orders(b2.result), extra,
     rival: orders(rv.result), memory, goalrival, coins: [IK.coinsOf(p), rv.coins, skip, IK.missionGain(p, { sire: sire.id, dam: dam.id, supports: sup }).length, IK.missionsOf(p).length] };
 }
 
@@ -106,11 +126,13 @@ js.scenarios.forEach((s, k) => {
   if (s.name !== g.name || s.sex !== g.sex || s.coat !== g.coat) { bad++; console.log(`✗ 種 ${k}：育成馬 ${s.name}・${s.sex}・${s.coat} / ${g.name}・${g.sex}・${g.coat}`); }
   if (!same(s.skills, g.skills)) { bad++; console.log(`✗ 種 ${k}：スキル ${s.skills} / ${g.skills}`); }
   maxDt = Math.max(maxDt, cmpOrder(`種 ${k} ランク戦`, s.battle, g.battle), cmpOrder(`種 ${k} イベント`, s.event, g.event), cmpOrder(`種 ${k} イベント（BC）`, s.event2, g.event2),
+    cmpOrder(`種 ${k} イベント（有馬）`, s.event3, g.event3), cmpOrder(`種 ${k} ランク戦（伝説）`, s.battle2, g.battle2),
     cmpOrder(`種 ${k} ライバルレース`, s.rival, g.rival));
   if (!same(s.goalrival, g.goalrival)) { bad++; console.log(`✗ 種 ${k}：目標とライバル ${JSON.stringify(s.goalrival)} / ${JSON.stringify(g.goalrival)}`); }
   if (!same(s.memory, g.memory)) { bad++; console.log(`✗ 種 ${k}：因子メモリー ${JSON.stringify(s.memory)} / ${JSON.stringify(g.memory)}`); }
   if (!same(s.coins, g.coins)) { bad++; console.log(`✗ 種 ${k}：ウイコイン ${s.coins} / ${g.coins}`); }
-  nRace += 4;
+  for (const x of Object.keys(s.extra)) if (!same(s.extra[x], g.extra[x])) { bad++; console.log(`✗ 種 ${k}：${x} ${JSON.stringify(s.extra[x])} / ${JSON.stringify(g.extra[x])}`); }
+  nRace += 6;
 });
 js.races.forEach((r, i) => { nRace++; maxDt = Math.max(maxDt, cmpOrder(`舞台 ${IK.BATTLE_RACES[i].id}`, r, gd.races[i])); });
 console.log(`${bad ? '✗' : '✓'} 不一致 ${bad} 件（レース ${nRace} 戦、時計の差の最大 ${maxDt.toFixed(3)} 秒）　Godot ${gd.ms}ms`);

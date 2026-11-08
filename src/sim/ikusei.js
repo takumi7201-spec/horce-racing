@@ -16,6 +16,7 @@ import { createHorse, peekHorseId, resetHorseIds } from './horse.js';
 import { clamp, clamp01 } from '../core/util.js';
 import { skillsOf, skillInfo, applyRaceSkills, RAR_SCALE, AWAKEN, awakenOf, SKILL_FX, uniqueFxOf } from './ikusei-skills.js';
 import { distCatOf } from './ikusei-util.js';
+import { courseName } from './course.js';
 
 export { skillsOf, skillInfo, AWAKEN };
 /** カードの覚醒（持っている枚数から）。 */
@@ -52,7 +53,7 @@ export function setFinishedGear(profile, horseId, gear) {
 export const ART_SHOTS = ['profile', 'finish', 'charge', 'front', 'face', 'low', 'side', 'duel'];
 export const ART_BACKDROPS = { sunset: '夕日', day: '晴れた昼', cloudy: '曇り', paris: '秋の曇天', desert: '砂漠' };
 export const ART_POSES = { celebrate: 'ガッツポーズ', race: '追う（前傾）', canter: '返し馬（起こす）' };
-export const SILK_PATTERNS = ['無地', '縦縞', '縦縞細', '輪', '一本輪', 'たすき', '十字襷', '山形', '玉', '玉霰', '元禄', '肩章', '吊り'];
+export const SILK_PATTERNS = ['無地', '縦縞', '縦縞細', '輪', '一本輪', 'たすき', '十字襷', '山形', '玉', '玉霰', '元禄', '肩章', '吊り', '菱山形'];
 export const SILK_SLEEVES = { body: '胴と同じ', plain: '無地', hoops: '輪', stripes: '縦縞', band: '一本輪', cuffs: '袖口', dots: '玉' };
 export const LEG_KEYS = ['lf', 'rf', 'lh', 'rh'];
 /**
@@ -241,6 +242,8 @@ export function migrateProfile(profile) {
     m.star = Math.max(1, Math.min(5, Math.round(m.val / MEM_STEP)));
     m.val = m.star * MEM_STEP;
   }
+  // 記録（通算の数・最速・最高の馬）は持っている完成馬と因子メモリーから起こす
+  if (!profile.rec) recFromOld(profile);
   if (profile.coins != null && profile.missions) return profile;
   const done = [...new Set(profile.finished.flatMap(formedOf))];
   profile.missions = done;
@@ -689,6 +692,8 @@ export function startRun(profile, breed, supportIds, memoryIds = []) {
   const run = profile.run;
   const goal = goalFor(c);
   const rv = pickRival(c, [s.id, d.id, ...supportIds], seed);
+  const combo = comboOf([s.id, d.id, ...supportIds]);
+  if (combo.length) { run.combo = combo; run.log.push(`組み合わせ：${combo.map((x) => `${COMBO_KINDS[x.kind]}${x.label} ${x.n}枚`).join('・')}（練習 +${Math.round((comboMul(run) - 1) * 100)}%）`); }
   if (goal) { run.goal = goal; run.log.push(`目標レース：${goal.name}（${SLOTS[goal.slot].label}）`); }
   if (rv) { run.rival = { cardId: rv, meets: rivalMeets(goal), log: [] }; run.log.push(`ライバル：${cardById(rv).name}`); }
   for (const m of mem) {
@@ -747,7 +752,8 @@ export function trainingPreview(run, kind) {
   const tr = TRAIN[kind];
   const idx = trainingBoard(run)[kind];
   const here = idx.map((i) => cardById(run.supports[i]));
-  let mul = MOOD_MUL[run.mood] * (1 + 0.12 * here.length) * (1 + 0.08 * (run.levels[kind] - 1));
+  // 組み合わせのボーナス（同じ弾・父系・年代）は練習の伸びに掛ける
+  let mul = MOOD_MUL[run.mood] * (1 + 0.12 * here.length) * (1 + 0.08 * (run.levels[kind] - 1)) * comboMul(run);
   let cost = tr.cost, failMul = 1;
   const fired = [];
   here.forEach((c, j) => {
@@ -1122,6 +1128,7 @@ function closeRun(profile) {
   };
   horse.rating = ratingOf(horse);
   horse.rank = rankOf(horse.rating);
+  noteRun(profile, run, horse);
   // ミッション：初めて編成したカードは 1 枚ごとにウイコイン 1 枚
   const gain = missionGain(profile, run);
   profile.missions = [...missionsOf(profile), ...gain];
@@ -1189,7 +1196,9 @@ export function battleNpc(profile, horseId, raceId, diff = 'normal', style = nul
   const mine = res.results.find((r) => r.horseId === 100);
   me.battles++;
   if (mine.order === 1) me.battleWins++;
-  return { race, result: res, field, order: mine.order, fired };
+  const fast = noteBattle(profile, 'rank', race, mine, me.name);
+  const rank = ladderMove(profile, mine.order, diff);
+  return { race, result: res, field, order: mine.order, fired, rank, fast };
 }
 
 // ---------------------------------------------------------------- イベント
@@ -1244,7 +1253,8 @@ export function eventRace(profile, horseId, eventId, star, style = null) {
       reward = { card: c, isNew, awaken: profile.cards[c.id] - 1, star };
     }
   }
-  return { race, result: res, field, order: mine.order, fired, reward, star };
+  const fast = noteBattle(profile, 'event', race, mine, me.name);
+  return { race, result: res, field, order: mine.order, fired, reward, star, fast };
 }
 
 // ---------------------------------------------------------------- ライバルレース
@@ -1315,8 +1325,10 @@ export function rivalRace(profile, horseId, raceId, star, today, style = null) {
     me.battleWins++;
     if (!st.cleared.includes(star)) { st.cleared.push(star); st.cleared.sort(); first = true; }
     coins = rivalPay(profile, today, star);
+    if (star >= 3) bump(profile, 'rival3w');
   }
-  return { race, result: res, field, order: mine.order, fired, star, coins, first };
+  const fast = noteBattle(profile, 'rival', race, mine, me.name);
+  return { race, result: res, field, order: mine.order, fired, star, coins, first, fast };
 }
 
 /** 勝ったことのある難易度は走らずに勝ったことにする（今日の上限まで）。できないなら理由。 */
@@ -1329,6 +1341,9 @@ export function canRivalSkip(profile, star, today) {
 export function rivalSkip(profile, star, today) {
   const why = canRivalSkip(profile, star, today);
   if (why) throw new Error(why);
+  // スキップも勝ちに数える（ミッションの「ライバルレースで n 勝」）
+  bump(profile, 'rivalw');
+  if (star >= 3) bump(profile, 'rival3w');
   return rivalPay(profile, today, star);
 }
 
@@ -1352,8 +1367,234 @@ export function battleOwn(profile, horseIds, raceId) {
     h.battles++;
     if (r.order === 1) h.battleWins++;
   }
-  return { race, result: res, field, fired };
+  const top = res.results.find((r) => r.order === 1);
+  const fast = noteBattle(profile, 'own', race, top, list[top.horseId - 100]?.name ?? top.name);
+  return { race, result: res, field, fired, fast };
 }
+
+// ---------------------------------------------------------------- 記録（通算の数・最速の時計・最高の馬）
+//
+// 育成と対戦の数を profile.rec に積む。1 日・週のミッション（下）はこの数の差で進みを見る。
+// 最速の時計は舞台（場・馬場・距離）ごとに自分の馬だけ（育成のレースも対戦も同じ舞台なら同じ欄）。
+// 古いプロフィールは読み込みで完成馬から起こす（migrateProfile）。
+
+export const recOf = (profile) => profile.rec ?? {};
+const bump = (profile, k, n = 1) => { profile.rec ??= {}; profile.rec[k] = (profile.rec[k] ?? 0) + n; };
+/** 舞台の鍵と名前（「中山 芝2500m」）。 */
+export const stageKey = (r) => `${r.courseId}|${r.surface}|${r.distance}`;
+export const stageLabel = (key) => {
+  const [c, s, d] = key.split('|');
+  return `${courseName(c) ?? c} ${s === 'ダート' ? 'ダ' : '芝'}${d}m`;
+};
+/** 自分の馬の時計を舞台の最速に照らす（速ければ書き換えて true）。 */
+function noteTime(profile, race, t, horse, mode) {
+  if (!(t > 0)) return false;
+  profile.rec ??= {};
+  const fast = profile.rec.fast ??= {};
+  const k = stageKey(race);
+  if (fast[k] && fast[k].t <= t) return false;
+  fast[k] = { t: Math.round(t * 100) / 100, horse, race: race.name, ground: race.ground ?? '良', mode };
+  return true;
+}
+/** 育成を閉じたときの記録（数・最高の評価点・育成のレースの時計）。 */
+function noteRun(profile, run, horse) {
+  bump(profile, 'runs');
+  bump(profile, 'starts', run.starts);
+  bump(profile, 'wins', run.wins);
+  bump(profile, 'giWins', run.giWins);
+  if (run.goal?.done) bump(profile, 'goals');
+  const best = profile.rec.best;
+  if (!best || horse.rating > best.rating) profile.rec.best = { rating: horse.rating, rank: horse.rank, name: horse.name, id: horse.id };
+  for (const r of run.races) if (r.time) noteTime(profile, r, r.time, horse.name, '育成');
+}
+/** 対戦の記録（mode：rank・rival・event・own）。 */
+function noteBattle(profile, mode, race, row, name) {
+  bump(profile, 'battles');
+  bump(profile, mode);
+  if (row?.order === 1 && mode !== 'own') { bump(profile, 'battleWins'); bump(profile, `${mode}w`); }
+  return row ? noteTime(profile, race, row.time, name, { rank: 'ランク戦', rival: 'ライバル', event: 'イベント', own: '完成馬対決' }[mode]) : false;
+}
+/** 古いプロフィールの記録を、持っている完成馬と因子メモリーから起こす。 */
+function recFromOld(profile) {
+  const hs = [...profile.finished, ...memoriesOf(profile).map((m) => m.horse)];
+  const rec = { runs: hs.length, starts: 0, wins: 0, giWins: 0, goals: 0, battles: 0, battleWins: 0, fast: {} };
+  profile.rec = rec;
+  for (const h of hs) {
+    rec.starts += h.starts ?? 0; rec.wins += h.wins ?? 0; rec.giWins += h.giWins ?? 0; if (h.goal?.done) rec.goals++;
+    rec.battles += h.battles ?? 0; rec.battleWins += h.battleWins ?? 0;
+    if (!rec.best || h.rating > rec.best.rating) rec.best = { rating: h.rating, rank: h.rank, name: h.name, id: h.id };
+    for (const r of h.races ?? []) if (r.time && r.courseId) noteTime(profile, r, r.time, h.name, '育成');
+  }
+}
+
+// ---------------------------------------------------------------- 1 日のミッション・週のミッション
+//
+// 「初めて編成したカードの育成で 1 枚」はカードの種類で上限が来るので、毎日遊ぶ理由として 1 日（端末の 0:00）と週（月曜の 0:00）で
+// 切り替わるミッションを置く。進みは記録の数（profile.rec）の、その日・その週の始めからの差。始めの数は rollQuests が写す
+// （画面が描くたびに呼ぶ。日付は sim で作らない）。達成したら押して受け取る（claimQuest）。ライバルレースのスキップも勝ちに数える。
+
+export const QUESTS = {
+  daily: [
+    { id: 'd_run', label: '育成を 1 回終える', key: 'runs', need: 1, coins: 2 },
+    { id: 'd_rival3', label: 'ライバルレース☆3 以上で 1 勝', key: 'rival3w', need: 1, coins: 2 },
+    { id: 'd_rank', label: 'ランク戦を 2 回走る', key: 'rank', need: 2, coins: 1 },
+    { id: 'd_battle', label: '対戦（どれでも）を 3 回走る', key: 'battles', need: 3, coins: 1 },
+  ],
+  weekly: [
+    { id: 'w_run', label: '育成を 5 回終える', key: 'runs', need: 5, coins: 6 },
+    { id: 'w_goal', label: '目標レースを 2 回勝つ', key: 'goals', need: 2, coins: 4 },
+    { id: 'w_rival', label: 'ライバルレースで 10 勝', key: 'rivalw', need: 10, coins: 5 },
+    { id: 'w_rankw', label: 'ランク戦で 5 勝', key: 'rankw', need: 5, coins: 4 },
+    { id: 'w_event', label: 'イベントレースを 3 回走る', key: 'event', need: 3, coins: 3 },
+  ],
+};
+const QUEST_KEYS = [...new Set([...QUESTS.daily, ...QUESTS.weekly].map((q) => q.key))];
+/** 日付（'YYYY-MM-DD'）の通し日数（1970-01-01 が 0）。 */
+export function dayNumber(today) {
+  let [y, m, d] = String(today).split('-').map(Number);
+  y -= m <= 2 ? 1 : 0;
+  const era = Math.floor(y / 400), yoe = y - era * 400;
+  const doy = Math.floor((153 * (m + (m > 2 ? -3 : 9)) + 2) / 5) + d - 1;
+  return era * 146097 + yoe * 365 + Math.floor(yoe / 4) - Math.floor(yoe / 100) + doy - 719468;
+}
+/** 週の鍵（月曜始まりの通し番号）と、次の月曜までの日数。1970-01-01 は木曜。 */
+export const weekNumber = (today) => Math.floor((dayNumber(today) + 3) / 7);
+export const daysToWeekEnd = (today) => 7 - ((dayNumber(today) + 3) % 7);
+const snapRec = (profile) => Object.fromEntries(QUEST_KEYS.map((k) => [k, recOf(profile)[k] ?? 0]));
+
+/** 日・週が変わっていたら、その始めの数を写して受け取りを空にする。 */
+export function rollQuests(profile, today) {
+  const q = profile.quest ??= { day: null, dBase: {}, dGot: [], week: null, wBase: {}, wGot: [] };
+  const wk = weekNumber(today);
+  if (q.day !== today) { q.day = today; q.dBase = snapRec(profile); q.dGot = []; }
+  if (q.week !== wk) { q.week = wk; q.wBase = snapRec(profile); q.wGot = []; }
+  return q;
+}
+/** ミッションの進み（書き換えない。日・週が変わっていれば 0 から）。 */
+export function questState(profile, today) {
+  const q = profile.quest ?? {};
+  const cur = snapRec(profile);
+  const list = (defs, base, got) => defs.map((d) => {
+    const have = Math.min(d.need, Math.max(0, cur[d.key] - (base ? base[d.key] ?? 0 : cur[d.key])));
+    const gotIt = (got ?? []).includes(d.id);
+    return { ...d, have, done: have >= d.need, got: gotIt, ready: have >= d.need && !gotIt };
+  });
+  const sameDay = q.day === today, sameWeek = q.week === weekNumber(today);
+  const daily = list(QUESTS.daily, sameDay ? q.dBase : null, sameDay ? q.dGot : []);
+  const weekly = list(QUESTS.weekly, sameWeek ? q.wBase : null, sameWeek ? q.wGot : []);
+  return { daily, weekly, ready: [...daily, ...weekly].filter((x) => x.ready).length, weekLeft: daysToWeekEnd(today) };
+}
+/** 達成したミッションのウイコインを受け取る。受け取った枚数（受け取れなければ 0）。 */
+export function claimQuest(profile, id, today) {
+  const q = rollQuests(profile, today);
+  const st = questState(profile, today);
+  const x = [...st.daily, ...st.weekly].find((d) => d.id === id);
+  if (!x || !x.ready) return 0;
+  (x.id.startsWith('d_') ? q.dGot : q.wGot).push(x.id);
+  profile.coins = coinsOf(profile) + x.coins;
+  return x.coins;
+}
+/** 受け取れるものをまとめて。 */
+export function claimAllQuests(profile, today) {
+  const st = questState(profile, today);
+  return [...st.daily, ...st.weekly].filter((x) => x.ready).reduce((a, x) => a + claimQuest(profile, x.id, today), 0);
+}
+
+// ---------------------------------------------------------------- ランク戦の段位
+//
+// ランク戦（battleNpc）の着順で段位の点が上下する。点は 0 より下がらない。初めてその段位に届いたときだけウイコイン
+// （落ちてまた上がっても出さない。行き来で稼げないように）。強い・伝説は勝ちの点が多く、負けの点が少ない。
+// 相手は自分の馬からの相対の強さなので、段位は「その馬に合った舞台と難しさを選べるか」で上がる。
+
+// 普通は向いた舞台で 6 割勝てるので、点を少なく・負けを重くした（同じ点だと 20 戦で殿堂に届いた）。
+// 普通・強い・伝説で 1 戦あたり 12・15・17 点ほど（殿堂まで 60〜85 戦）。
+export const RANK_TIERS = [
+  { name: '新馬級', at: 0, coins: 0 },
+  { name: '条件級', at: 100, coins: 2 },
+  { name: 'オープン級', at: 250, coins: 3 },
+  { name: '重賞級', at: 450, coins: 4 },
+  { name: 'GI級', at: 700, coins: 6 },
+  { name: '殿堂', at: 1000, coins: 10 },
+];
+export const RANK_GAIN = (order) => (order === 1 ? 30 : order === 2 ? 12 : order === 3 ? 6 : order <= 5 ? 0 : -12);
+export const RANK_DIFF = { normal: { up: 0.6, down: 1.2 }, hard: { up: 1.2, down: 0.8 }, legend: { up: 2, down: 0.5 } };
+export const tierOf = (pts) => RANK_TIERS.reduce((t, x, i) => (pts >= x.at ? i : t), 0);
+/** 段位の今（点・段位・次の段位まで）。 */
+export function ladderState(profile) {
+  const l = profile.ladder ?? { pts: 0, best: 0 };
+  const tier = tierOf(l.pts);
+  const next = RANK_TIERS[tier + 1] ?? null;
+  const lo = RANK_TIERS[tier].at;
+  return { pts: l.pts, best: l.best, tier, name: RANK_TIERS[tier].name, next: next?.name ?? null, toNext: next ? next.at - l.pts : 0,
+    frac: next ? (l.pts - lo) / (next.at - lo) : 1 };
+}
+/** 着順で段位を動かす（battleNpc から）。 */
+function ladderMove(profile, order, diff) {
+  const l = profile.ladder ??= { pts: 0, best: 0 };
+  const from = tierOf(l.pts), fromPts = l.pts;
+  const g = RANK_GAIN(order);
+  const m = RANK_DIFF[diff] ?? RANK_DIFF.normal;
+  const delta = Math.round(g * (g > 0 ? m.up : m.down));
+  l.pts = Math.max(0, l.pts + delta);
+  const to = tierOf(l.pts);
+  let coins = 0;
+  for (let i = l.best + 1; i <= to; i++) coins += RANK_TIERS[i].coins;
+  if (to > l.best) l.best = to;
+  profile.coins = coinsOf(profile) + coins;
+  return { from, to, fromPts, pts: l.pts, delta: l.pts - fromPts, coins, promoted: to > from, demoted: to < from };
+}
+
+// ---------------------------------------------------------------- 殿堂
+//
+// 良かった完成馬を殿堂入りさせると、ホームに飾られる（HALL_MAX 頭まで）。殿堂の馬は手放せない（外してから）。
+
+export const HALL_MAX = 6;
+export const hallOf = (profile) => (profile.hall ?? []).filter((id) => profile.finished.some((h) => h.id === id));
+export function setHall(profile, id, on) {
+  const cur = hallOf(profile);
+  if (!on) { profile.hall = cur.filter((x) => x !== id); return true; }
+  if (cur.includes(id)) return true;
+  if (cur.length >= HALL_MAX) throw new Error(`殿堂は ${HALL_MAX} 頭まで（外してから）`);
+  if (!profile.finished.some((h) => h.id === id)) throw new Error('完成馬が無い');
+  profile.hall = [...cur, id];
+  return true;
+}
+/** 完成馬を手放す（殿堂の馬は手放せない）。 */
+export function releaseFinished(profile, id) {
+  if (hallOf(profile).includes(id)) throw new Error('殿堂の馬は手放せない（殿堂から外してから）');
+  profile.finished = profile.finished.filter((h) => h.id !== id);
+  if (profile.fav === `B${id}`) profile.fav = null;
+}
+
+// ---------------------------------------------------------------- カードの組み合わせ
+//
+// 編成（父・母・サポート 4 枚）に同じ弾・同じ父系・同じ年代（看板のレースの年）のカードが 3 枚以上そろうと、練習の伸びがわずかに上がる。
+// 種類ごとにいちばん多い組だけ数える（3 枚 +2%・4 枚 +3%・5 枚 +4%・6 枚 +5%、3 種で最大 +15%）。持っているカードの集め方に目標を作る。
+// 始めた時点で決めて run.combo に写す（古い育成は持たないので効かない）。同じ数の組が並んだら、編成の並びで先に出たほう。
+
+export const COMBO_STEP = { 3: 0.02, 4: 0.03, 5: 0.04, 6: 0.05 };
+export const COMBO_KINDS = { pack: '同じ弾', line: '同じ父系', era: '同じ年代' };
+const comboKey = {
+  pack: (c) => c.pack,
+  line: (c) => c.line || null,
+  era: (c) => (c.race?.year ? String(Math.floor(c.race.year / 10) * 10) : null),
+};
+const comboLabel = { pack: (k) => `【${PACK_NAMES[k] ?? k}】`, line: (k) => k, era: (k) => `${k}年代` };
+/** 編成（カードの id の並び）でそろう組み合わせ。 */
+export function comboOf(ids) {
+  const cs = ids.map(cardById).filter(Boolean);
+  const out = [];
+  for (const kind of Object.keys(COMBO_KINDS)) {
+    const n = new Map();
+    for (const c of cs) { const k = comboKey[kind](c); if (k != null) n.set(k, (n.get(k) ?? 0) + 1); }
+    let bk = null, bn = 0;
+    for (const [k, v] of n) if (v > bn) { bk = k; bn = v; }
+    if (bn >= 3) out.push({ kind, key: bk, label: comboLabel[kind](bk), n: bn, bonus: COMBO_STEP[Math.min(6, bn)] });
+  }
+  return out;
+}
+/** 練習の伸びに掛ける値。 */
+export const comboMul = (run) => 1 + (run.combo ?? []).reduce((a, c) => a + c.bonus, 0);
 
 // ---------------------------------------------------------------- 保存
 

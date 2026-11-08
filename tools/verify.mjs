@@ -1074,9 +1074,9 @@ section('カード育成モード');
   const I = await import('../src/sim/ikusei.js');
   const { peekHorseId } = await import('../src/sim/horse.js');
   const ids = new Set(I.CARDS.map((c) => c.id));
-  check(`カード ${I.CARDS.length} 枚（第 1 弾 40・第 2 弾 40・第 3 弾 3・第 4 弾 40・イベント 2、id が重ならない）`,
-    I.CARDS.length === 125 && ids.size === 125 && I.CARDS.filter((c) => c.pack === 'P4').length === 40 && I.CARDS.filter((c) => c.pack === 'P1').length === 40 && I.CARDS.filter((c) => c.pack === 'P2').length === 40
-    && I.CARDS.filter((c) => c.pack === 'P3').length === 3 && I.CARDS.filter((c) => c.pack === 'EV').length === 2);
+  check(`カード ${I.CARDS.length} 枚（第 1 弾 40・第 2 弾 40・第 3 弾 3・第 4 弾 40・イベント 3、id が重ならない）`,
+    I.CARDS.length === 126 && ids.size === 126 && I.CARDS.filter((c) => c.pack === 'P4').length === 40 && I.CARDS.filter((c) => c.pack === 'P1').length === 40 && I.CARDS.filter((c) => c.pack === 'P2').length === 40
+    && I.CARDS.filter((c) => c.pack === 'P3').length === 3 && I.CARDS.filter((c) => c.pack === 'EV').length === 3);
   // 第 4 弾は牝馬だけ。配分は過去の弾と同じ（LM 10・SSR 6・SR 6・R 8・N 10）、全カードに二つ名、LM と SSR の看板は牡馬混合の GI
   const p4 = I.CARDS.filter((c) => c.pack === 'P4');
   const nr = (r) => p4.filter((c) => c.rar === r).length;
@@ -1293,6 +1293,109 @@ section('カード育成モード');
     && bc.field.length === 8 && bl.result.results.length === 9 && bl.race.courseId === 'gulfstream' && bl.race.surface === 'ダート' && bl.race.distance === 2000
     && egRow?.cardId === 'P1-40' && egRow.dirt === 0.9 && bp.cards[ss.id] === 5 && I.eventState(bp, 'bc1989').cleared.join() === '1,2,3,4,5'
     && I.eventState(bp, 'arc1999').tries === 0 && peekHorseId() === idBefore);
+  // イベント第 3 弾：1990 年の有馬記念（オグリキャップの引退レース）。報酬のオグリキャップ（LM）、出走馬は史実の 16 頭
+  {
+    const og = I.cardById('EV-03');
+    const am = I.EVENTS.find((e) => e.id === 'arima1990');
+    const ap = I.newProfile(10);
+    ap.finished.push({ ...h, id: 996, battles: 0, battleWins: 0, turf: 0.9, dirt: 0.4, soft: 0.7, dist: 2400, stats: Object.fromEntries(I.STATS.map((k) => [k, 1200])) });
+    const at = [];
+    for (let star = 1; star <= 5; star++) for (let t = 0; t < 12 && !I.eventState(ap, 'arima1990').cleared.includes(star); t++) at.push(I.eventRace(ap, 996, 'arima1990', star));
+    const al = at.at(-1);
+    check(`イベント：1990 年の有馬記念（中山 芝2500m・良、史実の 16 頭）。☆1〜☆5 の初勝利でオグリキャップ（LM「${og?.epithet}」）5 枚（挑戦 ${at.length} 回）`,
+      og?.rar === 'LM' && og.name === 'オグリキャップ' && I.isEventCard(og) && am.reward === og.id && !I.pull(rich(I.newProfile(11)), 3000).some((g) => g.card.id === og.id)
+      && am.field.length === 16 && al.result.results.length === 17 && al.race.courseId === 'nakayama' && al.race.distance === 2500
+      && al.field.find((f) => f.name === 'オグリキャップ')?.cardId === 'EV-03' && ap.cards[og.id] === 5 && I.eventState(ap, 'arima1990').cleared.join() === '1,2,3,4,5'
+      && I.uniqueFxOf(og) === 'radiance' && peekHorseId() === idBefore);
+  }
+  // カードの組み合わせ：編成に同じ弾・同じ父系・同じ年代が 3 枚以上そろうと練習の伸びが上がる（種類ごとにいちばん多い組だけ）
+  {
+    const six = I.CARDS.filter((c) => c.pack === 'P1' && c.sex === '牡').slice(0, 5);
+    const dam = I.CARDS.find((c) => c.pack === 'P1' && c.sex === '牝');
+    const ids = [six[0].id, dam.id, ...six.slice(1, 5).map((c) => c.id)];
+    const combo = I.comboOf(ids);
+    const cp = I.newProfile(71);
+    for (const id of ids) cp.cards[id] = 1;
+    const r = I.startRun(cp, { sire: ids[0], dam: ids[1], name: 'ソロイ' }, ids.slice(2));
+    const g1 = I.trainingPreview(r, 'speed').gains.speed;
+    const r0 = { ...r, combo: undefined };
+    const g0 = I.trainingPreview(r0, 'speed').gains.speed;
+    const mix = I.comboOf(['P1-01', 'P2-01', 'P3-01', 'P4-01', 'EV-01', 'P2-10']);
+    check(`組み合わせ：${combo.map((x) => `${I.COMBO_KINDS[x.kind]}${x.label} ${x.n}枚 +${Math.round(x.bonus * 100)}%`).join('・')}、練習の伸び ${g0} → ${g1}、ばらばらの編成は ${mix.length} 組`,
+      combo.find((x) => x.kind === 'pack')?.n === 6 && combo.find((x) => x.kind === 'pack').bonus === 0.05 && r.combo?.length === combo.length
+      && g1 > g0 && I.comboMul(r0) === 1 && mix.every((x) => x.kind !== 'pack'));
+  }
+  // 1 日・週のミッション：記録の数の差で進み、達成したら受け取る。日が変わると 1 日の分、月曜で週の分が 0 から
+  {
+    const qp = I.newProfile(81);
+    qp.finished.push({ ...h, id: 995, battles: 0, battleWins: 0, stats: Object.fromEntries(I.STATS.map((k) => [k, 1200])) });
+    const sat = '2026-11-07', sun = '2026-11-08', mon = '2026-11-09';
+    I.rollQuests(qp, sat);
+    const s0 = I.questState(qp, sat);
+    for (let t = 0; t < 2; t++) I.battleNpc(qp, 995, 'japan-cup', 'normal');
+    I.rivalRace(qp, 995, 'japan-cup', 1, sat);
+    const s1 = I.questState(qp, sat);
+    const c0 = I.coinsOf(qp);
+    const got = I.claimQuest(qp, 'd_rank', sat);
+    const again = I.claimQuest(qp, 'd_rank', sat);
+    const notYet = I.claimQuest(qp, 'd_run', sat);
+    const s2 = I.questState(qp, sun);
+    I.rollQuests(qp, sun);
+    const wk = I.questState(qp, sun).weekly.find((x) => x.id === 'w_rankw').have;
+    I.rollQuests(qp, mon);
+    const s3 = I.questState(qp, mon);
+    const d = (st, id) => [...st.daily, ...st.weekly].find((x) => x.id === id);
+    check(`1 日のミッション ${I.QUESTS.daily.length} 個・週のミッション ${I.QUESTS.weekly.length} 個：ランク戦 2 回で「${d(s1, 'd_rank').label}」達成・受け取り +${got}（2 度目は 0）、翌日は 1 日の分が 0、週の分は続き（ランク戦の勝ち ${wk}）、月曜に 0`,
+      d(s0, 'd_rank').have === 0 && d(s1, 'd_rank').ready && d(s1, 'd_battle').have === 3 && got === 1 && again === 0 && notYet === 0 && I.coinsOf(qp) === c0 + 1
+      && d(s2, 'd_rank').have === 0 && !d(s2, 'd_rank').got && wk === (I.recOf(qp).rankw ?? 0) && d(s3, 'w_rankw').have === 0
+      && I.weekNumber(sun) !== I.weekNumber(mon) && I.weekNumber(sat) === I.weekNumber(sun) && I.daysToWeekEnd(sun) === 1);
+  }
+  // ランク戦の段位：着順で点が上下し、初めて届いた段位でウイコイン（落ちてまた上がっても出ない）
+  {
+    const lp = I.newProfile(91);
+    lp.finished.push({ ...h, id: 994, battles: 0, battleWins: 0, turf: 0.9, dirt: 0.4, dist: 2400, range: 500, stats: Object.fromEntries(I.STATS.map((k) => [k, 1000])) });
+    let ok = true, coins = 0, promos = 0, n = 0;
+    while (I.ladderState(lp).tier < 2 && n < 120) {
+      const before = I.ladderState(lp).pts, c0 = I.coinsOf(lp);
+      const o = I.battleNpc(lp, 994, 'japan-cup', 'normal');
+      const g = I.RANK_GAIN(o.order);
+      ok &&= o.rank.pts === Math.max(0, before + Math.round(g * (g > 0 ? I.RANK_DIFF.normal.up : I.RANK_DIFF.normal.down))) && I.coinsOf(lp) === c0 + o.rank.coins;
+      coins += o.rank.coins; promos += o.rank.promoted ? 1 : 0; n++;
+    }
+    const best = lp.ladder.best;
+    lp.ladder.pts = I.RANK_TIERS[best].at;
+    let o2 = null;
+    // 芝の馬をダートの舞台で走らせて負けさせる
+    for (let t = 0; t < 60 && !(o2?.rank.demoted); t++) o2 = I.battleNpc(lp, 994, 'february-s', 'normal');
+    const c1 = I.coinsOf(lp);
+    let up = null;
+    for (let t = 0; t < 60 && I.ladderState(lp).tier < best; t++) up = I.battleNpc(lp, 994, 'japan-cup', 'normal');
+    check(`ランク戦の段位：${n} 戦で${I.RANK_TIERS[best].name}まで、昇格 ${promos} 回で +${coins} 枚、不向きな舞台で負けて降格し、戻っても出ない（${I.RANK_TIERS.length} 段・最上位は${I.RANK_TIERS.at(-1).name}）`,
+      ok && best === 2 && coins === I.RANK_TIERS[1].coins + I.RANK_TIERS[2].coins && promos === 2 && o2?.rank.demoted && up?.rank.promoted
+      && I.coinsOf(lp) === c1 && lp.ladder.best === 2 && peekHorseId() === idBefore);
+  }
+  // 記録と殿堂：舞台ごとの最速の時計・通算の数・最高の評価点。殿堂は HALL_MAX 頭までで、殿堂の馬は手放せない
+  {
+    const rp = I.newProfile(101);
+    const hs = [1, 2, 3, 4, 5, 6, 7].map((i) => ({ ...h, id: 900 + i, battles: 0, battleWins: 0 }));
+    rp.finished.push(...hs);
+    const o = I.battleNpc(rp, 901, 'arima-kinen', 'normal');
+    const mine = o.result.results.find((x) => x.horseId === 100);
+    const f = I.recOf(rp).fast[I.stageKey(o.race)];
+    const ow = I.battleOwn(rp, [901, 902, 903], 'arima-kinen');
+    const f2 = I.recOf(rp).fast[I.stageKey(o.race)];
+    for (const x of hs.slice(0, 6)) I.setHall(rp, x.id, true);
+    let full = false, kept = false;
+    try { I.setHall(rp, 907, true); } catch { full = true; }
+    try { I.releaseFinished(rp, 901); } catch { kept = true; }
+    I.setHall(rp, 901, false); I.releaseFinished(rp, 901);
+    const old = { ...I.newProfile(102), finished: [{ ...h, id: 5 }], rec: undefined };
+    I.migrateProfile(old);
+    check(`記録：${I.stageLabel(I.stageKey(o.race))} の最速 ${f2?.t} 秒（${f2?.horse}）、通算 対戦 ${I.recOf(rp).battles} 回、殿堂は ${I.HALL_MAX} 頭まで・殿堂の馬は手放せない、古いプロフィールは完成馬から起こす（最高 ${old.rec.best?.rating}）`,
+      f?.t === Math.round(mine.time * 100) / 100 && f2.t <= f.t && I.recOf(rp).battles === 2 && I.recOf(rp).rank === 1 && I.recOf(rp).own === 1
+      && full && kept && I.hallOf(rp).length === 5 && !rp.finished.some((x) => x.id === 901)
+      && old.rec.runs === 1 && old.rec.best?.rating === h.rating && old.rec.wins === h.wins && I.stageLabel('nakayama|芝|2500') === '中山 芝2500m');
+  }
   // 因子メモリー：育成を終えた馬を完成馬にせずメモリーにする。能力 1 つ（点の 8%）とレーススキル 1 つを抜き出し、編成すると初期値・上限とスキルに効く
   {
     const mp = rich(I.newProfile(41));

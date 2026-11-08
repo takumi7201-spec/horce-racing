@@ -146,7 +146,7 @@ const silksCache = new Map();
 /**
  * 勝負服の布（胴・袖）。u は周（0 が横、0.25 が前、0.75 が背）、v は長さ（胴は腰 0 → 首 1）。
  * custom（{ body, accent, pattern, sleeve: 'plain'|'hoops' }）を渡すと、その色と柄で作る（実在の馬主の服など）。
- * 写真に合わせるときの追加：pattern '十字襷'（前と背に X）・'玉霰'（細かい玉）・'元禄'（市松）・'縦縞細'・'吊り'（ズボン吊り）・'肩章M'、
+ * 写真に合わせるときの追加：pattern '十字襷'（前と背に X）・'玉霰'（細かい玉）・'元禄'（市松）・'縦縞細'・'吊り'（ズボン吊り）・'肩章M'・'菱山形'（胸に菱 3 つ）、
  * sleeve 'body'（胴と同じ色）・'stripes'（縦縞）・'band'（肘に 1 本）・'cuffs'（袖口だけ）・'dots'（玉）、
  * sleeveBase・sleeveAccent で袖の地と柄の色を胴と別にできる（サンデーレーシングの黒地に黄縦縞の袖など）。
  */
@@ -189,7 +189,12 @@ function silksTextures(id, custom = null) {
   } else if (pat === '元禄') {
     for (let y = 0; y < 116; y += 29) for (let x = (y / 29) % 2 ? 32 : 0; x < 256; x += 64) g.fillRect(x, y, 32, 29);
   } else if (pat === '縦縞細') for (let x = 0; x < 256; x += 20) g.fillRect(x, 0, 6, 128);
-  else if (pat === '吊り') for (const x of [44, 76, 172, 204]) g.fillRect(x, 0, 10, 116);   // ズボン吊り（前と背に 2 本ずつ。ストーンストリートの服）
+  else if (pat === '菱山形') {
+    // 胸と背に菱を 3 つ横に並べる（オグリキャップの佐橋五十雄・近藤俊典の服）
+    for (const cx of [64, 192]) for (const dx of [-30, 0, 30]) {
+      g.beginPath(); g.moveTo(cx + dx, 40); g.lineTo(cx + dx + 15, 62); g.lineTo(cx + dx, 84); g.lineTo(cx + dx - 15, 62); g.closePath(); g.fill();
+    }
+  } else if (pat === '吊り') for (const x of [44, 76, 172, 204]) g.fillRect(x, 0, 10, 116);   // ズボン吊り（前と背に 2 本ずつ。ストーンストリートの服）
   // 腰の下はズボン（白）。
   g.fillStyle = '#f2f0ea'; g.fillRect(0, 116, 256, 12);
   // 縫い目と布のしわ（ごく弱く）。
