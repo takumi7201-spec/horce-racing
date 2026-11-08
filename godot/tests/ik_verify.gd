@@ -47,6 +47,10 @@ func scenario(seed: int) -> Dictionary:
 	var run: Dictionary = p.run
 	var steps := []
 	while not IK.run_done(run):
+		var ev = IK.pending_event(run)
+		if ev != null:
+			var m := IK.resolve_event(run, int(run.turn) % 2)
+			steps.append(["event", ev.id, ev.support, m, int(run.energy), int(run.mood), (run.stats as Dictionary).duplicate()])
 		if IK.is_race_turn(run):
 			var opts := IK.race_options(run)
 			var r := IK.race_turn(run, opts[0].id, IK.STYLE_NAMES[int(run.slot) % 4] if int(run.slot) % 3 == 2 else null)

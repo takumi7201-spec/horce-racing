@@ -65,6 +65,10 @@ const data = {
   graded, combos, battleRaces: IK.BATTLE_RACES, difficulty: IK.DIFFICULTY,
   rates: IK.RATES, shardValue: IK.SHARD_VALUE, shardCost: IK.SHARD_COST, awaken: IK.AWAKEN,
   coinStart: IK.COIN_START, rival: { daily: IK.RIVAL_DAILY, coins: IK.RIVAL_COINS, level: IK.RIVAL_LEVEL, field: IK.RIVAL_FIELD },
+  // 育成中の出来事。答えの札の説明（hint・riskHint）は JS の effectText で作って渡す（Godot に同じ文作りを二重に持たない）
+  eventRate: IK.EVENT_RATE,
+  trainEvents: IK.TRAIN_EVENTS.map((e) => ({ ...e, choices: e.choices.map((c) => ({ ...c, hint: IK.effectText(c.effects),
+    riskHint: c.risk ? `${Math.round(c.risk.p * 100)}%で${IK.effectText(c.risk)}` : null })) })),
   slots: IK.SLOTS, moods: IK.MOODS,
   raceSkills: strip(raceSkillDefs), supportSkills: strip(supportSkillDefs), skillFx: IK.SKILL_FX,
   courses,

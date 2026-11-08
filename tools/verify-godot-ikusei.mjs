@@ -27,6 +27,9 @@ function scenario(seed) {
   const run = p.run;
   const steps = [];
   while (!IK.runDone(run)) {
+    // 育成中の出来事：出たら答える（ターンで答えを変える）。答えた結果の文と体力・能力まで比べる
+    const ev = IK.pendingEvent(run);
+    if (ev) steps.push(['event', ev.id, ev.support, IK.resolveEvent(run, run.turn % 2), run.energy, run.mood, { ...run.stats }]);
     if (IK.isRaceTurn(run)) {
       const opts = IK.raceOptions(run);
       const r = IK.raceTurn(run, opts[0].id, run.slot % 3 === 2 ? IK.STYLE_NAMES[run.slot % 4] : null);  // 3 戦に 1 戦は脚質を選んで出る

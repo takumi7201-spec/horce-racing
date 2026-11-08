@@ -2470,3 +2470,25 @@ button.ikev-banner:active { transform: translateY(3px); box-shadow: 0 3px 0 var(
   .ik-rv-face { width: 30px; height: 30px; }
   .ik-rv-rec small { display: none; }
 }
+
+/* 育成中の出来事（練習の札の代わりに出る。答えるまで練習へ進まない） */
+.ik-tevent { padding: 12px 14px 14px; border-radius: 18px; border: 3px solid var(--ink); background: linear-gradient(180deg, #fff8e6, var(--paper));
+  box-shadow: 0 5px 0 var(--ink); animation: ik-tev-in .34s var(--ease-move, ease) both; }
+@keyframes ik-tev-in { from { opacity: 0; transform: translateY(8px) scale(.98); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .ik-tevent { animation: none; } }
+.ik-tev-head { display: flex; align-items: center; gap: 10px; }
+.ik-tev-head > div { display: grid; }
+.ik-tev-head small { font: 900 11px/1 var(--font); color: #fff; background: var(--sun); padding: 3px 8px; border-radius: 999px; width: fit-content; }
+.ik-tev-head b { font: 900 20px/1.3 var(--font); color: var(--ink); }
+.ik-ev-face { flex: none; width: 46px; height: 46px; border-radius: 50%; border: 2.5px solid var(--ink); background: #e8efe9 center / cover no-repeat;
+  display: grid; place-items: center; color: var(--sun); }
+.ik-tev-text { margin: 8px 0 10px; font: 700 14px/1.5 var(--font); color: var(--ink); }
+.ik-tev-choices { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.ik-tev-ch { display: grid; gap: 3px; text-align: left; padding: 10px 12px; border-radius: 14px; border: 2.5px solid var(--ink); background: #fff;
+  box-shadow: 0 3px 0 var(--ink); cursor: pointer; font-family: inherit; color: var(--ink); }
+.ik-tev-ch b { font: 900 15px/1.3 var(--font); }
+.ik-tev-ch small { font: 800 12px/1.3 var(--font); color: #2f6a20; }
+.ik-tev-ch i { font: normal 800 11px/1.3 var(--font); color: #c0392b; }
+.ik-tev-ch:hover { background: #f4fbe2; }
+.ik-tev-ch:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--ink); }
+@media (max-width: 520px) { .ik-tev-choices { grid-template-columns: 1fr; gap: 8px; } .ik-tev-head b { font-size: 17px; } }

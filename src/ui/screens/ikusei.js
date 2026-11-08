@@ -1161,6 +1161,26 @@ function trainView(app, go) {
       I.rivalMeetsNow(run) ? el('p.ik-rvnote', [ic('sword', 16), `ライバル${I.cardById(run.rival.cardId).name}が、どのレースを選んでも出てくる`]) : null,
       el('p.note', { text: '重賞は 1 勝から、GI は 2 勝か重賞勝ちで出られる（目標レースは 1 勝で出られる）。' }),
     ]);
+  } else if (I.pendingEvent(run)) {
+    // 育成中の出来事：答えるまで練習の札を出さない（ターンは進まない。答えたら同じターンの練習へ）
+    const ev = I.pendingEvent(run);
+    const sc = ev.support != null ? I.cardById(run.supports[ev.support]) : null;
+    const face = el('span.ik-ev-face');
+    if (sc) stickerInto(face, sc, { mode: 'face', zoom: 2.4 });
+    else face.append(ic('spark', 30));
+    action = el('section.ik-tevent', [
+      el('div.ik-tev-head', [face, el('div', [el('small', { text: '出来事' }), el('b', { text: ev.title })])]),
+      el('p.ik-tev-text', { text: ev.text }),
+      el('div.ik-tev-choices', ev.choices.map((c, i) => el('button.ik-tev-ch', {
+        onclick: () => {
+          const m = I.resolveEvent(run, i);
+          save(app);
+          sound.play('ok');
+          toast(m, { bad: /機嫌を損ね|ぶり返/.test(m) });
+          go('run');
+        },
+      }, [el('b', { text: c.label }), el('small', { text: c.hint }), c.risk ? el('i', { text: c.risk }) : null]))),
+    ]);
   } else {
     const board = I.trainingBoard(run);
     action = card('練習', [

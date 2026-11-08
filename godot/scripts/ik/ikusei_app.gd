@@ -137,6 +137,14 @@ func _ready() -> void:
 			else:
 				IK.train(p.run, "wit")
 		render(false)
+	if args.has("toevent") and p.run != null:
+		# 確かめ用：出来事が出るターンまで進める（--toevent=1）
+		while IK.pending_event(p.run) == null and not IK.run_done(p.run):
+			if IK.is_race_turn(p.run):
+				IK.race_turn(p.run, IK.race_options(p.run)[0].id)
+			else:
+				IK.train(p.run, "wit")
+		render(false)
 	if args.has("pull"):
 		_do_pull(int(args.pull))
 	if args.has("card"):
@@ -2003,6 +2011,39 @@ func _train() -> Control:
 		if IK.rival_meets_now(run):
 			rv.add_child(UI.label("ライバル%sが、どのレースを選んでも出てくる" % IK.card(run.rival.cardId).name, 14, Color("#c0392b"), "black"))
 		page.add_child(UI.section("レース（%s）" % IK.data().slots[int(run.slot)].label, rv))
+	elif IK.pending_event(run) != null:
+		# 育成中の出来事：答えるまで練習の札を出さない（ターンは進まない。答えたら同じターンの練習へ）
+		var ev: Dictionary = IK.pending_event(run)
+		var evv := UI.vbox(10)
+		var eh := UI.hbox(10)
+		if ev.support != null:
+			var face := _icon(IK.card(run.supports[int(ev.support)]), 46.0)
+			face.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+			eh.add_child(face)
+		else:
+			eh.add_child(UI.icon("spark", 30, SUN))
+		eh.add_child(UI.label(ev.title, 21, INK, "title"))
+		evv.add_child(eh)
+		evv.add_child(_wrap(ev.text, 15, 900, INK))
+		var chs := UI.hbox(12)
+		for i in (ev.choices as Array).size():
+			var ec: Dictionary = ev.choices[i]
+			var cb := UI.box({c = [Color.WHITE], radius = 14.0, border = 2.5, shadow = Vector2(0, 3), pad = Vector4(12, 8, 12, 9)})
+			cb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			var cv := UI.vbox(2)
+			cv.add_child(UI.label(ec.label, 16, INK, "title"))
+			cv.add_child(UI.label(ec.hint, 12, Color("#2f6a20"), "black"))
+			if ec.risk != null:
+				cv.add_child(UI.label(ec.risk, 11, Color("#c0392b"), "black"))
+			cb.add_child(cv)
+			cb.press(func() -> void:
+				var m := IK.resolve_event(run, i)
+				save()
+				render(false)
+				toast(m))
+			chs.add_child(cb)
+		evv.add_child(chs)
+		page.add_child(UI.section("出来事", evv))
 	else:
 		var tv := UI.vbox(8)
 		var row := UI.hbox(8)

@@ -1359,6 +1359,32 @@ section('カード育成モード');
       && h.goal?.done === true && h.rival?.won === rec.won && h.rating === I.ratingOf({ ...h, goal: null }) + I.GOAL_BONUS
       && I.coinsOf(gp) === c0 + 6 + I.GOAL_COINS && peekHorseId() === idBefore);
   }
+  // 育成中の出来事：練習の時期に数ターンに 1 回出て（続けては出ない）、答えで体力・気分・能力・絆が動く。同じ育成はいつも同じ出来事
+  {
+    const ep = rich(I.newProfile(61));
+    I.pull(ep, 60);
+    const own = I.owned(ep);
+    const es = own.find((c) => c.sex === '牡'), ed = own.find((c) => c.sex === '牝');
+    const sup = own.filter((c) => c !== es && c !== ed).slice(0, 4).map((c) => c.id);
+    const r = I.startRun(ep, { sire: es.id, dam: ed.id, name: 'デキゴト' }, sup);
+    let n = 0, consec = false, stable = true, moved = true, lastTurn = -9, j = 0;
+    while (!I.runDone(r)) {
+      const ev = I.pendingEvent(r);
+      if (ev) {
+        stable &&= JSON.stringify(ev) === JSON.stringify(I.pendingEvent(r)) && ev.choices.length >= 2 && !/[{}]/.test(ev.text);
+        if (r.turn === lastTurn + 1) consec = true;
+        const before = JSON.stringify([r.energy, r.mood, r.stats, r.bonds, r.fans]);
+        I.resolveEvent(r, n % 2);
+        moved &&= JSON.stringify([r.energy, r.mood, r.stats, r.bonds, r.fans]) !== before || r.energy === 100;
+        stable &&= I.pendingEvent(r) === null;
+        lastTurn = r.turn; n++;
+      }
+      if (I.isRaceTurn(r)) I.raceTurn(r, I.raceOptions(r)[0].id); else if (r.energy < 45) I.rest(r); else I.train(r, I.STATS[j++ % 5]);
+    }
+    const shape = I.TRAIN_EVENTS.every((e) => e.choices.length >= 2 && (!e.text.includes('{support}') || e.support) && (!e.text.includes('{rival}') || e.rival));
+    check(`育成中の出来事：1 回の育成で ${n} 回（続けては出ない）、同じターンはいつも同じ出来事、答えると体力・気分・能力・絆が動き、表 ${I.TRAIN_EVENTS.length} 種の形が正しい`,
+      n >= 2 && n <= 14 && !consec && stable && moved && shape && r.evDone.length === n && peekHorseId() === idBefore);
+  }
   // ウイコイン：ガチャは 1 回 1 枚。新しいプロフィールは 30 枚、足りなければ引けない。古いプロフィールは完成馬の編成をミッション済みにして配る
   {
     const cp = I.newProfile(31);

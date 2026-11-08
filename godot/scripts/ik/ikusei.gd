@@ -1002,19 +1002,107 @@ static func train(run: Dictionary, kind: String) -> String:
 			var i: int = run.supports.find(id)
 			if i < 0:
 				continue
-			run.bonds[i] = int(run.bonds[i]) + 1
-			var learned: Array = run.learned
-			var mine := run_skills(run)
-			var sk = null
-			for x in skills_of(card(id), aw_s(run, i)).race:
-				if not learned.has(x) and not mine.has(x):
-					sk = x
-					break
-			if int(run.bonds[i]) == bond_need(run, i) and sk != null:
-				learned.append(sk)
-				msg += "・%sから「%s」を覚えた" % [card(id).name, skill_info(sk).name]
+			msg += _bond_up(run, i)
 	run.log.append(msg)
 	run.turn = int(run.turn) + 1
+	return msg
+
+
+## 絆を 1 つ進める。2 回（覚醒 3 なら 1 回）でそのサポートのレーススキルを覚える。覚えたら知らせの文を返す
+static func _bond_up(run: Dictionary, i: int) -> String:
+	if run.get("bonds") == null:
+		run.bonds = [0, 0, 0, 0]
+	if run.get("learned") == null:
+		run.learned = []
+	var id: String = run.supports[i]
+	run.bonds[i] = int(run.bonds[i]) + 1
+	var learned: Array = run.learned
+	var mine := run_skills(run)
+	var sk = null
+	for x in skills_of(card(id), aw_s(run, i)).race:
+		if not learned.has(x) and not mine.has(x):
+			sk = x
+			break
+	if int(run.bonds[i]) == bond_need(run, i) and sk != null:
+		learned.append(sk)
+		return "・%sから「%s」を覚えた" % [card(id).name, skill_info(sk).name]
+	return ""
+
+
+# ------------------------------------------------------------------ 育成中の出来事（JS の pendingEvent・resolveEvent と同じ）
+
+static func _ev_done(run: Dictionary) -> Array:
+	return run.get("evDone", []) if run.get("evDone") != null else []
+
+
+static func _has_int(arr: Array, v: int) -> bool:
+	for x in arr:
+		if int(x) == v:
+			return true
+	return false
+
+
+## いまのターンの出来事（無ければ null）
+static func pending_event(run) -> Variant:
+	if run == null or run_done(run) or is_race_turn(run) or int(run.turn) == 0:
+		return null
+	var done := _ev_done(run)
+	if _has_int(done, int(run.turn)) or _has_int(done, int(run.turn) - 1):
+		return null
+	var rng = rng_of(["tevent", run.seed, run.turn])
+	if rng.next() >= float(data().eventRate):
+		return null
+	var pool := (data().trainEvents as Array).filter(func(e): return not e.get("rival", false) or run.get("rival") != null)
+	var def: Dictionary = pool[rng.int_n(pool.size())]
+	var support = rng.int_n((run.supports as Array).size()) if def.get("support", false) else null
+	var nm: String = card(run.supports[support]).name if support != null else ""
+	var rv: String = card(run.rival.cardId).name if run.get("rival") != null else ""
+	var choices := []
+	for c in def.choices:
+		choices.append({label = c.label, hint = c.hint, risk = c.riskHint})
+	return {id = def.id, title = def.title, text = String(def.text).replace("{support}", nm).replace("{rival}", rv), support = support, choices = choices}
+
+
+static func _apply_effects(run: Dictionary, e: Dictionary, support) -> String:
+	if e.get("stats") != null:
+		var g := {}
+		for k in e.stats:
+			g[k] = int(e.stats[k])
+		_add_stats(run, g)
+	if e.get("all") != null:
+		var g2 := {}
+		for k in STATS:
+			g2[k] = int(e.all)
+		_add_stats(run, g2)
+	if e.get("energy") != null:
+		run.energy = clampi(int(run.energy) + int(e.energy), 0, 100)
+	if e.get("mood") != null:
+		run.mood = clampi(int(run.mood) + int(e.mood), 0, 4)
+	if e.get("fans") != null:
+		run.fans = int(run.fans) + int(e.fans)
+	var more := ""
+	if e.get("bond") != null and support != null:
+		for b in int(e.bond):
+			more += _bond_up(run, int(support))
+	return more
+
+
+## 出来事に答える（choice は答えの番号）。結果の文を返す
+static func resolve_event(run: Dictionary, choice: int) -> String:
+	var ev = pending_event(run)
+	if ev == null:
+		return ""
+	var def: Dictionary = (data().trainEvents as Array).filter(func(e): return e.id == ev.id)[0]
+	var ch: Dictionary = def.choices[clampi(choice, 0, def.choices.size() - 1)]
+	var rng = rng_of(["tevres", run.seed, run.turn])
+	var msg := "%s：%s（%s" % [ev.title, ch.label, ch.hint]
+	var more := _apply_effects(run, ch.effects, ev.support)
+	if ch.get("risk") != null and rng.next() < float(ch.risk.p):
+		more += _apply_effects(run, ch.risk, ev.support)
+		msg += "・" + String(ch.risk.note)
+	msg += "）" + more
+	run.evDone = _ev_done(run) + [int(run.turn)]
+	run.log.append(msg)
 	return msg
 
 

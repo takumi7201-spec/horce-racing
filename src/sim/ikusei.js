@@ -7,6 +7,7 @@
 
 import { CARDS, PACKS, EVENT_PACKS } from './data/cards.js';
 import { EVENTS, STAR_D } from './data/events.js';
+import { TRAIN_EVENTS } from './data/train-events.js';
 import { GEAR, GEAR_KEYS, GEAR_COLORS, gearNames } from './gear.js';
 import { makeRng, hashSeed } from '../core/rng.js';
 import { simulateRace } from './race.js';
@@ -797,18 +798,92 @@ export function train(run, kind) {
     // サポートと練習すると、ときどき気分が上がる（盛り上げ役が居ると上がりやすい）
     if (p.supports.length && rng.next() < (p.mood ? 0.35 : 0.12)) { run.mood = Math.min(4, run.mood + 1); msg += '・気分が上がった'; }
     // 友情練習を 2 回するとそのサポートのレーススキルを覚える（完成馬に残る）
-    run.bonds ??= [0, 0, 0, 0];
-    run.learned ??= [];
     for (const id of p.friends) {
       const i = run.supports.indexOf(id);
       if (i < 0) continue;
-      run.bonds[i]++;
-      const sk = skillsOf(cardById(id), awS(run, i)).race.find((x) => !run.learned.includes(x) && !runSkills(run).includes(x));
-      if (run.bonds[i] === bondNeed(run, i) && sk) { run.learned.push(sk); msg += `・${cardById(id).name}から「${skillInfo(sk).name}」を覚えた`; }
+      msg += bondUp(run, i);
     }
   }
   run.log.push(msg);
   run.turn++;
+  return msg;
+}
+
+// ---------------------------------------------------------------- 育成中の出来事
+//
+// 練習の時期に EVENT_RATE の確率で出来事が出る（続けては出さない）。出来事と、その中の対象のサポートは (育成のシード, ターン) から決め、
+// 答えたときの成り行き（risk）も (育成のシード, ターン) から引く。保存するのは解決したターン（run.evDone）だけ。
+// ターンは進めない（出来事は練習の前に挟まる、おまけの選択）。sim は答えを強いない：練習を先に選ぶと、そのターンの出来事は流れる
+// （画面は答えるまで練習を出さない）。古い育成は evDone を持たないが、そのまま動く。
+
+export { TRAIN_EVENTS };
+export const EVENT_RATE = 0.25;
+
+/** 効き目の短い説明（「スピ+10 根性+10 体力-8 絆+1」）。答えの札に出す。 */
+export function effectText(e) {
+  const out = [];
+  for (const [k, v] of Object.entries(e.stats ?? {})) out.push(`${STAT_SHORT[k]}+${v}`);
+  if (e.all) out.push(`全能力+${e.all}`);
+  if (e.energy) out.push(`体力${e.energy > 0 ? '+' : ''}${e.energy}`);
+  if (e.mood) out.push(e.mood > 0 ? '気分↑' : '気分↓');
+  if (e.fans) out.push(`ファン+${e.fans}`);
+  if (e.bond) out.push(`絆+${e.bond}`);
+  return out.join(' ');
+}
+
+/** いまのターンの出来事（無ければ null）。答えの札の説明（hint）と、成り行きの注意（risk）も付ける。 */
+export function pendingEvent(run) {
+  if (!run || runDone(run) || isRaceTurn(run) || run.turn === 0) return null;
+  const done = run.evDone ?? [];
+  if (done.includes(run.turn) || done.includes(run.turn - 1)) return null;
+  const rng = makeRng(hashSeed(`tevent:${run.seed}:${run.turn}`));
+  if (rng.next() >= EVENT_RATE) return null;
+  const pool = TRAIN_EVENTS.filter((e) => !e.rival || run.rival);
+  const def = pool[rng.int(pool.length)];
+  const support = def.support ? rng.int(run.supports.length) : null;
+  const name = support != null ? cardById(run.supports[support]).name : '';
+  const rv = run.rival ? cardById(run.rival.cardId).name : '';
+  return {
+    id: def.id, title: def.title, text: def.text.replace('{support}', name).replace('{rival}', rv), support,
+    choices: def.choices.map((c) => ({ label: c.label, hint: effectText(c.effects), risk: c.risk ? `${Math.round(c.risk.p * 100)}%で${effectText(c.risk)}` : null })),
+  };
+}
+
+/** 絆を 1 つ進める。2 回（覚醒 3 なら 1 回）でそのサポートのレーススキルを覚える。覚えたら知らせの文を返す。 */
+function bondUp(run, i) {
+  run.bonds ??= [0, 0, 0, 0];
+  run.learned ??= [];
+  const id = run.supports[i];
+  run.bonds[i]++;
+  const sk = skillsOf(cardById(id), awS(run, i)).race.find((x) => !run.learned.includes(x) && !runSkills(run).includes(x));
+  if (run.bonds[i] === bondNeed(run, i) && sk) { run.learned.push(sk); return `・${cardById(id).name}から「${skillInfo(sk).name}」を覚えた`; }
+  return '';
+}
+
+function applyEffects(run, e, support) {
+  if (e.stats) addStats(run, e.stats);
+  if (e.all) addStats(run, Object.fromEntries(STATS.map((k) => [k, e.all])));
+  if (e.energy) run.energy = Math.max(0, Math.min(100, run.energy + e.energy));
+  if (e.mood) run.mood = Math.max(0, Math.min(4, run.mood + e.mood));
+  if (e.fans) run.fans += e.fans;
+  let more = '';
+  if (e.bond && support != null) for (let b = 0; b < e.bond; b++) more += bondUp(run, support);
+  return more;
+}
+
+/** 出来事に答える（choice は答えの番号）。結果の文を返す。 */
+export function resolveEvent(run, choice) {
+  const ev = pendingEvent(run);
+  if (!ev) throw new Error('いまは出来事が無い');
+  const def = TRAIN_EVENTS.find((e) => e.id === ev.id);
+  const ch = def.choices[Math.max(0, Math.min(def.choices.length - 1, choice | 0))];
+  const rng = makeRng(hashSeed(`tevres:${run.seed}:${run.turn}`));
+  let msg = `${ev.title}：${ch.label}（${effectText(ch.effects)}`;
+  let more = applyEffects(run, ch.effects, ev.support);
+  if (ch.risk && rng.next() < ch.risk.p) { more += applyEffects(run, ch.risk, ev.support); msg += `・${ch.risk.note}`; }
+  msg += `）${more}`;
+  run.evDone = [...(run.evDone ?? []), run.turn];
+  run.log.push(msg);
   return msg;
 }
 
