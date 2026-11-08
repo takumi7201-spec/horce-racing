@@ -1857,6 +1857,9 @@ func _train() -> Control:
 	th.add_child(UI.label("%d / %d ターン" % [int(run.turn), IK.TOTAL_TURNS], 12, Color("#4a5b58")))
 	tb.add_child(th)
 	page.add_child(tb)
+	var gs := _goal_strip(run)
+	if gs != null:
+		page.add_child(gs)
 
 	# 馬と能力を 1 段に
 	var topr := UI.hbox(10)
@@ -1967,6 +1970,11 @@ func _train() -> Control:
 		var gain := IK.mission_gain(p).size()
 		if gain > 0:
 			dv.add_child(_coin_note("ミッション：初めて編成したカード %d 枚 → ウイコイン +%d" % [gain, gain]))
+		if run.get("goal") != null:
+			dv.add_child(_coin_note(("目標の%sを達成：評価点 +%d・ウイコイン +%d" % [run.goal.name, IK.GOAL_BONUS, IK.GOAL_COINS]) if run.goal.done else ("目標の%sは届かなかった" % run.goal.name)))
+		if run.get("rival") != null:
+			var rr0 := IK.rival_record(run)
+			dv.add_child(_coin_note("ライバル%sと %d勝%d敗" % [IK.card(run.rival.cardId).name, rr0.won, rr0.lost]))
 		dv.add_child(_wrap("完成馬にするか、因子メモリーにするかを選ぶ。因子メモリーは能力から 1 つ（☆1〜☆5 のランダム）とレーススキルから 1 つを抜き出し、編成の因子メモリー枠（%d つ）に入れると次の育成馬のその能力が ☆×%d 伸び、上限も同じだけ突破する（1200 を超えてよい。能力ごとに %d まで）。スキルは最初から覚えている（何度でも使える）。因子メモリーにした馬は完成馬にならない。" % [IK.MEMORY_SLOTS, IK.MEM_STEP, IK.MEM_BREAK], 12, 900, Color("#4a5b58")))
 		var fh := UI.hbox(14)
 		var fb := UI.button("完成馬にする", func() -> void:
@@ -1992,6 +2000,8 @@ func _train() -> Control:
 		rv.add_child(_style_row(IK.run_race_style(run), IK.style_name_of(float(IK.trainee_card(run).style)), func(x: String) -> void: IK.set_race_style(run, x)))
 		for o in IK.race_options(run):
 			rv.add_child(_race_tile(o))
+		if IK.rival_meets_now(run):
+			rv.add_child(UI.label("ライバル%sが、どのレースを選んでも出てくる" % IK.card(run.rival.cardId).name, 14, Color("#c0392b"), "black"))
 		page.add_child(UI.section("レース（%s）" % IK.data().slots[int(run.slot)].label, rv))
 	else:
 		var tv := UI.vbox(8)
@@ -2253,6 +2263,8 @@ func _race_tile(o: Dictionary) -> Control:
 	var nm := UI.label(o.name, 19, INK, "title")
 	nm.custom_minimum_size.x = 210
 	h.add_child(nm)
+	if o.get("goal", false):
+		h.add_child(_pill("目標", Color("#ffb3c4")))
 	h.add_child(UI.label("%s %s%dm" % [IK.data().courses[o.courseId].name, "芝" if o.surface == "芝" else "ダ", int(o.distance)], 15, INK, "black"))
 	h.add_child(_pill("馬場 " + String(o.ground), Color("#e3efd0") if o.ground == "良" else Color("#f6dcc0")))
 	var sp := Control.new()
@@ -2269,8 +2281,72 @@ func _race_tile(o: Dictionary) -> Control:
 func _race(choice: String) -> void:
 	var r := IK.race_turn(p.run, choice)
 	save()
+	var lines := []
+	if r.goal != "":
+		lines.append("目標レース：" + ("達成！ 評価点 +%d・ウイコイン +%d（育成を終えると入る）" % [IK.GOAL_BONUS, IK.GOAL_COINS] if r.goal == "done" else "届かなかった"))
+	if r.rival != null:
+		lines.append("ライバル%s %d着　%s" % [r.rival.name, int(r.rival.order), "先着！" if int(r.order) < int(r.rival.order) else "後れを取った"])
+	var extra: Control = null
+	if not lines.is_empty():
+		extra = UI.vbox(4)
+		for ln in lines:
+			extra.add_child(_coin_note(ln))
 	_watch(r.result, [1], r.fired, func() -> void:
-		_result(r.result, [1], r.fired, "%s　%d 着" % [r.race.name, int(r.order)]))
+		_result(r.result, [1], r.fired, "%s　%d 着" % [r.race.name, int(r.order)], extra))
+
+
+## 目標レースとライバルの帯（育成の画面の頭、1 段。ゲームの goalStrip）
+func _goal_strip(run: Dictionary) -> Control:
+	if run.get("goal") == null and run.get("rival") == null:
+		return null
+	var h := UI.hbox(10)
+	var g = run.get("goal")
+	if g != null:
+		var st := IK.goal_state(run)
+		var elig := IK.goal_eligible(run)
+		var txt: String = {done = "達成！", missed = "届かず", out = "出られず", now = "今回！" if elig else "1 勝が要る", open = "出走できる" if elig else "まず 1 勝"}.get(st, "")
+		var b := UI.box({c = [Color("#fff4cf") if st == "done" else PAPER], radius = 14.0, border = 2.5, shadow = Vector2(0, 3), pad = Vector4(12, 5, 12, 6)})
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var bh := UI.hbox(8)
+		bh.add_child(UI.icon("trophy", 18, SUN))
+		var bv := UI.vbox(0)
+		bv.add_child(UI.label("目標レース　%s" % IK.data().slots[int(g.slot)].label, 11, Color("#5a706c"), "black"))
+		bv.add_child(UI.label(g.name, 16, INK, "title"))
+		bv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		bh.add_child(bv)
+		bh.add_child(_pill(txt, Color("#ff8aa5") if st == "now" else (SUN2 if st == "done" else Color("#dfe6e2"))))
+		b.add_child(bh)
+		h.add_child(b)
+	if run.get("rival") != null:
+		var rc = IK.card(run.rival.cardId)
+		var rec := IK.rival_record(run)
+		var nxt := -1
+		for x in run.rival.meets:
+			if int(x) >= int(run.slot):
+				nxt = int(x)
+				break
+		var b2 := UI.box({c = [PAPER], radius = 14.0, border = 2.5, shadow = Vector2(0, 3), pad = Vector4(8, 5, 12, 6)})
+		b2.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var rh := UI.hbox(8)
+		var face := _icon(rc, 38.0)
+		face.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		rh.add_child(face)
+		var rv := UI.vbox(0)
+		rv.add_child(UI.label("ライバル", 11, Color("#5a706c"), "black"))
+		rv.add_child(UI.label(rc.name, 16, INK, "title"))
+		rv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		rh.add_child(rv)
+		var rr := UI.vbox(0)
+		var rl := UI.label("%d勝%d敗" % [rec.won, rec.lost], 15, Color("#c0392b"), "title")
+		rl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		rr.add_child(rl)
+		var nl := UI.label("対決は終わった" if nxt < 0 else ("今回対決！" if nxt == int(run.slot) and IK.is_race_turn(run) else "次は %s" % IK.data().slots[nxt].label), 11, Color("#5a706c"), "black")
+		nl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		rr.add_child(nl)
+		rh.add_child(rr)
+		b2.add_child(rh)
+		h.add_child(b2)
+	return h
 
 
 # ------------------------------------------------------------------ 観戦（Godot の競馬場で走行ログを再生）

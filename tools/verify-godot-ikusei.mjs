@@ -43,6 +43,8 @@ function scenario(seed) {
       steps.push(['train', IK.train(run, best)]);
     }
   }
+  // 目標レースとライバル（選んだ馬・出会う時期・各戦の着順）
+  const goalrival = [run.goal?.id, run.goal?.slot, !!run.goal?.done, run.rival?.cardId, run.rival?.meets, (run.rival?.log ?? []).map((x) => [x.slot, x.me, x.rv])];
   // 因子メモリー：同じところから分けた写しで、完成馬にせずメモリーにして、それを編成した次の育成の初期値とスキルを見る
   const pm = structuredClone(p);
   const mm = IK.finishRunAsMemory(pm);
@@ -57,7 +59,7 @@ function scenario(seed) {
   let skip = 0;
   try { skip = IK.rivalSkip(p, 2, '2026-11-08'); } catch { /* 勝っていない */ }
   return { pulls, steps, stats: h.stats, rating: h.rating, skills: h.skills, name: h.name, sex: h.sex, coat: h.coat, battle: orders(b.result), event: orders(e.result), event2: orders(e2.result),
-    rival: orders(rv.result), memory, coins: [IK.coinsOf(p), rv.coins, skip, IK.missionGain(p, { sire: sire.id, dam: dam.id, supports: sup }).length, IK.missionsOf(p).length] };
+    rival: orders(rv.result), memory, goalrival, coins: [IK.coinsOf(p), rv.coins, skip, IK.missionGain(p, { sire: sire.id, dam: dam.id, supports: sup }).length, IK.missionsOf(p).length] };
 }
 
 function raceCheck(r) {
@@ -102,6 +104,7 @@ js.scenarios.forEach((s, k) => {
   if (!same(s.skills, g.skills)) { bad++; console.log(`✗ 種 ${k}：スキル ${s.skills} / ${g.skills}`); }
   maxDt = Math.max(maxDt, cmpOrder(`種 ${k} ランク戦`, s.battle, g.battle), cmpOrder(`種 ${k} イベント`, s.event, g.event), cmpOrder(`種 ${k} イベント（BC）`, s.event2, g.event2),
     cmpOrder(`種 ${k} ライバルレース`, s.rival, g.rival));
+  if (!same(s.goalrival, g.goalrival)) { bad++; console.log(`✗ 種 ${k}：目標とライバル ${JSON.stringify(s.goalrival)} / ${JSON.stringify(g.goalrival)}`); }
   if (!same(s.memory, g.memory)) { bad++; console.log(`✗ 種 ${k}：因子メモリー ${JSON.stringify(s.memory)} / ${JSON.stringify(g.memory)}`); }
   if (!same(s.coins, g.coins)) { bad++; console.log(`✗ 種 ${k}：ウイコイン ${s.coins} / ${g.coins}`); }
   nRace += 4;

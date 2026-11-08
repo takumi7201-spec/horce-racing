@@ -1158,10 +1158,10 @@ section('カード育成モード');
     else I.train(run, I.STATS[k++ % 5]);
   }
   const formed = [run.sire, run.dam, ...run.supports];
-  const gain0 = I.missionGain(big), coin0 = I.coinsOf(big);
+  const gain0 = I.missionGain(big), coin0 = I.coinsOf(big), goalCoin0 = run.goal?.done ? I.GOAL_COINS : 0;
   const h = I.finishRun(big);
   check(`ミッション：初めて編成した 6 枚の育成を終えるとウイコイン 6 枚（${coin0} → ${I.coinsOf(big)}）、同じカードは 2 度目に数えない`,
-    gain0.length === 6 && formed.every((id) => I.missionsOf(big).includes(id)) && I.coinsOf(big) === coin0 + 6
+    gain0.length === 6 && formed.every((id) => I.missionsOf(big).includes(id)) && I.coinsOf(big) === coin0 + 6 + goalCoin0
     && I.missionGain(big, { sire: run.sire, dam: run.dam, supports: run.supports }).length === 0);
   check(`育成は 10 戦で終わり、完成馬になる（${h.name} ${h.starts}戦${h.wins}勝・評価 ${h.rank}）`, h.starts === 10 && big.finished.length === 1 && big.run === null);
   I.setFinishedGear(big, h.id, { bandage: true, menko: '#e8b21a' });
@@ -1308,7 +1308,7 @@ section('カード育成モード');
       return init;
     };
     const base = grow();
-    const coin0 = I.coinsOf(mp);
+    const coin0 = I.coinsOf(mp) + (mp.run.goal?.done ? I.GOAL_COINS : 0);
     const m = I.finishRunAsMemory(mp);
     const withM = grow([m.id]);
     const run = mp.run;
@@ -1328,6 +1328,36 @@ section('カード育成モード');
     check(`因子メモリーの上限突破：同じ能力は合わせて ${I.MEM_BREAK} まで（☆5×2 で +${I.memBreak(fakeRun.mem, 'speed')}）、1200 を超えた点もレースの能力に効く、以前のメモリーは☆に直す（92 → ☆${old.memories[0].star}）`,
       I.memBreak(fakeRun.mem, 'speed') === 100 && I.memBreak(fakeRun.mem, 'wit') === 40 && I.abilityOf(1300) > I.abilityOf(1200) && I.abilityOf(1400) === I.abilityOf(1300)
       && old.memories[0].star === 5 && old.memories[0].val === 100 && I.gradeOfPts(1250) === 'SS+');
+  }
+  // 目標レースとライバル：始めるときに 3 歳の GI から目標を 1 つ、名馬のカードからライバルを 1 頭決める。ライバルは 4 戦で同じレースに出て、目標は 1 勝で出られる
+  {
+    const gp = rich(I.newProfile(51));
+    I.pull(gp, 60);
+    const own = I.owned(gp);
+    const gs = own.find((c) => c.sex === '牡'), gd = own.find((c) => c.sex === '牝');
+    const sup = own.filter((c) => c !== gs && c !== gd).slice(0, 4).map((c) => c.id);
+    const r = I.startRun(gp, { sire: gs.id, dam: gd.id, name: 'モクヒョウ' }, sup);
+    const goal = { ...r.goal }, meets = [...r.rival.meets];
+    let seen = 0, offered = null, j = 0;
+    while (!I.runDone(r)) {
+      if (I.isRaceTurn(r)) {
+        const o = I.raceOptions(r);
+        if (r.slot === goal.slot) offered = o.some((x) => x.goal) === I.goalEligible(r);
+        const out = I.raceTurn(r, (o.find((x) => x.goal) ?? o[0]).id);
+        if (out.rival) seen++;
+        if (out.rival && !out.result.results.some((x) => x.horseId === I.RIVAL_HORSE_ID)) seen = -99;
+      } else if (r.energy < 45) I.rest(r); else I.train(r, I.STATS[j++ % 5]);
+    }
+    const rec = I.rivalRecord(r);
+    r.goal.done = true;   // 勝った場合の報酬を確かめる
+    const c0 = I.coinsOf(gp);
+    const h = I.finishRun(gp);
+    const rv = I.cardById(r.rival.cardId);
+    check(`目標レース「${goal.name}」（${I.SLOTS[goal.slot].label}）、ライバル${rv.name}と ${seen} 戦（${rec.won} 勝 ${rec.lost} 敗）、目標を勝つと評価点 +${I.GOAL_BONUS}・ウイコイン +${I.GOAL_COINS}`,
+      !!goal.id && goal.slot >= 3 && meets.length === 4 && meets.includes(goal.slot) && seen === 4 && offered === true
+      && rec.won + rec.lost === 4 && ['LM', 'SSR', 'SR'].includes(rv.rar) && ![gs.id, gd.id, ...sup].includes(rv.id)
+      && h.goal?.done === true && h.rival?.won === rec.won && h.rating === I.ratingOf({ ...h, goal: null }) + I.GOAL_BONUS
+      && I.coinsOf(gp) === c0 + 6 + I.GOAL_COINS && peekHorseId() === idBefore);
   }
   // ウイコイン：ガチャは 1 回 1 枚。新しいプロフィールは 30 枚、足りなければ引けない。古いプロフィールは完成馬の編成をミッション済みにして配る
   {

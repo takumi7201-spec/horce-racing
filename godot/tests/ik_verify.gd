@@ -65,6 +65,11 @@ func scenario(seed: int) -> Dictionary:
 					bv = s
 					best = k
 			steps.append(["train", IK.train(run, best)])
+	var rlog := []
+	for x in (run.rival.log if run.get("rival") != null else []):
+		rlog.append([int(x.slot), int(x.me), int(x.rv)])
+	var goalrival := [run.goal.id if run.get("goal") != null else null, int(run.goal.slot) if run.get("goal") != null else null, bool(run.goal.done) if run.get("goal") != null else false,
+		run.rival.cardId if run.get("rival") != null else null, run.rival.meets if run.get("rival") != null else null, rlog]
 	var pm: Dictionary = p.duplicate(true)
 	var mm := IK.finish_run_as_memory(pm)
 	IK.start_run(pm, {sire = sire.id, dam = dam.id, name = "メモリー"}, sup, [mm.id])
@@ -77,7 +82,7 @@ func scenario(seed: int) -> Dictionary:
 	var rv := IK.rival_race(p, h.id, "arima-kinen", 2, "2026-11-07")
 	var skip := IK.rival_skip(p, 2, "2026-11-08")
 	return {pulls = pulls, steps = steps, stats = h.stats, rating = h.rating, skills = h.skills, name = h.name, sex = h.sex, coat = h.coat,
-		battle = orders(b.result), event = orders(e.result), event2 = orders(e2.result), rival = orders(rv.result), memory = memory,
+		battle = orders(b.result), event = orders(e.result), event2 = orders(e2.result), rival = orders(rv.result), memory = memory, goalrival = goalrival,
 		coins = [IK.coins_of(p), int(rv.coins), skip, IK.mission_gain(p, {sire = sire.id, dam = dam.id, supports = sup}).size(), IK.missions_of(p).size()]}
 
 

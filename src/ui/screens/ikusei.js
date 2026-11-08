@@ -984,6 +984,54 @@ function gearPicker(name, gear, onSave, note = '') {
  * 上から：進み → 馬（小さな切り抜きと体力・気分・戦績・馬具）と能力（5 つを 1 段）→ スキル（1 行。「詳しく」で開く）→ 練習 →
  * これまでのレース（畳んである）。カードの絵は切り抜きを押すと大きく見られる。
  */
+/**
+ * 目標レースとライバルの帯（育成の画面の頭、1 段）。練習の札を下へ押し出さないよう高さを抑える（落とし穴 103）。
+ * 目標：レース名・時期・今の状態。ライバル：顔・名前・対戦成績・次の対決の時期。押すと詳しい説明。
+ */
+function goalStrip(app, run) {
+  if (!run.goal && !run.rival) return null;
+  const g = run.goal, st = I.goalState(run);
+  const stTxt = { done: '達成！', missed: '届かず', out: '出られず', now: I.goalEligible(run) ? '今回！' : '1 勝が要る', open: I.goalEligible(run) ? '出走できる' : 'まず 1 勝' }[st];
+  const goalBox = g ? el(`div.ik-goal.${st}`, [
+    el('span.ik-goal-ic', ic('trophy', 18)),
+    el('div', [el('small', { text: `目標レース　${I.SLOTS[g.slot].label}` }), el('b', { text: g.name })]),
+    el('i.ik-goal-st', { text: stTxt }),
+  ]) : null;
+  let rvBox = null;
+  if (run.rival) {
+    const rc = I.cardById(run.rival.cardId);
+    const rec = I.rivalRecord(run);
+    const next = run.rival.meets.find((x) => x >= run.slot);
+    const face = el('span.ik-rv-face');
+    stickerInto(face, rc, { mode: 'face', zoom: 2.4 });
+    rvBox = el('div.ik-rvbox', [
+      face,
+      el('div', [el('small', { text: 'ライバル' }), el('b', { text: rc.name })]),
+      el('span.ik-rv-rec', [el('b', { text: `${rec.won}勝${rec.lost}敗` }),
+        el('small', { text: next == null ? '対決は終わった' : next === run.slot && I.isRaceTurn(run) ? '今回対決！' : `次は ${I.SLOTS[next].label}` })]),
+    ]);
+  }
+  const strip = el('button.ik-goalstrip', { onclick: () => showGoalRival(app, run) }, [goalBox, rvBox]);
+  return strip;
+}
+
+function showGoalRival(app, run) {
+  const g = run.goal;
+  const rc = run.rival ? I.cardById(run.rival.cardId) : null;
+  const rec = I.rivalRecord(run);
+  modal('目標とライバル', [
+    g ? card(`目標レース：${g.name}（${I.SLOTS[g.slot].label}）`, [
+      el('p', { text: `${g.surface}${g.distance}m。1 勝していれば優先して出られる（ほかの GI は 2 勝か重賞勝ち）。勝てば評価点 +${I.GOAL_BONUS}・ウイコイン +${I.GOAL_COINS}。` }),
+    ]) : null,
+    rc ? card(`ライバル：${rc.name}`, [
+      el('div.ik-rv-detail', [cardView(rc, { scale: 0.22, tilt: false }), el('div', [
+        el('p', { text: `${I.SLOTS.filter((_, i) => run.rival.meets.includes(i)).map((x) => x.label).join('・')} の ${run.rival.meets.length} 戦で、どのレースを選んでも出てくる。そのレースの相手より一段強く、時期を追って強くなる。` }),
+        rec.log.length ? table(['時期', 'レース', '自分', 'ライバル'], rec.log.map((x) => [I.SLOTS[x.slot].label, x.race, `${x.me}着`, `${x.rv}着`]), { cls: 'ik-tbl' }) : el('p.note', { text: 'まだ対決していない。' }),
+      ])]),
+    ]) : null,
+  ], { wide: true });
+}
+
 function trainView(app, go) {
   const p = app.ik;
   const run = p.run;
@@ -1061,6 +1109,8 @@ function trainView(app, go) {
   if (done) {
     action = card('育成完了', [
       el('p', { text: `${c.name}の 2 年が終わった。${run.starts}戦${run.wins}勝（GI ${run.giWins}勝）。` }),
+      run.goal ? el(`p.ik-goalsum.${I.goalState(run)}`, [ic('trophy', 16), run.goal.done ? `目標の${run.goal.name}を達成：評価点 +${I.GOAL_BONUS}・ウイコイン +${I.GOAL_COINS}` : `目標の${run.goal.name}は届かなかった`]) : null,
+      run.rival ? el('p.ik-goalsum', [ic('sword', 16), `ライバル${I.cardById(run.rival.cardId).name}と ${I.rivalRecord(run).won}勝${I.rivalRecord(run).lost}敗`]) : null,
       I.missionGain(p).length ? el('p.ik-msgain', [ic('wcoin', 16), `ミッション：初めて編成したカード ${I.missionGain(p).length} 枚 → ウイコイン +${I.missionGain(p).length}`]) : null,
       el('p.note', { text: `完成馬として登録するか、因子メモリーにするかを選ぶ。因子メモリーは能力から 1 つ（☆1〜☆5 のランダム）とレーススキルから 1 つを抜き出し、編成の因子メモリー枠（${I.MEMORY_SLOTS} つ）に入れると次の育成馬のその能力が ☆×${I.MEM_STEP} 伸び、上限も同じだけ突破する（1200 を超えてよい。能力ごとに ${I.MEM_BREAK} まで）。スキルは最初から覚えている（何度でも使える）。因子メモリーにした馬は完成馬にならない。` }),
       el('div.ik-gbtns', [
@@ -1097,16 +1147,19 @@ function trainView(app, go) {
         onclick: () => {
           const out = I.raceTurn(run, o.id, style);
           save(app);
-          app.ikRace = { race: out.result, looks: looksOf([I.traineeSpec(run)]), mine: [1], order: out.order, back: 'run', title: o.name, fired: { 1: out.fired } };
+          app.ikRace = { race: out.result, looks: looksOf(out.field), mine: [1], order: out.order, back: 'run', title: o.name,
+            fired: { 1: out.fired, ...(out.rival ? { [out.rival.id]: out.rival.fired } : {}) }, rivalRun: out.rival, goal: out.goal };
           sound.play(out.order === 1 ? 'bell' : out.order <= 3 ? 'win' : 'ok');
           go('result');
         },
       }, [
         o.grade ? el(`span.gr.${o.grade}`, { text: o.grade }) : el('span.gr', { text: '条件' }),
+        o.goal ? el('i.ik-goaltag', { text: '目標' }) : null,
         el('b', { text: o.name }),
         el('small', { text: `${o.surface}${o.distance}m・${o.ground}　相手の強さ ${lvlLabel(o.level)}` }),
       ]))),
-      el('p.note', { text: '重賞は 1 勝から、GI は 2 勝か重賞勝ちで出られる。' }),
+      I.rivalMeetsNow(run) ? el('p.ik-rvnote', [ic('sword', 16), `ライバル${I.cardById(run.rival.cardId).name}が、どのレースを選んでも出てくる`]) : null,
+      el('p.note', { text: '重賞は 1 勝から、GI は 2 勝か重賞勝ちで出られる（目標レースは 1 勝で出られる）。' }),
     ]);
   } else {
     const board = I.trainingBoard(run);
@@ -1138,6 +1191,7 @@ function trainView(app, go) {
   ]) : null;
   return [
     progress,
+    goalStrip(app, run),
     el('div.ik-run2', [
       el('div.ik-top', [who, stats]),
       skillGroup,
@@ -1190,6 +1244,10 @@ function resultView(app, go) {
           el('b', { text: `${R.reward.card.name}を${R.reward.isNew ? '手に入れた！' : `重ねた（${R.reward.awaken >= 4 ? '覚醒 MAX' : `覚醒 ${R.reward.awaken}`}）`}` }),
         ]),
       ]) : null,
+      R.goal ? el(`div.ik-goalres.${R.goal}`, [ic('trophy', 22), el('div', [el('small', { text: '目標レース' }),
+        el('b', { text: R.goal === 'done' ? `達成！ 評価点 +${I.GOAL_BONUS}・ウイコイン +${I.GOAL_COINS}（育成を終えると入る）` : '届かなかった' })])]) : null,
+      R.rivalRun ? el('div.ik-rvres', [(() => { const f = el('span.ik-rv-face'); stickerInto(f, I.cardById(R.rivalRun.cardId), { mode: 'face', zoom: 2.4 }); return f; })(),
+        el('div', [el('small', { text: 'ライバル' }), el('b', { text: `${R.rivalRun.name} ${R.rivalRun.order}着　${R.order < R.rivalRun.order ? '先着！' : '後れを取った'}` })])]) : null,
       R.rival ? el('div.ik-rvgot', [ic('wcoin', 22), el('div', [
         el('small', { text: `ライバルレース ${'☆'.repeat(R.rival.star)}${R.rival.first ? '　初勝利（次からスキップできる）' : ''}` }),
         el('b', { text: R.rival.coins ? `ウイコイン +${R.rival.coins}（今日 ${R.rival.got}/${I.RIVAL_DAILY}）` : R.order === 1 ? `今日のウイコインは受け取り済み（${I.RIVAL_DAILY}/${I.RIVAL_DAILY}）` : '勝てばウイコイン' }),
@@ -1197,7 +1255,7 @@ function resultView(app, go) {
       R.fired ? el('div.ik-fired', res.results.filter((r) => mine.has(r.horseId) && R.fired[r.horseId]?.length).map((r) =>
         el('div', [el('b', { text: `${r.name}　発動` }), ...R.fired[r.horseId].map((n) => el('span.ik-sk.race', n))]))) : null,
       table(['着', '', '馬名', 'タイム', '着差', '上がり', '脚質'], res.results.map((r) => [
-        r.order, frameChip(r.frame, r.gate), el(mine.has(r.horseId) ? 'b.mine' : 'span', { text: r.name }),
+        r.order, frameChip(r.frame, r.gate), el(mine.has(r.horseId) ? 'b.mine' : r.horseId === R.rivalRun?.id ? 'b.ik-rvname' : 'span', { text: r.name }),
         formatTime(r.time), r.margin, r.last3f.toFixed(1), r.styleLabel,
       ]), { cls: 'ik-tbl' }),
       el('div.ik-gbtns', [

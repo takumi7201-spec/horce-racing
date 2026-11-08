@@ -389,6 +389,81 @@ const RACE_LEVEL = { 新馬: 0.47, 未勝利: 0.49, '1勝クラス': 0.53, '2勝
 /** 条件戦を開ける場と距離（番組表にある組み合わせだけ。コースの幾何が組める）。 */
 const COMBOS = [...new Map(GRADED.filter((r) => !r.abroad).map((r) => [`${r.courseId}|${r.surface}|${r.distance}`, r])).values()];
 
+// ---------------------------------------------------------------- 目標レースとライバル
+//
+// 10 戦がどれも同じ重みだと育成に山場が無いので、始めるときに 2 つ決める：
+// - 目標レース：3 歳で出られる GI から、育成馬の馬場と距離にいちばん合うもの（クラシックを少し優先）。勝てば評価点 GOAL_BONUS とウイコイン GOAL_COINS。
+//   目標レースは 1 勝していれば出られる（ほかの GI は 2 勝か重賞勝ち）。その時期までに 1 勝できていないと出られない（目標は「届かず」で終わる）。
+// - ライバル：名馬のカード（LM・SSR・SR）から 1 頭。2 歳 12 月・3 歳 5 月・目標レース・3 歳 12 月の 4 戦（重なれば 3 歳 8 月を足す）で同じレースに出てくる。
+//   強さはそのレースの相手の水準＋RIVAL_EDGE に、時期ごとに伸びる（育成馬と一緒に強くなる）。最後の対決は目標レース（か 3 歳 12 月）。
+// どちらも (育成のシード) だけで決め、乱数の流れに触らない（ライバルは出馬表を作った後で最後の 1 頭と入れ替える。ほかの馬の乱数は同じ）。
+// 古い育成（goal・rival を持たない）はどちらも無しで動く。
+
+export const GOAL_BONUS = 150;
+export const GOAL_COINS = 3;
+export const RIVAL_EDGE = 0.05;
+export const RIVAL_GROW = 0.004;
+
+/** その週が入る時期（SLOTS の番号）。 */
+const slotOfWeek = (age, week) => SLOTS.findIndex((sl) => sl.age === age && week >= W(...sl.from) && week <= W(...sl.to));
+
+/** 目標レース（3 歳で出られる GI のうち、馬場と距離がいちばん合うもの）。 */
+export function goalFor(card) {
+  // 3 歳 4 月までの GI（桜花賞・皐月賞）は出る条件（2 勝か重賞勝ち）を満たす前に来やすいので後回し。自動で育てた 24 頭で皐月賞が半分を占め、4 割が出られずに終わった
+  const fit = (r) => Math.abs(r.distance - card.dist) / 400 + ((r.surface === 'ダート') !== (card.dirt > card.turf) ? 1.2 : 0) - (r.age[1] === 3 ? 0.15 : 0)
+    + (slotOfWeek(3, r.week) <= 4 ? 0.5 : 0);
+  const cand = GRADED.filter((r) => !r.abroad && r.grade === 'GI' && r.age[0] <= 3 && r.age[1] >= 3 && (!r.sex || r.sex === card.sex) && slotOfWeek(3, r.week) >= 0)
+    .sort((a, b) => fit(a) - fit(b) || a.week - b.week);
+  const r = cand[0];
+  return r ? { id: r.id, name: r.name, slot: slotOfWeek(3, r.week), surface: r.surface, distance: r.distance, courseId: r.courseId, done: false, tried: false } : null;
+}
+
+/** ライバルと出会う時期（2 歳 12 月・3 歳 5 月・目標レース・3 歳 12 月）。 */
+export function rivalMeets(goal) {
+  const set = new Set([2, 5, goal?.slot ?? 7, SLOTS.length - 1]);
+  if (set.size < 4) set.add(6);
+  return [...set].sort((a, b) => a - b);
+}
+
+/** ライバルのカード（名馬の LM・SSR・SR から、育成馬と同じ馬場が得意な馬。両親とサポートは除く）。 */
+function pickRival(card, exclude, seed) {
+  const dirt = card.dirt > card.turf;
+  // 距離も近い馬から（短距離のライバルが 2400m の目標レースで最下位では張り合いが無い）。近い 8 頭から選ぶ
+  const pool = CARDS.filter((c) => c.pack in PACKS && ['LM', 'SSR', 'SR'].includes(c.rar) && !exclude.includes(c.id) && (c.dirt > c.turf) === dirt)
+    .sort((a, b) => Math.abs(a.dist - card.dist) - Math.abs(b.dist - card.dist) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)).slice(0, 8);
+  return pool.length ? pool[makeRng(hashSeed(`trival:${seed}`)).int(pool.length)].id : null;
+}
+
+/** この時期にライバルと走るか。 */
+export const rivalMeetsNow = (run) => !!run.rival && run.rival.meets.includes(run.slot);
+/** ライバルとの対戦成績（先着した数・後れを取った数）。 */
+export function rivalRecord(run) {
+  const log = run.rival?.log ?? [];
+  return { won: log.filter((x) => x.me < x.rv).length, lost: log.filter((x) => x.me > x.rv).length, log };
+}
+/** 目標レースの今（'done' 勝った・'missed' 負けた・'out' 出られずに過ぎた・'now' この時期・'open' まだ先）。 */
+export function goalState(run) {
+  const g = run.goal;
+  if (!g) return null;
+  if (g.done) return 'done';
+  if (g.tried) return 'missed';
+  if (run.slot > g.slot) return 'out';
+  return run.slot === g.slot ? 'now' : 'open';
+}
+/** 目標レースに出られる条件を満たしているか（1 勝していれば優先して出られる）。 */
+export const goalEligible = (run) => run.wins >= 1;
+
+/** ライバルをレースの馬の形に（強さはそのレースの水準＋RIVAL_EDGE＋時期の伸び。カードの得手不得手は残す）。 */
+function rivalHorse(run, race) {
+  const c = cardById(run.rival.cardId);
+  const lvl = race.level + RIVAL_EDGE + RIVAL_GROW * run.slot;
+  const avg = STATS.reduce((a, k) => a + c.v[k], 0) / 5;
+  const ab = Object.fromEntries(STATS.map((k) => [k, clamp(lvl + (c.v[k] - avg), 0.4, 0.95)]));
+  return withSkills({ id: RIVAL_HORSE_ID, name: c.name, sex: c.sex, coat: c.coat, marks: c.marks, ab, dist: c.dist, range: c.range, turf: c.turf, dirt: c.dirt,
+    firm: c.firm, soft: c.soft, style: c.style, cardId: c.id, gear: cleanGear(c.gear) }, skillsOf(c).race, c.id, race, false);
+}
+export const RIVAL_HORSE_ID = 2e9 + 999;
+
 /** この時期に出られるレース（重賞は勝ち数と性で、条件戦は自分のクラス）。最大 4 つ。 */
 export function raceOptions(run) {
   const slot = SLOTS[run.slot];
@@ -403,8 +478,14 @@ export function raceOptions(run) {
     // 距離と馬場の合うものから
     const fit = (r) => Math.abs(r.distance - card.dist) / 400 + ((r.surface === 'ダート') !== (card.dirt > card.turf) ? 1.2 : 0)
       - ({ GI: 0.6, GII: 0.3, GIII: 0.1 }[r.grade] ?? 0);
-    for (const r of graded.sort((a, b) => fit(a) - fit(b)).slice(0, 3)) {
-      opts.push({ id: r.id, name: r.name, grade: r.grade, courseId: r.courseId, surface: r.surface, distance: r.distance, level: RACE_LEVEL[r.grade] + (r.age[1] > 3 ? 0.02 : 0) - (slot.age === 2 ? 0.05 : 0) });
+    const top = graded.sort((a, b) => fit(a) - fit(b)).slice(0, 3);
+    // 目標レースは 1 勝していれば出られる（優先出走。GI の条件の 2 勝か重賞勝ちを求めると、自動で育てた 24 頭の 4 割が出られずに終わった）。
+    // 合う順の 3 つから漏れても必ず候補に入れる
+    const g = run.goal && run.goal.slot === run.slot ? GRADED.find((r) => r.id === run.goal.id) : null;
+    if (g && !top.includes(g)) top.unshift(g);
+    for (const r of top) {
+      opts.push({ id: r.id, name: r.name, grade: r.grade, courseId: r.courseId, surface: r.surface, distance: r.distance, level: RACE_LEVEL[r.grade] + (r.age[1] > 3 ? 0.02 : 0) - (slot.age === 2 ? 0.05 : 0),
+        ...(run.goal?.id === r.id ? { goal: true } : {}) });
     }
   }
   // 条件戦（クラスに合わせる。オープンなら OP 特別）。距離と馬場は得意に寄せる。
@@ -605,6 +686,10 @@ export function startRun(profile, breed, supportIds, memoryIds = []) {
     bonds: [0, 0, 0, 0], learned: [], awaken, mem,
   };
   const run = profile.run;
+  const goal = goalFor(c);
+  const rv = pickRival(c, [s.id, d.id, ...supportIds], seed);
+  if (goal) { run.goal = goal; run.log.push(`目標レース：${goal.name}（${SLOTS[goal.slot].label}）`); }
+  if (rv) { run.rival = { cardId: rv, meets: rivalMeets(goal), log: [] }; run.log.push(`ライバル：${cardById(rv).name}`); }
   for (const m of mem) {
     if (m.skill && !runSkills(run).includes(m.skill)) run.learned.push(m.skill);
     run.log.push(`因子メモリー「${m.name}」：${STAT_LABEL[m.stat]} +${m.val}${m.skill ? `・${skillInfo(m.skill).name}` : ''}`);
@@ -857,10 +942,17 @@ export function raceTurn(run, choice, style = null) {
   const me0 = withSkills(sp, runSkills(run), runSrc(run), race, false, awT(run), sp.style);
   const field = [me0.spec];
   for (let i = 1; i < n; i++) field.push(npcHorse(rng, i, race.level, race));
-  // 体力と気分を能力に効かせる（体力が少ないと仕上がりが落ちる）
+  // ライバルは出馬表を作り終えてから最後の 1 頭と入れ替える（ほかの馬の乱数は変えない）
+  const meet = rivalMeetsNow(run);
+  const rv = meet ? rivalHorse(run, race) : null;
+  if (rv) field[field.length - 1] = rv.spec;
   const res = runRace(race, field, `race:${run.seed}:${run.slot}`);
   const me = res.results.find((r) => r.horseId === 1);
   const order = me.order;
+  const rvRow = rv ? res.results.find((r) => r.horseId === RIVAL_HORSE_ID) : null;
+  if (rvRow) run.rival.log.push({ slot: run.slot, me: order, rv: rvRow.order, race: race.name });
+  const isGoal = run.goal && race.id === run.goal.id;
+  if (isGoal) { run.goal.tried = true; run.goal.done = order === 1; }
   run.starts++;
   // 報酬：着順で全能力に点、ファン、勝てばクラスが上がる
   const bonus = order === 1 ? 20 : order <= 3 ? 12 : order <= 5 ? 6 : 3;
@@ -876,9 +968,12 @@ export function raceTurn(run, choice, style = null) {
   run.energy = Math.max(0, run.energy - 15);
   run.races.push({ slot: run.slot, name: race.name, grade: race.grade, courseId: race.courseId, surface: race.surface, distance: race.distance, ground: race.ground, order, field: res.results.length, time: me.time, skills: me0.fired });
   run.log.push(`${race.name} ${order}着（${res.results.length}頭）${me0.fired.length ? `　発動：${me0.fired.join('・')}` : ''}`);
+  if (rvRow) run.log.push(`ライバル${rvRow.name}は ${rvRow.order}着（${order < rvRow.order ? '先着' : '後れを取った'}）`);
+  if (isGoal) run.log.push(order === 1 ? `目標の${race.name}を勝った！` : `目標の${race.name}は ${order}着`);
   run.turn++;
   run.slot++;
-  return { race, result: res, order, fired: me0.fired };
+  return { race, result: res, field, order, fired: me0.fired, rival: rvRow ? { name: rvRow.name, order: rvRow.order, cardId: run.rival.cardId, id: RIVAL_HORSE_ID, fired: rv.fired } : null,
+    goal: isGoal ? (order === 1 ? 'done' : 'missed') : null };
 }
 
 export const runDone = (run) => run.turn >= TOTAL_TURNS;
@@ -886,7 +981,7 @@ export const runDone = (run) => run.turn >= TOTAL_TURNS;
 // ---------------------------------------------------------------- 完成
 
 /** 完成馬の評価点（能力の点の合計＋勝ち星）。 */
-export const ratingOf = (h) => STATS.reduce((s, k) => s + h.stats[k], 0) + h.wins * 20 + h.giWins * 60;
+export const ratingOf = (h) => STATS.reduce((s, k) => s + h.stats[k], 0) + h.wins * 20 + h.giWins * 60 + (h.goal?.done ? GOAL_BONUS : 0);
 export function rankOf(rating) {
   const T = [[5200, 'SS'], [4600, 'S'], [4000, 'A+'], [3500, 'A'], [3000, 'B+'], [2500, 'B'], [2000, 'C+'], [1500, 'C'], [0, 'D']];
   return T.find(([t]) => rating >= t)[1];
@@ -947,13 +1042,15 @@ function closeRun(profile) {
     starts: run.starts, wins: run.wins, gradedWins: run.gradedWins, giWins: run.giWins, fans: run.fans,
     races: run.races, supports: run.supports, battles: 0, battleWins: 0,
     skills: runSkills(run), awaken: awT(run), gear: runGear(run),
+    ...(run.goal ? { goal: { id: run.goal.id, name: run.goal.name, done: !!run.goal.done } } : {}),
+    ...(run.rival ? { rival: { cardId: run.rival.cardId, ...(({ won, lost }) => ({ won, lost }))(rivalRecord(run)) } } : {}),
   };
   horse.rating = ratingOf(horse);
   horse.rank = rankOf(horse.rating);
   // ミッション：初めて編成したカードは 1 枚ごとにウイコイン 1 枚
   const gain = missionGain(profile, run);
   profile.missions = [...missionsOf(profile), ...gain];
-  profile.coins = coinsOf(profile) + gain.length;
+  profile.coins = coinsOf(profile) + gain.length + (run.goal?.done ? GOAL_COINS : 0);
   profile.run = null;
   return horse;
 }

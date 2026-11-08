@@ -624,6 +624,118 @@ static func ground_of(k: String) -> String:
 	return "良" if r < 0.6 else ("稍重" if r < 0.8 else ("重" if r < 0.93 else "不良"))
 
 
+# ------------------------------------------------------------------ 目標レースとライバル（JS の ikusei.js と同じ）
+
+const GOAL_BONUS := 150
+const GOAL_COINS := 3
+const RIVAL_EDGE := 0.05
+const RIVAL_GROW := 0.004
+const RIVAL_HORSE_ID := 2000000999
+
+
+static func _slot_of_week(age: int, week: int) -> int:
+	var sl: Array = data().slots
+	for i in sl.size():
+		if int(sl[i].age) == age and week >= _w(sl[i].from) and week <= _w(sl[i].to):
+			return i
+	return -1
+
+
+## 目標レース（3 歳で出られる GI のうち、馬場と距離がいちばん合うもの。3 歳 4 月までは後回し）
+static func goal_for(c: Dictionary) -> Variant:
+	var fit := func(r) -> float:
+		return absf(float(r.distance) - float(c.dist)) / 400.0 + (1.2 if (r.surface == "ダート") != (c.dirt > c.turf) else 0.0) \
+			- (0.15 if int(r.age[1]) == 3 else 0.0) + (0.5 if _slot_of_week(3, int(r.week)) <= 4 else 0.0)
+	var cand := (data().graded as Array).filter(func(r):
+		return r.grade == "GI" and int(r.age[0]) <= 3 and int(r.age[1]) >= 3 and (r.sex == null or r.sex == c.sex) and _slot_of_week(3, int(r.week)) >= 0)
+	cand = Sim.stable_sort(cand, func(a, b):
+		var fa: float = fit.call(a)
+		var fb: float = fit.call(b)
+		return fa < fb if fa != fb else int(a.week) < int(b.week))
+	if cand.is_empty():
+		return null
+	var r: Dictionary = cand[0]
+	return {id = r.id, name = r.name, slot = _slot_of_week(3, int(r.week)), surface = r.surface, distance = int(r.distance), courseId = r.courseId, done = false, tried = false}
+
+
+static func rival_meets(goal) -> Array:
+	var out := [2, 5, int(goal.slot) if goal != null else 7, (data().slots as Array).size() - 1]
+	var uniq := []
+	for x in out:
+		if not uniq.has(x):
+			uniq.append(x)
+	if uniq.size() < 4:
+		uniq.append(6)
+	uniq.sort()
+	return uniq
+
+
+static func _pick_rival(c: Dictionary, exclude: Array, seed: int) -> Variant:
+	var dirt: bool = c.dirt > c.turf
+	var pool := cards().filter(func(x): return in_packs(x) and ["LM", "SSR", "SR"].has(x.rar) and not exclude.has(x.id) and (x.dirt > x.turf) == dirt)
+	pool = Sim.stable_sort(pool, func(a, b):
+		var da := absf(float(a.dist) - float(c.dist))
+		var db := absf(float(b.dist) - float(c.dist))
+		return da < db if da != db else String(a.id) < String(b.id))
+	pool = pool.slice(0, 8)
+	if pool.is_empty():
+		return null
+	return pool[rng_of(["trival", seed]).int_n(pool.size())].id
+
+
+static func rival_meets_now(run: Dictionary) -> bool:
+	if run.get("rival") == null:
+		return false
+	for x in run.rival.meets:
+		if int(x) == int(run.slot):
+			return true
+	return false
+
+
+static func rival_record(run: Dictionary) -> Dictionary:
+	var log: Array = run.rival.log if run.get("rival") != null else []
+	var won := 0
+	var lost := 0
+	for x in log:
+		if int(x.me) < int(x.rv):
+			won += 1
+		elif int(x.me) > int(x.rv):
+			lost += 1
+	return {won = won, lost = lost, log = log}
+
+
+## 目標レースの今（"done"・"missed"・"out"・"now"・"open"、無ければ ""）
+static func goal_state(run: Dictionary) -> String:
+	var g = run.get("goal")
+	if g == null:
+		return ""
+	if g.done:
+		return "done"
+	if g.tried:
+		return "missed"
+	if int(run.slot) > int(g.slot):
+		return "out"
+	return "now" if int(run.slot) == int(g.slot) else "open"
+
+
+static func goal_eligible(run: Dictionary) -> bool:
+	return int(run.wins) >= 1
+
+
+static func _rival_horse(run: Dictionary, race: Dictionary) -> Dictionary:
+	var c = card(run.rival.cardId)
+	var lvl: float = float(race.level) + RIVAL_EDGE + RIVAL_GROW * int(run.slot)
+	var avg := 0.0
+	for k in STATS:
+		avg += float(c.v[k])
+	avg /= 5.0
+	var ab := {}
+	for k in STATS:
+		ab[k] = clampf_(lvl + (float(c.v[k]) - avg), 0.4, 0.95)
+	return _with_skills({id = RIVAL_HORSE_ID, name = c.name, sex = c.sex, coat = c.coat, marks = c.marks, ab = ab, dist = c.dist, range = c.range,
+		turf = c.turf, dirt = c.dirt, firm = c.firm, soft = c.soft, style = c.style, cardId = c.id, gear = clean_gear(c.get("gear"))}, skills_of(c).race, c.id, race, false)
+
+
 ## この時期に出られるレース（重賞は勝ち数と性で、条件戦は自分のクラス）。最大 4 つ。
 static func race_options(run: Dictionary) -> Array:
 	var slot: Dictionary = data().slots[int(run.slot)]
@@ -641,9 +753,19 @@ static func race_options(run: Dictionary) -> Array:
 			return absf(float(r.distance) - float(c.dist)) / 400.0 + (1.2 if (r.surface == "ダート") != (c.dirt > c.turf) else 0.0) \
 				- float({GI = 0.6, GII = 0.3, GIII = 0.1}.get(r.grade, 0.0))
 		graded = Sim.stable_sort(graded, func(a, b): return fit.call(a) < fit.call(b))
-		for r in graded.slice(0, 3):
-			opts.append({id = r.id, name = r.name, grade = r.grade, courseId = r.courseId, surface = r.surface, distance = int(r.distance),
-				level = float(RACE_LEVEL[r.grade]) + (0.02 if int(r.age[1]) > 3 else 0.0) - (0.05 if age == 2 else 0.0)})
+		var top := graded.slice(0, 3)
+		# 目標レースは 1 勝していれば出られる（優先出走）。合う順の 3 つから漏れても必ず候補に入れる
+		var gid = run.goal.id if run.get("goal") != null and int(run.goal.slot) == int(run.slot) else null
+		if gid != null and not top.any(func(r): return r.id == gid):
+			for r in data().graded:
+				if r.id == gid:
+					top.push_front(r)
+		for r in top:
+			var o := {id = r.id, name = r.name, grade = r.grade, courseId = r.courseId, surface = r.surface, distance = int(r.distance),
+				level = float(RACE_LEVEL[r.grade]) + (0.02 if int(r.age[1]) > 3 else 0.0) - (0.05 if age == 2 else 0.0)}
+			if gid != null and r.id == gid:
+				o.goal = true
+			opts.append(o)
 	var surf := "ダート" if c.dirt > c.turf else "芝"
 	var max_d := 2000 if age == 2 else 9999
 	var want := minf(float(c.dist), max_d)
@@ -710,6 +832,14 @@ static func start_run(p: Dictionary, breed: Dictionary, support_ids: Array, memo
 		bonds = [0, 0, 0, 0], learned = [], awaken = aw, mem = mems,
 	}
 	p.nextId = id + 1
+	var goal = goal_for(c)
+	var rv = _pick_rival(c, [s.id, d.id] + support_ids, seed)
+	if goal != null:
+		p.run.goal = goal
+		p.run.log.append("目標レース：%s（%s）" % [goal.name, data().slots[int(goal.slot)].label])
+	if rv != null:
+		p.run.rival = {cardId = rv, meets = rival_meets(goal), log = []}
+		p.run.log.append("ライバル：%s" % card(rv).name)
 	# 因子メモリー：レーススキルを最初から覚えている
 	for m in mems:
 		if m.skill != null and not run_skills(p.run).has(m.skill):
@@ -994,9 +1124,21 @@ static func race_turn(run: Dictionary, choice: String, style = null) -> Dictiona
 	var field := [me0.spec]
 	for i in range(1, n):
 		field.append(_npc_horse(rng, i, race.level, race))
+	# ライバルは出馬表を作り終えてから最後の 1 頭と入れ替える（ほかの馬の乱数は変えない）
+	var rv = _rival_horse(run, race) if rival_meets_now(run) else null
+	if rv != null:
+		field[field.size() - 1] = rv.spec
 	var res := run_race(race, field, key(["race", run.seed, run.slot]))
 	var me: Dictionary = res.results.filter(func(r): return int(r.horseId) == 1)[0]
 	var order: int = me.order
+	var rv_row = null
+	if rv != null:
+		rv_row = res.results.filter(func(r): return int(r.horseId) == RIVAL_HORSE_ID)[0]
+		run.rival.log.append({slot = int(run.slot), me = order, rv = int(rv_row.order), race = race.name})
+	var is_goal: bool = run.get("goal") != null and race.id == run.goal.id
+	if is_goal:
+		run.goal.tried = true
+		run.goal.done = order == 1
 	run.starts = int(run.starts) + 1
 	var bonus := 20 if order == 1 else (12 if order <= 3 else (6 if order <= 5 else 3))
 	var grade_mul: float = {GI = 1.6, GII = 1.3, GIII = 1.15, OP = 1.05}.get(race.grade, 1.0)
@@ -1018,9 +1160,18 @@ static func race_turn(run: Dictionary, choice: String, style = null) -> Dictiona
 	run.races.append({slot = int(run.slot), name = race.name, grade = race.grade, courseId = race.courseId, surface = race.surface,
 		distance = race.distance, ground = race.ground, order = order, field = res.results.size(), time = me.time, skills = me0.fired})
 	run.log.append("%s %d着（%d頭）%s" % [race.name, order, res.results.size(), ("　発動：" + "・".join(me0.fired)) if me0.fired.size() > 0 else ""])
+	if rv_row != null:
+		run.log.append("ライバル%sは %d着（%s）" % [rv_row.name, int(rv_row.order), "先着" if order < int(rv_row.order) else "後れを取った"])
+	if is_goal:
+		run.log.append(("目標の%sを勝った！" % race.name) if order == 1 else ("目標の%sは %d着" % [race.name, order]))
 	run.turn = int(run.turn) + 1
 	run.slot = int(run.slot) + 1
-	return {race = race, result = res, order = order, fired = {1: me0.fired}, field = field}
+	var fired := {1: me0.fired}
+	if rv != null:
+		fired[RIVAL_HORSE_ID] = rv.fired
+	return {race = race, result = res, order = order, fired = fired, field = field,
+		rival = {name = rv_row.name, order = int(rv_row.order), cardId = run.rival.cardId} if rv_row != null else null,
+		goal = ("done" if order == 1 else "missed") if is_goal else ""}
 
 
 # ------------------------------------------------------------------ 完成
@@ -1029,7 +1180,8 @@ static func rating_of(h: Dictionary) -> int:
 	var s := 0
 	for k in STATS:
 		s += int(h.stats[k])
-	return s + int(h.wins) * 20 + int(h.giWins) * 60
+	var g = h.get("goal")
+	return s + int(h.wins) * 20 + int(h.giWins) * 60 + (GOAL_BONUS if g != null and g.get("done", false) else 0)
 
 
 static func rank_of(rating: float) -> String:
@@ -1100,12 +1252,17 @@ static func _close_run(p: Dictionary) -> Dictionary:
 		h.sire = c.sireId
 		h.dam = c.damId
 		h.unique = c.unique
+	if run.get("goal") != null:
+		h.goal = {id = run.goal.id, name = run.goal.name, done = bool(run.goal.done)}
+	if run.get("rival") != null:
+		var rr := rival_record(run)
+		h.rival = {cardId = run.rival.cardId, won = rr.won, lost = rr.lost}
 	h.rating = rating_of(h)
 	h.rank = rank_of(h.rating)
 	# ミッション：初めて編成したカードは 1 枚ごとにウイコイン 1 枚
 	var gain := mission_gain(p, run)
 	p.missions = missions_of(p) + gain
-	p.coins = coins_of(p) + gain.size()
+	p.coins = coins_of(p) + gain.size() + (GOAL_COINS if run.get("goal") != null and run.goal.done else 0)
 	p.run = null
 	return h
 
