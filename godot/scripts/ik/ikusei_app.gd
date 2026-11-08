@@ -92,6 +92,15 @@ func _ready() -> void:
 			args[kv[0]] = kv[1]
 	if args.has("demo"):
 		_demo(int(args.demo))
+	if args.has("memdemo") and p.run != null:
+		# 確かめ用：育成中の馬を最後まで走らせて因子メモリーにする（--memdemo=1。--screen=deck なら編成の枠に入れておく）
+		while not IK.run_done(p.run):
+			if IK.is_race_turn(p.run):
+				IK.race_turn(p.run, IK.race_options(p.run)[0].id)
+			else:
+				IK.train(p.run, IK.STATS[int(p.run.turn) % 5])
+		var mm := IK.finish_run_as_memory(p)
+		args.deckmem = str(mm.id)
 	if args.has("gear") and p.run != null:
 		# 確かめ用：育成中の馬に馬具を着ける（--gear=1。メンコ赤・ブリンカー・シャドーロール白）。--gearpick=1 で馬具を選ぶ板を開く
 		IK.set_run_gear(p.run, {menko = "#c8202a", blinker = true, shadowRoll = "#f4f2ec"})
@@ -115,6 +124,9 @@ func _ready() -> void:
 			var kv := String(args.df).split(":")
 			deck_f[kv[0]] = kv[1]
 		go(args.get("screen", "home"), o0)
+	if args.has("deckmem") and screen == "deck":
+		_omakase()
+		_mem_toggle(int(args.deckmem))
 	if args.has("toturn"):
 		while int(p.run.turn) < int(args.toturn):
 			if IK.is_race_turn(p.run):
@@ -1490,6 +1502,34 @@ func _deck() -> Control:
 			sv.add_child(e)
 		slots.add_child(sv)
 	v.add_child(slots)
+	# 因子メモリー枠（押すと外れる）と、持っているメモリーの一覧（押すと空いた枠へ入る）
+	var mem: Array = (opts.get("mem", []) as Array).filter(func(mid): return IK.find_memory(p, mid) != null)
+	var mrow := UI.hbox(12, BoxContainer.ALIGNMENT_CENTER)
+	for i in IK.MEMORY_SLOTS:
+		var mv := UI.vbox(4)
+		var ml := UI.label("因子メモリー %d" % (i + 1), 12, Color("#6c46c0"), "black")
+		ml.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		mv.add_child(ml)
+		if i < mem.size():
+			mv.add_child(_mem_tile(IK.find_memory(p, mem[i]), _mem_toggle.bind(mem[i]), false))
+		else:
+			var e2 := Dashed.new()
+			e2.custom_minimum_size = Vector2(112, 120)
+			mv.add_child(e2)
+		mrow.add_child(mv)
+	v.add_child(mrow)
+	var all_mem := IK.memories_of(p)
+	if all_mem.is_empty():
+		v.add_child(UI.label("因子メモリーはまだ無い（育成を終えたときに「因子メモリーにする」を選ぶと手に入る）。", 12, Color("#6c46c0")))
+	else:
+		v.add_child(UI.label("持っている因子メモリー（押すと枠に入る・もう一度押すと外れる）", 12, Color("#6c46c0"), "black"))
+		var mg := HFlowContainer.new()
+		mg.add_theme_constant_override("h_separation", 6)
+		mg.add_theme_constant_override("v_separation", 8)
+		for i in range(all_mem.size() - 1, -1, -1):
+			var m: Dictionary = all_mem[i]
+			mg.add_child(_mem_tile(m, _mem_toggle.bind(m.id), mem.has(m.id) or mem.has(int(m.id))))
+		v.add_child(mg)
 	var pv = IK.breed_preview(p, sire, dam, opts.get("st")) if sire != null and dam != null else null
 	if pv != null:
 		opts.st = pv.style
@@ -1504,7 +1544,7 @@ func _deck() -> Control:
 	var sb := UI.button("育成を始める", func() -> void:
 		if not ok:
 			return
-		var err := IK.start_run(p, {sire = sire, dam = dam, name = opts.get("n", ""), style = opts.get("st")}, sup)
+		var err := IK.start_run(p, {sire = sire, dam = dam, name = opts.get("n", ""), style = opts.get("st")}, sup, mem)
 		if err != "":
 			toast(err)
 			return
@@ -1698,6 +1738,35 @@ func _deck_toggle(id: String) -> void:
 	go("deck", o)
 
 
+## 因子メモリーを編成に入れる・外す（2 つまで）
+func _mem_toggle(mid) -> void:
+	var o := opts.duplicate()
+	var mm: Array = (o.get("mem", []) as Array).duplicate()
+	var at := -1
+	for i in mm.size():
+		if int(mm[i]) == int(mid):
+			at = i
+	if at >= 0:
+		mm.remove_at(at)
+	elif mm.size() < IK.MEMORY_SLOTS:
+		mm.append(int(mid))
+	else:
+		toast("因子メモリーは %d つまで（外すにはもう一度押す）" % IK.MEMORY_SLOTS)
+		return
+	o.mem = mm
+	go("deck", o)
+
+
+## 因子メモリーの札（元の馬の顔、抜き出した能力とスキル）
+func _mem_tile(m: Dictionary, cb: Callable, sel: bool) -> Control:
+	var sk := String(IK.skill_info(m.skill).name) if m.skill != null else "スキルなし"
+	var t := _tile(IK.horse_card(m.horse), m.horse.name, "%s +%d" % [IK.STAT_SHORT[m.stat], int(m.val)], cb, {sel = sel, badge = "メモリー"})
+	var lb := UI.label(sk, 11, Color("#6c46c0"), "black")
+	lb.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	t.add_child(lb)
+	return t
+
+
 ## おまかせ：カードパワーのいちばん高い牡を父・牝を母に、残りの上から 4 枚をサポートに
 func _omakase() -> void:
 	var own := IK.owned(p)
@@ -1799,7 +1868,7 @@ func _train() -> Control:
 	var sh := UI.hbox(10)
 	sh.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	for k in IK.STATS:
-		sh.add_child(_stat_cell(IK.STAT_SHORT[k], int(run.stats[k]), IK.cap_of(int(c.plus[k]), IK.aw_t(run))))
+		sh.add_child(_stat_cell(IK.STAT_SHORT[k], int(run.stats[k]), IK.run_cap(run, k, int(c.plus[k]))))
 	sb.add_child(sh)
 	topr.add_child(sb)
 	page.add_child(topr)
@@ -1869,14 +1938,25 @@ func _train() -> Control:
 		var gain := IK.mission_gain(p).size()
 		if gain > 0:
 			dv.add_child(_coin_note("ミッション：初めて編成したカード %d 枚 → ウイコイン +%d" % [gain, gain]))
+		dv.add_child(_wrap("完成馬にするか、因子メモリーにするかを選ぶ。因子メモリーは能力から 1 つ（点の 8%%）とレーススキルから 1 つをランダムに抜き出し、編成の因子メモリー枠（%d つ）に入れると次の育成馬の初期値・上限とスキルに効く（何度でも使える）。因子メモリーにした馬は完成馬にならない。" % IK.MEMORY_SLOTS, 12, 900, Color("#4a5b58")))
+		var fh := UI.hbox(14)
 		var fb := UI.button("完成馬にする", func() -> void:
 			var h := IK.finish_run(p)
 			save()
 			go("horse", {id = h.id})
 			if gain > 0:
 				toast("ミッション達成：ウイコイン +%d（いま %d 枚）" % [gain, IK.coins_of(p)]), "primary", 20)
-		fb.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
-		dv.add_child(fb)
+		fh.add_child(fb)
+		var memb := UI.button("因子メモリーにする", func() -> void:
+			if IK.memories_of(p).size() >= IK.MEMORY_MAX:
+				toast("因子メモリーは %d 個まで（手放してから）" % IK.MEMORY_MAX)
+				return
+			var m := IK.finish_run_as_memory(p)
+			save()
+			go("finished")
+			_show_memory(m, true), "sun", 20)
+		fh.add_child(memb)
+		dv.add_child(fh)
 		page.add_child(UI.section("完成", dv))
 	elif IK.is_race_turn(run):
 		var rv := UI.vbox(8)
@@ -2278,7 +2358,48 @@ func _finished() -> Control:
 		v.add_child(b)
 	v.add_child(g)
 	page.add_child(UI.section("完成馬（%d 頭）" % list.size(), v))
+	var mems := IK.memories_of(p)
+	if not mems.is_empty():
+		var mg := _grid(_cols(W() - 30, 120), 6, 14)
+		for i in range(mems.size() - 1, -1, -1):
+			mg.add_child(_mem_tile(mems[i], _show_memory.bind(mems[i], false), false))
+		var mv := UI.vbox(10)
+		mv.add_child(mg)
+		mv.add_child(UI.label("編成の因子メモリー枠（%d つ）に入れて使う。何度でも使える。押すと詳細（手放す）。" % IK.MEMORY_SLOTS, 12, Color("#4a5b58")))
+		page.add_child(UI.section("因子メモリー（%d/%d）" % [mems.size(), IK.MEMORY_MAX], mv))
 	return page
+
+
+## 因子メモリーの詳細（got なら獲得の知らせ）。手放せる
+func _show_memory(m: Dictionary, got := false) -> void:
+	var v := UI.vbox(10)
+	v.add_child(UI.label("因子メモリーを獲得！" if got else "因子メモリー", 26, INK, "title"))
+	var h: Dictionary = m.horse
+	v.add_child(UI.label("%s　%s　評価点 %d" % [h.name, h.rank, int(h.rating)], 17, INK, "black"))
+	var row := UI.hbox(12)
+	for it in [["能力", "%s +%d" % [IK.STAT_LABEL[m.stat], int(m.val)], "元の馬 %d 点の 8%%・初期値と上限に足す" % int(h.stats[m.stat])],
+			["レーススキル", String(IK.skill_info(m.skill).name) if m.skill != null else "なし", String(IK.skill_info(m.skill).desc) if m.skill != null else "元の馬がレーススキルを持っていなかった"]]:
+		var b := UI.box({c = [Color("#efe8fb")], radius = 12.0, border = 2.0, border_color = Color("#8a5bd6"), shadow = Vector2.ZERO, pad = Vector4(12, 8, 12, 9)})
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var bv := UI.vbox(2)
+		bv.add_child(UI.label(it[0], 11, Color("#6c46c0"), "black"))
+		bv.add_child(UI.label(it[1], 20, INK, "title"))
+		bv.add_child(UI.label(it[2], 11, Color("#5a706c")))
+		b.add_child(bv)
+		row.add_child(b)
+	v.add_child(row)
+	v.add_child(UI.label("・".join(IK.STATS.map(func(k): return "%s %d" % [IK.STAT_SHORT[k], int(h.stats[k])])), 13, Color("#4a5b58")))
+	var w: Control
+	var acts := UI.hbox(10)
+	if not got:
+		acts.add_child(UI.button("手放す", func() -> void:
+			IK.drop_memory(p, m.id)
+			save()
+			close_modal(w)
+			render(false), "paper", 15))
+	acts.add_child(UI.button("閉じる", func() -> void: close_modal(w), "primary", 15))
+	v.add_child(acts)
+	w = modal(v, 720)
 
 
 func _horse() -> Control:

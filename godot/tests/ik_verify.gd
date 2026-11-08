@@ -65,6 +65,10 @@ func scenario(seed: int) -> Dictionary:
 					bv = s
 					best = k
 			steps.append(["train", IK.train(run, best)])
+	var pm: Dictionary = p.duplicate(true)
+	var mm := IK.finish_run_as_memory(pm)
+	IK.start_run(pm, {sire = sire.id, dam = dam.id, name = "メモリー"}, sup, [mm.id])
+	var memory := [mm.stat, mm.val, mm.skill, pm.run.stats, pm.run.learned, IK.run_cap(pm.run, mm.stat)]
 	var h := IK.finish_run(p)
 	var b := IK.battle_npc(p, h.id, "japan-cup", "normal")
 	var e := IK.event_race(p, h.id, "arc1999", 1)
@@ -73,7 +77,7 @@ func scenario(seed: int) -> Dictionary:
 	var rv := IK.rival_race(p, h.id, "arima-kinen", 2, "2026-11-07")
 	var skip := IK.rival_skip(p, 2, "2026-11-08")
 	return {pulls = pulls, steps = steps, stats = h.stats, rating = h.rating, skills = h.skills, name = h.name, sex = h.sex, coat = h.coat,
-		battle = orders(b.result), event = orders(e.result), event2 = orders(e2.result), rival = orders(rv.result),
+		battle = orders(b.result), event = orders(e.result), event2 = orders(e2.result), rival = orders(rv.result), memory = memory,
 		coins = [IK.coins_of(p), int(rv.coins), skip, IK.mission_gain(p, {sire = sire.id, dam = dam.id, supports = sup}).size(), IK.missions_of(p).size()]}
 
 

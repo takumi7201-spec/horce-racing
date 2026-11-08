@@ -2393,3 +2393,27 @@ button.ikev-banner:active { transform: translateY(3px); box-shadow: 0 3px 0 var(
   background: var(--leaf); color: var(--ink); border: 2px solid #fff; box-shadow: 0 0 0 1.5px var(--ink); font: 900 13px/18px var(--font); text-align: center; }
 .ik-own-n { margin: 6px 0 0; font: 900 14px/1.3 var(--font); color: var(--ink); text-align: center; }
 @media (max-width: 720px) { .ik-modes { grid-template-columns: 1fr; } .ik-modes .ikev-banner { aspect-ratio: 16 / 7; } }
+
+/* 因子メモリー（育成を終えた馬から能力 1 つとスキル 1 つを抜き出したもの）。紫の印で完成馬と見分ける */
+.ik-mem .ik-ico-ring { box-shadow: 0 0 0 3px #8a5bd6, 0 0 12px #8a5bd677; }
+.ik-mem-st { position: absolute; top: -4px; right: calc(50% - 58px); z-index: 2; display: flex; flex-direction: column; align-items: center; line-height: 1;
+  padding: 3px 6px 4px; border-radius: 10px; background: #5b3aa6; color: #fff; border: 2px solid #fff; box-shadow: 0 0 0 1.5px var(--ink); }
+.ik-mem-st small { font: 800 9px/1 var(--font); color: #e3d6ff; }
+.ik-mem-st b { font: 900 13px/1.1 var(--font); }
+.ik-mem.sel { background: #8a5bd62a; box-shadow: inset 0 0 0 3px #8a5bd6; border-radius: 14px; }
+.ik-memslot .ik-ico { padding: 0; transform: scale(.82); margin: -8px -6px; }
+.ik-memslot > small { color: #6c46c0 !important; }
+.ik-memslot .ik-empty { border-color: #8a5bd6; color: #8a5bd6; }
+.ik-memsel { margin: 10px 0; padding: 8px 12px; border-radius: 14px; border: 2px dashed #8a5bd6; background: #8a5bd60d; }
+.ik-memsel summary { cursor: pointer; font-size: 13px; color: var(--ink); }
+.ik-memsel summary span { color: #5b3aa6; font-weight: 800; }
+.ik-memcard { border-left-color: #8a5bd6 !important; }
+.ik-mem-tag { display: inline-block; padding: 2px 8px; border-radius: 999px; background: #5b3aa6; color: #fff; font: 900 11px/1.4 var(--font); margin-right: 6px; }
+.ik-mem-big { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 8px 0; }
+.ik-mem-big > div { display: grid; gap: 2px; padding: 8px 10px; border-radius: 10px; background: #8a5bd614; border: 2px solid #8a5bd655; }
+.ik-mem-big small { font-size: 11px; color: #6c46c0; font-weight: 800; }
+.ik-mem-big b { font: 900 18px/1.2 var(--font); color: var(--ink); }
+.ik-mem-big i { font-style: normal; font-size: 11px; color: #5a706c; }
+.ik-fin .fs span.on { background: #8a5bd622; border-radius: 8px; }
+.ikp .btn.big.mem { background: linear-gradient(180deg, #b393ff, #7a4fd0); color: #fff; }
+@media (max-width: 520px) { .ik-mem-big { grid-template-columns: 1fr; } }

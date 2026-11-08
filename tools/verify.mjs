@@ -1293,6 +1293,35 @@ section('カード育成モード');
     && bc.field.length === 8 && bl.result.results.length === 9 && bl.race.courseId === 'gulfstream' && bl.race.surface === 'ダート' && bl.race.distance === 2000
     && egRow?.cardId === 'P1-40' && egRow.dirt === 0.9 && bp.cards[ss.id] === 5 && I.eventState(bp, 'bc1989').cleared.join() === '1,2,3,4,5'
     && I.eventState(bp, 'arc1999').tries === 0 && peekHorseId() === idBefore);
+  // 因子メモリー：育成を終えた馬を完成馬にせずメモリーにする。能力 1 つ（点の 8%）とレーススキル 1 つを抜き出し、編成すると初期値・上限とスキルに効く
+  {
+    const mp = rich(I.newProfile(41));
+    I.pull(mp, 60);
+    const own = I.owned(mp);
+    const ms = own.find((c) => c.sex === '牡'), md = own.find((c) => c.sex === '牝');
+    const sup = own.filter((c) => c !== ms && c !== md).slice(0, 4).map((c) => c.id);
+    const grow = (mems = []) => {
+      const r = I.startRun(mp, { sire: ms.id, dam: md.id, name: 'メモリー' }, sup, mems);
+      const init = { ...r.stats };
+      let j = 0;
+      while (!I.runDone(r)) { if (I.isRaceTurn(r)) I.raceTurn(r, I.raceOptions(r)[0].id); else if (r.energy < 45) I.rest(r); else I.train(r, I.STATS[j++ % 5]); }
+      return init;
+    };
+    const base = grow();
+    const coin0 = I.coinsOf(mp);
+    const m = I.finishRunAsMemory(mp);
+    const withM = grow([m.id]);
+    const run = mp.run;
+    const tooMany = (() => { try { I.startRun(rich(I.newProfile(1)), {}, [], [1, 2, 3]); return false; } catch { return true; } })();
+    check(`因子メモリー：完成馬にせず ${I.STAT_LABEL[m.stat]} +${m.val}・${m.skill ? I.skillInfo(m.skill).name : 'スキルなし'} を抜き出し、編成すると初期値とスキルに効く`,
+      mp.finished.length === 0 && I.memoriesOf(mp).length === 1 && m.val === I.memoryBonus(m.horse.stats[m.stat]) && m.val > 0 && I.coinsOf(mp) === coin0 + 6
+      && withM[m.stat] === base[m.stat] + m.val && I.STATS.every((k) => k === m.stat || withM[k] === base[k])
+      && I.runCap(run, m.stat) >= Math.min(1200, I.capOf(I.plusOf(I.traineeCard(run))[m.stat], run.awaken.t) + m.val)
+      && (!m.skill || I.runSkills(run).includes(m.skill)) && tooMany && peekHorseId() === idBefore);
+    I.finishRun(mp);
+    I.dropMemory(mp, m.id);
+    check('因子メモリーは編成しても減らず、手放すと消える', I.memoriesOf(mp).length === 0 && mp.finished.length === 1);
+  }
   // ウイコイン：ガチャは 1 回 1 枚。新しいプロフィールは 30 枚、足りなければ引けない。古いプロフィールは完成馬の編成をミッション済みにして配る
   {
     const cp = I.newProfile(31);

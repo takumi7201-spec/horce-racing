@@ -721,8 +721,9 @@ function deckOnlyView(app, go) {
 function deckView(app, go) {
   const p = app.ik;
   const have = I.owned(p);
-  app.ikDeck ??= { sire: null, dam: null, supports: [], name: '', style: null };
+  app.ikDeck ??= { sire: null, dam: null, supports: [], name: '', style: null, memories: [] };
   const d = app.ikDeck;
+  d.memories = (d.memories ?? []).filter((id) => I.memoriesOf(p).some((m) => m.id === id));
   if (d.sire && !p.cards[d.sire]) d.sire = null;
   if (d.dam && !p.cards[d.dam]) d.dam = null;
   d.supports = d.supports.filter((id) => p.cards[id] && id !== d.sire && id !== d.dam);
@@ -742,6 +743,23 @@ function deckView(app, go) {
     else return toast(`サポートは ${I.SUPPORT_SLOTS} 枚まで（外すにはもう一度押す）`, { bad: true });
     go(self);
   };
+  // 因子メモリー枠：押すと外れる。下の一覧のメモリーを押すと空いた枠へ入る
+  const memById = (id) => I.memoriesOf(p).find((m) => m.id === id);
+  const memSlot = (id, i) => el('div.ik-slot.ik-memslot', [
+    el('small', { text: `因子メモリー ${i + 1}` }),
+    id && memById(id) ? memoryIcon(memById(id), () => { d.memories = d.memories.filter((x) => x !== id); go(self); }) : el('div.ik-empty', { text: '空き' }),
+  ]);
+  const mems = I.memoriesOf(p);
+  const memPanel = mems.length ? el('details.ik-memsel', { open: !!d.memories.length || undefined }, [
+    el('summary', [el('b', { text: `因子メモリーを選ぶ（${d.memories.length}/${I.MEMORY_SLOTS}）` }),
+      d.memories.length ? el('span', { text: `　${d.memories.map((id) => memById(id)).filter(Boolean).map(memLine).join('　')}` }) : el('span', { text: `　持っている ${mems.length} 個から` })]),
+    el('div.ik-icons', [...mems].reverse().map((m) => memoryIcon(m, () => {
+      if (d.memories.includes(m.id)) d.memories = d.memories.filter((x) => x !== m.id);
+      else if (d.memories.length < I.MEMORY_SLOTS) d.memories.push(m.id);
+      else return toast(`因子メモリーは ${I.MEMORY_SLOTS} つまで（外すにはもう一度押す）`, { bad: true });
+      go(self);
+    }, { sel: d.memories.includes(m.id) }))),
+  ]) : el('p.note', { text: '因子メモリーはまだ無い（育成を終えたときに「因子メモリーにする」を選ぶと手に入る）。' });
   const slot = (id, label) => el('div.ik-slot', [
     el('small', { text: label }),
     id ? cardView(I.cardById(id), { scale: 0.22, onClick: () => pick(I.cardById(id)) }) : el('div.ik-empty', { text: '空き' }),
@@ -751,7 +769,7 @@ function deckView(app, go) {
   if (pv) { d.style = pv.style; if (!d.name) d.name = I.foalNameIdea(sire, dam); }
   const ready = pv && d.supports.length === I.SUPPORT_SLOTS && d.name.trim();
   const start = button('育成を始める', () => {
-    try { I.startRun(p, { sire: d.sire, dam: d.dam, name: d.name, style: d.style }, d.supports); } catch (e) { return toast(e.message, { bad: true }); }
+    try { I.startRun(p, { sire: d.sire, dam: d.dam, name: d.name, style: d.style }, d.supports, d.memories); } catch (e) { return toast(e.message, { bad: true }); }
     app.ikDeck = null;
     save(app);
     sound.play('ok');
@@ -759,7 +777,9 @@ function deckView(app, go) {
   }, { cls: 'primary big', disabled: !ready });
   return [
     card(`編成（父 × 母の配合で育成馬を作る＋サポート ${I.SUPPORT_SLOTS} 枚）`, [
-      el('div.ik-deck', [slot(d.sire, '父（牡）'), el('b.ik-cross', { text: '×' }), slot(d.dam, '母（牝）'), ...[0, 1, 2, 3].map((i) => slot(d.supports[i], `サポート ${i + 1}`))]),
+      el('div.ik-deck', [slot(d.sire, '父（牡）'), el('b.ik-cross', { text: '×' }), slot(d.dam, '母（牝）'), ...[0, 1, 2, 3].map((i) => slot(d.supports[i], `サポート ${i + 1}`)),
+        ...Array.from({ length: I.MEMORY_SLOTS }, (_, i) => memSlot(d.memories[i], i))]),
+      memPanel,
       pv ? breedPanel(p, pv, sire, dam, d, () => { start.disabled = !(d.supports.length === I.SUPPORT_SLOTS && d.name.trim()); }, () => go(self))
         : el('p.note', { text: '牡のカードを押すと父、牝のカードを押すと母に入る。両親が決まると、生まれる仔の名前と脚質を決められる。続けてサポートを 4 枚選ぶ。選んだカードをもう一度押すと外れる。' }),
       d.supports.length ? el('div.ik-deckskills', d.supports.map((id) => el('div', [el('small', { text: `${I.cardById(id).name}（サポート${awkLabel(p, id)}）` }), skillTags(I.skillsOf(I.cardById(id), I.awakenOfCard(p, id)).support, null, { small: true })]))) : null,
@@ -955,7 +975,7 @@ function trainView(app, go) {
   const run = p.run;
   const c = I.traineeCard(run);
   const plus = I.plusOf(c);
-  const cap = (k) => I.capOf(plus[k], run.awaken?.t ?? 0);
+  const cap = (k) => I.runCap(run, k, plus[k]);
   const done = I.runDone(run);
 
   // 馬：切り抜き（押すとカード）と状態
@@ -1028,16 +1048,31 @@ function trainView(app, go) {
     action = card('育成完了', [
       el('p', { text: `${c.name}の 2 年が終わった。${run.starts}戦${run.wins}勝（GI ${run.giWins}勝）。` }),
       I.missionGain(p).length ? el('p.ik-msgain', [ic('wcoin', 16), `ミッション：初めて編成したカード ${I.missionGain(p).length} 枚 → ウイコイン +${I.missionGain(p).length}`]) : null,
-      button('完成馬として登録する', () => {
-        const gain = I.missionGain(p).length;
-        const h = I.finishRun(p);
-        save(app);
-        sound.play('bell');
-        modal('完成！', [finishedCard(h),
-          gain ? el('p.ik-msgain', [ic('wcoin', 16), `ミッション達成：ウイコイン +${gain}（いま ${I.coinsOf(p)} 枚）`]) : null,
-          el('p.note', { text: '完成馬は「対戦」で戦わせられる。' })]);
-        go('stable');
-      }, { cls: 'primary big' }),
+      el('p.note', { text: `完成馬として登録するか、因子メモリーにするかを選ぶ。因子メモリーは能力から 1 つ（点の 8%）とレーススキルから 1 つをランダムに抜き出し、編成の因子メモリー枠（${I.MEMORY_SLOTS} つ）に入れると次の育成馬の初期値・上限とスキルに効く（何度でも使える）。因子メモリーにした馬は完成馬にならない。` }),
+      el('div.ik-gbtns', [
+        button('完成馬として登録する', () => {
+          const gain = I.missionGain(p).length;
+          const h = I.finishRun(p);
+          save(app);
+          sound.play('bell');
+          modal('完成！', [finishedCard(h),
+            gain ? el('p.ik-msgain', [ic('wcoin', 16), `ミッション達成：ウイコイン +${gain}（いま ${I.coinsOf(p)} 枚）`]) : null,
+            el('p.note', { text: '完成馬は「対戦」で戦わせられる。' })]);
+          go('stable');
+        }, { cls: 'primary big' }),
+        button('因子メモリーにする', async () => {
+          if (I.memoriesOf(p).length >= I.MEMORY_MAX) return toast(`因子メモリーは ${I.MEMORY_MAX} 個まで（完成馬の画面で手放してから）`, { bad: true });
+          if (!await ask(`${c.name}を因子メモリーにする？（完成馬にはならない。抜き出す能力とスキルはランダム）`, { ok: '因子メモリーにする', cancel: 'やめる' })) return;
+          const gain = I.missionGain(p).length;
+          const m = I.finishRunAsMemory(p);
+          save(app);
+          sound.play('bell');
+          modal('因子メモリーを獲得！', [memoryCard(m),
+            gain ? el('p.ik-msgain', [ic('wcoin', 16), `ミッション達成：ウイコイン +${gain}（いま ${I.coinsOf(p)} 枚）`]) : null,
+            el('p.note', { text: '編成の「因子メモリー」枠に入れて使う。' })]);
+          go('stable');
+        }, { cls: 'big mem' }),
+      ]),
     ]);
   } else if (I.isRaceTurn(run)) {
     const opts = I.raceOptions(run);
@@ -1419,14 +1454,69 @@ function finishedCard(h) {
   ]);
 }
 
+// ---------------------------------------------------------------- 因子メモリー
+
+/** 因子メモリーの効き目の一行（スピード +80・王道）。 */
+const memLine = (m) => `${I.STAT_LABEL[m.stat]} +${m.val}${m.skill ? `・${I.skillInfo(m.skill).name}` : ''}`;
+
+/** 因子メモリーのアイコン（元の馬の顔、右上に抜き出した能力、下にスキル）。 */
+function memoryIcon(m, onClick, { sel = false } = {}) {
+  const h = m.horse;
+  const c = I.horseCard(h);
+  const face = el('span.ik-ico-face');
+  const node = el(`button.ik-ico.ik-mem.r-${h.rar}${sel ? '.sel' : ''}`, { onclick: () => onClick(m, node), title: `${h.name}の因子メモリー　${memLine(m)}` }, [
+    el('span.ik-ico-ring', [face, el('span.ik-ico-rar', { text: h.rar })]),
+    el('span.ik-mem-st', [el('small', { text: I.STAT_SHORT[m.stat] }), el('b', { text: `+${m.val}` })]),
+    el('b.ik-ico-name', { text: h.name }),
+    el('small', { text: m.skill ? I.skillInfo(m.skill).name : 'スキルなし' }),
+    el('small', { text: `${h.rank}　${h.rating}` }),
+  ]);
+  if (c) whenVisible(node, () => stickerInto(face, c, { mode: 'face', zoom: 2.4 }));
+  return node;
+}
+
+/** 因子メモリーの札（獲得の知らせ・詳細）。抜き出した能力とスキルを大きく、元の馬の能力は小さく。 */
+function memoryCard(m) {
+  const h = m.horse;
+  return el(`div.ik-fin.ik-memcard.${RCLS(h.rar)}`, [
+    el('div.fh', [el('span.ik-mem-tag', { text: '因子メモリー' }), el('b', { text: h.name }), el('small', { text: `${h.rank}　評価点 ${h.rating}` })]),
+    el('div.ik-mem-big', [
+      el('div', [el('small', { text: '能力' }), el('b', { text: `${I.STAT_LABEL[m.stat]} +${m.val}` }), el('i', { text: `元の馬 ${h.stats[m.stat]} 点の 8%・初期値と上限に足す` })]),
+      el('div', [el('small', { text: 'レーススキル' }), el('b', { text: m.skill ? I.skillInfo(m.skill).name : 'なし' }), el('i', { text: m.skill ? I.skillInfo(m.skill).desc ?? '育成のはじめから覚えている' : '元の馬がレーススキルを持っていなかった' })]),
+    ]),
+    el('div.fs', I.STATS.map((k) => el(`span${k === m.stat ? '.on' : ''}`, [el('small', { text: I.STAT_SHORT[k] }), el('b', { text: I.gradeOfPts(h.stats[k]) }), el('i', { text: String(h.stats[k]) })]))),
+    el('div.fm', { text: `${h.starts}戦${h.wins}勝（重賞 ${h.gradedWins}・GI ${h.giWins}）` }),
+  ]);
+}
+
+function showMemory(app, m) {
+  const p = app.ik;
+  const box = modal('因子メモリー', [
+    memoryCard(m),
+    el('div.ik-gbtns', [button('手放す', async () => {
+      if (!await ask(`${m.horse.name}の因子メモリーを手放す？（元に戻せない。進行中の育成の効き目は変わらない）`, { ok: '手放す', cancel: 'やめる' })) return;
+      I.dropMemory(p, m.id);
+      if (app.ikDeck) app.ikDeck.memories = (app.ikDeck.memories ?? []).filter((x) => x !== m.id);
+      save(app);
+      box.close();
+      app.go('ik', { ...app.params });
+    }, { cls: 'ghost' })]),
+  ]);
+}
+
 function stableView(app, go) {
   const p = app.ik;
-  if (!p.finished.length) return [card('完成馬', [el('p', { text: 'まだ完成馬がいない。育成で 2 年を走り切ると、ここに並ぶ。' }), button('育成へ', () => go('run'), { cls: 'primary' })])];
+  const mems = I.memoriesOf(p);
+  const memCard = mems.length ? card(`因子メモリー（${mems.length}/${I.MEMORY_MAX}）`, [
+    el('div.ik-icons', [...mems].reverse().map((m) => memoryIcon(m, (x) => showMemory(app, x)))),
+    el('p.note', { text: `編成の因子メモリー枠（${I.MEMORY_SLOTS} つ）に入れて使う。何度でも使える。押すと詳細（手放す）。` }),
+  ]) : null;
+  if (!p.finished.length) return [card('完成馬', [el('p', { text: 'まだ完成馬がいない。育成で 2 年を走り切ると、ここに並ぶ。' }), button('育成へ', () => go('run'), { cls: 'primary' })]), memCard];
   const list = [...p.finished].sort((a, b) => b.rating - a.rating);
   return [card(`完成馬（${list.length} 頭）`, [
     el('div.ik-icons', list.map((h) => finishedIcon(h, go))),
     el('p.note', { text: '押すと詳細（対戦・ホームに立たせる・手放す）。評価点の高い順。' }),
-  ])];
+  ]), memCard];
 }
 
 /**

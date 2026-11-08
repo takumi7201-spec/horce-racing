@@ -208,7 +208,7 @@ const RAR_BONUS = { LM: 1.3, SSR: 1.2, SR: 1.1, R: 1.05, N: 1.0 };
 
 /** 新しいプロフィール。cards は持っているカード（id → 枚数）。 */
 export function newProfile(seed = 1) {
-  return { v: 1, seed: typeof seed === 'number' ? seed : hashSeed(String(seed)), pulls: 0, cards: {}, finished: [], run: null, nextId: 1, battles: 0, shards: 0, coins: COIN_START, missions: [] };
+  return { v: 1, seed: typeof seed === 'number' ? seed : hashSeed(String(seed)), pulls: 0, cards: {}, finished: [], run: null, nextId: 1, battles: 0, shards: 0, coins: COIN_START, missions: [], memories: [] };
 }
 
 // ---------------------------------------------------------------- ウイコイン
@@ -340,6 +340,9 @@ export const abilityOf = (pts) => clamp01(0.36 + (clamp(pts, 0, 1200) / 1200) * 
 /** 能力の上限（点）。育てる馬のカードの +値で決まる（+5 で 1200、+1 で 720）。 */
 const capOf = (plus, awaken = 0) => Math.min(1200, 600 + plus * 120 + awaken * AWAKEN.cap);
 export { capOf };
+/** 育成中の馬の上限（カードの +値と覚醒に、編成した因子メモリーの上乗せを足す）。 */
+export const runCap = (run, k, plus = plusOf(traineeCard(run))[k]) =>
+  Math.min(1200, capOf(plus, run.awaken?.t ?? 0) + (run.mem ?? []).reduce((a, m) => a + (m.stat === k ? m.val : 0), 0));
 /** 点の評価（育成画面の文字）。 */
 export function gradeOfPts(p) {
   const T = [[1100, 'SS'], [1000, 'S+'], [900, 'S'], [800, 'A+'], [700, 'A'], [600, 'B+'], [500, 'B'], [400, 'C+'], [300, 'C'], [200, 'D'], [100, 'E'], [0, 'G']];
@@ -560,7 +563,7 @@ const initStats = (c, awT) => Object.fromEntries(STATS.map((k) => [k, Math.round
  * 育成を始める。breed = { sire, dam, name, style }（父は牡・母は牝のカード）、supports はサポート 4 枚（父母と同じカードは不可）。
  * 初期値は両親の値の平均から（2 歳の夏の素の力）。
  */
-export function startRun(profile, breed, supportIds) {
+export function startRun(profile, breed, supportIds, memoryIds = []) {
   const s = cardById(breed?.sire), d = cardById(breed?.dam);
   if (!s || !profile.cards[s.id] || !d || !profile.cards[d.id]) throw new Error('そのカードを持っていない');
   if (s.sex !== '牡' || d.sex !== '牝') throw new Error('父は牡、母は牝のカード');
@@ -570,6 +573,9 @@ export function startRun(profile, breed, supportIds) {
   const style = styles.includes(breed.style) ? breed.style : foalDefaultStyle(s, d);
   if (supportIds.length !== SUPPORT_SLOTS) throw new Error(`サポートは ${SUPPORT_SLOTS} 枚`);
   for (const id of supportIds) if (!profile.cards[id] || id === s.id || id === d.id) throw new Error('サポートに使えないカード');
+  if (memoryIds.length > MEMORY_SLOTS || new Set(memoryIds).size !== memoryIds.length) throw new Error(`因子メモリーは ${MEMORY_SLOTS} 個まで（同じものは 1 つ）`);
+  const mems = memoryIds.map((id) => memoriesOf(profile).find((m) => m.id === id));
+  if (mems.some((m) => !m)) throw new Error('その因子メモリーは無い');
   const seed = hashSeed(`run:${profile.seed}:${profile.nextId}`);
   const rng = makeRng(hashSeed(`foal:${seed}`));
   const sex = rng.next() < 0.5 ? '牡' : '牝';
@@ -581,13 +587,21 @@ export function startRun(profile, breed, supportIds) {
   const c = bredCard({ id, sire: s.id, dam: d.id, name, style, sex, coat, aw: ps });
   // カードの値の差を出発点の差にする（重みが小さいと LM と SR の完成時の能力が 8% しか違わなかった）
   const stats = initStats(c, awaken.t);
+  // 因子メモリー：抜き出した能力を初期値と上限に足し、レーススキルを最初から覚えている（効き目は始めた時点の写し。後で手放しても変わらない）
+  const mem = mems.map((m) => ({ id: m.id, name: m.horse.name, stat: m.stat, val: m.val, skill: m.skill }));
+  for (const m of mem) stats[m.stat] += m.val;
   profile.run = {
     id, seed, trainee: null, sire: s.id, dam: d.id, name, style, sex, coat, supports: [...supportIds],
     turn: 0, slot: 0, stats, energy: 100, mood: 2, fans: 0, starts: 0, wins: 0, gradedWins: 0, giWins: 0,
     levels: Object.fromEntries(STATS.map((k) => [k, 1])), races: [], log: [`${s.name} × ${d.name}の仔「${name}」（${sex}・${coat}・${style}）の育成を始めた`],
-    bonds: [0, 0, 0, 0], learned: [], awaken,
+    bonds: [0, 0, 0, 0], learned: [], awaken, mem,
   };
-  return profile.run;
+  const run = profile.run;
+  for (const m of mem) {
+    if (m.skill && !runSkills(run).includes(m.skill)) run.learned.push(m.skill);
+    run.log.push(`因子メモリー「${m.name}」：${STAT_LABEL[m.stat]} +${m.val}${m.skill ? `・${skillInfo(m.skill).name}` : ''}`);
+  }
+  return run;
 }
 
 export const MOODS = ['絶不調', '不調', '普通', '好調', '絶好調'];
@@ -667,7 +681,7 @@ export function trainingPreview(run, kind) {
 
 const addStats = (run, gains) => {
   const plus = plusOf(traineeCard(run));
-  for (const [k, g] of Object.entries(gains)) run.stats[k] = Math.max(0, Math.min(capOf(plus[k], awT(run)), run.stats[k] + g));
+  for (const [k, g] of Object.entries(gains)) run.stats[k] = Math.max(0, Math.min(runCap(run, k, plus[k]), run.stats[k] + g));
 };
 
 /** 練習する。kind は STATS のどれか。 */
@@ -872,6 +886,44 @@ export function rankOf(rating) {
 
 /** 育成を終えて完成馬にする。 */
 export function finishRun(profile) {
+  const horse = closeRun(profile);
+  profile.finished.push(horse);
+  return horse;
+}
+
+// ---------------------------------------------------------------- 因子メモリー
+//
+// 育成を終えた馬は、完成馬にする代わりに因子メモリーにできる。メモリーはその馬の能力から 1 つ（点の 8%）とレーススキルから 1 つを
+// ランダムに抜き出したもの。編成の因子メモリー枠（MEMORY_SLOTS）に入れると、育成馬の初期値と上限にその能力を足し、スキルを最初から覚えている。
+// 編成しても減らない（何度でも使える）。乱数は (シード, 育成の id) から（同じ育成はいつも同じメモリーになる）。
+
+export const MEMORY_SLOTS = 2;
+export const MEMORY_MAX = 60;
+/** 抜き出した能力の上乗せ（点の 8%。1200 点で 96）。 */
+export const memoryBonus = (pts) => Math.round(clamp(pts, 0, 1200) * 0.08);
+export const memoriesOf = (profile) => profile.memories ?? [];
+
+/** 育成を終えて因子メモリーにする（完成馬にはならない）。 */
+export function finishRunAsMemory(profile) {
+  if (memoriesOf(profile).length >= MEMORY_MAX) throw new Error(`因子メモリーは ${MEMORY_MAX} 個まで（手放してから）`);
+  const run = profile.run;
+  const skills = run && runDone(run) ? runSkills(run) : [];
+  const horse = closeRun(profile);
+  const rng = makeRng(hashSeed(`memory:${profile.seed}:${horse.id}`));
+  const stat = STATS[rng.int(STATS.length)];
+  const skill = skills.length ? skills[rng.int(skills.length)] : null;
+  const m = { id: horse.id, stat, val: memoryBonus(horse.stats[stat]), skill, horse };
+  profile.memories = [...memoriesOf(profile), m];
+  return m;
+}
+
+/** 因子メモリーを手放す。 */
+export function dropMemory(profile, id) {
+  profile.memories = memoriesOf(profile).filter((m) => m.id !== id);
+}
+
+/** 育成を閉じて完成馬の形にする（完成馬にもメモリーにも共通。ミッションのウイコインもここで）。 */
+function closeRun(profile) {
   const run = profile.run;
   if (!run || !runDone(run)) throw new Error('まだ育成の途中');
   const c = traineeCard(run);
@@ -889,7 +941,6 @@ export function finishRun(profile) {
   const gain = missionGain(profile, run);
   profile.missions = [...missionsOf(profile), ...gain];
   profile.coins = coinsOf(profile) + gain.length;
-  profile.finished.push(horse);
   profile.run = null;
   return horse;
 }

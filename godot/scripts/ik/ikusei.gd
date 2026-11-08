@@ -328,7 +328,7 @@ static func style_name(x: float) -> String:
 # ------------------------------------------------------------------ プロフィール
 
 static func new_profile(seed: int) -> Dictionary:
-	return {v = 1, seed = seed, pulls = 0, cards = {}, finished = [], run = null, nextId = 1, battles = 0, shards = 0, coins = int(data().coinStart), missions = []}
+	return {v = 1, seed = seed, pulls = 0, cards = {}, finished = [], run = null, nextId = 1, battles = 0, shards = 0, coins = int(data().coinStart), missions = [], memories = []}
 
 
 static func load_profile() -> Dictionary:
@@ -657,7 +657,7 @@ static func race_options(run: Dictionary) -> Array:
 # ------------------------------------------------------------------ 育成の進行
 
 ## 育成を始める。breed = {sire, dam, name, style}。始められないときは理由の文字列を返す（空なら始めた）。
-static func start_run(p: Dictionary, breed: Dictionary, support_ids: Array) -> String:
+static func start_run(p: Dictionary, breed: Dictionary, support_ids: Array, memory_ids := []) -> String:
 	var s = card(breed.get("sire"))
 	var d = card(breed.get("dam"))
 	if s == null or d == null or count_of(p, s.id) == 0 or count_of(p, d.id) == 0:
@@ -674,6 +674,17 @@ static func start_run(p: Dictionary, breed: Dictionary, support_ids: Array) -> S
 	for id in support_ids:
 		if count_of(p, id) == 0 or id == s.id or id == d.id:
 			return "サポートに使えないカード"
+	if memory_ids.size() > MEMORY_SLOTS:
+		return "因子メモリーは %d 個まで（同じものは 1 つ）" % MEMORY_SLOTS
+	var mems := []
+	for mid in memory_ids:
+		var m = find_memory(p, mid)
+		if m == null:
+			return "その因子メモリーは無い"
+		for x in mems:
+			if int(x.id) == int(mid):
+				return "因子メモリーは %d 個まで（同じものは 1 つ）" % MEMORY_SLOTS
+		mems.append({id = int(m.id), name = m.horse.name, stat = m.stat, val = int(m.val), skill = m.skill})
 	var seed := Rng.hash_seed(key(["run", p.seed, p.nextId]))
 	var frng = rng_of(["foal", seed])
 	var sex := "牡" if frng.next() < 0.5 else "牝"
@@ -688,12 +699,23 @@ static func start_run(p: Dictionary, breed: Dictionary, support_ids: Array) -> S
 	p.run = {
 		id = id, seed = seed, trainee = null, sire = s.id, dam = d.id, name = nm, style = style, sex = sex, coat = coat,
 		supports = support_ids.duplicate(),
-		turn = 0, slot = 0, stats = _init_stats(c, aw.t), energy = 100, mood = 2, fans = 0, starts = 0, wins = 0, gradedWins = 0, giWins = 0,
+		turn = 0, slot = 0, stats = _mem_stats(_init_stats(c, aw.t), mems), energy = 100, mood = 2, fans = 0, starts = 0, wins = 0, gradedWins = 0, giWins = 0,
 		levels = levels, races = [], log = ["%s × %sの仔「%s」（%s・%s・%s）の育成を始めた" % [s.name, d.name, nm, sex, coat, style]],
-		bonds = [0, 0, 0, 0], learned = [], awaken = aw,
+		bonds = [0, 0, 0, 0], learned = [], awaken = aw, mem = mems,
 	}
 	p.nextId = id + 1
+	# 因子メモリー：レーススキルを最初から覚えている
+	for m in mems:
+		if m.skill != null and not run_skills(p.run).has(m.skill):
+			p.run.learned.append(m.skill)
+		p.run.log.append("因子メモリー「%s」：%s +%d%s" % [m.name, STAT_LABEL[m.stat], int(m.val), ("・" + String(skill_info(m.skill).name)) if m.skill != null else ""])
 	return ""
+
+
+static func _mem_stats(stats: Dictionary, mems: Array) -> Dictionary:
+	for m in mems:
+		stats[m.stat] = int(stats[m.stat]) + int(m.val)
+	return stats
 
 
 static func aw_t(run: Dictionary) -> int:
@@ -794,7 +816,18 @@ static func training_preview(run: Dictionary, kind: String) -> Dictionary:
 static func _add_stats(run: Dictionary, gains: Dictionary) -> void:
 	var plus: Dictionary = trainee_card(run).plus
 	for k in gains:
-		run.stats[k] = maxi(0, mini(cap_of(int(plus[k]), aw_t(run)), int(run.stats[k]) + int(gains[k])))
+		run.stats[k] = maxi(0, mini(run_cap(run, k, int(plus[k])), int(run.stats[k]) + int(gains[k])))
+
+
+## 育成中の馬の上限（カードの +値と覚醒に、編成した因子メモリーの上乗せを足す）
+static func run_cap(run: Dictionary, k: String, plus := -1) -> int:
+	if plus < 0:
+		plus = int(trainee_card(run).plus[k])
+	var add := 0
+	for m in run.get("mem", []):
+		if m.stat == k:
+			add += int(m.val)
+	return mini(1200, cap_of(plus, aw_t(run)) + add)
 
 
 static func run_skills(run: Dictionary) -> Array:
@@ -996,6 +1029,51 @@ static func rank_of(rating: float) -> String:
 
 
 static func finish_run(p: Dictionary) -> Dictionary:
+	var h := _close_run(p)
+	p.finished.append(h)
+	return h
+
+
+# ------------------------------------------------------------------ 因子メモリー
+# 育成を終えた馬を完成馬にせず、能力 1 つ（点の 8%）とレーススキル 1 つを抜き出したメモリーにする。JS の finishRunAsMemory と同じ。
+
+const MEMORY_SLOTS := 2
+const MEMORY_MAX := 60
+
+
+static func memory_bonus(pts: float) -> int:
+	return int(floor(clampf_(pts, 0, 1200) * 0.08 + 0.5))
+
+
+static func memories_of(p: Dictionary) -> Array:
+	return p.get("memories", []) if p.get("memories") != null else []
+
+
+static func find_memory(p: Dictionary, id) -> Variant:
+	for m in memories_of(p):
+		if int(m.id) == int(id):
+			return m
+	return null
+
+
+static func finish_run_as_memory(p: Dictionary) -> Dictionary:
+	if memories_of(p).size() >= MEMORY_MAX:
+		return {}
+	var skills := run_skills(p.run)
+	var h := _close_run(p)
+	var rng = rng_of(["memory", p.seed, int(h.id)])
+	var stat: String = STATS[rng.int_n(STATS.size())]
+	var skill = skills[rng.int_n(skills.size())] if not skills.is_empty() else null
+	var m := {id = int(h.id), stat = stat, val = memory_bonus(float(h.stats[stat])), skill = skill, horse = h}
+	p.memories = memories_of(p) + [m]
+	return m
+
+
+static func drop_memory(p: Dictionary, id) -> void:
+	p.memories = memories_of(p).filter(func(m): return int(m.id) != int(id))
+
+
+static func _close_run(p: Dictionary) -> Dictionary:
 	var run: Dictionary = p.run
 	var c = trainee_card(run)
 	var bred: bool = c.get("bred", false)
@@ -1015,7 +1093,6 @@ static func finish_run(p: Dictionary) -> Dictionary:
 	var gain := mission_gain(p, run)
 	p.missions = missions_of(p) + gain
 	p.coins = coins_of(p) + gain.size()
-	p.finished.append(h)
 	p.run = null
 	return h
 
