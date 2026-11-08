@@ -17,11 +17,12 @@ const THEME = {
   LM: { frame: 'conic-gradient(from 30deg,#ff5e7e,#ffb347,#fff35c,#6dff9a,#4fd8ff,#7a7bff,#d36bff,#ff5e7e)', line: '#ffffff', glow: '#b08cff88', ink: '#ffffff', sparks: 12, rays: 0.45, sun: 0.5, badge: 'conic-gradient(from 0deg,#ff5e7e,#ffb347,#fff35c,#6dff9a,#4fd8ff,#7a7bff,#d36bff,#ff5e7e)', badgeInk: '#ffffff' },
 };
 // ホログラフィック（R 以上）。背景と馬の間に挟む（馬に掛けると縞になった）。色はレア度、模様（HOLO_KINDS）はカードごと。
+// 強さ（op）は以前の半分強（R 0.30・SR 0.38・SSR 0.46・LM 0.62 → 0.17〜0.33）。テカリが強く馬が見にくかった（「カードのテカリを弱くして、モデルを見やすく」）
 const HOLO = {
-  R: { op: 0.30, cols: ['#ff8a3d', '#ffd23d', '#ff5f9e', '#3dc9ff', '#ff8a3d'] },
-  SR: { op: 0.38, cols: ['#4fa8ff', '#b07aff', '#4fffd2', '#ffffff', '#7ab8ff'] },
-  SSR: { op: 0.46, cols: ['#ffc23d', '#ff5fa8', '#ffe85c', '#3de0ff', '#ff9a3d'] },
-  LM: { op: 0.62, cols: ['#ff3d7f', '#ffb23d', '#e8ff3d', '#3dff8a', '#3dc9ff', '#9a5cff'] },
+  R: { op: 0.17, cols: ['#ff8a3d', '#ffd23d', '#ff5f9e', '#3dc9ff', '#ff8a3d'] },
+  SR: { op: 0.21, cols: ['#4fa8ff', '#b07aff', '#4fffd2', '#ffffff', '#7ab8ff'] },
+  SSR: { op: 0.25, cols: ['#ffc23d', '#ff5fa8', '#ffe85c', '#3de0ff', '#ff9a3d'] },
+  LM: { op: 0.33, cols: ['#ff3d7f', '#ffb23d', '#e8ff3d', '#3dff8a', '#3dc9ff', '#9a5cff'] },
 };
 /** 色を len（px・deg）で一巡させる止め位置。 */
 const band = (cols, len, unit) => [...cols, cols[0]].map((x, i, a) => `${x} ${Math.round((i / (a.length - 1)) * len)}${unit}`).join(',');
