@@ -47,7 +47,7 @@ function scenario(seed) {
   const pm = structuredClone(p);
   const mm = IK.finishRunAsMemory(pm);
   IK.startRun(pm, { sire: sire.id, dam: dam.id, name: 'メモリー' }, sup, [mm.id]);
-  const memory = [mm.stat, mm.val, mm.skill, pm.run.stats, pm.run.learned, IK.runCap(pm.run, mm.stat)];
+  const memory = [mm.stat, mm.star, mm.val, mm.skill, pm.run.stats, pm.run.learned, IK.runCap(pm.run, mm.stat)];
   const h = IK.finishRun(p);
   const b = IK.battleNpc(p, h.id, 'japan-cup', 'normal');
   const e = IK.eventRace(p, h.id, 'arc1999', 1);

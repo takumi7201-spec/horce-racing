@@ -437,6 +437,12 @@ static func mission_gain(p: Dictionary, run = null) -> Array:
 
 ## ウイコインより前のプロフィール：完成馬の編成をミッション済みにして、その数だけ配る。
 static func migrate_profile(p: Dictionary) -> Dictionary:
+	# 以前の因子メモリー（能力の点の 8%）は☆に直す
+	for m in p.get("memories", []) if p.get("memories") != null else []:
+		if m.get("star") != null:
+			continue
+		m.star = clampi(int(floor(float(m.val) / MEM_STEP + 0.5)), 1, 5)
+		m.val = int(m.star) * MEM_STEP
 	if p.get("coins") != null and p.get("missions") != null:
 		return p
 	var done := []
@@ -585,7 +591,7 @@ static func skill_cue(name: String, distance: float) -> Dictionary:
 # ------------------------------------------------------------------ 能力の尺度
 
 static func ability_of(pts: float) -> float:
-	return clampf_(0.36 + (clampf_(pts, 0, 1200) / 1200.0) * 0.56, 0.0, 1.0)
+	return clampf_(0.36 + (clampf_(pts, 0, PTS_MAX) / 1200.0) * 0.56, 0.0, 1.0)
 
 
 static func cap_of(plus: int, aw := 0) -> int:
@@ -593,7 +599,7 @@ static func cap_of(plus: int, aw := 0) -> int:
 
 
 static func grade_of_pts(p: float) -> String:
-	for t in [[1100, "SS"], [1000, "S+"], [900, "S"], [800, "A+"], [700, "A"], [600, "B+"], [500, "B"], [400, "C+"], [300, "C"], [200, "D"], [100, "E"], [0, "G"]]:
+	for t in [[1200, "SS+"], [1100, "SS"], [1000, "S+"], [900, "S"], [800, "A+"], [700, "A"], [600, "B+"], [500, "B"], [400, "C+"], [300, "C"], [200, "D"], [100, "E"], [0, "G"]]:
 		if p >= t[0]:
 			return t[1]
 	return "G"
@@ -713,8 +719,8 @@ static func start_run(p: Dictionary, breed: Dictionary, support_ids: Array, memo
 
 
 static func _mem_stats(stats: Dictionary, mems: Array) -> Dictionary:
-	for m in mems:
-		stats[m.stat] = int(stats[m.stat]) + int(m.val)
+	for k in STATS:
+		stats[k] = int(stats[k]) + mem_break(mems, k)
 	return stats
 
 
@@ -823,11 +829,16 @@ static func _add_stats(run: Dictionary, gains: Dictionary) -> void:
 static func run_cap(run: Dictionary, k: String, plus := -1) -> int:
 	if plus < 0:
 		plus = int(trainee_card(run).plus[k])
+	return cap_of(plus, aw_t(run)) + mem_break(run.get("mem", []), k)
+
+
+## 因子メモリーの上乗せ（☆×MEM_STEP の合計、MEM_BREAK まで）。上限はこのぶん 1200 を超えて突破する
+static func mem_break(mems: Array, k: String) -> int:
 	var add := 0
-	for m in run.get("mem", []):
+	for m in mems:
 		if m.stat == k:
 			add += int(m.val)
-	return mini(1200, cap_of(plus, aw_t(run)) + add)
+	return mini(MEM_BREAK, add)
 
 
 static func run_skills(run: Dictionary) -> Array:
@@ -1041,8 +1052,9 @@ const MEMORY_SLOTS := 2
 const MEMORY_MAX := 60
 
 
-static func memory_bonus(pts: float) -> int:
-	return int(floor(clampf_(pts, 0, 1200) * 0.08 + 0.5))
+const MEM_STEP := 20
+const MEM_BREAK := 100
+const PTS_MAX := 1200 + MEM_BREAK
 
 
 static func memories_of(p: Dictionary) -> Array:
@@ -1064,7 +1076,8 @@ static func finish_run_as_memory(p: Dictionary) -> Dictionary:
 	var rng = rng_of(["memory", p.seed, int(h.id)])
 	var stat: String = STATS[rng.int_n(STATS.size())]
 	var skill = skills[rng.int_n(skills.size())] if not skills.is_empty() else null
-	var m := {id = int(h.id), stat = stat, val = memory_bonus(float(h.stats[stat])), skill = skill, horse = h}
+	var star: int = 1 + rng.int_n(5)
+	var m := {id = int(h.id), stat = stat, star = star, val = star * MEM_STEP, skill = skill, horse = h}
 	p.memories = memories_of(p) + [m]
 	return m
 

@@ -1313,14 +1313,21 @@ section('カード育成モード');
     const withM = grow([m.id]);
     const run = mp.run;
     const tooMany = (() => { try { I.startRun(rich(I.newProfile(1)), {}, [], [1, 2, 3]); return false; } catch { return true; } })();
-    check(`因子メモリー：完成馬にせず ${I.STAT_LABEL[m.stat]} +${m.val}・${m.skill ? I.skillInfo(m.skill).name : 'スキルなし'} を抜き出し、編成すると初期値とスキルに効く`,
-      mp.finished.length === 0 && I.memoriesOf(mp).length === 1 && m.val === I.memoryBonus(m.horse.stats[m.stat]) && m.val > 0 && I.coinsOf(mp) === coin0 + 6
+    check(`因子メモリー：完成馬にせず ${I.STAT_LABEL[m.stat]} ☆${m.star}（+${m.val}）・${m.skill ? I.skillInfo(m.skill).name : 'スキルなし'} を抜き出し、編成すると初期値とスキルに効く`,
+      mp.finished.length === 0 && I.memoriesOf(mp).length === 1 && m.star >= 1 && m.star <= 5 && m.val === m.star * I.MEM_STEP && I.coinsOf(mp) === coin0 + 6
       && withM[m.stat] === base[m.stat] + m.val && I.STATS.every((k) => k === m.stat || withM[k] === base[k])
-      && I.runCap(run, m.stat) >= Math.min(1200, I.capOf(I.plusOf(I.traineeCard(run))[m.stat], run.awaken.t) + m.val)
+      && I.runCap(run, m.stat) === I.capOf(I.plusOf(I.traineeCard(run))[m.stat], run.awaken.t) + m.val
       && (!m.skill || I.runSkills(run).includes(m.skill)) && tooMany && peekHorseId() === idBefore);
     I.finishRun(mp);
     I.dropMemory(mp, m.id);
     check('因子メモリーは編成しても減らず、手放すと消える', I.memoriesOf(mp).length === 0 && mp.finished.length === 1);
+    // ☆は 1〜5 のランダム（いろいろな育成で全部出る）。上限は 1200 を超えて突破し、能力ごとに 100 まで（☆5 を 2 つ編成しても +100）
+    const fakeRun = { mem: [{ stat: 'speed', val: 100 }, { stat: 'speed', val: 100 }, { stat: 'wit', val: 40 }] };
+    const old = { ...I.newProfile(42), memories: [{ id: 1, stat: 'speed', val: 92, skill: null, horse: {} }] };
+    I.migrateProfile(old);
+    check(`因子メモリーの上限突破：同じ能力は合わせて ${I.MEM_BREAK} まで（☆5×2 で +${I.memBreak(fakeRun.mem, 'speed')}）、1200 を超えた点もレースの能力に効く、以前のメモリーは☆に直す（92 → ☆${old.memories[0].star}）`,
+      I.memBreak(fakeRun.mem, 'speed') === 100 && I.memBreak(fakeRun.mem, 'wit') === 40 && I.abilityOf(1300) > I.abilityOf(1200) && I.abilityOf(1400) === I.abilityOf(1300)
+      && old.memories[0].star === 5 && old.memories[0].val === 100 && I.gradeOfPts(1250) === 'SS+');
   }
   // ウイコイン：ガチャは 1 回 1 枚。新しいプロフィールは 30 枚、足りなければ引けない。古いプロフィールは完成馬の編成をミッション済みにして配る
   {

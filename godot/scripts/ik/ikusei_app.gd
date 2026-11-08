@@ -127,6 +127,9 @@ func _ready() -> void:
 	if args.has("deckmem") and screen == "deck":
 		_omakase()
 		_mem_toggle(int(args.deckmem))
+		if args.has("mo"):
+			opts.mo = true
+			render(false)
 	if args.has("toturn"):
 		while int(p.run.turn) < int(args.toturn):
 			if IK.is_race_turn(p.run):
@@ -1522,14 +1525,40 @@ func _deck() -> Control:
 	if all_mem.is_empty():
 		v.add_child(UI.label("因子メモリーはまだ無い（育成を終えたときに「因子メモリーにする」を選ぶと手に入る）。", 12, Color("#6c46c0")))
 	else:
-		v.add_child(UI.label("持っている因子メモリー（押すと枠に入る・もう一度押すと外れる）", 12, Color("#6c46c0"), "black"))
+		# 持っているメモリーの欄は畳んでおき、開け閉めは切り抜く箱の高さを Tween で（育成の「詳しく」と同じ。描き直すと一瞬で伸び縮みした）
 		var mg := HFlowContainer.new()
 		mg.add_theme_constant_override("h_separation", 6)
 		mg.add_theme_constant_override("v_separation", 8)
 		for i in range(all_mem.size() - 1, -1, -1):
 			var m: Dictionary = all_mem[i]
 			mg.add_child(_mem_tile(m, _mem_toggle.bind(m.id), mem.has(m.id) or mem.has(int(m.id))))
-		v.add_child(mg)
+		var clip := Control.new()
+		clip.clip_contents = true
+		clip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		clip.add_child(mg)
+		var inner := W() - 60.0
+		# HFlow の高さは幅で決まり、木に入る前は分からないので、札 1 枚の大きさと 1 段に並ぶ数から出す
+		var tile_sz: Vector2 = mg.get_child(0).get_combined_minimum_size()
+		var per := maxi(1, int((inner + 6) / (tile_sz.x + 6.0)))
+		var full := ceilf(float(all_mem.size()) / per) * (tile_sz.y + 8.0) + 8.0
+		mg.position = Vector2(0, 8)
+		clip.resized.connect(func() -> void: mg.size = Vector2(clip.size.x, full - 8.0))
+		var open: bool = opts.get("mo", false)
+		clip.custom_minimum_size.y = full if open else 0.0
+		mg.modulate.a = 1.0 if open else 0.0
+		var lbl := func(o: bool) -> String: return ("▼" if o else "▶") + " 持っている因子メモリー（%d 個。押すと枠に入る・もう一度押すと外れる）" % all_mem.size()
+		var hd := UI.chip(lbl.call(open), false, func() -> void: pass, 12)
+		hd.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+		hd.pressed.connect(func() -> void:
+			opts.mo = not opts.get("mo", false)
+			(hd.find_children("*", "Label", true, false)[0] as Label).text = lbl.call(opts.mo)
+			var tw := clip.create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN_OUT).set_parallel()
+			tw.tween_property(clip, "custom_minimum_size:y", full if opts.mo else 0.0, 0.34)
+			tw.tween_property(mg, "modulate:a", 1.0 if opts.mo else 0.0, 0.26))
+		var grp := UI.vbox(0)
+		grp.add_child(hd)
+		grp.add_child(clip)
+		v.add_child(grp)
 	var pv = IK.breed_preview(p, sire, dam, opts.get("st")) if sire != null and dam != null else null
 	if pv != null:
 		opts.st = pv.style
@@ -1760,7 +1789,7 @@ func _mem_toggle(mid) -> void:
 ## 因子メモリーの札（元の馬の顔、抜き出した能力とスキル）
 func _mem_tile(m: Dictionary, cb: Callable, sel: bool) -> Control:
 	var sk := String(IK.skill_info(m.skill).name) if m.skill != null else "スキルなし"
-	var t := _tile(IK.horse_card(m.horse), m.horse.name, "%s +%d" % [IK.STAT_SHORT[m.stat], int(m.val)], cb, {sel = sel, badge = "メモリー"})
+	var t := _tile(IK.horse_card(m.horse), m.horse.name, "%s %s" % [IK.STAT_SHORT[m.stat], "★".repeat(int(m.star))], cb, {sel = sel, badge = "+%d" % int(m.val)})
 	var lb := UI.label(sk, 11, Color("#6c46c0"), "black")
 	lb.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	t.add_child(lb)
@@ -1938,7 +1967,7 @@ func _train() -> Control:
 		var gain := IK.mission_gain(p).size()
 		if gain > 0:
 			dv.add_child(_coin_note("ミッション：初めて編成したカード %d 枚 → ウイコイン +%d" % [gain, gain]))
-		dv.add_child(_wrap("完成馬にするか、因子メモリーにするかを選ぶ。因子メモリーは能力から 1 つ（点の 8%%）とレーススキルから 1 つをランダムに抜き出し、編成の因子メモリー枠（%d つ）に入れると次の育成馬の初期値・上限とスキルに効く（何度でも使える）。因子メモリーにした馬は完成馬にならない。" % IK.MEMORY_SLOTS, 12, 900, Color("#4a5b58")))
+		dv.add_child(_wrap("完成馬にするか、因子メモリーにするかを選ぶ。因子メモリーは能力から 1 つ（☆1〜☆5 のランダム）とレーススキルから 1 つを抜き出し、編成の因子メモリー枠（%d つ）に入れると次の育成馬のその能力が ☆×%d 伸び、上限も同じだけ突破する（1200 を超えてよい。能力ごとに %d まで）。スキルは最初から覚えている（何度でも使える）。因子メモリーにした馬は完成馬にならない。" % [IK.MEMORY_SLOTS, IK.MEM_STEP, IK.MEM_BREAK], 12, 900, Color("#4a5b58")))
 		var fh := UI.hbox(14)
 		var fb := UI.button("完成馬にする", func() -> void:
 			var h := IK.finish_run(p)
@@ -2009,8 +2038,8 @@ func _stat_cell(name: String, pts: int, cap: int) -> Control:
 	h.add_child(UI.label(str(pts), 12, Color("#4a5b58")))
 	v.add_child(h)
 	var bar := Bar.new()
-	bar.value = pts / 1200.0
-	bar.cap = cap / 1200.0
+	bar.value = pts / float(IK.PTS_MAX)
+	bar.cap = cap / float(IK.PTS_MAX)
 	bar.cols = [TEAL2, LEAF]
 	bar.custom_minimum_size = Vector2(60, 10)
 	v.add_child(bar)
@@ -2131,8 +2160,8 @@ func _stat_row(name: String, pts: int, cap: int) -> Control:
 	pl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	h.add_child(pl)
 	var bar := Bar.new()
-	bar.value = pts / 1200.0
-	bar.cap = cap / 1200.0
+	bar.value = pts / float(IK.PTS_MAX)
+	bar.cap = cap / float(IK.PTS_MAX)
 	bar.cols = [TEAL2, LEAF]
 	bar.custom_minimum_size = Vector2(200, 12)
 	bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -2377,7 +2406,7 @@ func _show_memory(m: Dictionary, got := false) -> void:
 	var h: Dictionary = m.horse
 	v.add_child(UI.label("%s　%s　評価点 %d" % [h.name, h.rank, int(h.rating)], 17, INK, "black"))
 	var row := UI.hbox(12)
-	for it in [["能力", "%s +%d" % [IK.STAT_LABEL[m.stat], int(m.val)], "元の馬 %d 点の 8%%・初期値と上限に足す" % int(h.stats[m.stat])],
+	for it in [["能力", "%s %s" % [IK.STAT_LABEL[m.stat], "★".repeat(int(m.star)) + "☆".repeat(5 - int(m.star))], "初期値 +%d・上限を %d 突破（1200 を超えてよい。同じ能力は合わせて %d まで）" % [int(m.val), int(m.val), IK.MEM_BREAK]],
 			["レーススキル", String(IK.skill_info(m.skill).name) if m.skill != null else "なし", String(IK.skill_info(m.skill).desc) if m.skill != null else "元の馬がレーススキルを持っていなかった"]]:
 		var b := UI.box({c = [Color("#efe8fb")], radius = 12.0, border = 2.0, border_color = Color("#8a5bd6"), shadow = Vector2.ZERO, pad = Vector4(12, 8, 12, 9)})
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL

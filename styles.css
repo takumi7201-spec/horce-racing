@@ -2405,8 +2405,20 @@ button.ikev-banner:active { transform: translateY(3px); box-shadow: 0 3px 0 var(
 .ik-memslot > small { color: #6c46c0 !important; }
 .ik-memslot .ik-empty { border-color: #8a5bd6; color: #8a5bd6; }
 .ik-memsel { margin: 10px 0; padding: 8px 12px; border-radius: 14px; border: 2px dashed #8a5bd6; background: #8a5bd60d; }
-.ik-memsel summary { cursor: pointer; font-size: 13px; color: var(--ink); }
-.ik-memsel summary span { color: #5b3aa6; font-weight: 800; }
+.ik-memsel-h { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; width: 100%; padding: 2px 0; border: 0; background: none; cursor: pointer;
+  font: inherit; font-size: 13px; color: var(--ink); text-align: left; }
+.ik-memsel-h span { color: #5b3aa6; font-weight: 800; }
+.ik-memsel-ar { width: 0; height: 0; border-left: 6px solid #5b3aa6; border-top: 5px solid transparent; border-bottom: 5px solid transparent;
+  transition: transform .34s var(--ease-move, ease); }
+.ik-memsel.open .ik-memsel-ar { transform: rotate(90deg); }
+/* 開閉は「詳しく」（.ik-skgroup）と同じ組み立て：.ik-skwrap の行を 0fr ↔ 1fr */
+.ik-memsel.open .ik-skwrap { grid-template-rows: 1fr; opacity: 1; margin-top: 8px; }
+.ik-memsel.open .ik-skclip > .ik-memsel-list { transform: none; }
+.ik-skclip > .ik-memsel-list { margin-top: 0; padding: 4px 2px 6px; transform: translateY(-8px); transition: transform .34s var(--ease-move, ease); }
+@media (prefers-reduced-motion: reduce) { .ik-memsel-ar, .ik-skclip > .ik-memsel-list { transition: none; } }
+.ik-mem-stars { color: #f3a332; letter-spacing: 1px; }
+.ik-mem-st b { font-size: 10px !important; letter-spacing: -1px; color: #ffd36a; }
+.ik-mem-st small { white-space: nowrap; }
 .ik-memcard { border-left-color: #8a5bd6 !important; }
 .ik-mem-tag { display: inline-block; padding: 2px 8px; border-radius: 999px; background: #5b3aa6; color: #fff; font: 900 11px/1.4 var(--font); margin-right: 6px; }
 .ik-mem-big { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 8px 0; }
@@ -2417,3 +2429,4 @@ button.ikev-banner:active { transform: translateY(3px); box-shadow: 0 3px 0 var(
 .ik-fin .fs span.on { background: #8a5bd622; border-radius: 8px; }
 .ikp .btn.big.mem { background: linear-gradient(180deg, #b393ff, #7a4fd0); color: #fff; }
 @media (max-width: 520px) { .ik-mem-big { grid-template-columns: 1fr; } }
+.ik-memslot .ik-empty { width: 112px; height: 150px; }

@@ -234,6 +234,12 @@ export const missionGain = (profile, run = profile.run) => (run ? formedOf(run).
  * （初めから遊んでいた人が損をしない）。直し終えたら何もしない。
  */
 export function migrateProfile(profile) {
+  // 以前の因子メモリー（能力の点の 8%）は☆に直す（20 点で☆1 つ、1〜5）
+  for (const m of profile.memories ?? []) {
+    if (m.star) continue;
+    m.star = Math.max(1, Math.min(5, Math.round(m.val / MEM_STEP)));
+    m.val = m.star * MEM_STEP;
+  }
   if (profile.coins != null && profile.missions) return profile;
   const done = [...new Set(profile.finished.flatMap(formedOf))];
   profile.missions = done;
@@ -336,16 +342,18 @@ export function buyWithShards(profile, id) {
  * 練習の点（0〜1200）→ レースの能力（0..1）。1200 点で 0.92。
  * 番組の相手の強さ（RACE_LEVEL）と同じ尺度で、2 年の育成で 600〜900 点に届くと GI で戦える。
  */
-export const abilityOf = (pts) => clamp01(0.36 + (clamp(pts, 0, 1200) / 1200) * 0.56);
+// 因子メモリーの上限突破で 1200 を超えられる（PTS_MAX まで。1300 点で 0.967）
+export const abilityOf = (pts) => clamp01(0.36 + (clamp(pts, 0, PTS_MAX) / 1200) * 0.56);
 /** 能力の上限（点）。育てる馬のカードの +値で決まる（+5 で 1200、+1 で 720）。 */
 const capOf = (plus, awaken = 0) => Math.min(1200, 600 + plus * 120 + awaken * AWAKEN.cap);
 export { capOf };
 /** 育成中の馬の上限（カードの +値と覚醒に、編成した因子メモリーの上乗せを足す）。 */
-export const runCap = (run, k, plus = plusOf(traineeCard(run))[k]) =>
-  Math.min(1200, capOf(plus, run.awaken?.t ?? 0) + (run.mem ?? []).reduce((a, m) => a + (m.stat === k ? m.val : 0), 0));
+export const runCap = (run, k, plus = plusOf(traineeCard(run))[k]) => capOf(plus, run.awaken?.t ?? 0) + memBreak(run.mem, k);
+/** 因子メモリーの上乗せ（その能力の☆×MEM_STEP の合計、MEM_BREAK まで）。上限はこのぶん突破する（1200 を超えてよい）。 */
+export const memBreak = (mems, k) => Math.min(MEM_BREAK, (mems ?? []).reduce((a, m) => a + (m.stat === k ? m.val : 0), 0));
 /** 点の評価（育成画面の文字）。 */
 export function gradeOfPts(p) {
-  const T = [[1100, 'SS'], [1000, 'S+'], [900, 'S'], [800, 'A+'], [700, 'A'], [600, 'B+'], [500, 'B'], [400, 'C+'], [300, 'C'], [200, 'D'], [100, 'E'], [0, 'G']];
+  const T = [[1200, 'SS+'], [1100, 'SS'], [1000, 'S+'], [900, 'S'], [800, 'A+'], [700, 'A'], [600, 'B+'], [500, 'B'], [400, 'C+'], [300, 'C'], [200, 'D'], [100, 'E'], [0, 'G']];
   return T.find(([t]) => p >= t)[1];
 }
 
@@ -589,7 +597,7 @@ export function startRun(profile, breed, supportIds, memoryIds = []) {
   const stats = initStats(c, awaken.t);
   // 因子メモリー：抜き出した能力を初期値と上限に足し、レーススキルを最初から覚えている（効き目は始めた時点の写し。後で手放しても変わらない）
   const mem = mems.map((m) => ({ id: m.id, name: m.horse.name, stat: m.stat, val: m.val, skill: m.skill }));
-  for (const m of mem) stats[m.stat] += m.val;
+  for (const k of STATS) stats[k] += memBreak(mem, k);
   profile.run = {
     id, seed, trainee: null, sire: s.id, dam: d.id, name, style, sex, coat, supports: [...supportIds],
     turn: 0, slot: 0, stats, energy: 100, mood: 2, fans: 0, starts: 0, wins: 0, gradedWins: 0, giWins: 0,
@@ -893,14 +901,18 @@ export function finishRun(profile) {
 
 // ---------------------------------------------------------------- 因子メモリー
 //
-// 育成を終えた馬は、完成馬にする代わりに因子メモリーにできる。メモリーはその馬の能力から 1 つ（点の 8%）とレーススキルから 1 つを
-// ランダムに抜き出したもの。編成の因子メモリー枠（MEMORY_SLOTS）に入れると、育成馬の初期値と上限にその能力を足し、スキルを最初から覚えている。
+// 育成を終えた馬は、完成馬にする代わりに因子メモリーにできる。メモリーはその馬の能力から 1 つ（☆1〜☆5 のランダム）とレーススキルから 1 つを
+// ランダムに抜き出したもの。編成の因子メモリー枠（MEMORY_SLOTS）に入れると、その能力の初期値と上限に ☆×MEM_STEP を足し（上限は 1200 を超えて突破する。
+// 能力ごとに MEM_BREAK まで）、スキルを最初から覚えている。
 // 編成しても減らない（何度でも使える）。乱数は (シード, 育成の id) から（同じ育成はいつも同じメモリーになる）。
 
 export const MEMORY_SLOTS = 2;
 export const MEMORY_MAX = 60;
-/** 抜き出した能力の上乗せ（点の 8%。1200 点で 96）。 */
-export const memoryBonus = (pts) => Math.round(clamp(pts, 0, 1200) * 0.08);
+/** ☆1 つの上乗せ（点）と、能力ごとの上乗せの上限（☆5 で届く）。 */
+export const MEM_STEP = 20;
+export const MEM_BREAK = 100;
+/** 能力の点の上限（1200 ＋ 上限突破）。 */
+export const PTS_MAX = 1200 + MEM_BREAK;
 export const memoriesOf = (profile) => profile.memories ?? [];
 
 /** 育成を終えて因子メモリーにする（完成馬にはならない）。 */
@@ -912,7 +924,8 @@ export function finishRunAsMemory(profile) {
   const rng = makeRng(hashSeed(`memory:${profile.seed}:${horse.id}`));
   const stat = STATS[rng.int(STATS.length)];
   const skill = skills.length ? skills[rng.int(skills.length)] : null;
-  const m = { id: horse.id, stat, val: memoryBonus(horse.stats[stat]), skill, horse };
+  const star = 1 + rng.int(5);
+  const m = { id: horse.id, stat, star, val: star * MEM_STEP, skill, horse };
   profile.memories = [...memoriesOf(profile), m];
   return m;
 }

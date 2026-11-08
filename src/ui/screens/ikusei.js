@@ -736,6 +736,13 @@ function deckView(app, go) {
   }
   // カードの「編成」から開いたときは、選び直しても編成の画面に留まる（育成の画面へ飛ばない）
   const self = app.params.view === 'deck' ? 'deck' : 'run';
+  // 選び直しは画面ごと描き直すので、スクロールの位置を覚えて戻す（戻さないと押すたびに頭へ飛んだ）
+  const redraw = () => {
+    const y = document.querySelector('.ikm')?.scrollTop ?? 0;
+    go(self);
+    const sc = document.querySelector('.ikm');
+    if (sc) sc.scrollTop = y;
+  };
   const parentsChanged = () => { d.name = ''; d.style = null; };
   const pick = (c) => {
     if (d.sire === c.id) { d.sire = null; parentsChanged(); } else if (d.dam === c.id) { d.dam = null; parentsChanged(); } else if (d.supports.includes(c.id)) d.supports = d.supports.filter((x) => x !== c.id);
@@ -747,19 +754,26 @@ function deckView(app, go) {
   const memById = (id) => I.memoriesOf(p).find((m) => m.id === id);
   const memSlot = (id, i) => el('div.ik-slot.ik-memslot', [
     el('small', { text: `因子メモリー ${i + 1}` }),
-    id && memById(id) ? memoryIcon(memById(id), () => { d.memories = d.memories.filter((x) => x !== id); go(self); }) : el('div.ik-empty', { text: '空き' }),
+    id && memById(id) ? memoryIcon(memById(id), () => { d.memories = d.memories.filter((x) => x !== id); redraw(); }) : el('div.ik-empty', { text: '空き' }),
   ]);
   const mems = I.memoriesOf(p);
-  const memPanel = mems.length ? el('details.ik-memsel', { open: !!d.memories.length || undefined }, [
-    el('summary', [el('b', { text: `因子メモリーを選ぶ（${d.memories.length}/${I.MEMORY_SLOTS}）` }),
-      d.memories.length ? el('span', { text: `　${d.memories.map((id) => memById(id)).filter(Boolean).map(memLine).join('　')}` }) : el('span', { text: `　持っている ${mems.length} 個から` })]),
-    el('div.ik-icons', [...mems].reverse().map((m) => memoryIcon(m, () => {
+  // 持っているメモリーの欄は開け閉めを高さのイージングで（落とし穴 103 の「詳しく」と同じ：grid の行を 0fr ↔ 1fr）。
+  // details の開閉は一瞬で伸び縮みした。開いているかは app.ikMemOpen に覚え、描き直しの後は開いた形で組む（動きは押したときだけ）
+  const memPanel = mems.length ? (() => {
+    const wrap = el(`div.ik-memsel${app.ikMemOpen ? '.open' : ''}`);
+    const head = el('button.ik-memsel-h', {
+      onclick: () => { app.ikMemOpen = wrap.classList.toggle('open'); head.setAttribute('aria-expanded', String(app.ikMemOpen)); },
+      'aria-expanded': String(!!app.ikMemOpen),
+    }, [el('i.ik-memsel-ar'), el('b', { text: `因子メモリーを選ぶ（${d.memories.length}/${I.MEMORY_SLOTS}）` }),
+      d.memories.length ? el('span', { text: `　${d.memories.map((id) => memById(id)).filter(Boolean).map(memLine).join('　')}` }) : el('span', { text: `　持っている ${mems.length} 個から` })]);
+    wrap.append(head, el('div.ik-skwrap', [el('div.ik-skclip', [el('div.ik-icons.ik-memsel-list', [...mems].reverse().map((m) => memoryIcon(m, () => {
       if (d.memories.includes(m.id)) d.memories = d.memories.filter((x) => x !== m.id);
       else if (d.memories.length < I.MEMORY_SLOTS) d.memories.push(m.id);
       else return toast(`因子メモリーは ${I.MEMORY_SLOTS} つまで（外すにはもう一度押す）`, { bad: true });
-      go(self);
-    }, { sel: d.memories.includes(m.id) }))),
-  ]) : el('p.note', { text: '因子メモリーはまだ無い（育成を終えたときに「因子メモリーにする」を選ぶと手に入る）。' });
+      redraw();
+    }, { sel: d.memories.includes(m.id), eager: true })))])]));
+    return wrap;
+  })() : el('p.note', { text: '因子メモリーはまだ無い（育成を終えたときに「因子メモリーにする」を選ぶと手に入る）。' });
   const slot = (id, label) => el('div.ik-slot', [
     el('small', { text: label }),
     id ? cardView(I.cardById(id), { scale: 0.22, onClick: () => pick(I.cardById(id)) }) : el('div.ik-empty', { text: '空き' }),
@@ -1003,7 +1017,7 @@ function trainView(app, go) {
       el('small', { text: I.STAT_SHORT[k] }),
       el(`b.g.g-${g.replace('+', 'p')}`, { text: g }),
       el('span.n', { text: String(run.stats[k]) }),
-      el('span.bar', [el('i', { style: `width:${(run.stats[k] / 1200) * 100}%` }), el('em', { style: `left:${(cap(k) / 1200) * 100}%`, title: `上限 ${cap(k)}` })]),
+      el('span.bar', [el('i', { style: `width:${(run.stats[k] / I.PTS_MAX) * 100}%` }), el('em', { style: `left:${(cap(k) / I.PTS_MAX) * 100}%`, title: `上限 ${cap(k)}` })]),
     ]);
   }));
 
@@ -1048,7 +1062,7 @@ function trainView(app, go) {
     action = card('育成完了', [
       el('p', { text: `${c.name}の 2 年が終わった。${run.starts}戦${run.wins}勝（GI ${run.giWins}勝）。` }),
       I.missionGain(p).length ? el('p.ik-msgain', [ic('wcoin', 16), `ミッション：初めて編成したカード ${I.missionGain(p).length} 枚 → ウイコイン +${I.missionGain(p).length}`]) : null,
-      el('p.note', { text: `完成馬として登録するか、因子メモリーにするかを選ぶ。因子メモリーは能力から 1 つ（点の 8%）とレーススキルから 1 つをランダムに抜き出し、編成の因子メモリー枠（${I.MEMORY_SLOTS} つ）に入れると次の育成馬の初期値・上限とスキルに効く（何度でも使える）。因子メモリーにした馬は完成馬にならない。` }),
+      el('p.note', { text: `完成馬として登録するか、因子メモリーにするかを選ぶ。因子メモリーは能力から 1 つ（☆1〜☆5 のランダム）とレーススキルから 1 つを抜き出し、編成の因子メモリー枠（${I.MEMORY_SLOTS} つ）に入れると次の育成馬のその能力が ☆×${I.MEM_STEP} 伸び、上限も同じだけ突破する（1200 を超えてよい。能力ごとに ${I.MEM_BREAK} まで）。スキルは最初から覚えている（何度でも使える）。因子メモリーにした馬は完成馬にならない。` }),
       el('div.ik-gbtns', [
         button('完成馬として登録する', () => {
           const gain = I.missionGain(p).length;
@@ -1457,21 +1471,23 @@ function finishedCard(h) {
 // ---------------------------------------------------------------- 因子メモリー
 
 /** 因子メモリーの効き目の一行（スピード +80・王道）。 */
-const memLine = (m) => `${I.STAT_LABEL[m.stat]} +${m.val}${m.skill ? `・${I.skillInfo(m.skill).name}` : ''}`;
+const memStars = (n) => '★'.repeat(n) + '☆'.repeat(5 - n);
+const memLine = (m) => `${I.STAT_LABEL[m.stat]} ${memStars(m.star)}${m.skill ? `・${I.skillInfo(m.skill).name}` : ''}`;
 
 /** 因子メモリーのアイコン（元の馬の顔、右上に抜き出した能力、下にスキル）。 */
-function memoryIcon(m, onClick, { sel = false } = {}) {
+function memoryIcon(m, onClick, { sel = false, eager = false } = {}) {
   const h = m.horse;
   const c = I.horseCard(h);
   const face = el('span.ik-ico-face');
   const node = el(`button.ik-ico.ik-mem.r-${h.rar}${sel ? '.sel' : ''}`, { onclick: () => onClick(m, node), title: `${h.name}の因子メモリー　${memLine(m)}` }, [
     el('span.ik-ico-ring', [face, el('span.ik-ico-rar', { text: h.rar })]),
-    el('span.ik-mem-st', [el('small', { text: I.STAT_SHORT[m.stat] }), el('b', { text: `+${m.val}` })]),
+    el('span.ik-mem-st', [el('small', { text: `${I.STAT_SHORT[m.stat]} +${m.val}` }), el('b', { text: '★'.repeat(m.star) })]),
     el('b.ik-ico-name', { text: h.name }),
     el('small', { text: m.skill ? I.skillInfo(m.skill).name : 'スキルなし' }),
     el('small', { text: `${h.rank}　${h.rating}` }),
   ]);
-  if (c) whenVisible(node, () => stickerInto(face, c, { mode: 'face', zoom: 2.4 }));
+  // eager：畳んだ欄の中のアイコンは、開いた瞬間に見えて顔を撮り始めると開く動きが止まるので、先に撮っておく
+  if (c) { if (eager) stickerInto(face, c, { mode: 'face', zoom: 2.4 }); else whenVisible(node, () => stickerInto(face, c, { mode: 'face', zoom: 2.4 })); }
   return node;
 }
 
@@ -1481,7 +1497,8 @@ function memoryCard(m) {
   return el(`div.ik-fin.ik-memcard.${RCLS(h.rar)}`, [
     el('div.fh', [el('span.ik-mem-tag', { text: '因子メモリー' }), el('b', { text: h.name }), el('small', { text: `${h.rank}　評価点 ${h.rating}` })]),
     el('div.ik-mem-big', [
-      el('div', [el('small', { text: '能力' }), el('b', { text: `${I.STAT_LABEL[m.stat]} +${m.val}` }), el('i', { text: `元の馬 ${h.stats[m.stat]} 点の 8%・初期値と上限に足す` })]),
+      el('div', [el('small', { text: '能力' }), el('b', [`${I.STAT_LABEL[m.stat]} `, el('span.ik-mem-stars', { text: memStars(m.star) })]),
+        el('i', { text: `初期値 +${m.val}・上限を ${m.val} 突破（1200 を超えてよい。同じ能力は合わせて ${I.MEM_BREAK} まで）` })]),
       el('div', [el('small', { text: 'レーススキル' }), el('b', { text: m.skill ? I.skillInfo(m.skill).name : 'なし' }), el('i', { text: m.skill ? I.skillInfo(m.skill).desc ?? '育成のはじめから覚えている' : '元の馬がレーススキルを持っていなかった' })]),
     ]),
     el('div.fs', I.STATS.map((k) => el(`span${k === m.stat ? '.on' : ''}`, [el('small', { text: I.STAT_SHORT[k] }), el('b', { text: I.gradeOfPts(h.stats[k]) }), el('i', { text: String(h.stats[k]) })]))),
@@ -1612,7 +1629,7 @@ function horseView(app, go) {
           el('span.l', { text: I.STAT_LABEL[k] }),
           el(`b.g.g-${I.gradeOfPts(h.stats[k]).replace('+', 'p')}`, { text: I.gradeOfPts(h.stats[k]) }),
           el('span.n', { text: String(h.stats[k]) }),
-          el('span.bar', [el('i', { style: `width:${(h.stats[k] / 1200) * 100}%` }), plus ? el('em', { style: `left:${(I.capOf(plus[k], h.awaken ?? 0) / 1200) * 100}%` }) : null]),
+          el('span.bar', [el('i', { style: `width:${(Math.min(h.stats[k], I.PTS_MAX) / I.PTS_MAX) * 100}%` }), plus ? el('em', { style: `left:${(I.capOf(plus[k], h.awaken ?? 0) / I.PTS_MAX) * 100}%` }) : null]),
         ]))),
         el('p.note', { text: '数字は育成で鍛えた点（1200 点が上限）。黄色の線はカードの +値で決まる伸びしろの上限。' }),
       ]);

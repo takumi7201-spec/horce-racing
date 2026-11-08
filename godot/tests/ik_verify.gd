@@ -68,7 +68,7 @@ func scenario(seed: int) -> Dictionary:
 	var pm: Dictionary = p.duplicate(true)
 	var mm := IK.finish_run_as_memory(pm)
 	IK.start_run(pm, {sire = sire.id, dam = dam.id, name = "メモリー"}, sup, [mm.id])
-	var memory := [mm.stat, mm.val, mm.skill, pm.run.stats, pm.run.learned, IK.run_cap(pm.run, mm.stat)]
+	var memory := [mm.stat, mm.star, mm.val, mm.skill, pm.run.stats, pm.run.learned, IK.run_cap(pm.run, mm.stat)]
 	var h := IK.finish_run(p)
 	var b := IK.battle_npc(p, h.id, "japan-cup", "normal")
 	var e := IK.event_race(p, h.id, "arc1999", 1)
