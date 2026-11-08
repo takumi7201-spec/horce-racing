@@ -43,7 +43,32 @@ export const FRAME_TEXT = [
 const COAT = {
   鹿毛: 0x5a3a22, 黒鹿毛: 0x3a2616, 栗毛: 0x8a5a2a, 栃栗毛: 0x6b4420,
   芦毛: 0xc9c6c0, 青鹿毛: 0x2a1c12, 青毛: 0x1a1512, 白毛: 0xece9e3,
+  // 連銭芦毛：灰の地に白い丸の斑が並ぶ若い芦毛（一枚絵だけ。カードの artCoat。オグリキャップの写真）。斑はシェーダで描く（dapple）
+  連銭芦毛: 0x55575b,
 };
+
+/**
+ * 連銭（灰の地に白っぽい丸の斑、その縁が暗く網目になる）を毛の材質に描く。胴の管（loft）は uv を持たないので、
+ * 形のローカルの位置で 3D の格子の点（セル）から最寄りの点までの距離を測る。斑は 11cm ほど。
+ */
+function dapple(mat) {
+  mat.onBeforeCompile = (sh) => {
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vDap;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvDap = position;');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>
+varying vec3 vDap;
+vec3 dh3(vec3 p) { p = vec3(dot(p, vec3(127.1, 311.7, 74.7)), dot(p, vec3(269.5, 183.3, 246.1)), dot(p, vec3(113.5, 271.9, 124.6))); return fract(sin(p) * 43758.5453); }
+float dcell(vec3 x) { vec3 i = floor(x), f = fract(x); float d = 8.0;
+  for (int a = -1; a <= 1; a++) for (int b = -1; b <= 1; b++) for (int c = -1; c <= 1; c++) {
+    vec3 g = vec3(float(a), float(b), float(c)); vec3 o = 0.15 + 0.7 * dh3(i + g); d = min(d, length(g + o - f)); }
+  return d; }`).replace('#include <color_fragment>', `#include <color_fragment>
+{ float d = dcell(vDap * 9.0);
+  float spot = 1.0 - smoothstep(0.28, 0.5, d);
+  diffuseColor.rgb *= mix(0.6, 1.75, spot); }`);
+  };
+  mat.customProgramCacheKey = () => 'dapple';
+  return mat;
+}
 
 /**
  * たてがみ・尾・脚先（ポイント）の色。鹿毛系は黒く、栗毛は地色と同系、芦毛・白毛は灰と白。
@@ -52,6 +77,8 @@ const COAT = {
 function pointsOf(coat) {
   switch (coat) {
     case '芦毛': return { mane: 0x8f8b86, leg: 0x9a968f };
+    // 連銭芦毛はたてがみ・尾・脚先が暗い（若い芦毛は端から白くなる）
+    case '連銭芦毛': return { mane: 0x2c2a28, leg: 0x34312e };
     case '白毛': return { mane: 0xdcd8d0, leg: 0xe6e2da };
     case '栗毛': return { mane: 0xb98a52, leg: null };
     case '栃栗毛': return { mane: 0x4a2e18, leg: null };
@@ -600,6 +627,7 @@ export function makeHorse({ id = 1, gate = 1, frame = 1, coat = '鹿毛', scale 
   // 毛の艶。Lambert（艶なし）だと近くで見たとき粘土に見えた。毛は少し光る。
   const coatColor = COAT[coat] ?? COAT['鹿毛'];
   const hide = new THREE.MeshStandardMaterial({ color: coatColor, roughness: 0.52, metalness: 0 });
+  if (coat === '連銭芦毛') dapple(hide);
   const pts = pointsOf(coat);
   const hairMat = new THREE.MeshStandardMaterial({ color: pts.mane, roughness: 0.8, metalness: 0, side: THREE.DoubleSide });
   const legLow = pts.leg == null ? hide : new THREE.MeshStandardMaterial({ color: pts.leg, roughness: 0.6, metalness: 0 });
@@ -640,7 +668,7 @@ export function makeHorse({ id = 1, gate = 1, frame = 1, coat = '鹿毛', scale 
   // レースは遠景なので頭を粗く、布も小さくする（18 頭ぶん描くので）。
   const high = (detail ?? (bare ? 'high' : 'low')) === 'high';
   // 実在馬は記事の白斑（marks.face）、ほかは id から決まる白斑。
-  const faceMat = new THREE.MeshStandardMaterial({ map: faceTexture(coat, coatColor, id, high ? 512 : 256, marks?.face ? marks : null), roughness: 0.52, metalness: 0 });
+  const faceMat = new THREE.MeshStandardMaterial({ map: faceTexture(coat, coat === '連銭芦毛' ? 0xb2afaa : coatColor, id, high ? 512 : 256, marks?.face ? marks : null), roughness: 0.52, metalness: 0 });
   faceMat.name = 'face';
   mesh(headPivot, high ? S.headHigh : S.headLow, faceMat);
   const forelockMesh = mesh(headPivot, S.forelock, hairMat);
@@ -693,7 +721,7 @@ export function makeHorse({ id = 1, gate = 1, frame = 1, coat = '鹿毛', scale 
   const bandageMat = gear?.bandage ? new THREE.MeshStandardMaterial({ name: 'bandage', color: 0xf2f0ea, roughness: 0.9, metalness: 0 }) : null;
 
   // 白斑（顔）は布に描いてある。脚の白は芦毛・白毛には付けない。
-  const markable = coat !== '芦毛' && coat !== '白毛';
+  const markable = coat !== '芦毛' && coat !== '白毛' && coat !== '連銭芦毛';
   const legWhite = !markable ? [0, 0, 0, 0] : marks?.legs ?? fictionalLegs(id);
 
   // --- 尾（付け根を支点に、走ると後ろへ流れる。毛は付け根の先でもう一段しなる） ---

@@ -767,6 +767,8 @@ const FACE_TONE = {
   栗毛: { muzzle: 0x5e4334, amt: 0.4 },
   栃栗毛: { muzzle: 0x35241a, amt: 0.5 },
   芦毛: { muzzle: 0x403c39, amt: 0.72 },
+  // 連銭芦毛の顔は地より白い（芦毛は頭から白くなる）。鼻先は黒い皮膚
+  連銭芦毛: { muzzle: 0x2a2725, amt: 0.82 },
   白毛: { muzzle: 0xd9b6ad, amt: 0.55 },
 };
 
@@ -779,7 +781,7 @@ const STAR_R = { s: [0.011, 0.005], m: [0.017, 0.008], l: [0.026, 0.007] };
  * @param {{face:string, size?:string}|null} [face]
  */
 export function markingOf(id, coat, face = null) {
-  if (coat === '芦毛' || coat === '白毛') return null;
+  if (coat === '芦毛' || coat === '白毛' || coat === '連銭芦毛') return null;
   const r = (k) => hash01(id, 100 + k);
   const p = hash01(id, 1);
   // 無地 4 割、星・星と流星・流星・大流星・鼻白。
