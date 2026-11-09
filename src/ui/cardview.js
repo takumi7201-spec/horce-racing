@@ -4,7 +4,7 @@
 
 import { el } from './dom.js';
 import { cardArt } from '../render3d/cardart.js';
-import { plusOf, cardPower, distCat, STATS, STAT_SHORT, PACKS, CARDS } from '../sim/ikusei.js';
+import { plusOf, cardPower, distCat, STATS, STAT_SHORT, PACKS, CARDS, skillInfo } from '../sim/ikusei.js';
 
 /** 弾の見出し（イベントの報酬は弾ではないので「イベント報酬」）。 */
 const packLine = (c) => (c.myCard ? 'マイカード' : c.pack in PACKS ? `第${c.pack.slice(1)}弾【${PACKS[c.pack]}】` : c.pack === 'LT' ? '期間限定' : 'イベント報酬');
@@ -111,7 +111,11 @@ export const epithetOf = (c) => {
  * カード 1 枚。scale は 630×880 に対する倍率。opts.onClick を渡すと押せる。
  * opts.count があれば右上に枚数、opts.dim で暗く（持っていないカード）。
  */
-export function cardView(c, { scale = 0.4, onClick = null, count = 0, dim = false, badge = null, holo = null, tilt = 'hover', eager = false } = {}) {
+/**
+ * back：裏面に出すスキル { unique: {name, desc} | null, race: [id], support: [id], plus: {race: Set, support: Set}（覚醒で増えた印）, note }。
+ * 渡すと、左へスワイプで裏・右へスワイプで表に返る（大きく見る画面だけ）。wrap.flip(true/false) でも返せる。
+ */
+export function cardView(c, { scale = 0.4, onClick = null, count = 0, dim = false, badge = null, holo = null, tilt = 'hover', eager = false, back = null } = {}) {
   const T = THEME[c.rar];
   const H = HOLO[c.rar];
   const foil = FOIL[c.rar] ?? null;
@@ -169,14 +173,19 @@ export function cardView(c, { scale = 0.4, onClick = null, count = 0, dim = fals
     ]),
   ]);
   if (kind) card.dataset.holo = kind;
+  const rear = back ? backFace(c, vars, foil, back) : null;
   const wrap = el(`div.tcw${dim ? '.dim' : ''}${onClick ? '.click' : ''}`, { style: `width:${630 * scale}px;height:${880 * scale}px` }, [
-    el('div.tcs', { style: `transform:scale(${scale})` }, card),
+    el('div.tcs', { style: `transform:scale(${scale})` }, rear ? [card, rear] : card),
     // 重ねた枚数と覚醒（2 枚目から 1 段、5 枚で完凸）
     count > 1 ? el(`span.tc-count${count >= 5 ? '.max' : ''}`, [el('b', { text: `×${count}` }), el('i', { text: '◆'.repeat(Math.min(4, count - 1)) + '◇'.repeat(Math.max(0, 4 - (count - 1))) })]) : null,
     badge ? el('span.tc-badge', { text: badge }) : null,
   ]);
   if (onClick) wrap.onclick = () => onClick(c);
   if (!dim && tilt) attachTilt(wrap, card, { touch: tilt === 'full' });
+  if (rear) {
+    if (tilt) attachTilt(wrap, rear, { touch: tilt === 'full' });
+    attachFlip(wrap, card, rear);
+  }
   // eager：画面に入るのを待たずに絵を付ける。ガチャの伏せたカード（3D で裏返した箱の中）は IntersectionObserver に
   // 見えている扱いにならず、表になっても絵が付かなかった。10 枚だけなので待たずに撮る
   const load = (fn) => (eager ? fn() : whenVisible(wrap, fn));
@@ -185,6 +194,13 @@ export function cardView(c, { scale = 0.4, onClick = null, count = 0, dim = fals
       bEl.style.backgroundImage = `url(${a.bg})`;
       if (a.bgBaked) bEl.classList.add('baked');
       art.querySelector('.f').style.backgroundImage = `url(${a.fg})`;
+      // 裏面は同じ絵をモノクロで（CSS の filter。絵を撮り直さない）
+      if (rear) {
+        rear.querySelector('.b').style.backgroundImage = `url(${a.bg})`;
+        if (a.bgBaked) rear.querySelector('.b').classList.add('baked');
+        rear.querySelector('.f').style.backgroundImage = `url(${a.fg})`;
+        rear.classList.add('ready');
+      }
       // 固有スキルのエフェクト（カードエディットで選んだ完成馬のカード）：形の後ろのオーラと前の稲妻・粒
       if (a.fx) {
         // 後ろの層は 3D のエフェクトでは使わない（null）
@@ -201,6 +217,75 @@ export function cardView(c, { scale = 0.4, onClick = null, count = 0, dim = fals
       card.classList.add('ready');
     }).catch(() => {}));
   return wrap;
+}
+
+/**
+ * カードの裏面。表と同じ枠に、絵はモノクロ、下の欄はスキルの一覧（レース・育成）、右下に二つ名と名前。
+ * ホロ・箔・光沢は付けない（裏は読むための面。テカリで字が読みにくくなる）。
+ */
+function backFace(c, vars, foil, back) {
+  const row = (cls, name, desc, awk) => el(`div.bk-row.${cls}`, [el('b', { text: name }), awk ? el('em', { text: `覚醒${awk}` }) : null, el('span', { text: desc })]);
+  const race = back.race.map((id) => skillInfo(id)).filter(Boolean);
+  const sup = back.support.map((id) => skillInfo(id)).filter(Boolean);
+  // 完成馬は覚えたスキルが多いことがある。欄に収まらないときは名前だけの札にする（説明は大きく見る画面の一覧にある）
+  const tight = (back.unique ? 2 : 0) + race.length + sup.length > 11;
+  const list = (items, cls, plus) => (tight
+    ? el('div.bk-chips', items.map((x) => el(`span.bk-chip.${cls}`, { text: x.name })))
+    : el('div.bk-rows', items.map((x) => row(cls, x.name, x.desc, plus?.has(x.id) ? (cls === 'race' ? 2 : 4) : 0))));
+  return el(`div.tc.tc-back.r-${c.rar}`, { style: Object.entries(vars).map(([k, v]) => `${k}:${v}`).join(';') }, [
+    el('div.tc-in', [
+      el('div.tc-art', [el('div.b'), el('div.f'), el('div.vg')]),
+      el('div.tc-rar', { text: c.rar }),
+      // 名前と二つ名は右下に小さく（裏は読むための面。大きな帯をやめて絵とスキルの欄に回した）
+      el('div.tc-low.bk-low', [
+        el('div.bk-h', [el('i', { text: 'レーススキル' }), el('small', { text: `${(back.unique ? 1 : 0) + race.length}` })]),
+        back.unique ? el('div.bk-uniq', [el('b', { text: back.unique.name }), el('span', { text: back.unique.desc })]) : null,
+        race.length ? list(race, 'race', back.plus?.race) : back.unique ? null : el('p.bk-none', { text: 'なし' }),
+        el('div.bk-h', [el('i', { text: '育成スキル' }), el('small', { text: `${sup.length}` })]),
+        sup.length ? list(sup, 'support', back.plus?.support) : el('p.bk-none', { text: back.note ?? 'なし' }),
+        el('div.foot.bk-foot', [el('span', { text: '右へスワイプで表へ' }), el('span.bk-who', [el('small', { text: epithetOf(c) }), el('b', { text: c.name })])]),
+      ]),
+    ]),
+  ]);
+}
+
+/**
+ * 左へスワイプで裏、右で表。返す動きは枠（.tcw）を Y 軸で 90° 回して面を入れ替え、戻す。
+ * 3D の変形は返す間だけ（Web Animations で掛け、終われば残らない。落とし穴 93 の「3D を常時掛けない」）。
+ */
+function attachFlip(wrap, front, rear) {
+  let side = false, busy = false, sx = 0, sy = 0, down = false;
+  rear.hidden = true;
+  const P = 'perspective(1600px)';
+  const flip = (toBack) => {
+    toBack = !!toBack;
+    if (busy || toBack === side) return;
+    busy = true;
+    const dir = toBack ? -1 : 1;
+    const half = (from, to, easing) => wrap.animate([{ transform: `${P} rotateY(${from}deg)` }, { transform: `${P} rotateY(${to}deg)` }], { duration: 190, easing, fill: 'forwards' });
+    const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    const swap = () => { side = toBack; front.hidden = toBack; rear.hidden = !toBack; wrap.classList.toggle('back', toBack); };
+    if (reduce || typeof wrap.animate !== 'function') { swap(); busy = false; return; }
+    const a = half(0, 90 * dir, 'cubic-bezier(.5,0,.75,0)');
+    a.finished.then(() => {
+      swap();
+      const b = half(-90 * dir, 0, 'cubic-bezier(.25,1,.5,1)');
+      a.cancel();
+      b.finished.then(() => { b.cancel(); busy = false; });
+    }).catch(() => { busy = false; });
+  };
+  wrap.addEventListener('pointerdown', (e) => { down = true; sx = e.clientX; sy = e.clientY; });
+  const up = (e) => {
+    if (!down) return;
+    down = false;
+    const dx = e.clientX - sx, dy = e.clientY - sy;
+    if (Math.abs(dx) < 40 || Math.abs(dx) < Math.abs(dy) * 1.2) return;
+    flip(dx < 0);
+  };
+  wrap.addEventListener('pointerup', up);
+  wrap.addEventListener('pointercancel', () => { down = false; });
+  wrap.flip = flip;
+  wrap.isBack = () => side;
 }
 
 /**

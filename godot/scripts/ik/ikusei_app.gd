@@ -177,6 +177,9 @@ func _ready() -> void:
 		_do_pull(int(args.pull))
 	if args.has("card"):
 		_show_card(IK.card(args.card))
+		# 確かめ用：裏面に返す（--cardback=1）
+		if args.has("cardback") and _last_flip != null:
+			_last_flip.get_meta("flip").call(true)
 	if args.has("menu"):
 		_toggle_menu()
 	if args.has("gearpick") and p.run != null:
@@ -1549,7 +1552,15 @@ func _book() -> Control:
 func _show_card(c: Dictionary) -> void:
 	var n := IK.count_of(p, c.id)
 	var row := UI.hbox(24)
-	row.add_child(_card_view(c, 320))
+	var aw0 := IK.awaken_of(n)
+	var fl := _flip_card(c, 320, IK.skills_of(c, aw0), IK.skills_of(c, 0))
+	var left := UI.vbox(8)
+	left.add_child(fl)
+	var fb := UI.button("裏面（スキル）を見る", func() -> void: fl.get_meta("flip").call(not fl.get_meta("back")), "paper", 14)
+	fb.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	fl.set_meta("btn", fb)
+	left.add_child(fb)
+	row.add_child(left)
 	var info := UI.vbox(7)
 	info.custom_minimum_size.x = 460
 	var hd := UI.hbox(8)
@@ -1598,6 +1609,162 @@ func _show_card(c: Dictionary) -> void:
 	info.add_child(acts)
 	row.add_child(info)
 	w = modal(row, 840)
+
+
+## 裏面の絵（モノクロ）
+## （Godot 4 の fragment の COLOR は既にテクスチャの色を掛けた値。texture() を掛け直すと色が戻って灰色にならなかった）
+const GRAY_CODE := "shader_type canvas_item;\nvoid fragment() {\n\tfloat g = dot(COLOR.rgb, vec3(0.299, 0.587, 0.114));\n\tCOLOR.rgb = vec3(g);\n}\n"
+var _gray: Shader = null
+var _last_flip: Control = null
+
+
+## カードの表と裏（ゲームの cardview.js の backFace と同じ並び）。左へスワイプで裏、右で表。
+## 返す動きは横に縮めて面を入れ替え、広げる（Godot の 2D に遠近は無いので回転の代わり）。
+## meta: "flip"（bool を渡して返す Callable）・"back"（いま裏か）・"btn"（字を合わせるボタン、任意）
+func _flip_card(c: Dictionary, w: float, sk: Dictionary, base: Dictionary) -> Control:
+	var h := w * 880.0 / 630.0
+	var root := Control.new()
+	root.custom_minimum_size = Vector2(w, h)
+	root.mouse_filter = Control.MOUSE_FILTER_PASS
+	var front := _card_view(c, w)
+	front.position = Vector2.ZERO
+	front.size = Vector2(w, h)
+	root.add_child(front)
+	var holder := Control.new()
+	holder.size = Vector2(w, h)
+	holder.mouse_filter = Control.MOUSE_FILTER_STOP
+	holder.visible = false
+	var bk := _card_back(c, sk, base)
+	bk.scale = Vector2.ONE * (w / 630.0)
+	holder.add_child(bk)
+	root.add_child(holder)
+	root.set_meta("back", false)
+	var busy := {on = false}
+	var flip := func(to_back: bool) -> void:
+		if busy.on or to_back == root.get_meta("back"):
+			return
+		busy.on = true
+		root.pivot_offset = Vector2(w, h) / 2.0
+		var tw := root.create_tween()
+		tw.tween_property(root, "scale:x", 0.0, 0.17).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+		tw.tween_callback(func() -> void:
+			root.set_meta("back", to_back)
+			front.visible = not to_back
+			holder.visible = to_back
+			var b = root.get_meta("btn", null)
+			if b is Button:
+				b.text = "表面を見る" if to_back else "裏面（スキル）を見る")
+		tw.tween_property(root, "scale:x", 1.0, 0.2).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+		tw.tween_callback(func() -> void: busy.on = false)
+	root.set_meta("flip", flip)
+	_last_flip = root
+	# スワイプ（指はマウスに写る）。表は傾きの入力も受けるので、押した位置と離した位置だけを見る
+	var start := {x = 0.0, y = 0.0, down = false}
+	var swipe := func(e: InputEvent) -> void:
+		if e is InputEventMouseButton and e.button_index == MOUSE_BUTTON_LEFT:
+			if e.pressed:
+				start.x = e.global_position.x
+				start.y = e.global_position.y
+				start.down = true
+			elif start.down:
+				start.down = false
+				var dx: float = e.global_position.x - start.x
+				var dy: float = e.global_position.y - start.y
+				if absf(dx) >= 40.0 and absf(dx) >= absf(dy) * 1.2:
+					flip.call(dx < 0.0)
+	front.gui_input.connect(swipe)
+	holder.gui_input.connect(swipe)
+	return root
+
+
+## 裏面（630×880 で組んで縮める）：枠・モノクロの絵・スキルの一覧（レース・育成）・右下に二つ名と名前
+func _card_back(c: Dictionary, sk: Dictionary, base: Dictionary) -> Control:
+	var cols := {LM = [Color("#ff5e7e"), Color("#fff35c"), Color("#4fd8ff"), Color("#d36bff")], SSR = [Color("#fff6c8"), Color("#d6a83a"), Color("#a87a22")],
+		SR = [Color("#ffffff"), Color("#a9b0bc"), Color("#666e7a")], R = [Color("#ffe2c4"), Color("#b06a32"), Color("#6e3814")], N = [Color("#d9f5c8"), Color("#5fae4a"), Color("#2f6e28")]}
+	var line: Color = {LM = Color.WHITE, SSR = Color("#f2d47a"), SR = Color("#dfe5ee"), R = Color("#e6a874"), N = Color("#9fdc84")}.get(c.rar, Color.WHITE)
+	var root := Control.new()
+	root.size = Vector2(630, 880)
+	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var put := func(ctl: Control, pos: Vector2, sz: Vector2) -> Control:
+		ctl.position = pos
+		ctl.size = sz
+		ctl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		root.add_child(ctl)
+		return ctl
+	put.call(UI.box({c = cols.get(c.rar, [PAPER]), angle = 135.0, radius = 26.0, border = 0.0, shadow = Vector2(0, 8)}), Vector2.ZERO, Vector2(630, 880))
+	put.call(UI.box({c = [Color("#0d1a10")], radius = 16.0, border = 2.0, border_color = line, shadow = Vector2.ZERO}), Vector2(12, 12), Vector2(606, 856))
+	# 絵：表のカードの絵の部分（帯より上）をモノクロで
+	var t := _card_tex(_aid(c))
+	if t != null:
+		var at := AtlasTexture.new()
+		at.atlas = t
+		# 上の端は表の札（レア度・レース名）が写るので落とす
+		at.region = Rect2(12, 48, 606, 516)
+		var art := _img(at, true)
+		if _gray == null:
+			_gray = Shader.new()
+			_gray.code = GRAY_CODE
+		var gm := ShaderMaterial.new()
+		gm.shader = _gray
+		art.material = gm
+		art.clip_contents = true
+		put.call(art, Vector2(14, 14), Vector2(602, 442))
+	put.call(_rar_badge(c.rar, 44), Vector2(18, 18), Vector2(0, 0))
+	# 名前と二つ名は右下に小さく（ゲームと同じ。大きな帯をやめて絵とスキルの欄に回した）
+	var LOW := 410.0
+	var top := 868.0 - LOW
+	put.call(UI.box({c = [line], radius = 0.0, border = 0.0, shadow = Vector2.ZERO}), Vector2(12, top), Vector2(606, 2))
+	var v := UI.vbox(5)
+	put.call(v, Vector2(30, top + 14), Vector2(570, LOW - 44))
+	var head := func(text: String, n: int) -> void:
+		var hr := UI.hbox(10)
+		hr.add_child(UI.label(text, 16, Color("#f0f6e0"), "black"))
+		var cnt := UI.box({c = [line], radius = 9.0, border = 0.0, shadow = Vector2.ZERO, pad = Vector4(8, 0, 8, 1)})
+		cnt.add_child(UI.label(str(n), 13, INK, "black"))
+		hr.add_child(cnt)
+		v.add_child(hr)
+	var row := func(name: String, desc: String, col: Color, awk: int) -> void:
+		var hr := UI.hbox(10)
+		var chip := UI.box({c = [col], radius = 7.0, border = 0.0, shadow = Vector2.ZERO, pad = Vector4(8, 1, 8, 2)})
+		var cl := UI.label(name, 17, INK, "black")
+		cl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		chip.add_child(cl)
+		chip.custom_minimum_size.x = 168
+		hr.add_child(chip)
+		if awk > 0:
+			var ab := UI.box({c = [Color("#c8202a")], radius = 9.0, border = 0.0, shadow = Vector2.ZERO, pad = Vector4(6, 1, 6, 1)})
+			ab.add_child(UI.label("覚醒%d" % awk, 12, Color.WHITE, "black"))
+			ab.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+			hr.add_child(ab)
+		var dl := UI.label(desc, 15, Color("#e6dcbc"))
+		dl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		hr.add_child(dl)
+		v.add_child(hr)
+	head.call("レーススキル", (1 if sk.unique != null else 0) + sk.race.size())
+	if sk.unique != null:
+		var u := UI.box({c = [Color("#4a2440"), Color("#2c3f3a"), Color("#3a2850")], angle = 90.0, radius = 10.0, border = 1.5, border_color = Color("#ffffff88"), shadow = Vector2.ZERO, pad = Vector4(12, 3, 12, 5)})
+		var uv := UI.vbox(0)
+		uv.add_child(UI.label(sk.unique.name, 20, Color.WHITE, "title"))
+		uv.add_child(UI.label(sk.unique.desc, 15, Color("#f2ead2")))
+		u.add_child(uv)
+		v.add_child(u)
+	for id in sk.race:
+		var si := IK.skill_info(id)
+		row.call(si.name, si.desc, Color("#ffd25a"), 0 if base.race.has(id) else 2)
+	head.call("育成スキル", sk.support.size())
+	for id in sk.support:
+		var si := IK.skill_info(id)
+		row.call(si.name, si.desc, Color("#8fe07a"), 0 if base.support.has(id) else 4)
+	var ft := UI.label("右へスワイプで表へ", 11, Color("#bba86e"))
+	put.call(ft, Vector2(30, 868 - 26), Vector2(300, 16))
+	var who := UI.hbox(8)
+	who.alignment = BoxContainer.ALIGNMENT_END
+	var we := UI.label(c.epithetText, 12, Color("#f0f6e0"), "black")
+	we.size_flags_vertical = Control.SIZE_SHRINK_END
+	who.add_child(we)
+	who.add_child(UI.label(c.name, 17, Color.WHITE, "title"))
+	put.call(who, Vector2(200, 868 - 32), Vector2(400, 24))
+	return root
 
 
 func _skill_row(kind: String, name: String, desc: String, col: Color) -> Control:

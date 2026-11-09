@@ -646,18 +646,35 @@ function awakenPanel(c, count) {
   ]);
 }
 
+/** 裏面のスキル（cardView の back）。覚醒で増えたものに印。 */
+function cardBack(c, aw = 0) {
+  const sk = I.skillsOf(c, aw), base = I.skillsOf(c);
+  return {
+    unique: sk.unique, race: sk.race, support: sk.support,
+    plus: { race: new Set(sk.race.filter((x) => !base.race.includes(x))), support: new Set(sk.support.filter((x) => !base.support.includes(x))) },
+  };
+}
+/** 大きく見るカード：左へスワイプで裏（スキル）、右で表。ボタンでも返せる。 */
+function flipCard(card, back) {
+  const v = cardView(card, { scale: Math.min(0.7, (window.innerHeight - 170) / 880, (window.innerWidth - 60) / 630), tilt: 'full', eager: true, back });
+  const b = button('裏面（スキル）を見る', () => { v.flip(!v.isBack()); });
+  // 返った向きにボタンの字を合わせる（スワイプで返したときも）
+  new MutationObserver(() => { b.textContent = v.classList.contains('back') ? '表面を見る' : '裏面（スキル）を見る'; }).observe(v, { attributes: true, attributeFilter: ['class'] });
+  return [el('div.ik-big', v), el('div.ik-flipb', b)];
+}
+
 function showCard(app, c) {
   const p = app.ik;
   let m = null;
   m = modal(`${epithetOf(c)} ${c.name}`, [
-    el('div.ik-big', cardView(c, { scale: Math.min(0.7, (window.innerHeight - 170) / 880, (window.innerWidth - 60) / 630), tilt: 'full' })),
+    ...flipCard(c, cardBack(c, I.awakenOfCard(p, c.id))),
     c.record ? el('p.ik-record', { text: `戦績　${c.record}` }) : null,
     I.GEAR_KEYS.some((k) => c.gear?.[k]) ? el('p.ik-record', ['実際の馬具　', el('span.gearline', gearChips(c.gear))]) : null,
     p.cards[c.id] ? awakenPanel(c, p.cards[c.id]) : null,
     p.cards[c.id] ? shardActions(app, c, () => m.close()) : null,
     el('h4.ik-skh', { text: 'スキル' }),
     skillList(c, I.awakenOfCard(p, c.id)),
-    el('p.note', { text: `所持 ${p.cards[c.id] ?? 0} 枚　サポートの得意：${I.STAT_LABEL[I.supportType(c)]}の練習${holoOf(c) ? `　ホロ：${holoName(holoOf(c))}` : ''}　（ドラッグで傾けられる）` }),
+    el('p.note', { text: `所持 ${p.cards[c.id] ?? 0} 枚　サポートの得意：${I.STAT_LABEL[I.supportType(c)]}の練習${holoOf(c) ? `　ホロ：${holoName(holoOf(c))}` : ''}　（ドラッグで傾き、左へスワイプで裏面）` }),
   ], { wide: true });
 }
 
@@ -1951,12 +1968,18 @@ function recordsView(app, go) {
 
 // ---------------------------------------------------------------- カードエディット（完成馬をカードにする）
 
+/** 完成馬のカードの裏面：固有（LM の親から）と完成馬のレーススキル。完成馬は育成スキル（サポートの）を持たない。 */
+function myCardBack(h) {
+  const u = h.cardId ? I.uniqueCardOf(I.cardById(h.cardId)) : h.unique ? I.cardById(h.unique) : null;
+  return { unique: u ? I.skillsOf(u).unique : null, race: I.finishedSkills(h), support: [], note: '完成馬は育成スキルを持たない（育成で覚えたスキルはレーススキルに入る）' };
+}
+
 /** 自分のカード（完成馬をカードにしたもの）を大きく見る。 */
 function showMyCard(app, h) {
   const c = I.finishedCard(h);
   let m = null;
   m = modal(`${epithetOf(c)} ${c.name}`, [
-    el('div.ik-big', cardView(c, { scale: Math.min(0.7, (window.innerHeight - 170) / 880, (window.innerWidth - 60) / 630), tilt: 'full', eager: true })),
+    ...flipCard(c, myCardBack(h)),
     el('p.ik-record', { text: `戦績　${h.starts}戦${h.wins}勝（重賞 ${h.gradedWins}・GI ${h.giWins}）　評価 ${h.rank}` }),
     el('div.ik-gbtns', [
       button('カードを編集', () => { m.close(); app.go('ik', { view: 'cardedit', id: h.id }); }, { cls: 'primary' }),

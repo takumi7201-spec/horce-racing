@@ -1327,6 +1327,34 @@ canvas.race3d { width: 100%; height: 100%; display: block; }
 .tc-low .cp small { display: block; font-size: 11px; color: #cdbb85; letter-spacing: .1em; }
 .tc-low .cp b { display: block; font: 900 46px/1 var(--font); color: var(--ink); }
 .tc-low .foot { display: flex; justify-content: space-between; font-size: 11px; color: #bba86e; margin-top: auto; }
+/* 裏面（左へスワイプ。cardview.js の backFace）：絵はモノクロ、下の欄を広げてスキルの一覧 */
+.tc[hidden] { display: none; }
+.tc-back .tc-art { inset: 0 0 410px 0; }
+.tc-back .tc-art .b { filter: grayscale(1) blur(6px) brightness(.9); }
+.tc-back .tc-art .f { filter: grayscale(1) contrast(1.08); }
+.tc-back .tc-low { height: 410px; padding: 14px 18px 10px; gap: 5px; border-top: 2px solid var(--line); }
+.bk-foot { align-items: flex-end; }
+.bk-who { display: flex; align-items: baseline; gap: 8px; color: var(--ink); }
+.bk-who small { font-size: 12px; letter-spacing: .08em; }
+.bk-who b { font: 900 17px/1 var(--font); color: #fff; letter-spacing: .04em; }
+.bk-h { display: flex; align-items: baseline; gap: 10px; border-bottom: 1.5px solid #ffffff22; padding-bottom: 2px; }
+.bk-h i { font: 900 16px/1.2 var(--font); font-style: normal; letter-spacing: .12em; color: var(--ink); }
+.bk-h small { font: 900 13px/1 var(--font); color: #10251a; background: var(--line); border-radius: 999px; padding: 2px 9px; }
+.bk-uniq { padding: 4px 12px 5px; border-radius: 10px; background: linear-gradient(90deg, #ff5e7e33, #ffb34733, #6dff9a2a, #4fd8ff33, #d36bff33); border: 1.5px solid #ffffff66; }
+.bk-uniq b { display: block; font: 900 20px/1.25 var(--font); color: #fff; letter-spacing: .04em; }
+.bk-uniq span { display: block; font-size: 15px; line-height: 1.3; color: #f2ead2; }
+.bk-rows { display: flex; flex-direction: column; gap: 4px; }
+.bk-row { display: flex; align-items: center; gap: 10px; font-size: 15px; line-height: 1.25; color: #e6dcbc; }
+.bk-row b { flex: none; min-width: 168px; padding: 2px 10px; border-radius: 7px; font: 900 17px/1.2 var(--font); color: #10251a; text-align: center; }
+.bk-row.race b, .bk-chip.race { background: #ffd25a; }
+.bk-row.support b, .bk-chip.support { background: #8fe07a; }
+.bk-row em { flex: none; font: 900 12px/1 var(--font); font-style: normal; color: #fff; background: #c8202a; border-radius: 999px; padding: 3px 7px; }
+.bk-row span { min-width: 0; }
+.bk-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.bk-chip { padding: 3px 11px; border-radius: 7px; font: 900 16px/1.25 var(--font); color: #10251a; }
+.bk-none { margin: 0; font-size: 15px; color: #9f9578; }
+.tc-back .tc-art .b.baked { filter: grayscale(1) brightness(.9); transform: none; }
+.ik-flipb { display: flex; justify-content: center; margin: 4px 0 2px; }
 /* 箔押し（SSR 以上） */
 .tc .foil { background: var(--foil); background-size: 220% 100%; background-position: calc(30% + var(--px) * .5) 0; -webkit-background-clip: text; background-clip: text; color: transparent !important;
   filter: drop-shadow(0 1px 0 #000c) drop-shadow(0 -1px 0 #ffffff70) drop-shadow(0 0 6px var(--glow)); }
