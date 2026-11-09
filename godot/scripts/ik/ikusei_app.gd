@@ -176,7 +176,13 @@ func _ready() -> void:
 	if args.has("pull"):
 		_do_pull(int(args.pull))
 	if args.has("card"):
-		_show_card(IK.card(args.card))
+		# --card=own は持っているカードのうち枚数のいちばん多いもの（覚醒の表示を見る）
+		var cid := String(args.card)
+		if cid == "own":
+			var own := IK.owned(p)
+			own.sort_custom(func(a, b): return IK.count_of(p, a.id) > IK.count_of(p, b.id))
+			cid = own[0].id
+		_show_card(IK.card(cid))
 		# 確かめ用：裏面に返す（--cardback=1）
 		if args.has("cardback") and _last_flip != null:
 			_last_flip.get_meta("flip").call(true)
@@ -1553,7 +1559,7 @@ func _show_card(c: Dictionary) -> void:
 	var n := IK.count_of(p, c.id)
 	var row := UI.hbox(24)
 	var aw0 := IK.awaken_of(n)
-	var fl := _flip_card(c, 320, IK.skills_of(c, aw0), IK.skills_of(c, 0))
+	var fl := _flip_card(c, 320, IK.skills_of(c, aw0), IK.skills_of(c, 0), aw0 if n > 0 else -1)
 	var left := UI.vbox(8)
 	left.add_child(fl)
 	var fb := UI.button("裏面（スキル）を見る", func() -> void: fl.get_meta("flip").call(not fl.get_meta("back")), "paper", 14)
@@ -1568,19 +1574,9 @@ func _show_card(c: Dictionary) -> void:
 	hd.add_child(UI.label(c.epithetText, 14, Color("#5d7a10"), "black"))
 	info.add_child(hd)
 	info.add_child(UI.label(c.name if n > 0 else "？？？（未所持）", 32, INK, "title"))
-	var aw := IK.awaken_of(n)
-	info.add_child(UI.label("所持 %d 枚　覚醒 %s　%s・%s（%dm）・%s　カードパワー %d" % [n, "◆".repeat(aw) + "◇".repeat(4 - aw), IK.surf_of(c), c.distCat, int(c.dist), IK.style_name(float(c.style)), int(c.power)], 13, Color("#4a5b58")))
-	var sk := IK.skills_of(c, aw)
-	var sv := UI.vbox(6)
-	if sk.unique != null:
-		sv.add_child(_skill_row("固有", sk.unique.name, sk.unique.desc, SUN))
-	for id in sk.race:
-		var si := IK.skill_info(id)
-		sv.add_child(_skill_row("レース", si.name, si.desc, Color("#9cc8f0")))
-	for id in sk.support:
-		var si := IK.skill_info(id)
-		sv.add_child(_skill_row("サポート", si.name, si.desc, LEAF2))
-	info.add_child(sv)
+	# スキルはカードの裏面、覚醒は表面の下の欄に出す（ゲームと同じ。右の欄に一覧を重ねて置かない）
+	info.add_child(UI.label("所持 %d 枚　%s・%s（%dm）・%s　カードパワー %d" % [n, IK.surf_of(c), c.distCat, int(c.dist), IK.style_name(float(c.style)), int(c.power)], 13, Color("#4a5b58")))
+	info.add_child(UI.label("左へスワイプ（ドラッグ）か下のボタンで裏面のスキルを見る", 12, Color("#4a5b58")))
 	var cg := IK.clean_gear(c.get("gear"))
 	if not cg.is_empty():
 		info.add_child(UI.label("実際の馬具　" + "・".join(IK.gear_names(cg)), 13, INK, "black"))
@@ -1621,7 +1617,9 @@ var _last_flip: Control = null
 ## カードの表と裏（ゲームの cardview.js の backFace と同じ並び）。左へスワイプで裏、右で表。
 ## 返す動きは横に縮めて面を入れ替え、広げる（Godot の 2D に遠近は無いので回転の代わり）。
 ## meta: "flip"（bool を渡して返す Callable）・"back"（いま裏か）・"btn"（字を合わせるボタン、任意）
-func _flip_card(c: Dictionary, w: float, sk: Dictionary, base: Dictionary) -> Control:
+## awaken：持っているカードの覚醒の段（0〜4、持っていなければ -1）。表面の下の欄の獲得方法（弾）の上に覚醒を重ねる
+## （表の絵はブラウザのカードを撮ったものなので、その欄だけ塗り直して書く）。
+func _flip_card(c: Dictionary, w: float, sk: Dictionary, base: Dictionary, awaken := -1) -> Control:
 	var h := w * 880.0 / 630.0
 	var root := Control.new()
 	root.custom_minimum_size = Vector2(w, h)
@@ -1630,6 +1628,10 @@ func _flip_card(c: Dictionary, w: float, sk: Dictionary, base: Dictionary) -> Co
 	front.position = Vector2.ZERO
 	front.size = Vector2(w, h)
 	root.add_child(front)
+	if awaken >= 0:
+		var ov := _awaken_foot(c, awaken)
+		ov.scale = Vector2.ONE * (w / 630.0)
+		front.add_child(ov)
 	var holder := Control.new()
 	holder.size = Vector2(w, h)
 	holder.mouse_filter = Control.MOUSE_FILTER_STOP
@@ -1674,6 +1676,31 @@ func _flip_card(c: Dictionary, w: float, sk: Dictionary, base: Dictionary) -> Co
 					flip.call(dx < 0.0)
 	front.gui_input.connect(swipe)
 	holder.gui_input.connect(swipe)
+	return root
+
+
+## 表面の下の欄の左（630×880 の座標）：覚醒の札と ◆、看板のレース
+func _awaken_foot(c: Dictionary, aw: int) -> Control:
+	var root := Control.new()
+	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var bg := ColorRect.new()
+	bg.color = Color("#0b1710")
+	bg.position = Vector2(24, 832)
+	bg.size = Vector2(450, 32)
+	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(bg)
+	var line: Color = {LM = Color.WHITE, SSR = Color("#f2d47a"), SR = Color("#dfe5ee"), R = Color("#e6a874"), N = Color("#9fdc84")}.get(c.rar, Color.WHITE)
+	var hb := UI.hbox(6)
+	hb.position = Vector2(30, 839)
+	hb.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var tag := UI.box({c = [line], radius = 9.0, border = 0.0, shadow = Vector2.ZERO, pad = Vector4(8, 1, 8, 2)})
+	tag.add_child(UI.label("覚醒 MAX" if aw >= 4 else "覚醒 %d" % aw, 12, INK, "black"))
+	hb.add_child(tag)
+	hb.add_child(UI.label("◆".repeat(aw) + "◇".repeat(4 - aw), 12, Color("#f0f6e0")))
+	var race: Dictionary = c.get("race", {})
+	# 年は JSON から小数で来るので "%d"（str() だと 2001.0）
+	hb.add_child(UI.label("　%d %s 優勝" % [int(race.get("year", 0)), str(race.get("name", ""))], 11, Color("#bba86e")))
+	root.add_child(hb)
 	return root
 
 

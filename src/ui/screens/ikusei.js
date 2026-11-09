@@ -614,38 +614,6 @@ function skillTags(ids, uniq = null, { small = false } = {}) {
   ]);
 }
 
-/** カードのスキルの一覧（説明つき）。 */
-function skillList(c, aw = 0) {
-  const sk = I.skillsOf(c, aw);
-  const base = I.skillsOf(c);
-  // 覚醒で増えたスキルには印を付ける
-  const row = (cls, head, name, desc, extra) => el('div.ik-skrow', [el(`span.ik-sk.${cls}`, name), extra ? el('em.ik-awk', { text: `覚醒${extra}` }) : null, el('small', { text: `${head}　${desc}` })]);
-  return el('div.ik-sklist', [
-    sk.unique ? row('uniq', '固有', sk.unique.name, sk.unique.desc) : null,
-    ...sk.race.map((id) => [I.skillInfo(id), base.race.includes(id) ? 0 : 2]).map(([x, e]) => row('race', 'レース', x.name, x.desc, e)),
-    ...sk.support.map((id) => [I.skillInfo(id), base.support.includes(id) ? 0 : 4]).map(([x, e]) => row('support', 'サポート', x.name, x.desc, e)),
-  ]);
-}
-
-/** 覚醒（同じカードを重ねて持つ利点）の段と効き目。 */
-function awakenPanel(c, count) {
-  const A = I.AWAKEN;
-  const aw = Math.max(0, Math.min(A.max, count - 1));
-  const lv = (n, text) => el(`div.ik-awrow${aw >= n ? '.on' : ''}`, [el('b', { text: `覚醒${n}` }), el('span', { text })]);
-  return el('div.ik-awaken', [
-    el('div.ik-awhead', [
-      el('b', { text: aw >= A.max ? '覚醒 MAX' : `覚醒 ${aw}` }),
-      el('i', { text: '◆'.repeat(aw) + '◇'.repeat(A.max - aw) }),
-      el('small', { text: aw >= A.max ? `所持 ${count} 枚（5 枚で完凸）` : `所持 ${count} 枚・あと ${aw + 2 - count} 枚で覚醒 ${aw + 1}` }),
-    ]),
-    el('p.note', { text: `同じカードを 2 枚目から重ねると 1 段ずつ覚醒する（カードは減らない）。いまの効き目　育てる馬：初期値 +${A.init * aw}・伸びしろの上限 +${A.cap * aw}・レーススキル +${Math.round(A.skill * aw * 100)}%　サポート：友情練習 +${Math.round(A.friend * aw * 100)}%・来ない確率 −${Math.round(A.show * aw * 100)}%` }),
-    lv(1, '育てる馬の初期値・伸びしろの上限・レーススキルの効き目、サポートの友情練習・来やすさが上がる（以降も段ごとに）'),
-    lv(2, 'レーススキルが 1 つ増える'),
-    lv(3, 'サポートのとき、友情練習 1 回でスキルを教える'),
-    lv(4, 'サポートスキルが 1 つ増える（完凸）'),
-  ]);
-}
-
 /** 裏面のスキル（cardView の back）。覚醒で増えたものに印。 */
 function cardBack(c, aw = 0) {
   const sk = I.skillsOf(c, aw), base = I.skillsOf(c);
@@ -655,8 +623,8 @@ function cardBack(c, aw = 0) {
   };
 }
 /** 大きく見るカード：左へスワイプで裏（スキル）、右で表。ボタンでも返せる。 */
-function flipCard(card, back) {
-  const v = cardView(card, { scale: Math.min(0.7, (window.innerHeight - 170) / 880, (window.innerWidth - 60) / 630), tilt: 'full', eager: true, back });
+function flipCard(card, back, awaken = null) {
+  const v = cardView(card, { scale: Math.min(0.7, (window.innerHeight - 170) / 880, (window.innerWidth - 60) / 630), tilt: 'full', eager: true, back, awaken });
   const b = button('裏面（スキル）を見る', () => { v.flip(!v.isBack()); });
   // 返った向きにボタンの字を合わせる（スワイプで返したときも）
   new MutationObserver(() => { b.textContent = v.classList.contains('back') ? '表面を見る' : '裏面（スキル）を見る'; }).observe(v, { attributes: true, attributeFilter: ['class'] });
@@ -667,13 +635,11 @@ function showCard(app, c) {
   const p = app.ik;
   let m = null;
   m = modal(`${epithetOf(c)} ${c.name}`, [
-    ...flipCard(c, cardBack(c, I.awakenOfCard(p, c.id))),
+    // スキルは裏面、覚醒は表面の下の欄に出す（モーダルの下に一覧と覚醒の表は重ねて置かない）
+    ...flipCard(c, cardBack(c, I.awakenOfCard(p, c.id)), p.cards[c.id] ? I.awakenOfCard(p, c.id) : null),
     c.record ? el('p.ik-record', { text: `戦績　${c.record}` }) : null,
     I.GEAR_KEYS.some((k) => c.gear?.[k]) ? el('p.ik-record', ['実際の馬具　', el('span.gearline', gearChips(c.gear))]) : null,
-    p.cards[c.id] ? awakenPanel(c, p.cards[c.id]) : null,
     p.cards[c.id] ? shardActions(app, c, () => m.close()) : null,
-    el('h4.ik-skh', { text: 'スキル' }),
-    skillList(c, I.awakenOfCard(p, c.id)),
     el('p.note', { text: `所持 ${p.cards[c.id] ?? 0} 枚　サポートの得意：${I.STAT_LABEL[I.supportType(c)]}の練習${holoOf(c) ? `　ホロ：${holoName(holoOf(c))}` : ''}　（ドラッグで傾き、左へスワイプで裏面）` }),
   ], { wide: true });
 }

@@ -114,8 +114,9 @@ export const epithetOf = (c) => {
 /**
  * back：裏面に出すスキル { unique: {name, desc} | null, race: [id], support: [id], plus: {race: Set, support: Set}（覚醒で増えた印）, note }。
  * 渡すと、左へスワイプで裏・右へスワイプで表に返る（大きく見る画面だけ）。wrap.flip(true/false) でも返せる。
+ * awaken：持っているカードの覚醒の段（0〜4）。渡すと下の欄の獲得方法（弾・期間限定・イベント報酬）の代わりに覚醒を出す。
  */
-export function cardView(c, { scale = 0.4, onClick = null, count = 0, dim = false, badge = null, holo = null, tilt = 'hover', eager = false, back = null } = {}) {
+export function cardView(c, { scale = 0.4, onClick = null, count = 0, dim = false, badge = null, holo = null, tilt = 'hover', eager = false, back = null, awaken = null } = {}) {
   const T = THEME[c.rar];
   const H = HOLO[c.rar];
   const foil = FOIL[c.rar] ?? null;
@@ -143,7 +144,9 @@ export function cardView(c, { scale = 0.4, onClick = null, count = 0, dim = fals
   const no = Number(c.id.split('-')[1]);
   const foot = c.myCard
     ? [el('span', { text: `${packLine(c)}　${c.race.year} ${c.race.name}${c.race.won ? ' 優勝' : ''}` }), el('span', { text: 'ORIGINAL' })]
-    : [el('span', { text: `${packLine(c)}　${c.race.year} ${c.race.name} 優勝` }), el('span', { text: `No.${String(no).padStart(2, '0')}/${PACK_SIZE[c.pack]}` })];
+    : [awaken != null
+      ? el('span.awk', [el('b', { text: awaken >= 4 ? '覚醒 MAX' : `覚醒 ${awaken}` }), el('i', { text: '◆'.repeat(awaken) + '◇'.repeat(4 - awaken) }), `　${c.race.year} ${c.race.name} 優勝`])
+      : el('span', { text: `${packLine(c)}　${c.race.year} ${c.race.name} 優勝` }), el('span', { text: `No.${String(no).padStart(2, '0')}/${PACK_SIZE[c.pack]}` })];
   const card = el(`div.tc.r-${c.rar}${foil ? '.foiled' : ''}`, { style: Object.entries(vars).map(([k, v]) => `${k}:${v}`).join(';') }, [
     el('div.tc-in', [
       // 絵の上に光（日の光芒・暖色の照り）は重ねない。明るく照らすと馬が白っぽく沈み、模様と溶けて見にくかった（「カードは照らさなくていい」）
