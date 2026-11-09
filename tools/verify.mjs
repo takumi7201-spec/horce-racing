@@ -1488,6 +1488,57 @@ section('カード育成モード');
     check(`育成中の出来事：1 回の育成で ${n} 回（続けては出ない）、同じターンはいつも同じ出来事、答えると体力・気分・能力・絆が動き、表 ${I.TRAIN_EVENTS.length} 種の形が正しい`,
       n >= 2 && n <= 14 && !consec && stable && moved && shape && r.evDone.length === n && peekHorseId() === idBefore);
   }
+  // 夏合宿・サポートの連続イベント・ガチャの天井
+  {
+    const ep = rich(I.newProfile(61));
+    I.pull(ep, 60);
+    const own = I.owned(ep);
+    const es = own.find((c) => c.sex === '牡'), ed = own.find((c) => c.sex === '牝');
+    const sup = own.filter((c) => c !== es && c !== ed).slice(0, 4).map((c) => c.id);
+    const r = I.startRun(ep, { sire: es.id, dam: ed.id, name: 'ガッシュク' }, sup);
+    // 夏合宿：3 歳 8 月の練習 3 回だけ。サポートは全員来て、伸びは 1.5 倍
+    let camps = 0, allCome = true, boost = true, stories = 0, ordered = true, taught = true, j = 0;
+    const seen = {};
+    while (!I.runDone(r)) {
+      const ev = I.pendingEvent(r);
+      if (ev) {
+        if (ev.story != null) {
+          stories++;
+          ordered &&= (seen[ev.support] ?? 0) === ev.story && (r.bonds[ev.support] ?? 0) >= ev.story + 1;
+          seen[ev.support] = ev.story + 1;
+          const before = I.runSkills(r).length;
+          I.resolveEvent(r, 1);
+          if (ev.story === 2) {
+            const all = I.skillsOf(I.cardById(r.supports[ev.support]), 0).race;
+            taught &&= all.every((x) => I.runSkills(r).includes(x)) && I.runSkills(r).length >= before;
+          }
+        } else I.resolveEvent(r, 0);
+      }
+      if (I.isCamp(r)) {
+        camps++;
+        allCome &&= Object.values(I.trainingBoard(r)).flat().length === r.supports.length;
+        const p = I.trainingPreview(r, 'speed');
+        const off = { ...r, turn: r.turn + 4 };   // 同じ並び（練習 n 回目）の翌月と比べる代わりに、倍率だけ見る
+        boost &&= I.CAMP_MUL === 1.5 && !I.isCamp(off) && p.gains && Object.values(p.gains).some((v) => v > 0);
+      }
+      if (I.isRaceTurn(r)) I.raceTurn(r, I.raceOptions(r)[0].id); else if (r.energy < 45) I.rest(r); else I.train(r, I.STATS[j++ % 5]);
+    }
+    const shape = Object.values(I.SUPPORT_STORIES).every((a) => a.length === 3 && a.every((e) => e.choices.length === 2) && a[2].choices.every((c) => c.effects.teach));
+    check(`夏合宿：3 歳 8 月の練習 ${camps} 回はサポートが全員来て伸びが ${I.CAMP_MUL} 倍。サポートの連続イベント：${stories} 話（絆の順に第 1〜3 話、最終話でスキルをすべて覚える）`,
+      camps === 3 && allCome && boost && stories >= 3 && ordered && taught && shape && peekHorseId() === idBefore);
+    // 天井：1 回 1 点、100 点で PICK UP のカードと交換。足りなければ交換できない
+    const gp = rich(I.newProfile(62));
+    I.pull(gp, 99);
+    let early = false;
+    try { I.exchangePity(gp, I.PICKUP[0]); } catch { early = true; }
+    I.pull(gp, 1);
+    const n0 = gp.cards[I.PICKUP[1]] ?? 0;
+    const got = I.exchangePity(gp, I.PICKUP[1]);
+    let other = false;
+    try { gp.pity = 200; I.exchangePity(gp, 'P1-01'); } catch { other = true; }
+    check(`ガチャの天井：1 回 1 点、${I.PITY_COST} 点で PICK UP（${I.PICKUP.map((id) => I.cardById(id).name).join('・')}）と交換、足りなければ交換できない`,
+      early && got.card.id === I.PICKUP[1] && gp.cards[I.PICKUP[1]] === n0 + 1 && other && I.PICKUP.length === 3);
+  }
   // ウイコイン：ガチャは 1 回 1 枚。新しいプロフィールは 30 枚、足りなければ引けない。古いプロフィールは完成馬の編成をミッション済みにして配る
   {
     const cp = I.newProfile(31);

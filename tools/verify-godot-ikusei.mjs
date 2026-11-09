@@ -80,6 +80,11 @@ function scenario(seed) {
     rec: ['runs', 'starts', 'wins', 'giWins', 'goals', 'battles', 'battleWins', 'rank', 'rankw', 'rival', 'rivalw', 'rival3w', 'event', 'eventw'].map((k) => rec[k] ?? 0),
     best: rec.best, fast: Object.keys(rec.fast ?? {}).sort().map((k) => [k, Math.round(rec.fast[k].t * 100), rec.fast[k].horse, rec.fast[k].race, rec.fast[k].mode, rec.fast[k].ground]),
     hall, rel, stage: IK.stageLabel('nakayama|芝|2500'),
+    // 天井：引いた回数の点、足りないと断る、100 点で PICK UP と交換
+    pity: (() => { const p0 = IK.pityOf(p); let no = 0; try { IK.exchangePity(p, IK.PICKUP[0]); } catch { no = 1; } p.pity = 107;
+      const x = IK.exchangePity(p, IK.PICKUP[2]); return [p0, no, IK.pityOf(p), x.card.id, x.isNew, x.awaken, p.cards[IK.PICKUP[2]]]; })(),
+    // 夏合宿と連続イベントは筋書きの練習・出来事（steps）に出る。話の数と合宿の練習の数も見る
+    story: [steps.filter((x) => x[0] === 'event' && String(x[1]).startsWith('story:')).length, run.chain ?? null],
   };
   return { pulls, steps, stats: h.stats, rating: h.rating, skills: h.skills, name: h.name, sex: h.sex, coat: h.coat, battle: orders(b.result), event: orders(e.result), event2: orders(e2.result), event3: orders(e3.result), battle2: orders(b2.result), extra,
     rival: orders(rv.result), memory, goalrival, coins: [IK.coinsOf(p), rv.coins, skip, IK.missionGain(p, { sire: sire.id, dam: dam.id, supports: sup }).length, IK.missionsOf(p).length] };

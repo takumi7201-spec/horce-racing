@@ -415,9 +415,45 @@ function gachaView(app, go) {
       ]),
       el('p.note', { text: `ウイコイン ${coins} 枚（1 回 1 枚）　排出率 ${Object.entries(I.RATES).map(([k, v]) => `${k} ${Math.round(v * 100)}%`).join('・')}　通算 ${p.pulls} 回` }),
       coins < 10 ? coinHowto(app, go) : null,
+      pityPanel(app, go),
     ]),
     last.length ? card(`引いたカード（${last.length} 枚）`, [pulledGrid(app, last)]) : null,
   ];
+}
+
+/**
+ * ガチャの天井：1 回引くごとに 1 点、PITY_COST 点で PICK UP のカードを 1 枚選んでもらえる。
+ * 点の棒と、届いたら PICK UP の 3 頭の顔（押すと交換の確認）。
+ */
+function pityPanel(app, go) {
+  const p = app.ik;
+  const pt = I.pityOf(p);
+  const ready = pt >= I.PITY_COST;
+  const exchange = async (c) => {
+    if (!ready) return toast(`天井まであと ${I.PITY_COST - pt} 回`, { bad: true });
+    if (!await ask(`天井の ${I.PITY_COST} 点で${c.name}（${c.rar}）と交換する？`, { ok: '交換する', cancel: 'やめる' })) return;
+    let got;
+    try { got = I.exchangePity(p, c.id); } catch (e) { return toast(e.message, { bad: true }); }
+    save(app);
+    if (got.isNew) app.ikNew = true;
+    sound.play('bell');
+    toast(`${c.name}を手に入れた${got.isNew ? '（NEW）' : got.awaken ? `（覚醒${got.awaken}）` : ''}`);
+    go('gacha');
+  };
+  return el(`div.ik-pity${ready ? '.ready' : ''}`, [
+    el('div.ik-pity-h', [
+      el('b', { text: '天井' }),
+      el('span.bar', [el('i', { style: `width:${Math.min(1, pt / I.PITY_COST) * 100}%` })]),
+      el('small', { text: `${Math.min(pt, I.PITY_COST)} / ${I.PITY_COST} 点${pt > I.PITY_COST ? `（+${pt - I.PITY_COST}）` : ''}` }),
+    ]),
+    el('div.ik-pity-cards', I.PICKUP.map((id) => {
+      const c = I.cardById(id);
+      const f = el('span.ik-pity-face');
+      whenVisible(f, () => stickerInto(f, c, { mode: 'face', zoom: 2.4 }));
+      return el('button.ik-pity-c', { onclick: () => exchange(c), disabled: !ready }, [f, el('b', { text: c.name }), el('small', { text: `${c.rar}・所持 ${p.cards[id] ?? 0}` })]);
+    })),
+    el('p.note', { text: ready ? 'PICK UP から 1 頭を選んで交換できる。' : `1 回引くごとに 1 点。${I.PITY_COST} 点で PICK UP の 1 頭と交換できる（あと ${I.PITY_COST - pt} 回）。` }),
+  ]);
 }
 
 /**
@@ -509,10 +545,9 @@ function pulledGrid(app, got) {
  * ガチャのバナー。ガチャは一つなので、新しく入ったカード（PICK UP：第 4 弾【女傑たちの凱歌】の LM 3 頭）の一枚絵を背景に、切り抜きを並べ、
  * 収録の LM の顔・収録数と所持数・排出率を載せる。絵はカードの一枚絵を使い回す（cardArt。WebGL を増やさない：落とし穴 23）。
  */
-const GACHA_PICK = ['アーモンドアイ', 'ザルカヴァ', 'レイチェルアレクサンドラ'];
 function gachaBanner(app) {
   const inPool = (c) => c.pack in I.PACKS;
-  const picks = GACHA_PICK.map((n) => I.CARDS.find((c) => c.name === n)).filter(Boolean);
+  const picks = I.PICKUP.map((id) => I.cardById(id)).filter(Boolean);
   // 顔の列は新しい弾の LM だけ（全弾の LM 30 種を並べると 2 段にあふれて馬の絵に重なった）
   const newPack = picks[0]?.pack ?? 'P4';
   const lms = I.CARDS.filter((c) => c.pack === newPack && c.rar === 'LM');
@@ -1128,7 +1163,7 @@ function trainView(app, go) {
     const sc = I.cardById(id);
     const b = (run.bonds ?? [])[i] ?? 0;
     const need = I.bondNeed(run, i);
-    return { sc, b, need, done: b >= need };
+    return { sc, b, need, done: b >= need, st: I.storyStep(run, i) };
   });
   const open = !!app.ikSkillOpen;
   const skillBar = el('div.ik-skbar', [
@@ -1149,8 +1184,8 @@ function trainView(app, go) {
   const skillMore = el('div.ik-skwrap', el('div.ik-skclip', el('div.ik-skmore', [
     ...[...(I.uniqueOf(c) ? [{ ...I.uniqueOf(c), type: 'uniq' }] : []), ...I.runSkills(run).map((id) => I.skillInfo(id)).filter(Boolean)]
       .map((x) => el('div', [el(`span.ik-sk.sm.${x.type}`, { text: x.name }), el('small', { text: x.desc })])),
-    el('div', [el('small', { text: 'サポートと友情練習を重ねると、そのサポートのレーススキルを覚える（完成馬に残る）。' })]),
-    el('div.ik-bonds', bonds.map((x) => el(`span.ik-bond${x.done ? '.done' : ''}`, [el(`b.${RCLS(x.sc.rar)}`, { text: x.sc.name }), el('i', { text: x.done ? '習得' : `${x.b}/${x.need}` })]))),
+    el('div', [el('small', { text: 'サポートと友情練習を重ねると、そのサポートのレーススキルを覚える（完成馬に残る）。絆が 1・2・3 に届くと、そのサポートの話が 1 話ずつ出て、最終話でスキルをすべて覚える。' })]),
+    el('div.ik-bonds', bonds.map((x) => el(`span.ik-bond${x.done ? '.done' : ''}`, [el(`b.${RCLS(x.sc.rar)}`, { text: x.sc.name }), el('i', { text: x.done ? '習得' : `${x.b}/${x.need}` }), el('i.st', { text: x.st >= I.STORY_EPISODES ? '話 完結' : `話 ${x.st}/${I.STORY_EPISODES}` })]))),
     run.combo?.length ? el('div', [el('small', { text: `組み合わせ：${run.combo.map((x) => `${I.COMBO_KINDS[x.kind]}${x.label}×${x.n}`).join('・')}（練習 +${Math.round((I.comboMul(run) - 1) * 100)}%）` })]) : null,
   ])));
   const skillGroup = el(`div.ik-skgroup${open ? '.open' : ''}`, [skillBar, skillMore]);
@@ -1223,8 +1258,8 @@ function trainView(app, go) {
     const face = el('span.ik-ev-face');
     if (sc) stickerInto(face, sc, { mode: 'face', zoom: 2.4 });
     else face.append(ic('spark', 30));
-    action = el('section.ik-tevent', [
-      el('div.ik-tev-head', [face, el('div', [el('small', { text: '出来事' }), el('b', { text: ev.title })])]),
+    action = el(`section.ik-tevent${ev.story != null ? '.story' : ''}`, [
+      el('div.ik-tev-head', [face, el('div', [el('small', { text: ev.story != null ? `サポートの話 ${ev.story + 1} / ${I.STORY_EPISODES}${ev.story + 1 === I.STORY_EPISODES ? '（最終話）' : ''}` : '出来事' }), el('b', { text: ev.title })])]),
       el('p.ik-tev-text', { text: ev.text }),
       el('div.ik-tev-choices', ev.choices.map((c, i) => el('button.ik-tev-ch', {
         onclick: () => {
@@ -1238,8 +1273,10 @@ function trainView(app, go) {
     ]);
   } else {
     const board = I.trainingBoard(run);
-    action = card('練習', [
-      el('div.ik-trains', I.STATS.map((k) => {
+    const camp = I.isCamp(run);
+    // 夏合宿の説明は題に入れる（札を 1 段足すと練習の札が下のボタン列に押し出される。落とし穴 103）
+    action = card(camp ? `夏合宿　伸び ×${I.CAMP_MUL}・サポート全員集合` : '練習', [
+      el(`div.ik-trains${camp ? '.camp' : ''}`, I.STATS.map((k) => {
         const pv = I.trainingPreview(run, k);
         return el(`button.ik-train${pv.friendship ? '.friend' : ''}`, {
           onclick: () => { const m = I.train(run, k); save(app); toast(m, { bad: m.includes('失敗') }); go('run'); },

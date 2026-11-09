@@ -466,6 +466,7 @@ static func pull(p: Dictionary, n := 1) -> Array:
 	if coins_of(p) < n:
 		return []
 	p.coins = coins_of(p) - n
+	p.pity = pity_of(p) + n
 	var got := []
 	for i in n:
 		var rng = rng_of(["gacha", p.seed, p.pulls])
@@ -486,6 +487,26 @@ static func pull(p: Dictionary, n := 1) -> Array:
 		var cnt := count_of(p, c.id)
 		got.append({card = c, isNew = is_new, awaken = cnt - 1 if cnt >= 2 and cnt <= int(data().awaken.max) + 1 else 0})
 	return got
+
+
+# ------------------------------------------------------------------ ガチャの天井（JS の pityOf・exchangePity と同じ）
+
+static func pity_of(p: Dictionary) -> int:
+	return int(p.get("pity", 0)) if p.get("pity") != null else 0
+
+
+## 天井の点で PICK UP のカードと交換する。できなければ理由の文字列、できれば {card, isNew, awaken}
+static func exchange_pity(p: Dictionary, id: String) -> Variant:
+	if not (data().pickup as Array).has(id):
+		return "PICK UP のカードではない"
+	var cost := int(data().pityCost)
+	if pity_of(p) < cost:
+		return "天井の点が足りない（あと %d 点）" % (cost - pity_of(p))
+	p.pity = pity_of(p) - cost
+	var is_new := count_of(p, id) == 0
+	p.cards[id] = count_of(p, id) + 1
+	var cnt := count_of(p, id)
+	return {card = card(id), isNew = is_new, awaken = cnt - 1 if cnt >= 2 and cnt <= int(data().awaken.max) + 1 else 0}
 
 
 static func owned(p: Dictionary) -> Array:
@@ -890,7 +911,12 @@ static func turn_label(run: Dictionary) -> String:
 	var slot: Dictionary = data().slots[mini(data().slots.size() - 1, int(run.turn) / (TRAININGS_PER_RACE + 1))]
 	if is_race_turn(run):
 		return "%s（レース）" % slot.label
-	return "%s（練習 %d/%d）" % [slot.label, int(run.turn) % (TRAININGS_PER_RACE + 1) + 1, TRAININGS_PER_RACE]
+	return "%s（%s %d/%d）" % [slot.label, "夏合宿" if is_camp(run) else "練習", int(run.turn) % (TRAININGS_PER_RACE + 1) + 1, TRAININGS_PER_RACE]
+
+
+## 夏合宿（3 歳 8 月の練習 3 回）：伸びが campMul 倍、サポートは必ず来る（来ない抽選の乱数は引くが外す）
+static func is_camp(run: Dictionary) -> bool:
+	return not is_race_turn(run) and int(run.turn) < TOTAL_TURNS and int(run.turn) / (TRAININGS_PER_RACE + 1) == int(data().campSlot)
 
 
 ## このターンの練習場に誰が来ているか（(シード, ターン) から決まる）。
@@ -899,10 +925,11 @@ static func training_board(run: Dictionary) -> Dictionary:
 	var at := {}
 	for k in STATS:
 		at[k] = []
+	var camp := is_camp(run)
 	for i in run.supports.size():
 		var c = card(run.supports[i])
 		var often: bool = skills_of(c, aw_s(run, i)).support.has("often")
-		if rng.next() < maxf(0.01, (0.04 if often else 0.18) - float(data().awaken.show) * aw_s(run, i)):
+		if rng.next() < maxf(0.01, (0.04 if often else 0.18) - float(data().awaken.show) * aw_s(run, i)) and not camp:
 			continue
 		var k: String = c.supportType if rng.next() < 0.5 else STATS[rng.int_n(STATS.size())]
 		at[k].append(i)
@@ -915,7 +942,7 @@ static func training_preview(run: Dictionary, kind: String) -> Dictionary:
 	var tr: Dictionary = TRAIN[kind]
 	var idx: Array = training_board(run)[kind]
 	var here := idx.map(func(i): return card(run.supports[i]))
-	var mul: float = MOOD_MUL[int(run.mood)] * (1 + 0.12 * here.size()) * (1 + 0.08 * (float(run.levels[kind]) - 1)) * combo_mul(run)
+	var mul: float = MOOD_MUL[int(run.mood)] * (1 + 0.12 * here.size()) * (1 + 0.08 * (float(run.levels[kind]) - 1)) * combo_mul(run) * (float(data().campMul) if is_camp(run) else 1.0)
 	var cost: int = tr.cost
 	var fail_mul := 1.0
 	var fired := []
@@ -1059,6 +1086,10 @@ static func pending_event(run) -> Variant:
 	var done := _ev_done(run)
 	if _has_int(done, int(run.turn)) or _has_int(done, int(run.turn) - 1):
 		return null
+	# サポートとの連続イベント（絆が話数に届いたサポートの次の話）が先。ただし毎回は出さない（storyRate）
+	var st = _story_now(run)
+	if st != null and rng_of(["story", run.seed, run.turn]).next() < float(data().storyRate):
+		return st
 	var rng = rng_of(["tevent", run.seed, run.turn])
 	if rng.next() >= float(data().eventRate):
 		return null
@@ -1071,6 +1102,59 @@ static func pending_event(run) -> Variant:
 	for c in def.choices:
 		choices.append({label = c.label, hint = c.hint, risk = c.riskHint})
 	return {id = def.id, title = def.title, text = String(def.text).replace("{support}", nm).replace("{rival}", rv), support = support, choices = choices}
+
+
+# ------------------------------------------------------------------ サポートとの連続イベント（JS の storyNow・teachAll と同じ）
+
+static func _chain_of(run: Dictionary) -> Array:
+	if run.get("chain") != null:
+		return run.chain
+	var a := []
+	for x in run.supports:
+		a.append(0)
+	return a
+
+
+static func story_step(run: Dictionary, i: int) -> int:
+	var ch := _chain_of(run)
+	return int(ch[i]) if i < ch.size() else 0
+
+
+static func _story_now(run: Dictionary) -> Variant:
+	var bonds: Array = run.bonds if run.get("bonds") != null else [0, 0, 0, 0]
+	var eps := int(data().storyEpisodes)
+	for i in (run.supports as Array).size():
+		var step := story_step(run, i)
+		var b := int(bonds[i]) if i < bonds.size() else 0
+		if step >= eps or b < step + 1:
+			continue
+		var c: Dictionary = card(run.supports[i])
+		var def: Dictionary = data().supportStories[c.supportType][step]
+		var choices := []
+		for x in def.choices:
+			choices.append({label = x.label, hint = x.hint, risk = null})
+		return {
+			id = "story:%s:%d" % [c.supportType, step], title = "%s 第%d話「%s」" % [c.name, step + 1, def.title],
+			text = String(def.text).replace("{support}", c.name), support = i, story = step, choices = choices,
+		}
+	return null
+
+
+## 最終話：そのサポートのレーススキルを、まだ覚えていない分すべて覚える
+static func _teach_all(run: Dictionary, i: int) -> String:
+	var c: Dictionary = card(run.supports[i])
+	if run.get("learned") == null:
+		run.learned = []
+	var mine := run_skills(run)
+	var got := []
+	for x in skills_of(c, aw_s(run, i)).race:
+		if not mine.has(x):
+			got.append(x)
+	(run.learned as Array).append_array(got)
+	if got.is_empty():
+		return ""
+	var names := got.map(func(x): return skill_info(x).name)
+	return "・%sから「%s」を覚えた" % [c.name, "」「".join(PackedStringArray(names))]
 
 
 static func _apply_effects(run: Dictionary, e: Dictionary, support) -> String:
@@ -1094,6 +1178,8 @@ static func _apply_effects(run: Dictionary, e: Dictionary, support) -> String:
 	if e.get("bond") != null and support != null:
 		for b in int(e.bond):
 			more += _bond_up(run, int(support))
+	if e.get("teach", false) and support != null:
+		more += _teach_all(run, int(support))
 	return more
 
 
@@ -1102,7 +1188,14 @@ static func resolve_event(run: Dictionary, choice: int) -> String:
 	var ev = pending_event(run)
 	if ev == null:
 		return ""
-	var def: Dictionary = (data().trainEvents as Array).filter(func(e): return e.id == ev.id)[0]
+	var def: Dictionary
+	if ev.get("story") != null:
+		def = data().supportStories[String(ev.id).split(":")[1]][int(ev.story)]
+		var ch0 := _chain_of(run).duplicate()
+		ch0[int(ev.support)] = int(ev.story) + 1
+		run.chain = ch0
+	else:
+		def = (data().trainEvents as Array).filter(func(e): return e.id == ev.id)[0]
 	var ch: Dictionary = def.choices[clampi(choice, 0, def.choices.size() - 1)]
 	var rng = rng_of(["tevres", run.seed, run.turn])
 	var msg := "%s：%s（%s" % [ev.title, ch.label, ch.hint]

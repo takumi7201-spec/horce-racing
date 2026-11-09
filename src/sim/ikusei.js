@@ -8,6 +8,7 @@
 import { CARDS, PACKS, EVENT_PACKS } from './data/cards.js';
 import { EVENTS, STAR_D } from './data/events.js';
 import { TRAIN_EVENTS } from './data/train-events.js';
+import { SUPPORT_STORIES } from './data/support-stories.js';
 import { GEAR, GEAR_KEYS, GEAR_COLORS, gearNames } from './gear.js';
 import { makeRng, hashSeed } from '../core/rng.js';
 import { simulateRace } from './race.js';
@@ -264,6 +265,7 @@ export const RATES = { LM: 0.02, SSR: 0.06, SR: 0.15, R: 0.27, N: 0.50 };
 export function pull(profile, n = 1, pack = 'ALL') {
   if (coinsOf(profile) < n) throw new Error(`ウイコインが足りない（あと ${n - coinsOf(profile)} 枚）`);
   profile.coins = coinsOf(profile) - n;
+  profile.pity = pityOf(profile) + n;
   const got = [];
   for (let i = 0; i < n; i++) {
     const rng = makeRng(hashSeed(`gacha:${profile.seed}:${profile.pulls}`));
@@ -280,6 +282,25 @@ export function pull(profile, n = 1, pack = 'ALL') {
     got.push({ card: c, isNew, awaken: n >= 2 && n <= AWAKEN.max + 1 ? n - 1 : 0 });
   }
   return got;
+}
+
+// ---------------------------------------------------------------- ガチャの天井（PICK UP との交換）
+//
+// 1 回引くごとに 1 点。PITY_COST 点で PICK UP（PICKUP）のカードを 1 枚もらえる（運が悪くても、いつかは必ず手に入る）。
+// 引く順番（乱数）には触らない。点は引いた回数だけで決まり、交換すると減る。古いプロフィールは 0 点から。
+export const PITY_COST = 100;
+/** いまの PICK UP（画面のガチャのバナーと同じ）。 */
+export const PICKUP = ['P4-01', 'P4-07', 'P4-04'];
+export const pityOf = (profile) => profile.pity ?? 0;
+export function exchangePity(profile, id) {
+  if (!PICKUP.includes(id)) throw new Error('PICK UP のカードではない');
+  if (pityOf(profile) < PITY_COST) throw new Error(`天井の点が足りない（あと ${PITY_COST - pityOf(profile)} 点）`);
+  profile.pity = pityOf(profile) - PITY_COST;
+  const c = cardById(id);
+  const isNew = !profile.cards[id];
+  profile.cards[id] = (profile.cards[id] ?? 0) + 1;
+  const n = profile.cards[id];
+  return { card: c, isNew, awaken: n >= 2 && n <= AWAKEN.max + 1 ? n - 1 : 0 };
 }
 
 /** 持っているカード（レア度の高い順）。 */
@@ -715,7 +736,7 @@ export const bondNeed = (run, i) => (awS(run, i) >= AWAKEN.bondAt ? 1 : 2);
 export const isRaceTurn = (run) => run.turn % (TRAININGS_PER_RACE + 1) === TRAININGS_PER_RACE;
 export const turnLabel = (run) => {
   const slot = SLOTS[Math.min(SLOTS.length - 1, Math.floor(run.turn / (TRAININGS_PER_RACE + 1)))];
-  return `${slot.label}${isRaceTurn(run) ? '（レース）' : `（練習 ${run.turn % (TRAININGS_PER_RACE + 1) + 1}/${TRAININGS_PER_RACE}）`}`;
+  return `${slot.label}${isRaceTurn(run) ? '（レース）' : `（${isCamp(run) ? '夏合宿' : '練習'} ${run.turn % (TRAININGS_PER_RACE + 1) + 1}/${TRAININGS_PER_RACE}）`}`;
 };
 
 /** 練習で伸びる能力（主・副）。 */
@@ -734,16 +755,25 @@ const TRAIN = {
 export function trainingBoard(run) {
   const rng = makeRng(hashSeed(`board:${run.seed}:${run.turn}`));
   const at = Object.fromEntries(STATS.map((k) => [k, []]));
+  const camp = isCamp(run);
   run.supports.forEach((id, i) => {
     const c = cardById(id);
-    // 来ない（「練習の虫」は来やすい。乱数は同じだけ引く：スキルの有無で他のサポートの行き先を変えない）
-    if (rng.next() < Math.max(0.01, (skillsOf(c, awS(run, i)).support.includes('often') ? 0.04 : 0.18) - AWAKEN.show * awS(run, i))) return;
+    // 来ない（「練習の虫」は来やすい。乱数は同じだけ引く：スキルの有無で他のサポートの行き先を変えない）。夏合宿は必ず来る（乱数は同じだけ引く）
+    if (rng.next() < Math.max(0.01, (skillsOf(c, awS(run, i)).support.includes('often') ? 0.04 : 0.18) - AWAKEN.show * awS(run, i)) && !camp) return;
     // 得意の練習に来やすい（半分は得意、残りはばらばら）
     const k = rng.next() < 0.5 ? supportType(c) : STATS[rng.int(STATS.length)];
     at[k].push(i);
   });
   return at;
 }
+
+// ---------------------------------------------------------------- 夏合宿
+//
+// 3 歳 8 月（SLOTS の 6 番）の練習 3 回は夏合宿：練習の伸びが CAMP_MUL 倍、サポートは必ず練習場に来る（来ない抽選の乱数は引くが外す）。
+// 体力の消費は同じなので、合宿の前に休んで体力を貯めておくと得をする（育成の中盤の山場）。状態を持たない（ターンで決まる）ので古い育成にも効く。
+export const CAMP_SLOT = 6;
+export const CAMP_MUL = 1.5;
+export const isCamp = (run) => !isRaceTurn(run) && run.turn < TOTAL_TURNS && Math.floor(run.turn / (TRAININGS_PER_RACE + 1)) === CAMP_SLOT;
 
 /** 練習の見込み（伸びる点と失敗率）。画面で練習を選ぶ前に見せる。 */
 export function trainingPreview(run, kind) {
@@ -753,7 +783,7 @@ export function trainingPreview(run, kind) {
   const idx = trainingBoard(run)[kind];
   const here = idx.map((i) => cardById(run.supports[i]));
   // 組み合わせのボーナス（同じ弾・父系・年代）は練習の伸びに掛ける
-  let mul = MOOD_MUL[run.mood] * (1 + 0.12 * here.length) * (1 + 0.08 * (run.levels[kind] - 1)) * comboMul(run);
+  let mul = MOOD_MUL[run.mood] * (1 + 0.12 * here.length) * (1 + 0.08 * (run.levels[kind] - 1)) * comboMul(run) * (isCamp(run) ? CAMP_MUL : 1);
   let cost = tr.cost, failMul = 1;
   const fired = [];
   here.forEach((c, j) => {
@@ -834,6 +864,7 @@ export function effectText(e) {
   if (e.mood) out.push(e.mood > 0 ? '気分↑' : '気分↓');
   if (e.fans) out.push(`ファン+${e.fans}`);
   if (e.bond) out.push(`絆+${e.bond}`);
+  if (e.teach) out.push('スキルをすべて伝授');
   return out.join(' ');
 }
 
@@ -842,6 +873,10 @@ export function pendingEvent(run) {
   if (!run || runDone(run) || isRaceTurn(run) || run.turn === 0) return null;
   const done = run.evDone ?? [];
   if (done.includes(run.turn) || done.includes(run.turn - 1)) return null;
+  // サポートとの連続イベント（絆が話数に届いたサポートの次の話）が、ふつうの出来事より先
+  // ただし毎回は出さない（STORY_RATE）。必ず出すと、絆が届いたサポートの話が続いて、ふつうの出来事を押し出した
+  const st = storyNow(run);
+  if (st && makeRng(hashSeed(`story:${run.seed}:${run.turn}`)).next() < STORY_RATE) return st;
   const rng = makeRng(hashSeed(`tevent:${run.seed}:${run.turn}`));
   if (rng.next() >= EVENT_RATE) return null;
   const pool = TRAIN_EVENTS.filter((e) => !e.rival || run.rival);
@@ -853,6 +888,41 @@ export function pendingEvent(run) {
     id: def.id, title: def.title, text: def.text.replace('{support}', name).replace('{rival}', rv), support,
     choices: def.choices.map((c) => ({ label: c.label, hint: effectText(c.effects), risk: c.risk ? `${Math.round(c.risk.p * 100)}%で${effectText(c.risk)}` : null })),
   };
+}
+
+// ---------------------------------------------------------------- サポートとの連続イベント
+//
+// サポートとの絆（run.bonds）が 1・2・3 に届くたびに、そのサポートの話が 1 話ずつ出る（data/support-stories.js、得意の能力ごとに 3 話）。
+// どのサポートの何話目かは状態（run.chain）だけで決まり、乱数を使わない。ふつうの出来事と同じく続けては出ない（evDone）。
+// 話は絆を進めない（進めると第 1 話から第 3 話まで続けて出た）。最終話はそのサポートのレーススキルを、まだ覚えていない分すべて覚える（teach）。古い育成は chain を持たないので 0 話目から。
+export const STORY_EPISODES = 3;
+export const STORY_RATE = 0.4;
+export { SUPPORT_STORIES };
+const chainOf = (run) => run.chain ?? run.supports.map(() => 0);
+/** そのサポートの話の進み（0〜3）。 */
+export const storyStep = (run, i) => chainOf(run)[i] ?? 0;
+function storyNow(run) {
+  const ch = chainOf(run);
+  const bonds = run.bonds ?? [0, 0, 0, 0];
+  for (let i = 0; i < run.supports.length; i++) {
+    const step = ch[i] ?? 0;
+    if (step >= STORY_EPISODES || (bonds[i] ?? 0) < step + 1) continue;
+    const c = cardById(run.supports[i]);
+    const def = SUPPORT_STORIES[supportType(c)][step];
+    return {
+      id: `story:${supportType(c)}:${step}`, title: `${c.name} 第${step + 1}話「${def.title}」`, text: def.text.replaceAll('{support}', c.name), support: i, story: step,
+      choices: def.choices.map((x) => ({ label: x.label, hint: effectText(x.effects), risk: null })),
+    };
+  }
+  return null;
+}
+/** 最終話：そのサポートのレーススキルをすべて覚える。覚えた知らせの文を返す。 */
+function teachAll(run, i) {
+  const c = cardById(run.supports[i]);
+  run.learned ??= [];
+  const got = skillsOf(c, awS(run, i)).race.filter((x) => !runSkills(run).includes(x));
+  run.learned.push(...got);
+  return got.length ? `・${c.name}から「${got.map((x) => skillInfo(x).name).join('」「')}」を覚えた` : '';
 }
 
 /** 絆を 1 つ進める。2 回（覚醒 3 なら 1 回）でそのサポートのレーススキルを覚える。覚えたら知らせの文を返す。 */
@@ -874,6 +944,7 @@ function applyEffects(run, e, support) {
   if (e.fans) run.fans += e.fans;
   let more = '';
   if (e.bond && support != null) for (let b = 0; b < e.bond; b++) more += bondUp(run, support);
+  if (e.teach && support != null) more += teachAll(run, support);
   return more;
 }
 
@@ -881,7 +952,8 @@ function applyEffects(run, e, support) {
 export function resolveEvent(run, choice) {
   const ev = pendingEvent(run);
   if (!ev) throw new Error('いまは出来事が無い');
-  const def = TRAIN_EVENTS.find((e) => e.id === ev.id);
+  const def = ev.story != null ? SUPPORT_STORIES[ev.id.split(':')[1]][ev.story] : TRAIN_EVENTS.find((e) => e.id === ev.id);
+  if (ev.story != null) { run.chain = chainOf(run).slice(); run.chain[ev.support] = ev.story + 1; }
   const ch = def.choices[Math.max(0, Math.min(def.choices.length - 1, choice | 0))];
   const rng = makeRng(hashSeed(`tevres:${run.seed}:${run.turn}`));
   let msg = `${ev.title}：${ch.label}（${effectText(ch.effects)}`;

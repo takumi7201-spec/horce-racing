@@ -152,6 +152,27 @@ func _ready() -> void:
 			else:
 				IK.train(p.run, "wit")
 		render(false)
+	if args.has("tostory") and p.run != null:
+		# 確かめ用：サポートの話が出るまで進める（--tostory=3 で第 3 話。ほかの出来事には 1 番目で答える）
+		var want := int(args.tostory) - 1
+		var j := 0
+		while not IK.run_done(p.run):
+			var e = IK.pending_event(p.run)
+			if e != null and e.get("story") != null and int(e.story) >= want:
+				break
+			if e != null:
+				IK.resolve_event(p.run, 0)
+			if IK.is_race_turn(p.run):
+				IK.race_turn(p.run, IK.race_options(p.run)[0].id)
+			elif int(p.run.energy) < 45:
+				IK.rest(p.run)
+			else:
+				IK.train(p.run, IK.STATS[j % 5])
+				j += 1
+		render(false)
+	if args.has("pity"):
+		p.pity = int(args.pity)
+		render(false)
 	if args.has("pull"):
 		_do_pull(int(args.pull))
 	if args.has("card"):
@@ -1085,10 +1106,70 @@ func _gacha() -> Control:
 	v.add_child(UI.label("ウイコイン %d 枚（1 回 1 枚）　排出率 " % coins + "・".join(IK.RARITIES.map(func(r): return "%s %d%%" % [r, roundi(float(rates[r]) * 100)])) + "　通算 %d 回" % int(p.pulls), 12, Color("#4a5b58")))
 	if coins < 10:
 		v.add_child(_coin_howto())
+	v.add_child(_pity_panel())
 	page.add_child(UI.section("ガチャ" if got.is_empty() else "ガチャの結果（カードを押すと大きく見る）", v))
 	if not got.is_empty():
 		page.add_child(_gacha_banner())
 	return page
+
+
+## ガチャの天井（ゲームの pityPanel）：1 回 1 点、pityCost 点で PICK UP の 1 頭と交換（顔を押すと確かめる）
+func _pity_panel() -> Control:
+	var cost := int(IK.data().pityCost)
+	var pt := IK.pity_of(p)
+	var ready := pt >= cost
+	var box := UI.box({c = [Color("#fff3cf") if ready else PAPER, PAPER], radius = 14.0, border = 2.0, shadow = Vector2.ZERO, pad = Vector4(12, 10, 12, 10)})
+	var v := UI.vbox(8)
+	var h := UI.hbox(10)
+	h.add_child(UI.label("天井", 16, INK, "title"))
+	var bar := _bar(float(pt) / cost)
+	bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	h.add_child(bar)
+	h.add_child(UI.label("%d / %d 点%s" % [mini(pt, cost), cost, ("（+%d）" % (pt - cost)) if pt > cost else ""], 13, INK, "black"))
+	v.add_child(h)
+	var row := UI.hbox(10, BoxContainer.ALIGNMENT_CENTER)
+	for id in IK.data().pickup:
+		var c: Dictionary = IK.card(id)
+		var cv := UI.vbox(2)
+		cv.alignment = BoxContainer.ALIGNMENT_CENTER
+		var ic := _icon(c, 64.0, "", func() -> void: _ask_pity(c), not ready)
+		ic.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		cv.add_child(ic)
+		var nm := UI.label(c.name, 12, INK, "black")
+		nm.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		cv.add_child(nm)
+		var sub := UI.label("%s・所持 %d" % [c.rar, IK.count_of(p, id)], 11, Color("#4a5b58"))
+		sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		cv.add_child(sub)
+		cv.custom_minimum_size.x = 150
+		row.add_child(cv)
+	v.add_child(row)
+	v.add_child(UI.label("PICK UP から 1 頭を選んで交換できる。" if ready else "1 回引くごとに 1 点。%d 点で PICK UP の 1 頭と交換できる（あと %d 回）。" % [cost, cost - pt], 12, Color("#4a5b58")))
+	box.add_child(v)
+	return box
+
+
+func _ask_pity(c: Dictionary) -> void:
+	var cost := int(IK.data().pityCost)
+	if IK.pity_of(p) < cost:
+		toast("天井まであと %d 回" % (cost - IK.pity_of(p)))
+		return
+	var w: Control
+	var v := UI.vbox(14)
+	v.add_child(UI.label("天井の %d 点で%s（%s）と交換する？" % [cost, c.name, c.rar], 18, INK, "title"))
+	var bh := UI.hbox(12, BoxContainer.ALIGNMENT_CENTER)
+	bh.add_child(UI.button("交換する", func() -> void:
+		var r = IK.exchange_pity(p, c.id)
+		close_modal(w)
+		if r is String:
+			toast(r)
+			return
+		save()
+		toast("%sを手に入れた%s" % [c.name, "（NEW）" if r.isNew else ("（覚醒%d）" % int(r.awaken)) if int(r.awaken) > 0 else ""])
+		go("gacha"), "primary", 17))
+	bh.add_child(UI.button("やめる", func() -> void: close_modal(w), "paper", 17))
+	v.add_child(bh)
+	w = modal(v, 560)
 
 
 ## ガチャのバナー（ゲームの gachaBanner）：PICK UP の背景と切り抜き、題、LM の顔の列、収録数
@@ -1979,7 +2060,13 @@ func _train() -> Control:
 	for id in IK.run_skills(run):
 		var si := IK.skill_info(id)
 		mv.add_child(_skill_row("レース", si.name, si.desc, Color("#9cc8f0")))
-	mv.add_child(UI.label("サポートと友情練習を重ねると、そのサポートのレーススキルを覚える（完成馬に残る）。", 12, Color("#4a5b58")))
+	mv.add_child(UI.label("サポートと友情練習を重ねると、そのサポートのレーススキルを覚える（完成馬に残る）。絆が 1・2・3 に届くと、そのサポートの話が 1 話ずつ出て、最終話でスキルをすべて覚える。", 12, Color("#4a5b58")))
+	var eps2 := int(IK.data().storyEpisodes)
+	var sts := []
+	for i in run.supports.size():
+		var sstep := IK.story_step(run, i)
+		sts.append("%s %s" % [IK.card(run.supports[i]).name, "完結" if sstep >= eps2 else "%d/%d" % [sstep, eps2]])
+	mv.add_child(UI.label("サポートの話：" + "・".join(PackedStringArray(sts)), 12, Color("#1f6f78"), "black"))
 	if run.get("combo") != null and not (run.combo as Array).is_empty():
 		mv.add_child(UI.label("組み合わせ：%s（練習 +%d%%）" % ["・".join((run.combo as Array).map(func(x): return "%s%s×%d" % [IK.data().comboKinds[x.kind], x.label, int(x.n)])), IK.jround((IK.combo_mul(run) - 1) * 100)], 12, Color("#2f6a20"), "black"))
 	mb.add_child(mv)
@@ -2059,7 +2146,14 @@ func _train() -> Control:
 			eh.add_child(face)
 		else:
 			eh.add_child(UI.icon("spark", 30, SUN))
-		eh.add_child(UI.label(ev.title, 21, INK, "title"))
+		var et := UI.vbox(2)
+		if ev.get("story") != null:
+			var eps := int(IK.data().storyEpisodes)
+			var sp := _pill("サポートの話 %d / %d%s" % [int(ev.story) + 1, eps, "（最終話）" if int(ev.story) + 1 == eps else ""], Color("#cfe8d2"))
+			sp.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+			et.add_child(sp)
+		et.add_child(UI.label(ev.title, 21, INK, "title"))
+		eh.add_child(et)
 		evv.add_child(eh)
 		evv.add_child(_wrap(ev.text, 15, 900, INK))
 		var chs := UI.hbox(12)
@@ -2080,7 +2174,7 @@ func _train() -> Control:
 				toast(m))
 			chs.add_child(cb)
 		evv.add_child(chs)
-		page.add_child(UI.section("出来事", evv))
+		page.add_child(UI.section("サポートの話" if ev.get("story") != null else "出来事", evv))
 	else:
 		var tv := UI.vbox(8)
 		var row := UI.hbox(8)
@@ -2093,7 +2187,8 @@ func _train() -> Control:
 			render(false), "paper", 15)
 		rb.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		tv.add_child(rb)
-		page.add_child(UI.section("練習", tv))
+		# 夏合宿の説明は題に入れる（札を 1 段足すと練習の札が押し出される。落とし穴 103）
+		page.add_child(UI.section(("夏合宿　伸び ×%s・サポート全員集合" % str(IK.data().campMul)) if IK.is_camp(run) else "練習", tv))
 	# 最近の出来事（畳んでおく。開くと紺の帯）
 	var lg: Array = run.log
 	if lg.size() > 0:

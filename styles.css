@@ -2588,3 +2588,25 @@ button.ik-rectier, button.ik-recbest { cursor: pointer; }
 .ik-combo-c.k-pack { background: #eef6ff; }
 .ik-combo-c.k-line { background: #fff4e3; }
 .ik-combo-c.k-era { background: #f3eefe; }
+
+/* ---- 夏合宿・サポートの話・ガチャの天井 ---- */
+.ik-bond i.st { color: var(--teal, #1f6f78); font-weight: 700; }
+.ik-tevent.story { background: linear-gradient(180deg, #eef7e0, var(--paper)); border-color: #2f6f3a; }
+.ik-tevent.story .ik-tev-head small { background: var(--teal, #1f6f78); }
+.ik-trains.camp .ik-train { border-color: #d98a2a; box-shadow: 0 0 0 2px #f7c35c66; }
+.ik-pity { margin-top: 12px; padding: 10px 12px; border-radius: 14px; border: 2px solid var(--ink); background: var(--paper); }
+.ik-pity.ready { background: linear-gradient(180deg, #fff3cf, var(--paper)); border-color: #c8901e; }
+.ik-pity-h { display: flex; align-items: center; gap: 10px; }
+.ik-pity-h b { font: 900 15px/1 var(--font); color: var(--ink); }
+.ik-pity-h .bar { flex: 1; height: 10px; border-radius: 999px; background: #0002; overflow: hidden; }
+.ik-pity-h .bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--leaf), var(--sun)); }
+.ik-pity-h small { font: 700 12px/1 var(--font); color: var(--ink); white-space: nowrap; }
+.ik-pity-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; }
+.ik-pity-c { display: grid; justify-items: center; gap: 3px; padding: 6px 4px 8px; border-radius: 12px; border: 2px solid var(--ink); background: #fff;
+  font-family: inherit; color: var(--ink); cursor: pointer; }
+.ik-pity-c:disabled { opacity: .55; cursor: default; }
+.ik-pity.ready .ik-pity-c { border-color: #c8901e; box-shadow: 0 3px 0 var(--ink); }
+.ik-pity-c b { font: 900 12px/1.2 var(--font); text-align: center; }
+.ik-pity-c small { font: 700 10px/1 var(--font); opacity: .75; }
+.ik-pity-face { width: 54px; height: 54px; border-radius: 50%; overflow: hidden; border: 2px solid var(--ink); background: #e8efe9 center / cover no-repeat; display: block; }
+.ik-pity-face img, .ik-pity-face canvas { width: 100%; height: 100%; object-fit: cover; display: block; }

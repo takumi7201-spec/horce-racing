@@ -113,6 +113,7 @@ func scenario(seed: int) -> Dictionary:
 		combo = [run.get("combo"), IK.combo_of(["P1-01", "P1-02", "P1-05", "P1-06", "P1-07", "P1-03"]), IK.combo_of(["EV-03", "P1-19", "P4-36", "P1-17", "P2-01", "P3-01"])],
 		ladder = [b.rank, b2.rank, IK.ladder_state(p)], quests = [qv.call(qs), qs.ready, claimed, qv.call(qs2), qs2.weekLeft, IK.week_number("2026-11-08"), IK.day_number("2026-11-08")],
 		rec = rk, best = rec.get("best"), fast = fast, hall = hall, rel = rel, stage = IK.stage_label("nakayama|芝|2500"),
+		pity = _pity(p), story = [steps.filter(func(x): return x[0] == "event" and String(x[1]).begins_with("story:")).size(), run.get("chain")],
 	}
 	return {pulls = pulls, steps = steps, stats = h.stats, rating = h.rating, skills = h.skills, name = h.name, sex = h.sex, coat = h.coat,
 		battle = orders(b.result), event = orders(e.result), event2 = orders(e2.result), event3 = orders(e3.result), battle2 = orders(b2.result), extra = extra,
@@ -131,3 +132,11 @@ func race_check(r: Dictionary) -> Array:
 	var race: Dictionary = r.duplicate()
 	race.ground = "稍重"
 	return orders(IK.run_race(race, field, "check:" + r.id))
+
+
+func _pity(p: Dictionary) -> Array:
+	var p0 := IK.pity_of(p)
+	var no := 1 if IK.exchange_pity(p, IK.data().pickup[0]) is String else 0
+	p.pity = 107
+	var x: Dictionary = IK.exchange_pity(p, IK.data().pickup[2])
+	return [p0, no, IK.pity_of(p), x.card.id, x.isNew, x.awaken, p.cards[IK.data().pickup[2]]]
