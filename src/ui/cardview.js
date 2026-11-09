@@ -346,6 +346,8 @@ function attachTilt(wrap, card, { touch }) {
   const queue = () => { if (!raf) raf = requestAnimationFrame(apply); };
   const move = (e) => {
     if (e.pointerType !== 'mouse' && !touch) return;
+    // 裏面のスキルの欄はスクロールする所なので傾けない（傾くと欄が逃げて指で送りにくかった）。絵（モデル）の側だけで傾ける
+    if (e.target?.closest?.('.bk-low')) { leave(); return; }
     const r = wrap.getBoundingClientRect();
     clearTimeout(off);
     card.classList.add('tilt');
