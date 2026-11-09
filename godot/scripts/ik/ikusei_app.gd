@@ -186,6 +186,11 @@ func _ready() -> void:
 		# 確かめ用：裏面に返す（--cardback=1）
 		if args.has("cardback") and _last_flip != null:
 			_last_flip.get_meta("flip").call(true)
+			# --bkscroll=1 で裏面の欄をいちばん下まで送る（欄の中のスクロールを見る）
+			if args.has("bkscroll") and _last_scroll != null:
+				await get_tree().process_frame
+				await get_tree().process_frame
+				_last_scroll.scroll_vertical = 10000
 	if args.has("menu"):
 		_toggle_menu()
 	if args.has("gearpick") and p.run != null:
@@ -1612,6 +1617,7 @@ func _show_card(c: Dictionary) -> void:
 const GRAY_CODE := "shader_type canvas_item;\nvoid fragment() {\n\tfloat g = dot(COLOR.rgb, vec3(0.299, 0.587, 0.114));\n\tCOLOR.rgb = vec3(g);\n}\n"
 var _gray: Shader = null
 var _last_flip: Control = null
+var _last_scroll: ScrollContainer = null
 
 
 ## カードの表と裏（ゲームの cardview.js の backFace と同じ並び）。左へスワイプで裏、右で表。
@@ -1741,8 +1747,15 @@ func _card_back(c: Dictionary, sk: Dictionary, base: Dictionary) -> Control:
 	var LOW := 410.0
 	var top := 868.0 - LOW
 	put.call(UI.box({c = [line], radius = 0.0, border = 0.0, shadow = Vector2.ZERO}), Vector2(12, top), Vector2(606, 2))
+	# 欄に収まらない分は欄の中だけスクロールする（ゲームと同じ。詰め込まない）。ホイールとドラッグはスクロールが受ける
+	var sc := ScrollContainer.new()
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	put.call(sc, Vector2(30, top + 12), Vector2(580, LOW - 42))
+	sc.mouse_filter = Control.MOUSE_FILTER_PASS
 	var v := UI.vbox(5)
-	put.call(v, Vector2(30, top + 14), Vector2(570, LOW - 44))
+	v.custom_minimum_size.x = 556
+	sc.add_child(v)
+	_last_scroll = sc
 	var head := func(text: String, n: int) -> void:
 		var hr := UI.hbox(10)
 		hr.add_child(UI.label(text, 16, Color("#f0f6e0"), "black"))
@@ -1782,6 +1795,23 @@ func _card_back(c: Dictionary, sk: Dictionary, base: Dictionary) -> Control:
 	for id in sk.support:
 		var si := IK.skill_info(id)
 		row.call(si.name, si.desc, Color("#8fe07a"), 0 if base.support.has(id) else 4)
+	# サポートに編成したときの話（カードだけの話か、得意ごとの共通の話）
+	var cs: Dictionary = IK.data().cardStories
+	var own := cs.has(c.id)
+	var ev_title: String = String((IK.data().get("cardStoryTitle", {}) as Dictionary).get(c.id, c.name)) if own else "共通・%sの話" % IK.STAT_LABEL[String(c.supportType)]
+	var eps: Array = cs[c.id] if own else IK.data().supportStories[String(c.supportType)]
+	var eh := UI.hbox(10)
+	eh.add_child(UI.label("カードイベント" if own else "サポートイベント", 16, Color("#f0f6e0"), "black"))
+	eh.add_child(UI.label(ev_title, 17, Color.WHITE, "title"))
+	v.add_child(eh)
+	for i in eps.size():
+		var er := UI.hbox(10)
+		var tag := UI.box({c = [Color("#ff9ccf") if own else Color("#cdbb85")], radius = 6.0, border = 0.0, shadow = Vector2.ZERO, pad = Vector4(8, 2, 8, 2)})
+		tag.add_child(UI.label("第%d話" % (i + 1), 13, INK, "black"))
+		tag.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		er.add_child(tag)
+		er.add_child(UI.label(String(eps[i].title), 17, Color("#f2ead2"), "black"))
+		v.add_child(er)
 	var ft := UI.label("右へスワイプで表へ", 11, Color("#bba86e"))
 	put.call(ft, Vector2(30, 868 - 26), Vector2(300, 16))
 	var who := UI.hbox(8)

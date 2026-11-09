@@ -230,22 +230,28 @@ function backFace(c, vars, foil, back) {
   const row = (cls, name, desc, awk) => el(`div.bk-row.${cls}`, [el('b', { text: name }), awk ? el('em', { text: `覚醒${awk}` }) : null, el('span', { text: desc })]);
   const race = back.race.map((id) => skillInfo(id)).filter(Boolean);
   const sup = back.support.map((id) => skillInfo(id)).filter(Boolean);
-  // 完成馬は覚えたスキルが多いことがある。欄に収まらないときは名前だけの札にする（説明は大きく見る画面の一覧にある）
-  const tight = (back.unique ? 2 : 0) + race.length + sup.length > 11;
-  const list = (items, cls, plus) => (tight
-    ? el('div.bk-chips', items.map((x) => el(`span.bk-chip.${cls}`, { text: x.name })))
-    : el('div.bk-rows', items.map((x) => row(cls, x.name, x.desc, plus?.has(x.id) ? (cls === 'race' ? 2 : 4) : 0))));
+  const list = (items, cls, plus) => el('div.bk-rows', items.map((x) => row(cls, x.name, x.desc, plus?.has(x.id) ? (cls === 'race' ? 2 : 4) : 0)));
+  const ev = back.events;
+  // 欄に収まらない分は欄の中だけスクロールする（以前は行が多いと説明を外して名前だけに詰めた。「無理やり入れ込まなくても」）。
+  // 大きく見る画面は指で傾ける（.tcw が touch-action: none）ので、欄は pan-y を持って指の縦の動きをスクロールに回す。
+  const scroll = el('div.bk-scroll', [
+    el('div.bk-h', [el('i', { text: 'レーススキル' }), el('small', { text: `${(back.unique ? 1 : 0) + race.length}` })]),
+    back.unique ? el('div.bk-uniq', [el('b', { text: back.unique.name }), el('span', { text: back.unique.desc })]) : null,
+    race.length ? list(race, 'race', back.plus?.race) : back.unique ? null : el('p.bk-none', { text: 'なし' }),
+    el('div.bk-h', [el('i', { text: '育成スキル' }), el('small', { text: `${sup.length}` })]),
+    sup.length ? list(sup, 'support', back.plus?.support) : el('p.bk-none', { text: back.note ?? 'なし' }),
+    // サポートに編成したときの話（カードだけの話か、得意ごとの共通の話）
+    ev ? el('div.bk-h', [el('i', { text: ev.card ? 'カードイベント' : 'サポートイベント' }), el('b.bk-evt', { text: ev.title })]) : null,
+    ev ? el(`ol.bk-eps${ev.card ? '.own' : ''}`, ev.eps.map((t, i) => el('li', [el('em', { text: `第${i + 1}話` }), t]))) : null,
+  ]);
+  scroll.addEventListener('wheel', (e) => e.stopPropagation(), { passive: true });
   return el(`div.tc.tc-back.r-${c.rar}`, { style: Object.entries(vars).map(([k, v]) => `${k}:${v}`).join(';') }, [
     el('div.tc-in', [
       el('div.tc-art', [el('div.b'), el('div.f'), el('div.vg')]),
       el('div.tc-rar', { text: c.rar }),
       // 名前と二つ名は右下に小さく（裏は読むための面。大きな帯をやめて絵とスキルの欄に回した）
       el('div.tc-low.bk-low', [
-        el('div.bk-h', [el('i', { text: 'レーススキル' }), el('small', { text: `${(back.unique ? 1 : 0) + race.length}` })]),
-        back.unique ? el('div.bk-uniq', [el('b', { text: back.unique.name }), el('span', { text: back.unique.desc })]) : null,
-        race.length ? list(race, 'race', back.plus?.race) : back.unique ? null : el('p.bk-none', { text: 'なし' }),
-        el('div.bk-h', [el('i', { text: '育成スキル' }), el('small', { text: `${sup.length}` })]),
-        sup.length ? list(sup, 'support', back.plus?.support) : el('p.bk-none', { text: back.note ?? 'なし' }),
+        scroll,
         el('div.foot.bk-foot', [el('span', { text: '右へスワイプで表へ' }), el('span.bk-who', [el('small', { text: epithetOf(c) }), el('b', { text: c.name })])]),
       ]),
     ]),

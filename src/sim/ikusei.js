@@ -8,7 +8,7 @@
 import { CARDS, PACKS, EVENT_PACKS, LIMITED_PACKS, LIMITED } from './data/cards.js';
 import { EVENTS, STAR_D } from './data/events.js';
 import { TRAIN_EVENTS } from './data/train-events.js';
-import { SUPPORT_STORIES, CARD_STORIES } from './data/support-stories.js';
+import { SUPPORT_STORIES, CARD_STORIES, CARD_STORY_TITLE } from './data/support-stories.js';
 import { GEAR, GEAR_KEYS, GEAR_COLORS, gearNames } from './gear.js';
 import { makeRng, hashSeed } from '../core/rng.js';
 import { simulateRace } from './race.js';
@@ -916,7 +916,16 @@ export function pendingEvent(run) {
 // 話は絆を進めない（進めると第 1 話から第 3 話まで続けて出た）。最終話はそのサポートのレーススキルを、まだ覚えていない分すべて覚える（teach）。古い育成は chain を持たないので 0 話目から。
 export const STORY_EPISODES = 3;
 export const STORY_RATE = 0.4;
-export { SUPPORT_STORIES, CARD_STORIES };
+export { SUPPORT_STORIES, CARD_STORIES, CARD_STORY_TITLE };
+/**
+ * カードの裏面に出すイベント：そのカードだけの話（題と各話の題）か、得意ごとの共通の話。
+ * { card: カードだけの話か, title, eps: [各話の題] }
+ */
+export function cardEventsOf(c) {
+  if (CARD_STORIES[c.id]) return { card: true, title: CARD_STORY_TITLE[c.id] ?? c.name, eps: CARD_STORIES[c.id].map((e) => e.title) };
+  const t = supportType(c);
+  return { card: false, title: `共通・${STAT_LABEL[t]}の話`, eps: SUPPORT_STORIES[t].map((e) => e.title) };
+}
 const chainOf = (run) => run.chain ?? run.supports.map(() => 0);
 /** そのサポートの話の進み（0〜3）。 */
 export const storyStep = (run, i) => chainOf(run)[i] ?? 0;

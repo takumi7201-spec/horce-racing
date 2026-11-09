@@ -618,7 +618,7 @@ function skillTags(ids, uniq = null, { small = false } = {}) {
 function cardBack(c, aw = 0) {
   const sk = I.skillsOf(c, aw), base = I.skillsOf(c);
   return {
-    unique: sk.unique, race: sk.race, support: sk.support,
+    unique: sk.unique, race: sk.race, support: sk.support, events: I.cardEventsOf(c),
     plus: { race: new Set(sk.race.filter((x) => !base.race.includes(x))), support: new Set(sk.support.filter((x) => !base.support.includes(x))) },
   };
 }
