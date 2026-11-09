@@ -403,7 +403,21 @@ function tipLocal(m, key, ob) {
   return best.clone();
 }
 
+// リグで動かせる部位の、作った直後の回転（馬ごと）。update() は首・頭・脚の x しか毎回書き直さないので、
+// y・z にずれを += で足すと当て直すたびに積み上がり、首の横振りが暴れ、頭を動かすと首のずれがもう一度足された。
+const rigBase = new WeakMap();
+function rigReset(m) {
+  let base = rigBase.get(m);
+  if (!base) {
+    const obs = [...Object.values(m.parts ?? {}), ...m.legs.flatMap((L) => [L.hip, L.knee, L.fetlock])].filter(Boolean);
+    base = obs.map((o) => [o, o.rotation.clone()]);
+    rigBase.set(m, base);
+  }
+  for (const [o, r] of base) o.rotation.copy(r);
+}
+
 function poseModel(m, ph, legPose, dx = 0, dz = 0, rig = null) {
+  rigReset(m);
   m.update(((ph % 1) + 1) % 1 * STRIDE, 17, 0);
   // 写真に合わせて脚ごとの角度を上書きする（legPose：lf 左前・rf 右前・lh 左後・rh 右後 → { hip, knee, fetlock } のラジアン）。
   // 股は正で後ろ、前脚の膝は正で蹄を後ろへ畳む。位相だけでは「左前を伸ばし、右前は畳む」の組み合わせが作れなかった。
