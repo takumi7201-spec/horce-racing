@@ -76,6 +76,7 @@ const data = {
   // サポートとの連続イベント（得意の能力ごとに 3 話）・夏合宿・ガチャの天井（落とし穴 121）
   storyRate: IK.STORY_RATE, storyEpisodes: IK.STORY_EPISODES,
   supportStories: Object.fromEntries(Object.entries(IK.SUPPORT_STORIES).map(([k, a]) => [k, a.map((e) => ({ ...e, choices: e.choices.map((c) => ({ ...c, hint: IK.effectText(c.effects) })) }))])),
+  cardStories: Object.fromEntries(Object.entries(IK.CARD_STORIES).map(([k, a]) => [k, a.map((e) => ({ ...e, choices: e.choices.map((c) => ({ ...c, hint: IK.effectText(c.effects) })) }))])),
   campSlot: IK.CAMP_SLOT, campMul: IK.CAMP_MUL, pityCost: IK.PITY_COST, pickup: IK.PICKUP,
   // 1 日・週のミッション、ランク戦の段位、殿堂、カードの組み合わせ（落とし穴 120）
   quests: IK.QUESTS, rankTiers: IK.RANK_TIERS, rankGain: [1, 2, 3, 4, 5, 6].map(IK.RANK_GAIN), rankDiff: IK.RANK_DIFF, hallMax: IK.HALL_MAX,

@@ -8,7 +8,7 @@
 import { CARDS, PACKS, EVENT_PACKS, LIMITED_PACKS, LIMITED } from './data/cards.js';
 import { EVENTS, STAR_D } from './data/events.js';
 import { TRAIN_EVENTS } from './data/train-events.js';
-import { SUPPORT_STORIES } from './data/support-stories.js';
+import { SUPPORT_STORIES, CARD_STORIES } from './data/support-stories.js';
 import { GEAR, GEAR_KEYS, GEAR_COLORS, gearNames } from './gear.js';
 import { makeRng, hashSeed } from '../core/rng.js';
 import { simulateRace } from './race.js';
@@ -916,7 +916,7 @@ export function pendingEvent(run) {
 // 話は絆を進めない（進めると第 1 話から第 3 話まで続けて出た）。最終話はそのサポートのレーススキルを、まだ覚えていない分すべて覚える（teach）。古い育成は chain を持たないので 0 話目から。
 export const STORY_EPISODES = 3;
 export const STORY_RATE = 0.4;
-export { SUPPORT_STORIES };
+export { SUPPORT_STORIES, CARD_STORIES };
 const chainOf = (run) => run.chain ?? run.supports.map(() => 0);
 /** そのサポートの話の進み（0〜3）。 */
 export const storyStep = (run, i) => chainOf(run)[i] ?? 0;
@@ -927,9 +927,11 @@ function storyNow(run) {
     const step = ch[i] ?? 0;
     if (step >= STORY_EPISODES || (bonds[i] ?? 0) < step + 1) continue;
     const c = cardById(run.supports[i]);
-    const def = SUPPORT_STORIES[supportType(c)][step];
+    // カードのイベント（そのカードだけの話）があればそちら、無ければ得意ごとの話
+    const key = CARD_STORIES[c.id] ? c.id : supportType(c);
+    const def = (CARD_STORIES[key] ?? SUPPORT_STORIES[key])[step];
     return {
-      id: `story:${supportType(c)}:${step}`, title: `${c.name} 第${step + 1}話「${def.title}」`, text: def.text.replaceAll('{support}', c.name), support: i, story: step,
+      id: `story:${key}:${step}`, title: `${c.name} 第${step + 1}話「${def.title}」`, text: def.text.replaceAll('{support}', c.name), support: i, story: step, cardStory: !!CARD_STORIES[c.id],
       choices: def.choices.map((x) => ({ label: x.label, hint: effectText(x.effects), risk: null })),
     };
   }
@@ -971,7 +973,8 @@ function applyEffects(run, e, support) {
 export function resolveEvent(run, choice) {
   const ev = pendingEvent(run);
   if (!ev) throw new Error('いまは出来事が無い');
-  const def = ev.story != null ? SUPPORT_STORIES[ev.id.split(':')[1]][ev.story] : TRAIN_EVENTS.find((e) => e.id === ev.id);
+  const sk = ev.story != null ? ev.id.split(':')[1] : null;
+  const def = ev.story != null ? (CARD_STORIES[sk] ?? SUPPORT_STORIES[sk])[ev.story] : TRAIN_EVENTS.find((e) => e.id === ev.id);
   if (ev.story != null) { run.chain = chainOf(run).slice(); run.chain[ev.support] = ev.story + 1; }
   const ch = def.choices[Math.max(0, Math.min(def.choices.length - 1, choice | 0))];
   const rng = makeRng(hashSeed(`tevres:${run.seed}:${run.turn}`));

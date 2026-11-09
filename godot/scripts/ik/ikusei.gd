@@ -1159,13 +1159,16 @@ static func _story_now(run: Dictionary) -> Variant:
 		if step >= eps or b < step + 1:
 			continue
 		var c: Dictionary = card(run.supports[i])
-		var def: Dictionary = data().supportStories[c.supportType][step]
+		# カードのイベント（そのカードだけの話）があればそちら、無ければ得意ごとの話
+		var is_card: bool = (data().cardStories as Dictionary).has(c.id)
+		var skey: String = c.id if is_card else String(c.supportType)
+		var def: Dictionary = (data().cardStories[skey] if is_card else data().supportStories[skey])[step]
 		var choices := []
 		for x in def.choices:
 			choices.append({label = x.label, hint = x.hint, risk = null})
 		return {
-			id = "story:%s:%d" % [c.supportType, step], title = "%s 第%d話「%s」" % [c.name, step + 1, def.title],
-			text = String(def.text).replace("{support}", c.name), support = i, story = step, choices = choices,
+			id = "story:%s:%d" % [skey, step], title = "%s 第%d話「%s」" % [c.name, step + 1, def.title],
+			text = String(def.text).replace("{support}", c.name), support = i, story = step, choices = choices, cardStory = is_card,
 		}
 	return null
 
@@ -1220,7 +1223,8 @@ static func resolve_event(run: Dictionary, choice: int) -> String:
 		return ""
 	var def: Dictionary
 	if ev.get("story") != null:
-		def = data().supportStories[String(ev.id).split(":")[1]][int(ev.story)]
+		var sk := String(ev.id).split(":")[1]
+		def = (data().cardStories[sk] if (data().cardStories as Dictionary).has(sk) else data().supportStories[sk])[int(ev.story)]
 		var ch0 := _chain_of(run).duplicate()
 		ch0[int(ev.support)] = int(ev.story) + 1
 		run.chain = ch0

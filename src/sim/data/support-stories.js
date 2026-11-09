@@ -34,3 +34,17 @@ export const SUPPORT_STORIES = {
     ep('二人だけの合図', '{support}と最後の併せ馬。声を掛けなくても動きが揃う。', { label: '先に仕掛ける', effects: { energy: -5, stats: { wit: 40 }, teach: true } }, { label: '合図を待つ', effects: { stats: { wit: 25, speed: 15 }, mood: 1, teach: true } }),
   ],
 };
+
+// カードのイベント：そのカードだけの 3 話（得意ごとの話の代わりに出る）。文はこのゲームのオリジナル（史実の出来事を下敷きにした）。
+// 期間限定のテイエムオペラオー（LT-01）は 2000 年の年間全勝と、有馬記念のハナ差（包まれた馬群をこじ開けた）を下敷きにした。
+export const CARD_STORIES = {
+  'LT-01': [
+    ep('一つも落とさない年', '{support}の陣営が、年明けの調教で言い切った。「今年は一つも負けない」。{support}は黙って坂路へ向かう。',
+      { label: '同じ本数を上がる', effects: { energy: -12, stats: { stamina: 16, guts: 6 } } }, { label: '自分の調子を整える', effects: { energy: 6, stats: { stamina: 8 }, mood: 1 } }),
+    ep('包囲網', '秋の大一番が近づき、どの陣営も{support}を徹底的にマークしてくる。{support}と、馬群に包まれたまま我慢する練習をすることになった。',
+      { label: '内で耐えて脚を溜める', effects: { energy: -8, stats: { guts: 16, wit: 8 } } }, { label: '外へ持ち出す道を探す', effects: { stats: { wit: 14, speed: 8 } } }),
+    ep('ハナ差の有馬記念', '有馬記念の直線。前の 2 頭のあいだに、わずかな隙間が開いた。{support}との最後の併せ馬で、その一瞬を再現する。',
+      { label: '隙間をこじ開ける', effects: { energy: -8, stats: { guts: 30, power: 12 }, teach: true } }, { label: '外を回って届かせる', effects: { stats: { stamina: 24, speed: 16 }, mood: 1, teach: true } }),
+  ],
+};
+

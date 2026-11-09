@@ -1530,15 +1530,23 @@ section('カード育成モード');
     try { I.exchangePity(pp, 'LT-01', '2027-02-01'); } catch { outside = true; }
     const got = I.exchangePity(pp, 'LT-01', '2026-12-31');
     pp.shards = 9999;
-    const ev = I.EVENTS.find((e) => e.id === 'arima2000');
-    const ep = rich(I.newProfile(7));
-    ep.finished.push({ ...h, id: 996, battles: 0, battleWins: 0, stats: Object.fromEntries(I.STATS.map((k) => [k, 1200])) });
-    let rw = null;
-    for (let t = 0; t < 8 && !rw; t++) rw = I.eventRace(ep, 996, 'arima2000', 1).reward;
-    check(`期間限定 ${lt.name}「${lt.epithet}」：開催中は 3000 回で ${nLt} 枚（LM ${nLm} 枚のうち）、開催の外は出ず順も同じ、天井で交換・かけらは不可、固有は【${I.UNIQUE_KINDS[I.uniqueKindOf(lt)].name}】、イベント（${ev.field.length} 頭・中山 芝2500m）の初勝利でも手に入る`,
+    // カードのイベント：サポートに編成すると、得意ごとの話の代わりにこのカードだけの 3 話が出て、最終話でスキルをすべて覚える
+    const cp = rich(I.newProfile(7));
+    Object.assign(cp.cards, { 'P1-17': 1, 'P4-01': 1, 'LT-01': 1, 'P1-02': 1, 'P1-03': 1, 'P1-04': 1 });
+    const r = I.startRun(cp, { sire: 'P1-17', dam: 'P4-01', name: 'オペラノコ' }, ['LT-01', 'P1-02', 'P1-03', 'P1-04']);
+    const eps = [];
+    let j = 0;
+    while (!I.runDone(r)) {
+      const e = I.pendingEvent(r);
+      if (e) { if (e.support === 0 && e.story != null) eps.push([e.id, e.cardStory, e.title]); I.resolveEvent(r, 0); }
+      if (I.isRaceTurn(r)) I.raceTurn(r, I.raceOptions(r)[0].id); else if (r.energy < 45) I.rest(r); else I.train(r, j++ % 2 ? 'stamina' : 'guts');
+    }
+    const taught = I.skillsOf(lt, 0).race.every((x) => I.runSkills(r).includes(x));
+    check(`期間限定 ${lt.name}「${lt.epithet}」：開催中は 3000 回で ${nLt} 枚（LM ${nLm} 枚のうち）、開催の外は出ず順も同じ、天井で交換・かけらは不可、固有は【${I.UNIQUE_KINDS[I.uniqueKindOf(lt)].name}】、`
+      + `サポートに編成するとカードのイベント ${eps.length} 話（${eps.map((x) => x[2].split('「')[1]?.replace('」', '')).join('・')}）`,
       lt.rar === 'LM' && I.isLimitedCard(lt) && !I.isEventCard(lt) && nLt > 0 && nLt < nLm && !outW.includes('LT-01') && JSON.stringify(outW) === JSON.stringify(none)
       && outside && got.card.id === 'LT-01' && !!I.canBuyWithShards(pp, 'LT-01') && I.uniqueKindOf(lt) === 'kick'
-      && ev.field.length === 16 && ev.reward === 'LT-01' && rw?.card.id === 'LT-01' && peekHorseId() === idBefore);
+      && eps.length === 3 && eps.every((x, k) => x[0] === `story:LT-01:${k}` && x[1]) && taught && !I.EVENTS.some((e) => e.reward === 'LT-01') && peekHorseId() === idBefore);
   }
   // 夏合宿・サポートの連続イベント・ガチャの天井
   {

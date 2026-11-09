@@ -2617,3 +2617,5 @@ button.ik-rectier, button.ik-recbest { cursor: pointer; }
 .ikev-tag.limited { background: #e8358c; color: #fff; }
 .iklt .ikev-tx { max-width: 54%; }
 @media (max-width: 560px) { .iklt .iklt-h { max-width: 58%; height: 70%; } .iklt .ikev-tx { max-width: 66%; } .iklt-foot { display: none; } }
+.ik-tevent.cardev { background: linear-gradient(180deg, #ffe8f3, var(--paper)); border-color: #b8286c; }
+.ik-tevent.cardev .ik-tev-head small { background: #e8358c; }

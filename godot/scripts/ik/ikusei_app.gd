@@ -1204,12 +1204,8 @@ func _limited_banner(l: Dictionary) -> Control:
 	v.add_child(UI.outlined("LM %s「%s」が出る（LM のうち %d%%・全体の %s%%）" % [c.name, c.epithetText, IK.jround(float(l.rate) * 100.0), str(pct)], 15, Color.WHITE, "black", Color("#0d2a2e"), 4))
 	var uq: Dictionary = IK.skills_of(c).unique
 	v.add_child(UI.outlined(String(uq.desc), 13, Color("#ffd36a"), "black", Color("#0d2a2e"), 4))
-	var ev = null
-	for e in IK.data().events:
-		if e.id == l.get("event"):
-			ev = e
-	if ev != null:
-		v.add_child(UI.label("イベント「%s」の初勝利でも手に入る　天井で交換できる" % ev.name, 11, Color("#e8f0d0"), "black"))
+	if (IK.data().cardStories as Dictionary).has(c.id):
+		v.add_child(UI.label("サポートに編成すると専用のカードイベント（全 %d 話）　天井で交換できる" % (IK.data().cardStories[c.id] as Array).size(), 11, Color("#e8f0d0"), "black"))
 	lay.add_child(v)
 	var hit := Button.new()
 	hit.flat = true
@@ -2196,7 +2192,7 @@ func _train() -> Control:
 		var et := UI.vbox(2)
 		if ev.get("story") != null:
 			var eps := int(IK.data().storyEpisodes)
-			var sp := _pill("サポートの話 %d / %d%s" % [int(ev.story) + 1, eps, "（最終話）" if int(ev.story) + 1 == eps else ""], Color("#cfe8d2"))
+			var sp := _pill("%s %d / %d%s" % ["カードイベント" if ev.get("cardStory", false) else "サポートの話", int(ev.story) + 1, eps, "（最終話）" if int(ev.story) + 1 == eps else ""], Color("#ffd0e4") if ev.get("cardStory", false) else Color("#cfe8d2"))
 			sp.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 			et.add_child(sp)
 		et.add_child(UI.label(ev.title, 21, INK, "title"))

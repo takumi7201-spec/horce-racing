@@ -90,7 +90,6 @@ func scenario(seed: int) -> Dictionary:
 	var skip := IK.rival_skip(p, 2, "2026-11-08")
 	IK.roll_quests(p, "2026-11-08")
 	var e3 := IK.event_race(p, h.id, "arima1990", 2)
-	var e4 := IK.event_race(p, h.id, "arima2000", 3)
 	var b2 := IK.battle_npc(p, h.id, "arima-kinen", "legend")
 	var qs2 := IK.quest_state(p, "2026-11-08")
 	var hall := [IK.set_hall(p, h.id, true) == "", IK.hall_of(p)]
@@ -115,7 +114,7 @@ func scenario(seed: int) -> Dictionary:
 		ladder = [b.rank, b2.rank, IK.ladder_state(p)], quests = [qv.call(qs), qs.ready, claimed, qv.call(qs2), qs2.weekLeft, IK.week_number("2026-11-08"), IK.day_number("2026-11-08")],
 		rec = rk, best = rec.get("best"), fast = fast, hall = hall, rel = rel, stage = IK.stage_label("nakayama|芝|2500"),
 		uniq = _uniq(),
-		limited = _limited(seed), event4 = [orders(e4.result), e4.reward.card.id if e4.get("reward") != null else null],
+		limited = _limited(seed), cardStory = _card_story(seed),
 		pity = _pity(p), story = [steps.filter(func(x): return x[0] == "event" and String(x[1]).begins_with("story:")).size(), run.get("chain")],
 	}
 	return {pulls = pulls, steps = steps, stats = h.stats, rating = h.rating, skills = h.skills, name = h.name, sex = h.sex, coat = h.coat,
@@ -181,3 +180,28 @@ func _limited(seed: int) -> Array:
 	var q := IK.new_profile(seed + 100)
 	q.coins = 999
 	return IK.pull(q, 200, "2026-11-20").map(func(g): return g.card.id)
+
+
+func _card_story(seed: int) -> Array:
+	var cp := IK.new_profile(seed + 200)
+	cp.coins = 999
+	for id in ["P1-17", "P4-01", "LT-01", "P1-02", "P1-03", "P1-04"]:
+		cp.cards[id] = 1
+	IK.start_run(cp, {sire = "P1-17", dam = "P4-01", name = "オペラノコ"}, ["LT-01", "P1-02", "P1-03", "P1-04"])
+	var r: Dictionary = cp.run
+	var out := []
+	var j := 0
+	while not IK.run_done(r):
+		var e = IK.pending_event(r)
+		if e != null:
+			var t := int(r.turn)
+			var m := IK.resolve_event(r, t % 2)
+			out.append([e.id, t, m, int(r.energy), (r.stats as Dictionary).duplicate()])
+		if IK.is_race_turn(r):
+			IK.race_turn(r, IK.race_options(r)[0].id)
+		elif int(r.energy) < 45:
+			IK.rest(r)
+		else:
+			IK.train(r, "stamina" if j % 2 == 1 else "guts")
+			j += 1
+	return [out, r.get("chain")]

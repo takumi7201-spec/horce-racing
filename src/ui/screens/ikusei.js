@@ -556,7 +556,6 @@ function limitedBanner(app, l) {
   bgInto(bg, c);
   const hero = el('img.ikev-hero.iklt-h', { alt: c.name, draggable: false });
   stickerInto(hero, c, { mode: 'img' });
-  const ev = I.EVENTS.find((e) => e.id === l.event);
   const md = (d) => `${+d.slice(5, 7)}/${+d.slice(8, 10)}`;
   return el('div.ikev-banner.ikgb.iklt', { onclick: () => showCard(app, c) }, [
     bg, el('span.ikev-shade'), hero,
@@ -566,7 +565,7 @@ function limitedBanner(app, l) {
       el('b.ikev-ttl', { text: l.title }),
       el('span.ikev-sub', { text: `LM ${c.name}「${c.epithet}」が出る（LM のうち ${Math.round(l.rate * 100)}%・全体の ${+(I.RATES.LM * l.rate * 100).toFixed(1)}%）` }),
       el('span.ikev-rw', [el('i', { text: 'PICK UP' }), el('span', { text: `固有【${I.UNIQUE_KINDS[I.uniqueKindOf(c)].name}】` })]),
-      ev ? el('span.ikgb-foot.iklt-foot', { text: `イベント「${ev.name}」の初勝利でも手に入る　天井で交換できる` }) : null,
+      I.CARD_STORIES[c.id] ? el('span.ikgb-foot.iklt-foot', { text: `サポートに編成すると専用のカードイベント（全 ${I.CARD_STORIES[c.id].length} 話）　天井で交換できる` }) : null,
     ]),
   ]);
 }
@@ -1284,8 +1283,8 @@ function trainView(app, go) {
     const face = el('span.ik-ev-face');
     if (sc) stickerInto(face, sc, { mode: 'face', zoom: 2.4 });
     else face.append(ic('spark', 30));
-    action = el(`section.ik-tevent${ev.story != null ? '.story' : ''}`, [
-      el('div.ik-tev-head', [face, el('div', [el('small', { text: ev.story != null ? `サポートの話 ${ev.story + 1} / ${I.STORY_EPISODES}${ev.story + 1 === I.STORY_EPISODES ? '（最終話）' : ''}` : '出来事' }), el('b', { text: ev.title })])]),
+    action = el(`section.ik-tevent${ev.story != null ? '.story' : ''}${ev.cardStory ? '.cardev' : ''}`, [
+      el('div.ik-tev-head', [face, el('div', [el('small', { text: ev.story != null ? `${ev.cardStory ? 'カードイベント' : 'サポートの話'} ${ev.story + 1} / ${I.STORY_EPISODES}${ev.story + 1 === I.STORY_EPISODES ? '（最終話）' : ''}` : '出来事' }), el('b', { text: ev.title })])]),
       el('p.ik-tev-text', { text: ev.text }),
       el('div.ik-tev-choices', ev.choices.map((c, i) => el('button.ik-tev-ch', {
         onclick: () => {

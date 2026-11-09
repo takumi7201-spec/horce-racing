@@ -72,7 +72,6 @@ function scenario(seed) {
   try { skip = IK.rivalSkip(p, 2, '2026-11-08'); } catch { /* 勝っていない */ }
   IK.rollQuests(p, '2026-11-08');
   const e3 = IK.eventRace(p, h.id, 'arima1990', 2);
-  const e4 = IK.eventRace(p, h.id, 'arima2000', 3);
   const b2 = IK.battleNpc(p, h.id, 'arima-kinen', 'legend');
   const qs2 = IK.questState(p, '2026-11-08');
   const hall = [IK.setHall(p, h.id, true), IK.hallOf(p)];
@@ -88,7 +87,20 @@ function scenario(seed) {
     hall, rel, stage: IK.stageLabel('nakayama|芝|2500'),
     // 期間限定：開催中の 200 回の引き（LM の一部がテイエムオペラオーになる）と、2000 年の有馬記念
     limited: (() => { const q = IK.newProfile(seed + 100); q.coins = 999; return IK.pull(q, 200, 'ALL', '2026-11-20').map((g) => g.card.id); })(),
-    event4: [orders(e4.result), e4.reward?.card.id ?? null],
+    // カードのイベント：テイエムオペラオーをサポートに入れた育成で出る 3 話（文・体力・能力まで）
+    cardStory: (() => {
+      const cp = IK.newProfile(seed + 200); cp.coins = 999;
+      Object.assign(cp.cards, { 'P1-17': 1, 'P4-01': 1, 'LT-01': 1, 'P1-02': 1, 'P1-03': 1, 'P1-04': 1 });
+      IK.startRun(cp, { sire: 'P1-17', dam: 'P4-01', name: 'オペラノコ' }, ['LT-01', 'P1-02', 'P1-03', 'P1-04']);
+      const r = cp.run, out = [];
+      let j = 0;
+      while (!IK.runDone(r)) {
+        const e = IK.pendingEvent(r);
+        if (e) out.push([e.id, r.turn, IK.resolveEvent(r, r.turn % 2), r.energy, { ...r.stats }]);
+        if (IK.isRaceTurn(r)) IK.raceTurn(r, IK.raceOptions(r)[0].id); else if (r.energy < 45) IK.rest(r); else IK.train(r, j++ % 2 ? 'stamina' : 'guts');
+      }
+      return [out, r.chain];
+    })(),
     // 天井：引いた回数の点、足りないと断る、100 点で PICK UP と交換
     pity: (() => { const p0 = IK.pityOf(p); let no = 0; try { IK.exchangePity(p, IK.PICKUP[0]); } catch { no = 1; } p.pity = 107;
       const x = IK.exchangePity(p, IK.PICKUP[2]); return [p0, no, IK.pityOf(p), x.card.id, x.isNew, x.awaken, p.cards[IK.PICKUP[2]]]; })(),
