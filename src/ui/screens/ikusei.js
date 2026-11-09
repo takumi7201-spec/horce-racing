@@ -30,6 +30,8 @@ const todayKey = () => { const d = new Date(); return `${d.getFullYear()}-${Stri
 const packTab = (id) => (id in I.PACKS ? `第${id.slice(1)}弾` : I.PACK_NAMES[id]);
 
 const store = () => { try { return window.localStorage; } catch { return null; } };
+/** ウイコインの表示（デバッグの無制限は ∞）。 */
+const coinText = (p) => (p.unlimited ? '∞' : I.coinsOf(p).toLocaleString());
 const save = (app) => I.saveProfile(app.ik, store());
 const RCLS = (r) => `rar-${r}`;
 /** 一覧のカードの倍率。狭い画面でも 2 枚は並ぶように縮める。 */
@@ -156,7 +158,7 @@ function shardPill(app, go) {
 /** ウイコインの数（ガチャ 1 回 1 枚）。＋はミッションへ（集め方）。 */
 function coinPill(app, go) {
   return el('span.ik-coin', [
-    el('button.ik-coin-n', { onclick: () => go('gacha'), title: 'ウイコイン（ガチャ 1 回 1 枚）' }, [el('span.cn', ic('wcoin', 20)), el('b', { text: I.coinsOf(app.ik).toLocaleString() })]),
+    el('button.ik-coin-n', { onclick: () => go('gacha'), title: 'ウイコイン（ガチャ 1 回 1 枚）' }, [el('span.cn', ic('wcoin', 20)), el('b', { text: coinText(app.ik) })]),
     el('button.plus', { onclick: () => go('mission'), title: 'ウイコインを集める', text: '+' }),
   ]);
 }
@@ -414,7 +416,7 @@ function gachaView(app, go) {
         el('button.btn.primary.ik-cost', { onclick: () => pull(1), disabled: coins < 1 }, ['1 回引く', el('small', [ic('wcoin', 14), el('b', { text: '1' })])]),
         el('button.btn.primary.big.ik-cost', { onclick: () => pull(10), disabled: coins < 10 }, ['10 回引く', el('small', [ic('wcoin', 14), el('b', { text: '10' })])]),
       ]),
-      el('p.note', { text: `ウイコイン ${coins} 枚（1 回 1 枚）　排出率 ${Object.entries(I.RATES).map(([k, v]) => `${k} ${Math.round(v * 100)}%`).join('・')}　通算 ${p.pulls} 回` }),
+      el('p.note', { text: `ウイコイン ${p.unlimited ? '∞（デバッグ）' : `${coins} 枚`}（1 回 1 枚）　排出率 ${Object.entries(I.RATES).map(([k, v]) => `${k} ${Math.round(v * 100)}%`).join('・')}　通算 ${p.pulls} 回` }),
       coins < 10 ? coinHowto(app, go) : null,
       pityPanel(app, go),
     ]),

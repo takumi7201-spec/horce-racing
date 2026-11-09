@@ -114,7 +114,7 @@ func scenario(seed: int) -> Dictionary:
 		ladder = [b.rank, b2.rank, IK.ladder_state(p)], quests = [qv.call(qs), qs.ready, claimed, qv.call(qs2), qs2.weekLeft, IK.week_number("2026-11-08"), IK.day_number("2026-11-08")],
 		rec = rk, best = rec.get("best"), fast = fast, hall = hall, rel = rel, stage = IK.stage_label("nakayama|芝|2500"),
 		uniq = _uniq(),
-		limited = _limited(seed), cardStory = _card_story(seed), cardStory2 = _card_story2(seed),
+		limited = _limited(seed), cardStory = _card_story(seed), cardStory2 = _card_story2(seed), password = _password(seed),
 		pity = _pity(p), story = [steps.filter(func(x): return x[0] == "event" and String(x[1]).begins_with("story:")).size(), run.get("chain")],
 	}
 	return {pulls = pulls, steps = steps, stats = h.stats, rating = h.rating, skills = h.skills, name = h.name, sex = h.sex, coat = h.coat,
@@ -215,6 +215,20 @@ func _card_story2(seed: int) -> Array:
 	for k in ["speed", "stamina", "power", "guts", "wit"]:
 		abs.append(IK.jround(float(sk.spec.ab[k]) * 1e6))
 	return [out, r.get("chain"), pv, sk.fired, abs]
+
+
+func _password(seed: int) -> Array:
+	var q := IK.new_profile(seed + 400)
+	q.coins = 0
+	var a := IK.apply_password(q, "1234")
+	var b := IK.apply_password(q, "0000")
+	var n := []
+	for g in IK.pull(q, 40):
+		n.append(g.card.id)
+	var c1 := IK.coins_of(q)
+	var raw: int = int(q.coins)
+	var d := IK.apply_password(q, "0000")
+	return [a, b, n, c1, raw, d, IK.coins_of(q)]
 
 
 func _card_story(seed: int) -> Array:

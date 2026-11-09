@@ -175,6 +175,12 @@ func _ready() -> void:
 		render(false)
 	if args.has("pull"):
 		_do_pull(int(args.pull))
+	if args.has("password"):
+		# 確かめ用：パスワードを入れる（--password=0000 でウイコイン無制限）。--howto=1 で遊びかた（パスワードの欄）を開く
+		IK.apply_password(p, String(args.password))
+		render(false)
+	if args.has("howto"):
+		_howto()
 	if args.has("card"):
 		# --card=own は持っているカードのうち枚数のいちばん多いもの（覚醒の表示を見る）
 		var cid := String(args.card)
@@ -580,7 +586,7 @@ func _coin_pill() -> Control:
 	b.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	var h := UI.hbox(6)
 	h.add_child(UI.icon("wcoin", 20, SUN))
-	h.add_child(UI.label(str(IK.coins_of(p)), 20, Color("#f6cf86"), "black"))
+	h.add_child(UI.label("∞" if p.get("unlimited", false) else str(IK.coins_of(p)), 20, Color("#f6cf86"), "black"))
 	var plus := UI.box({c = [SUN], radius = 999.0, border = 0.0, shadow = Vector2.ZERO, pad = Vector4(5, 0, 5, 1)})
 	plus.add_child(UI.label("+", 16, INK, "black"))
 	plus.press(go.bind("mission"))
@@ -1067,10 +1073,35 @@ func _howto() -> void:
 			"レースはゲーム本体と同じ計算で走り、Godot の競馬場で観戦できる。"]:
 		v.add_child(_wrap(line, 15, 640))
 	var w: Control
+	# デバッグ用のパスワード（ゲームのタイトル画面と同じ。「0000」でウイコインが無制限、もう一度入れると戻る）。Godot 版はタイトル画面を持たないのでここに置く
+	# GDScript のラムダは外のローカル変数を値で写すので、あとで作るモーダルは辞書に入れて渡す（落とし穴 106）
+	var hold := {w = null}
+	var pw := UI.hbox(8)
+	pw.add_child(UI.label("パスワード", 13, Color("#4a5b58"), "black"))
+	var le := LineEdit.new()
+	le.secret = true
+	le.max_length = 8
+	le.custom_minimum_size = Vector2(140, 0)
+	le.add_theme_font_override("font", UI.font("body"))
+	pw.add_child(le)
+	var submit := func() -> void:
+		var on := IK.apply_password(p, le.text)
+		le.text = ""
+		if on < 0:
+			toast("パスワードが違う")
+			return
+		save()
+		toast("ウイコイン無制限（デバッグ）" if on == 1 else "ウイコインを元に戻した")
+		close_modal(hold.w)
+		render(false)
+	le.text_submitted.connect(func(_t: String) -> void: submit.call())
+	pw.add_child(UI.button("入力", submit, "paper", 13))
+	v.add_child(pw)
 	var cb := UI.button("閉じる", func() -> void: close_modal(w), "primary")
 	cb.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	v.add_child(cb)
 	w = modal(v, 700)
+	hold.w = w
 
 
 func _pick_favorite() -> void:

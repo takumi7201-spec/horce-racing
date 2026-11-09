@@ -121,6 +121,14 @@ function scenario(seed) {
       const sk = applyRaceSkills({ ab: { speed: 0.7, stamina: 0.7, power: 0.7, guts: 0.7, wit: 0.7 }, style: 0.3 }, IK.skillsOf(IK.cardById('LT-02'), 2).race, { surface: 'ダート', distance: 2000, grade: 'GI' }, { rar: 'LM', awaken: 2 });
       return [out, r.chain, pv, sk.fired, Object.values(sk.spec.ab).map((x) => Math.round(x * 1e6))];
     })(),
+    // デバッグのパスワード：違う → -1、0000 → 1（無制限。0 枚から引けて残高は減らない）、もう一度 → 0
+    password: (() => {
+      const q = IK.newProfile(seed + 400); q.coins = 0;
+      const k = (x) => (x == null ? -1 : x ? 1 : 0);
+      const a = k(IK.applyPassword(q, '1234')), b = k(IK.applyPassword(q, '0000'));
+      const n = IK.pull(q, 40, 'ALL').map((g) => g.card.id);
+      return [a, b, n, IK.coinsOf(q), q.coins, k(IK.applyPassword(q, '0000')), IK.coinsOf(q)];
+    })(),
     // 天井：引いた回数の点、足りないと断る、100 点で PICK UP と交換
     pity: (() => { const p0 = IK.pityOf(p); let no = 0; try { IK.exchangePity(p, IK.PICKUP[0]); } catch { no = 1; } p.pity = 107;
       const x = IK.exchangePity(p, IK.PICKUP[2]); return [p0, no, IK.pityOf(p), x.card.id, x.isNew, x.awaken, p.cards[IK.PICKUP[2]]]; })(),

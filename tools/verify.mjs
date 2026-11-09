@@ -1594,6 +1594,20 @@ section('カード育成モード');
       && ev.card && ev.title === '1973年三冠レース' && eps.length === 3 && eps.every((x, k) => x[0] === `story:LT-02:${k}` && x[1]) && eps[2][2].includes('31馬身先の伝説')
       && I.CARD_STORIES['LT-02'].every((e) => e.choices.every((c) => c.reply)) && both === 2 && peekHorseId() === idBefore);
   }
+  // デバッグ：タイトル画面のパスワード「0000」でウイコインが無制限（違うパスワードは何もしない。もう一度入れると元の残高に戻る）
+  {
+    const q = I.newProfile(9);
+    q.coins = 0;
+    const wrong = I.applyPassword(q, '1234');
+    let blocked = false;
+    try { I.pull(q, 1); } catch { blocked = true; }
+    const on = I.applyPassword(q, '0000');
+    const got = I.pull(q, 50).length;
+    const inf = I.coinsOf(q);
+    const off = I.applyPassword(q, ' 0000 ');
+    check(`デバッグのパスワード：「0000」でウイコイン無制限（0 枚から ${got} 回引けて残高は ${q.coins} のまま）、違うパスワードは効かず、もう一度入れると戻る`,
+      wrong === null && blocked && on === true && got === 50 && inf === I.UNLIMITED_COINS && q.coins === 0 && off === false && I.coinsOf(q) === 0 && q.pulls === 50);
+  }
   // 夏合宿・サポートの連続イベント・ガチャの天井
   {
     const ep = rich(I.newProfile(61));

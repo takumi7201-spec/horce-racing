@@ -437,8 +437,26 @@ static func buy_with_shards(p: Dictionary, id: String) -> Dictionary:
 # ガチャは 1 回 1 枚。得るのはミッション（初めて編成したカードの育成を終える、1 枚ごとに 1 枚）と
 # ライバルレース（1 日 10 枚まで。日付は画面が渡す 'YYYY-MM-DD'）。JS の ikusei.js と同じ。
 
-static func coins_of(p: Dictionary) -> int:
+## デバッグ：パスワード「0000」でウイコインが無制限（p.unlimited、もう一度入れると戻る）。JS の ikusei.js と同じ。
+## 無制限のあいだは引いても減らさず、得たウイコインは元の残高に積む。
+const DEBUG_PASSWORD := "0000"
+const UNLIMITED_COINS := 999999
+
+
+static func _raw_coins(p: Dictionary) -> int:
 	return int(p.get("coins", data().coinStart)) if p.get("coins") != null else int(data().coinStart)
+
+
+static func coins_of(p: Dictionary) -> int:
+	return UNLIMITED_COINS if p.get("unlimited", false) else _raw_coins(p)
+
+
+## パスワードを入れる。合えば無制限を切り替えて今の状態（1／0）を、違えば -1 を返す。
+static func apply_password(p: Dictionary, code: String) -> int:
+	if code.strip_edges() != DEBUG_PASSWORD:
+		return -1
+	p.unlimited = not bool(p.get("unlimited", false))
+	return 1 if p.unlimited else 0
 
 
 static func missions_of(p: Dictionary) -> Array:
@@ -495,7 +513,8 @@ static func pull(p: Dictionary, n := 1, today := "") -> Array:
 	# 1 回 1 枚のウイコイン（足りなければ引かない）
 	if coins_of(p) < n:
 		return []
-	p.coins = coins_of(p) - n
+	if not p.get("unlimited", false):
+		p.coins = _raw_coins(p) - n
 	p.pity = pity_of(p) + n
 	var got := []
 	for i in n:
@@ -1509,7 +1528,7 @@ static func _close_run(p: Dictionary) -> Dictionary:
 	# ミッション：初めて編成したカードは 1 枚ごとにウイコイン 1 枚
 	var gain := mission_gain(p, run)
 	p.missions = missions_of(p) + gain
-	p.coins = coins_of(p) + gain.size() + (GOAL_COINS if run.get("goal") != null and run.goal.done else 0)
+	p.coins = _raw_coins(p) + gain.size() + (GOAL_COINS if run.get("goal") != null and run.goal.done else 0)
 	p.run = null
 	return h
 
@@ -1672,7 +1691,7 @@ static func _rival_pay(p: Dictionary, today: String, star: int) -> int:
 		st.got = 0
 	var n := mini(int(data().rival.coins[str(star)]), int(data().rival.daily) - int(st.got))
 	st.got = int(st.got) + n
-	p.coins = coins_of(p) + n
+	p.coins = _raw_coins(p) + n
 	return n
 
 
@@ -1972,7 +1991,7 @@ static func claim_quest(p: Dictionary, id: String, today: String) -> int:
 			if not x.ready:
 				return 0
 			(q.dGot if String(x.id).begins_with("d_") else q.wGot).append(x.id)
-			p.coins = coins_of(p) + int(x.coins)
+			p.coins = _raw_coins(p) + int(x.coins)
 			return int(x.coins)
 	return 0
 
@@ -2034,7 +2053,7 @@ static func _ladder_move(p: Dictionary, order: int, diff: String) -> Dictionary:
 		coins += int(data().rankTiers[i].coins)
 	if to > int(l.best):
 		l.best = to
-	p.coins = coins_of(p) + coins
+	p.coins = _raw_coins(p) + coins
 	return {from = from, to = to, fromPts = from_pts, pts = int(l.pts), delta = int(l.pts) - from_pts, coins = coins, promoted = to > from, demoted = to < from}
 
 

@@ -229,7 +229,18 @@ export function newProfile(seed = 1) {
 
 /** 新しいプロフィールのウイコイン（最初の 30 回で配合に要る牡・牝とサポートがそろう）。 */
 export const COIN_START = 30;
-export const coinsOf = (profile) => profile.coins ?? COIN_START;
+// デバッグ：タイトル画面のパスワード「0000」でウイコインが無制限になる（profile.unlimited、もう一度入れると戻る）。
+// 無制限のあいだは引いても減らさず、得たウイコインは元の残高（profile.coins）に積む（戻したときに元の数に戻る）。
+export const DEBUG_PASSWORD = '0000';
+export const UNLIMITED_COINS = 999999;
+const rawCoins = (profile) => profile.coins ?? COIN_START;
+export const coinsOf = (profile) => (profile.unlimited ? UNLIMITED_COINS : rawCoins(profile));
+/** パスワードを入れる。合えば無制限を切り替えて今の状態（true／false）を、違えば null を返す。 */
+export function applyPassword(profile, code) {
+  if (String(code ?? '').trim() !== DEBUG_PASSWORD) return null;
+  profile.unlimited = !profile.unlimited;
+  return profile.unlimited;
+}
 
 /** 育成に編成したカード（父・母・サポート。カード 1 枚を育てた古い育成は trainee）。 */
 const formedOf = (o) => [...new Set([o.sire, o.dam, o.trainee ?? o.cardId, ...(o.supports ?? [])].filter((id) => typeof id === 'string' && cardById(id)))];
@@ -271,7 +282,7 @@ export const RATES = { LM: 0.02, SSR: 0.06, SR: 0.15, R: 0.27, N: 0.50 };
 export function pull(profile, n = 1, pack = 'ALL', today = null) {
   const lim = limitedNow(today);
   if (coinsOf(profile) < n) throw new Error(`ウイコインが足りない（あと ${n - coinsOf(profile)} 枚）`);
-  profile.coins = coinsOf(profile) - n;
+  if (!profile.unlimited) profile.coins = rawCoins(profile) - n;
   profile.pity = pityOf(profile) + n;
   const got = [];
   for (let i = 0; i < n; i++) {
@@ -1246,7 +1257,7 @@ function closeRun(profile) {
   // ミッション：初めて編成したカードは 1 枚ごとにウイコイン 1 枚
   const gain = missionGain(profile, run);
   profile.missions = [...missionsOf(profile), ...gain];
-  profile.coins = coinsOf(profile) + gain.length + (run.goal?.done ? GOAL_COINS : 0);
+  profile.coins = rawCoins(profile) + gain.length + (run.goal?.done ? GOAL_COINS : 0);
   profile.run = null;
   return horse;
 }
@@ -1393,7 +1404,7 @@ function rivalPay(profile, today, star) {
   if (st.day !== today) { st.day = today; st.got = 0; }
   const n = Math.min(RIVAL_COINS[star], RIVAL_DAILY - st.got);
   st.got += n;
-  profile.coins = coinsOf(profile) + n;
+  profile.coins = rawCoins(profile) + n;
   return n;
 }
 
@@ -1605,7 +1616,7 @@ export function claimQuest(profile, id, today) {
   const x = [...st.daily, ...st.weekly].find((d) => d.id === id);
   if (!x || !x.ready) return 0;
   (x.id.startsWith('d_') ? q.dGot : q.wGot).push(x.id);
-  profile.coins = coinsOf(profile) + x.coins;
+  profile.coins = rawCoins(profile) + x.coins;
   return x.coins;
 }
 /** 受け取れるものをまとめて。 */
@@ -1654,7 +1665,7 @@ function ladderMove(profile, order, diff) {
   let coins = 0;
   for (let i = l.best + 1; i <= to; i++) coins += RANK_TIERS[i].coins;
   if (to > l.best) l.best = to;
-  profile.coins = coinsOf(profile) + coins;
+  profile.coins = rawCoins(profile) + coins;
   return { from, to, fromPts, pts: l.pts, delta: l.pts - fromPts, coins, promoted: to > from, demoted: to < from };
 }
 

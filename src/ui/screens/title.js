@@ -5,6 +5,7 @@ import { newGame } from '../../sim/game.js';
 import { slotInfo } from '../../sim/save.js';
 import { formatMoney } from '../../core/util.js';
 import { weekLabel } from '../../sim/schedule.js';
+import { loadProfile, saveProfile, applyPassword } from '../../sim/ikusei.js';
 
 export function titleScreen(app) {
   const name = el('input.inp', { type: 'text', placeholder: '馬主名（例：高橋 健太）', maxLength: 12 });
@@ -68,6 +69,7 @@ export function titleScreen(app) {
         el('b', { text: 'カード育成モード' }),
         el('small', { text: 'ガチャで名馬のカードを集め、5 枚の編成で 2 年育てて完成馬どうしを戦わせる' }),
       ]),
+      ikPassword(app),
     ]),
     el('div.title-cols', [
       card('ニューゲーム', [
@@ -98,4 +100,25 @@ export function titleScreen(app) {
       ]),
     ]),
   ]);
+}
+
+/**
+ * カード育成モードのパスワード（デバッグ用）。「0000」でウイコインが無制限になる（もう一度入れると戻る。sim の applyPassword）。
+ * プロフィールは育成モードと同じ localStorage。育成モードを開いた後なら app.ik を書き換える（読み直すと開いている状態とずれる）。
+ */
+function ikPassword(app) {
+  const input = el('input.title-pw-in', { type: 'password', maxLength: 8, placeholder: 'パスワード', autocomplete: 'off', inputMode: 'numeric' });
+  const submit = () => {
+    let st = null;
+    try { st = window.localStorage; } catch { /* 保存できなくても今の画面には効かせる */ }
+    const p = app.ik ?? loadProfile(st);
+    const on = applyPassword(p, input.value);
+    input.value = '';
+    if (on == null) return toast('パスワードが違う', { bad: true });
+    app.ik = p;
+    saveProfile(p, st);
+    toast(on ? 'カード育成モード：ウイコイン無制限（デバッグ）' : 'カード育成モード：ウイコインを元に戻した');
+  };
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
+  return el('div.title-pw', [el('small', { text: 'カード育成モード専用' }), input, button('入力', submit, { cls: 'sm' })]);
 }
