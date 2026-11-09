@@ -9,13 +9,15 @@
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import * as IK from '../src/sim/ikusei.js';
+import { applyRaceSkills } from '../src/sim/ikusei-skills.js';
 
 const GODOT = process.env.GODOT ?? '/tmp/godot/Godot_v4.7.2-stable_linux.x86_64';
 // 固有スキルの型ごとの舞台（ik_verify.gd の UQ と同じ）
 const UQ = [['king', { grade: 'GI' }, {}], ['mud', { ground: '不良' }, {}], ['stayer', { distance: 2400 }, {}], ['flash', { distance: 1400 }, {}],
   ['abroad', { courseId: 'longchamp', distance: 2400 }, {}], ['stage', {}, { battle: true }], ['queen', {}, { sex: '牝' }], ['crowd', {}, { n: 16 }],
   ['start', {}, { style: 0.15 }], ['shadow', {}, { style: 0.1 }], ['kick', {}, { style: 0.65 }], ['again', {}, { style: 0.4 }],
-  ['grit', { distance: 2400 }, {}], ['long', { distance: 2400 }, { style: 0.6 }], ['hill', { courseId: 'nakayama' }, {}], ['inside', {}, { style: 0.65 }]];
+  ['grit', { distance: 2400 }, {}], ['long', { distance: 2400 }, { style: 0.6 }], ['hill', { courseId: 'nakayama' }, {}], ['inside', {}, { style: 0.65 }],
+  ['burst', { surface: 'ダート', distance: 2000 }, { style: 0.1 }]];
 const orders = (res) => res.results.map((r) => [r.horseId, Math.round(r.time * 1000) / 1000]);
 
 function scenario(seed) {
@@ -100,6 +102,24 @@ function scenario(seed) {
         if (IK.isRaceTurn(r)) IK.raceTurn(r, IK.raceOptions(r)[0].id); else if (r.energy < 45) IK.rest(r); else IK.train(r, j++ % 2 ? 'stamina' : 'guts');
       }
       return [out, r.chain];
+    })(),
+    // 期間限定 第 2 弾：セクレタリアトをサポートに入れた育成（カードイベント 3 話と、練習スキル 赤い弾丸・規格外の心臓が効く練習）
+    cardStory2: (() => {
+      const cp = IK.newProfile(seed + 300); cp.coins = 999;
+      Object.assign(cp.cards, { 'P1-17': 1, 'P4-01': 1, 'LT-02': 1, 'P1-02': 1, 'P1-03': 1, 'P1-04': 1 });
+      IK.startRun(cp, { sire: 'P1-17', dam: 'P4-01', name: 'ビッグレッド' }, ['LT-02', 'P1-02', 'P1-03', 'P1-04']);
+      const r = cp.run, out = [], pv = [];
+      let j = 0;
+      while (!IK.runDone(r)) {
+        const e = IK.pendingEvent(r);
+        if (e) out.push([e.id, r.turn, IK.resolveEvent(r, r.turn % 2), r.energy, { ...r.stats }]);
+        if (IK.isRaceTurn(r)) IK.raceTurn(r, IK.raceOptions(r)[0].id);
+        else if (r.energy < 45) IK.rest(r);
+        else { const k = j++ % 2 ? 'power' : 'speed'; const v = IK.trainingPreview(r, k); pv.push([k, v.gains, v.cost, v.skills]); IK.train(r, k); }
+      }
+      // ダートの GI 2000m で、セクレタリアトのレーススキル（ダートの 2 つ・砂の王）が発動する
+      const sk = applyRaceSkills({ ab: { speed: 0.7, stamina: 0.7, power: 0.7, guts: 0.7, wit: 0.7 }, style: 0.3 }, IK.skillsOf(IK.cardById('LT-02'), 2).race, { surface: 'ダート', distance: 2000, grade: 'GI' }, { rar: 'LM', awaken: 2 });
+      return [out, r.chain, pv, sk.fired, Object.values(sk.spec.ab).map((x) => Math.round(x * 1e6))];
     })(),
     // 天井：引いた回数の点、足りないと断る、100 点で PICK UP と交換
     pity: (() => { const p0 = IK.pityOf(p); let no = 0; try { IK.exchangePity(p, IK.PICKUP[0]); } catch { no = 1; } p.pity = 107;

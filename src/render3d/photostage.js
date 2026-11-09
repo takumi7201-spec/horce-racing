@@ -140,6 +140,8 @@ const BACKDROPS = {
   cloudy: { top: [0.50, 0.58, 0.68], horizon: [0.86, 0.87, 0.86], glow: 0.12, infield: 0x356f34, trees: true, stand: true },
   // 晴れた昼の競馬場（ダイワスカーレットの返し馬の写真、2008 年秋の東京）。
   day: { top: [0.42, 0.6, 0.86], horizon: [0.88, 0.9, 0.92], glow: 0.18, infield: 0x3f8a3a, trees: true, stand: true },
+  // 夏の昼の広い競馬場（1973 年のベルモントS の写真）。カメラの向こうはスタンドではなく、外の芝コースと白いラチ、生け垣と高い木立。霞んだ空。
+  park: { top: [0.58, 0.68, 0.8], horizon: [0.88, 0.9, 0.9], glow: 0.1, infield: 0x3f8a3a, trees: false, stand: false, apron: 0x4c8a3c, park: true },
 };
 
 function skyDome(sunDir, B = BACKDROPS.sunset) {
@@ -514,6 +516,27 @@ function buildStage(o) {
   const wall = new THREE.Mesh(new THREE.BoxGeometry(1, 3, 320), new THREE.MeshStandardMaterial({ color: 0x2f5a3a, roughness: 0.8 }));
   wall.position.set(STAND_X, 1.5, 0);
   if (B.stand) bg.add(wall);
+  // park：スタンドの代わりに、外の芝コース（白いラチ 2 本）・生け垣・丸い樹冠の高い木立（写真の奥）
+  if (B.park) {
+    const grass = new THREE.Mesh(new THREE.PlaneGeometry(200, 520), new THREE.MeshStandardMaterial({ color: 0x4f8f3e, roughness: 1 }));
+    grass.rotation.x = -Math.PI / 2;
+    grass.position.set(OUTER_X - 100, -0.004, 0);
+    bg.add(grass);
+    bg.add(rail(OUTER_X - 16, -160, 160, railMat, railMat));
+    const hedge = new THREE.Mesh(new THREE.BoxGeometry(3, 2.6, 520), new THREE.MeshStandardMaterial({ color: 0x2c5a2a, roughness: 1 }));
+    hedge.position.set(OUTER_X - 40, 1.3, 0);
+    bg.add(hedge);
+    const leaf = [0x2d5f2c, 0x3a6e33, 0x26502a].map((c) => new THREE.MeshStandardMaterial({ color: c, roughness: 1 }));
+    const rp = seeded((hero.id ?? 1) + 7);
+    // 木立は遠く（望遠で寄せると近い木は画面の上半分を覆った）
+    for (let i = 0; i < 90; i++) {
+      const r0 = 5 + rp() * 5;
+      const t = new THREE.Mesh(new THREE.SphereGeometry(r0, 10, 8), leaf[i % 3]);
+      t.position.set(OUTER_X - 110 - rp() * 50, 5 + rp() * 6, -260 + i * 6 + rp() * 4);
+      t.scale.y = 1.15;
+      bg.add(t);
+    }
+  }
   // 内馬場の向こうの木立（低い円錐）
   const rnd = seeded(hero.id ?? 1);
   const treeMat = new THREE.MeshStandardMaterial({ color: 0x2e6a32, roughness: 1 });

@@ -56,7 +56,7 @@ export const ART_SHOTS = ['profile', 'finish', 'charge', 'front', 'face', 'low',
 export const ART_BACKDROPS = { sunset: '夕日', day: '晴れた昼', cloudy: '曇り', paris: '秋の曇天', desert: '砂漠' };
 export const ART_POSES = { celebrate: 'ガッツポーズ', race: '追う（前傾）', canter: '返し馬（起こす）' };
 export const SILK_PATTERNS = ['無地', '縦縞', '縦縞細', '輪', '一本輪', 'たすき', '十字襷', '山形', '玉', '玉霰', '元禄', '肩章', '吊り', '菱山形'];
-export const SILK_SLEEVES = { body: '胴と同じ', plain: '無地', hoops: '輪', stripes: '縦縞', band: '一本輪', cuffs: '袖口', dots: '玉' };
+export const SILK_SLEEVES = { body: '胴と同じ', plain: '無地', hoops: '輪', stripes: '縦縞', band: '一本輪', cuffs: '袖口', dots: '玉', checks: '市松' };
 export const LEG_KEYS = ['lf', 'rf', 'lh', 'rh'];
 /**
  * リグ（カードエディットで部位を回す・動かす）。馬は部位ごとの回転のずれ（ラジアン、x 縦・y 横・z ひねり。axes が動かせる軸）、
@@ -815,6 +815,9 @@ export function trainingPreview(run, kind) {
     if (sk.includes('saver') && kind !== 'wit') { cost = Math.max(5, cost - 5); fired.push(skillInfo('saver').name); }
     if (sk.includes('safe')) { failMul *= 0.5; fired.push(skillInfo('safe').name); }
     if (sk.includes('mood')) fired.push(skillInfo('mood').name);
+    // セクレタリアトの練習スキル：赤い弾丸（スピード・パワーの練習）、規格外の心臓（どの練習でも伸び 1 割・体力の消費 −3）
+    if (sk.includes('tr_dash') && (kind === 'speed' || kind === 'power')) { mul *= 1 + 0.1 * RAR_SCALE[c.rar]; fired.push(skillInfo('tr_dash').name); }
+    if (sk.includes('bigheart')) { mul *= 1.1; if (kind !== 'wit') cost = Math.max(5, cost - 3); fired.push(skillInfo('bigheart').name); }
   });
   const gains = {};
   const base = 30;

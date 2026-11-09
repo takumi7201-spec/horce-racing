@@ -374,6 +374,12 @@ static func simulate(spec: Dictionary, rng, P: Dictionary, course: Dictionary, r
 						r.uqAt = S[i]
 				if r.uq == "shadow" and r.uqAt != null:
 					vcap *= 1.0 + 0.012 * uk
+				# 独走：ダートの最後の直線（残り 450m）で先頭から 8m 以内なら抜け出しにかかり、ゴールまで最高速を引き上げ続ける（race.js と同じ）
+				if r.uq == "burst" and spec.surface == "ダート":
+					if r.uqAt == null and rem < 450 and rem > 20 and lead_s - S[i] < 8:
+						r.uqAt = S[i]
+					if r.uqAt != null:
+						vcap *= 1.0 + 0.07 * uk * (1.0 - rem / 450.0)
 				if r.uq == "inside" and rem < 500:
 					vcap *= 1.0 + 0.018 * uk
 					if r.uqAt == null:

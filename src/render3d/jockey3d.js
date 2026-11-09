@@ -147,7 +147,7 @@ const silksCache = new Map();
  * 勝負服の布（胴・袖）。u は周（0 が横、0.25 が前、0.75 が背）、v は長さ（胴は腰 0 → 首 1）。
  * custom（{ body, accent, pattern, sleeve: 'plain'|'hoops' }）を渡すと、その色と柄で作る（実在の馬主の服など）。
  * 写真に合わせるときの追加：pattern '十字襷'（前と背に X）・'玉霰'（細かい玉）・'元禄'（市松）・'縦縞細'・'吊り'（ズボン吊り）・'肩章M'・'菱山形'（胸に菱 3 つ）、
- * sleeve 'body'（胴と同じ色）・'stripes'（縦縞）・'band'（肘に 1 本）・'cuffs'（袖口だけ）・'dots'（玉）、
+ * sleeve 'body'（胴と同じ色）・'stripes'（縦縞）・'band'（肘に 1 本）・'cuffs'（袖口だけ）・'dots'（玉）・'checks'（市松）、
  * sleeveBase・sleeveAccent で袖の地と柄の色を胴と別にできる（サンデーレーシングの黒地に黄縦縞の袖など）。
  */
 function silksTextures(id, custom = null) {
@@ -204,7 +204,7 @@ function silksTextures(id, custom = null) {
   sleeve.width = 64; sleeve.height = 64;
   const s = sleeve.getContext('2d');
   const sv = custom?.sleeve;
-  if (custom && ['body', 'stripes', 'band', 'cuffs', 'dots'].includes(sv)) {
+  if (custom && ['body', 'stripes', 'band', 'cuffs', 'dots', 'checks'].includes(sv)) {
     // 袖の地と柄（既定は胴の地と柄の色）。袖の布の v は肩 0 → 袖口 1（キャンバスの下が肩）
     const SB = custom.sleeveBase ?? A, SA = custom.sleeveAccent ?? B;
     s.fillStyle = SB; s.fillRect(0, 0, 64, 64);
@@ -212,6 +212,8 @@ function silksTextures(id, custom = null) {
     if (sv === 'stripes') for (let x = 0; x < 64; x += 16) s.fillRect(x, 0, 7, 64);
     else if (sv === 'band') s.fillRect(0, 26, 64, 12);
     else if (sv === 'cuffs') s.fillRect(0, 2, 64, 12);
+    // 市松（セクレタリアトのメドウステーブルの青と白の格子）
+    else if (sv === 'checks') { for (let y = 0; y < 64; y += 16) for (let x = (y / 16) % 2 ? 16 : 0; x < 64; x += 32) s.fillRect(x, y, 16, 16); }
     else if (sv === 'dots') for (let y = 8; y < 60; y += 16) for (let x = (y / 16) % 2 ? 8 : 0; x < 64; x += 16) { s.beginPath(); s.arc(x, y, 5, 0, Math.PI * 2); s.fill(); }
   } else {
     const sleevePat = custom ? (sv === 'hoops' ? 0.9 : 0) : hash01(id, 6);

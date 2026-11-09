@@ -589,6 +589,8 @@ static func _skill_when(id: String, race: Dictionary, battle: bool) -> bool:
 		"big": return race.get("grade") == "GI"
 		"duel": return battle
 		"front", "closer", "calm", "grit": return true
+		"dirtMid": return race.surface == "ダート" and dist > 1600 and dist <= 2400
+		"dirtBig": return race.surface == "ダート" and race.get("grade") == "GI"
 	return false
 
 
@@ -637,6 +639,8 @@ static func skill_cue(name: String, distance: float) -> Dictionary:
 		"sprint", "mile": at = distance * 0.45
 		"middle": at = distance * 0.5
 		"stayer": at = distance * 0.55
+		"dirtMid": at = distance * 0.5
+		"dirtBig": at = distance * 0.25
 		"closer": at = distance - 550
 		"grit": at = distance - 250
 	return {id = id, unique = false, at = maxf(40, at)}
@@ -996,6 +1000,15 @@ static func training_preview(run: Dictionary, kind: String) -> Dictionary:
 			fired.append(skill_info("safe").name)
 		if sk.has("mood"):
 			fired.append(skill_info("mood").name)
+		# セクレタリアトの練習スキル（ikusei.js と同じ）：赤い弾丸はスピード・パワーの練習、規格外の心臓はどの練習でも
+		if sk.has("tr_dash") and (kind == "speed" or kind == "power"):
+			mul *= 1 + 0.1 * float(RAR_SCALE[c.rar])
+			fired.append(skill_info("tr_dash").name)
+		if sk.has("bigheart"):
+			mul *= 1.1
+			if kind != "wit":
+				cost = maxi(5, cost - 3)
+			fired.append(skill_info("bigheart").name)
 	var gains := {}
 	var base := 30.0
 	gains[tr.main] = jround(base * mul * (0.85 + float(plus[tr.main]) * 0.1))

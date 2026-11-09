@@ -114,7 +114,7 @@ func scenario(seed: int) -> Dictionary:
 		ladder = [b.rank, b2.rank, IK.ladder_state(p)], quests = [qv.call(qs), qs.ready, claimed, qv.call(qs2), qs2.weekLeft, IK.week_number("2026-11-08"), IK.day_number("2026-11-08")],
 		rec = rk, best = rec.get("best"), fast = fast, hall = hall, rel = rel, stage = IK.stage_label("nakayama|芝|2500"),
 		uniq = _uniq(),
-		limited = _limited(seed), cardStory = _card_story(seed),
+		limited = _limited(seed), cardStory = _card_story(seed), cardStory2 = _card_story2(seed),
 		pity = _pity(p), story = [steps.filter(func(x): return x[0] == "event" and String(x[1]).begins_with("story:")).size(), run.get("chain")],
 	}
 	return {pulls = pulls, steps = steps, stats = h.stats, rating = h.rating, skills = h.skills, name = h.name, sex = h.sex, coat = h.coat,
@@ -148,7 +148,8 @@ func _pity(p: Dictionary) -> Array:
 const UQ := [["king", {grade = "GI"}, {}], ["mud", {ground = "不良"}, {}], ["stayer", {distance = 2400}, {}], ["flash", {distance = 1400}, {}],
 	["abroad", {courseId = "longchamp", distance = 2400}, {}], ["stage", {}, {battle = true}], ["queen", {}, {sex = "牝"}], ["crowd", {}, {n = 16}],
 	["start", {}, {style = 0.15}], ["shadow", {}, {style = 0.1}], ["kick", {}, {style = 0.65}], ["again", {}, {style = 0.4}],
-	["grit", {distance = 2400}, {}], ["long", {distance = 2400}, {style = 0.6}], ["hill", {courseId = "nakayama"}, {}], ["inside", {}, {style = 0.65}]]
+	["grit", {distance = 2400}, {}], ["long", {distance = 2400}, {style = 0.6}], ["hill", {courseId = "nakayama"}, {}], ["inside", {}, {style = 0.65}],
+	["burst", {surface = "ダート", distance = 2000}, {style = 0.1}]]
 
 
 func _uq_base(id: int, sex: String, style: float) -> Dictionary:
@@ -180,6 +181,40 @@ func _limited(seed: int) -> Array:
 	var q := IK.new_profile(seed + 100)
 	q.coins = 999
 	return IK.pull(q, 200, "2026-11-20").map(func(g): return g.card.id)
+
+
+func _card_story2(seed: int) -> Array:
+	var cp := IK.new_profile(seed + 300)
+	cp.coins = 999
+	for id in ["P1-17", "P4-01", "LT-02", "P1-02", "P1-03", "P1-04"]:
+		cp.cards[id] = 1
+	IK.start_run(cp, {sire = "P1-17", dam = "P4-01", name = "ビッグレッド"}, ["LT-02", "P1-02", "P1-03", "P1-04"])
+	var r: Dictionary = cp.run
+	var out := []
+	var pv := []
+	var j := 0
+	while not IK.run_done(r):
+		var e = IK.pending_event(r)
+		if e != null:
+			var t := int(r.turn)
+			var m := IK.resolve_event(r, t % 2)
+			out.append([e.id, t, m, int(r.energy), (r.stats as Dictionary).duplicate()])
+		if IK.is_race_turn(r):
+			IK.race_turn(r, IK.race_options(r)[0].id)
+		elif int(r.energy) < 45:
+			IK.rest(r)
+		else:
+			var k := "power" if j % 2 == 1 else "speed"
+			j += 1
+			var v := IK.training_preview(r, k)
+			pv.append([k, v.gains, v.cost, v.skills])
+			IK.train(r, k)
+	var sk := IK.apply_race_skills({ab = {speed = 0.7, stamina = 0.7, power = 0.7, guts = 0.7, wit = 0.7}, style = 0.3}, IK.skills_of(IK.card("LT-02"), 2).race,
+		{surface = "ダート", distance = 2000, grade = "GI"}, false, "LM", null, 2)
+	var abs := []
+	for k in ["speed", "stamina", "power", "guts", "wit"]:
+		abs.append(IK.jround(float(sk.spec.ab[k]) * 1e6))
+	return [out, r.get("chain"), pv, sk.fired, abs]
 
 
 func _card_story(seed: int) -> Array:

@@ -33,6 +33,9 @@ const RACE = {
   duel: { name: '勝負師', desc: '対戦（ランク戦・完成馬どうし）ですべての能力が上がる', when: (r, ctx) => !!ctx.battle, add: { speed: 0.008, stamina: 0.008, power: 0.008, guts: 0.008, wit: 0.008 } },
   calm: { name: '冷静沈着', desc: 'いつも賢さが上がる', when: () => true, add: { wit: 0.02 } },
   grit: { name: '叩き合い', desc: 'いつも根性が上がる', when: () => true, add: { guts: 0.02 } },
+  // ダートの中距離・ダートの大一番（セクレタリアトのカードで足した。カードの skillSet で持たせる。値から決めるスキルの候補には入れない）
+  dirtMid: { name: '砂上の王道', desc: 'ダートの 1601〜2400m でスピード・スタミナが上がる', when: (r) => r.surface === 'ダート' && r.distance > 1600 && r.distance <= 2400, add: { speed: 0.016, stamina: 0.016 } },
+  dirtBig: { name: '砂塵の大舞台', desc: 'ダートの GI でパワー・根性が大きく上がる', when: (r) => r.surface === 'ダート' && r.grade === 'GI', add: { power: 0.02, guts: 0.02 } },
 };
 
 /** サポートスキルの定義（練習で、その馬が来ている練習にだけ効く）。 */
@@ -43,6 +46,9 @@ const SUPPORT = {
   safe: { name: '安全第一', desc: '一緒の練習の失敗率が半分になる' },
   often: { name: '練習の虫', desc: '練習場によく顔を出す' },
   mood: { name: '盛り上げ役', desc: '一緒に練習すると気分が上がりやすい' },
+  // セクレタリアトのカードの練習スキル（skillSet で持たせる）
+  tr_dash: { name: '赤い弾丸', desc: 'スピードとパワーの練習に来ると伸びが 15% 増える' },
+  bigheart: { name: '規格外の心臓', desc: '一緒の練習の伸びが 1 割増え、体力の消費が 3 減る' },
 };
 
 /**
@@ -61,6 +67,16 @@ const hash = (s) => { let h = 2166136261; for (const ch of s) h = Math.imul(h ^ 
  * 数はレア度で決まる（LM 固有＋レース 3＋サポート 3、SSR 2＋2、SR 1＋2、R・N 1＋1）。
  */
 export function skillsOf(card, awaken = 0) {
+  // スキルを手で決めたカード（skillSet：race・support と覚醒で増える分 race2・support4）。値から決めると望む構成にならない
+  // （セクレタリアトの「ダート中距離」の構成）。固有は下と同じく LM の二つ名から
+  if (card.skillSet) {
+    const k = card.skillSet;
+    return {
+      race: [...k.race, ...(awaken >= 2 && k.race2 ? [k.race2] : [])],
+      support: [...k.support, ...(awaken >= 4 && k.support4 ? [k.support4] : [])],
+      unique: card.rar === 'LM' ? uniqueSkill(card) : null,
+    };
+  }
   const race = [];
   const push = (id) => { if (id && !race.includes(id)) race.push(id); };
   // 得意から順に候補を並べ、レア度の数だけ取る
@@ -89,12 +105,13 @@ export function skillsOf(card, awaken = 0) {
   // R と N は 1 つだけなので、得意の練習でなく id から決めるカードも混ぜる（同じ能力のカードばかりにならないように）
   if ((card.rar === 'R' || card.rar === 'N') && hash(card.id) % 3 === 0) support[0] = extra[hash(`${card.id}:s`) % extra.length];
 
-  const unique = card.rar === 'LM' ? {
-    name: card.epithet ?? `${card.name}の真髄`, kind: uniqueKindOf(card),
-    desc: `【${UNIQUE_KINDS[uniqueKindOf(card)].name}】${UNIQUE_KINDS[uniqueKindOf(card)].desc}`,
-  } : null;
+  const unique = card.rar === 'LM' ? uniqueSkill(card) : null;
   return { race, support, unique };
 }
+const uniqueSkill = (card) => ({
+  name: card.epithet ?? `${card.name}の真髄`, kind: uniqueKindOf(card),
+  desc: `【${UNIQUE_KINDS[uniqueKindOf(card)].name}】${UNIQUE_KINDS[uniqueKindOf(card)].desc}`,
+});
 
 /**
  * LM の固有スキルの型（落とし穴 122）。名前は二つ名のまま、中身は型で決まる。判定と効き目はレースの計算（race.js の uniq）の中。
@@ -118,6 +135,8 @@ export const UNIQUE_KINDS = {
   long: { name: 'ロングスパート', desc: '残り 800m から仕掛け、速さを長く保つ' },
   hill: { name: '坂巧者', desc: '上り坂で速さを落とさず、余力も減りにくい' },
   inside: { name: '内を突く', desc: '最後の直線で前が詰まっても抜け出しやすい' },
+  // ダートの最後の直線（残り 450m）で射程圏（先頭から 8m 以内）に居ると抜け出しにかかり、ゴールまで速さが上がり続ける（セクレタリアトのベルモントS）
+  burst: { name: '独走', desc: 'ダートの最後の直線で先頭から 8m 以内に居ると抜け出しにかかり、ゴールまでスピードが上がり続ける' },
 };
 // カードごとの型（史実の勝ち方から）。表に無い LM は王者の風格
 const UNIQUE_OF = {
@@ -139,6 +158,8 @@ const UNIQUE_OF = {
   'P4-06': 'inside', 'P1-10': 'inside',
   // 期間限定：テイエムオペラオー（2000 年の有馬記念、包まれた馬群をこじ開けて最後の直線で伸びた）
   'LT-01': 'kick',
+  // 期間限定：セクレタリアト（1973 年のベルモントS、直線で 31 馬身突き放した）
+  'LT-02': 'burst',
 };
 /** LM の固有スキルの型（カードの uniqueKind、表、既定は王者の風格）。 */
 export const uniqueKindOf = (card) => (card?.uniqueKind in UNIQUE_KINDS ? card.uniqueKind : UNIQUE_OF[card?.id] ?? 'king');
@@ -172,6 +193,8 @@ const FX_OF = {
   'P4-07': 'comet',
   // 世紀末覇王は竜と昇る＝竜巻
   'LT-01': 'gale',
+  // 赤き絶対王者＝燃えるオーラ
+  'LT-02': 'flame',
 };
 /** カード（LM）の固有スキルのエフェクト。カードの fx、手で決めた表、id のハッシュの順。LM でなければ null。 */
 export function uniqueFxOf(card) {
@@ -195,6 +218,7 @@ const CUE = {
   turf: (d) => d * 0.15, dirt: (d) => d * 0.15, heavy: (d) => d * 0.2, big: (d) => d * 0.25, duel: (d) => d * 0.25, calm: (d) => d * 0.3,
   sprint: (d) => d * 0.45, mile: (d) => d * 0.45, middle: (d) => d * 0.5, stayer: (d) => d * 0.55,
   closer: (d) => d - 550, grit: (d) => d - 250,
+  dirtMid: (d) => d * 0.5, dirtBig: (d) => d * 0.25,
 };
 const BY_NAME = new Map(Object.entries(RACE).map(([id, v]) => [v.name, id]));
 /** 発動したスキルの名前から、観戦で見せる地点と種類。名前が定義に無いもの（二つ名）は LM の固有。 */

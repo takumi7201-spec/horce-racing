@@ -266,6 +266,12 @@ export function simulateRace(spec, rng, opts = {}) {
         if (r.uq === 'kick' && rem < 400) { vCap *= 1 + 0.035 * r.uk * (1 - rem / 400); if (r.uqAt == null) r.uqAt = r.s; }
         // 影も踏ませず：道中で一度先頭に立ったら、最後まで速さを保つ（余力だけ残しても、尽きない限り速くならなかった）
         if (r.uq === 'shadow' && r.uqAt != null) vCap *= 1 + 0.012 * r.uk;
+        // 独走：ダートの最後の直線（残り 450m）で先頭から 8m 以内（射程圏）に居れば抜け出しにかかり、ゴールまで最高速を引き上げ続ける。
+        // 先頭に並んだら（1.5m 以内）だけにすると、もう勝っている馬にしか効かず着順が変わらなかった。一定の上げ幅にすると直線の入口で余力を使い切ったので、鬼脚と同じく残りに比例させる
+        if (r.uq === 'burst' && spec.surface === 'ダート') {
+          if (r.uqAt == null && rem < 450 && rem > 20 && leadS - r.s < 8) r.uqAt = r.s;
+          if (r.uqAt != null) vCap *= 1 + 0.07 * r.uk * (1 - rem / 450);
+        }
         // 内を突く：最後の直線で内を通って距離を詰める
         if (r.uq === 'inside' && rem < 500) { vCap *= 1 + 0.018 * r.uk; if (r.uqAt == null) r.uqAt = r.s; }
         // 二の脚：最後の 600m で抜かれたら、4 秒だけ抜き返す脚を使う（1 度だけ）

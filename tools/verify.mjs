@@ -1074,8 +1074,8 @@ section('カード育成モード');
   const I = await import('../src/sim/ikusei.js');
   const { peekHorseId } = await import('../src/sim/horse.js');
   const ids = new Set(I.CARDS.map((c) => c.id));
-  check(`カード ${I.CARDS.length} 枚（第 1 弾 40・第 2 弾 40・第 3 弾 3・第 4 弾 40・イベント 3・期間限定 1、id が重ならない）`,
-    I.CARDS.length === 127 && ids.size === 127 && I.CARDS.filter((c) => c.pack === 'LT').length === 1 && I.CARDS.filter((c) => c.pack === 'P4').length === 40 && I.CARDS.filter((c) => c.pack === 'P1').length === 40 && I.CARDS.filter((c) => c.pack === 'P2').length === 40
+  check(`カード ${I.CARDS.length} 枚（第 1 弾 40・第 2 弾 40・第 3 弾 3・第 4 弾 40・イベント 3・期間限定 2、id が重ならない）`,
+    I.CARDS.length === 128 && ids.size === 128 && I.CARDS.filter((c) => c.pack === 'LT').length === 2 && I.CARDS.filter((c) => c.pack === 'P4').length === 40 && I.CARDS.filter((c) => c.pack === 'P1').length === 40 && I.CARDS.filter((c) => c.pack === 'P2').length === 40
     && I.CARDS.filter((c) => c.pack === 'P3').length === 3 && I.CARDS.filter((c) => c.pack === 'EV').length === 3);
   // 第 4 弾は牝馬だけ。配分は過去の弾と同じ（LM 10・SSR 6・SR 6・R 8・N 10）、全カードに二つ名、LM と SSR の看板は牡馬混合の GI
   const p4 = I.CARDS.filter((c) => c.pack === 'P4');
@@ -1512,9 +1512,15 @@ section('カード育成モード');
       go('crowd', {}, { n: 16 }).fired && !go('crowd', {}).fired,
     ];
     const s0 = go('start', {}), k0 = go('kick', {}), l0 = go('long', { distance: 2400 }), h0 = go('hill', { courseId: 'nakayama' }), i0 = go('inside', {});
-    const scenes = s0.fired && s0.at === 40 && k0.fired && k0.at >= 1600 && l0.fired && l0.at >= 1600 && h0.fired && i0.fired && i0.at >= 1500 && s0.plain;
-    check(`LM の固有スキル：${lms.length} 枚が ${kinds.size} 種の型（条件の型 8 種は条件が合うときだけ発動、場面の型は好スタート ${s0.at}m・鬼脚 ${Math.round(k0.at)}m・ロングスパート ${Math.round(l0.at)}m で発動）`,
-      kinds.size === 16 && Object.keys(I.UNIQUE_KINDS).length === 16 && cond.every(Boolean) && scenes
+    // 独走はダートの最後の直線（残り 450m）で射程圏に居るときだけ。芝では出ない（先行で走らせる種を選んだ）
+    // 射程圏に居るかは展開しだいなので、脚質を変えて 1 度でも出ればよい
+    const trials = [1600, 1800, 2000, 2400].flatMap((d) => [0.1, 0.32, 0.5].map((st) => [d, st]));
+    const b0 = trials.map(([d, st]) => ({ d, ...go('burst', { surface: 'ダート', distance: d }, { style: st }) })).find((x) => x.fired) ?? { fired: false, at: 0, d: 0 };
+    const b1 = trials.some(([d, st]) => go('burst', { distance: d }, { style: st }).fired) ? { fired: true } : { fired: false };
+    const scenes = s0.fired && s0.at === 40 && k0.fired && k0.at >= 1600 && l0.fired && l0.at >= 1600 && h0.fired && i0.fired && i0.at >= 1500 && s0.plain
+      && b0.fired && b0.at >= b0.d - 450 && !b1.fired;
+    check(`LM の固有スキル：${lms.length} 枚が ${kinds.size} 種の型（条件の型 8 種は条件が合うときだけ発動、場面の型は好スタート ${s0.at}m・鬼脚 ${Math.round(k0.at)}m・ロングスパート ${Math.round(l0.at)}m・独走 ${b0.d}m 戦の ${Math.round(b0.at)}m（ダートだけ）で発動）`,
+      kinds.size === 17 && Object.keys(I.UNIQUE_KINDS).length === 17 && cond.every(Boolean) && scenes
       && I.uniqueOf(I.cardById('P4-01')).desc.startsWith('【王者の風格】') && peekHorseId() === idBefore);
   }
   // 期間限定：テイエムオペラオー（LT-01）は開催中だけガチャに出て（LM のうち rate の割合）、天井で交換でき、かけらでは交換できない。
@@ -1548,6 +1554,45 @@ section('カード育成モード');
       && outside && got.card.id === 'LT-01' && !!I.canBuyWithShards(pp, 'LT-01') && I.uniqueKindOf(lt) === 'kick'
       && eps.length === 3 && eps.every((x, k) => x[0] === `story:LT-01:${k}` && x[1]) && taught
       && I.CARD_STORIES['LT-01'].every((e) => e.choices.every((c) => c.reply)) && eps[2][2].includes('世紀末の覇王') && !I.EVENTS.some((e) => e.reward === 'LT-01') && peekHorseId() === idBefore);
+  }
+  // 期間限定 第 2 弾：セクレタリアト（LT-02）。スキルは手で決めた構成（ダート中距離・新しいダートのスキル 2 つ・新しい練習スキル 2 つ）、
+  // 固有は【独走】、サポートに編成すると「1973年三冠レース」の 3 話。同じ期間の期間限定は LM の rate を頭数で分ける
+  {
+    const sc = I.cardById('LT-02');
+    const sk = I.skillsOf(sc, 0), sk4 = I.skillsOf(sc, 4);
+    const ev = I.cardEventsOf(sc);
+    const drace = { surface: 'ダート', distance: 2000, grade: 'GI' }, trace = { surface: '芝', distance: 2000, grade: 'GI' };
+    const ab = Object.fromEntries(I.STATS.map((k) => [k, 0.7]));
+    const onDirt = S.applyRaceSkills({ ab, style: 0.3 }, sk.race, drace, { rar: 'LM' }).fired, onTurf = S.applyRaceSkills({ ab, style: 0.3 }, sk.race, trace, { rar: 'LM' }).fired;
+    const cp = rich(I.newProfile(8));
+    Object.assign(cp.cards, { 'P1-17': 1, 'P4-01': 1, 'LT-02': 1, 'P1-02': 1, 'P1-03': 1, 'P1-04': 1 });
+    const r = I.startRun(cp, { sire: 'P1-17', dam: 'P4-01', name: 'ビッグレッド' }, ['LT-02', 'P1-02', 'P1-03', 'P1-04']);
+    // 練習スキルが効く練習（赤い弾丸はスピード・パワーだけ、規格外の心臓はどれでも）。練習場に来ているターンを探す
+    let dash = null, heart = null;
+    for (let t = 0; t < 30 && (!dash || !heart); t++) {
+      for (const kind of I.STATS) {
+        const pv = I.trainingPreview(r, kind);
+        if (!pv.supports.includes('LT-02')) continue;
+        if (pv.skills.includes('赤い弾丸')) dash = kind;
+        if (pv.skills.includes('規格外の心臓') && !heart) heart = kind;
+      }
+      if (I.isRaceTurn(r)) I.raceTurn(r, I.raceOptions(r)[0].id); else I.rest(r);
+    }
+    const eps = [];
+    let j = 0;
+    while (!I.runDone(r)) {
+      const e = I.pendingEvent(r);
+      if (e) { if (e.support === 0 && e.story != null) eps.push([e.id, e.cardStory, e.title]); I.resolveEvent(r, 0); }
+      if (I.isRaceTurn(r)) I.raceTurn(r, I.raceOptions(r)[0].id); else if (r.energy < 45) I.rest(r); else I.train(r, j++ % 2 ? 'stamina' : 'speed');
+    }
+    const both = I.limitedNow('2026-11-20').length;
+    check(`期間限定 ${sc.name}「${sc.epithet}」：固有【${I.UNIQUE_KINDS[I.uniqueKindOf(sc)].name}】、レース ${sk.race.map((x) => I.skillInfo(x).name).join('・')}（ダートの GI で ${onDirt.length} 個・芝で ${onTurf.length} 個発動）、`
+      + `練習 ${sk4.support.map((x) => I.skillInfo(x).name).join('・')}（赤い弾丸は${dash ? I.STAT_LABEL[dash] : '—'}の練習で発動）、${ev.title}の ${eps.length} 話、期間限定 ${both} 枚が同時に開催`,
+      I.uniqueKindOf(sc) === 'burst' && I.isLimitedCard(sc) && sk.race.join() === 'dirtMid,dirtBig,dirt' && onDirt.length === 3 && onTurf.length === 0
+      && I.skillsOf(sc, 2).race.includes('middle') && sk4.support.join() === 'tr_dash,bigheart,friend,saver'
+      && (dash === 'speed' || dash === 'power') && !!heart
+      && ev.card && ev.title === '1973年三冠レース' && eps.length === 3 && eps.every((x, k) => x[0] === `story:LT-02:${k}` && x[1]) && eps[2][2].includes('31馬身先の伝説')
+      && I.CARD_STORIES['LT-02'].every((e) => e.choices.every((c) => c.reply)) && both === 2 && peekHorseId() === idBefore);
   }
   // 夏合宿・サポートの連続イベント・ガチャの天井
   {

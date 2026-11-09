@@ -1214,8 +1214,10 @@ func _limited_banner(l: Dictionary) -> Control:
 	var md := func(d: String) -> String: return "%d/%d" % [int(d.substr(5, 2)), int(d.substr(8, 2))]
 	v.add_child(UI.label("LIMITED %s – %s" % [md.call(String(l.from)), md.call(String(l.to))], 10, LEAF2, "black"))
 	v.add_child(UI.outlined(String(l.title), 46, Color("#fff4dc"), "title", Color("#0d2a2e"), 6))
-	var pct := snappedf(float(IK.data().rates.LM) * float(l.rate) * 100.0, 0.1)
-	v.add_child(UI.outlined("LM %s「%s」が出る（LM のうち %d%%・全体の %s%%）" % [c.name, c.epithetText, IK.jround(float(l.rate) * 100.0), str(pct)], 15, Color.WHITE, "black", Color("#0d2a2e"), 4))
+	# 同じ期間に期間限定が並ぶと、LM のうちの割合（rate）を頭数で分ける（ikusei.gd の _limited_pick と同じ）
+	var share: float = float(l.rate) / maxf(1.0, float(IK.limited_now(_today()).size()))
+	var pct := snappedf(float(IK.data().rates.LM) * share * 100.0, 0.1)
+	v.add_child(UI.outlined("LM %s「%s」が出る（LM のうち %d%%・全体の %s%%）" % [c.name, c.epithetText, IK.jround(share * 100.0), str(pct)], 15, Color.WHITE, "black", Color("#0d2a2e"), 4))
 	var uq: Dictionary = IK.skills_of(c).unique
 	v.add_child(UI.outlined(String(uq.desc), 13, Color("#ffd36a"), "black", Color("#0d2a2e"), 4))
 	if (IK.data().cardStories as Dictionary).has(c.id):
@@ -1778,6 +1780,9 @@ func _card_back(c: Dictionary, sk: Dictionary, base: Dictionary) -> Control:
 			hr.add_child(ab)
 		var dl := UI.label(desc, 15, Color("#e6dcbc"))
 		dl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		dl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		dl.custom_minimum_size.x = 300
+		dl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		hr.add_child(dl)
 		v.add_child(hr)
 	head.call("レーススキル", (1 if sk.unique != null else 0) + sk.race.size())
@@ -1785,7 +1790,11 @@ func _card_back(c: Dictionary, sk: Dictionary, base: Dictionary) -> Control:
 		var u := UI.box({c = [Color("#4a2440"), Color("#2c3f3a"), Color("#3a2850")], angle = 90.0, radius = 10.0, border = 1.5, border_color = Color("#ffffff88"), shadow = Vector2.ZERO, pad = Vector4(12, 3, 12, 5)})
 		var uv := UI.vbox(0)
 		uv.add_child(UI.label(sk.unique.name, 20, Color.WHITE, "title"))
-		uv.add_child(UI.label(sk.unique.desc, 15, Color("#f2ead2")))
+		# 説明は折り返す（1 行のままだと欄の幅を押し広げ、スクロールの棒がカードの外へ出た）
+		var ud := UI.label(sk.unique.desc, 15, Color("#f2ead2"))
+		ud.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		ud.custom_minimum_size.x = 520
+		uv.add_child(ud)
 		u.add_child(uv)
 		v.add_child(u)
 	for id in sk.race:

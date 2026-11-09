@@ -552,6 +552,7 @@ function pulledGrid(app, got) {
  */
 function limitedBanner(app, l) {
   const c = I.cardById(l.id);
+  const share = l.rate / Math.max(1, I.limitedNow(todayKey()).length);
   const bg = el('span.ikev-bg');
   bgInto(bg, c);
   const hero = el('img.ikev-hero.iklt-h', { alt: c.name, draggable: false });
@@ -563,7 +564,8 @@ function limitedBanner(app, l) {
       el('span.ikev-tag.limited', { text: '期間限定' }),
       el('small.ikev-en', { text: `LIMITED ${md(l.from)} – ${md(l.to)}` }),
       el('b.ikev-ttl', { text: l.title }),
-      el('span.ikev-sub', { text: `LM ${c.name}「${c.epithet}」が出る（LM のうち ${Math.round(l.rate * 100)}%・全体の ${+(I.RATES.LM * l.rate * 100).toFixed(1)}%）` }),
+      // 同じ期間に期間限定が並ぶと、LM のうちの割合（rate）を頭数で分ける（sim の limitedPick と同じ）
+      el('span.ikev-sub', { text: `LM ${c.name}「${c.epithet}」が出る（LM のうち ${Math.round(share * 100)}%・全体の ${+(I.RATES.LM * share * 100).toFixed(1)}%）` }),
       el('span.ikev-rw', [el('i', { text: 'PICK UP' }), el('span', { text: `固有【${I.UNIQUE_KINDS[I.uniqueKindOf(c)].name}】` })]),
       I.CARD_STORIES[c.id] ? el('span.ikgb-foot.iklt-foot', { text: `サポートに編成すると専用のカードイベント（全 ${I.CARD_STORIES[c.id].length} 話）　天井で交換できる` }) : null,
     ]),
