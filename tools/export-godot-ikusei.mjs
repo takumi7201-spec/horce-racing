@@ -63,6 +63,8 @@ const strip = (o) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, Ob
 const data = {
   version: 1,
   cards, packs: IK.PACKS, packNames: IK.PACK_NAMES,
+  // 期間限定（期間は端末の今日で見る。ikusei.gd の limited_now）
+  limited: IK.LIMITED, limitedPacks: IK.LIMITED_PACKS,
   events: IK.EVENTS, starD: IK.STAR_D,
   graded, combos, battleRaces: IK.BATTLE_RACES, difficulty: IK.DIFFICULTY,
   rates: IK.RATES, shardValue: IK.SHARD_VALUE, shardCost: IK.SHARD_COST, awaken: IK.AWAKEN,

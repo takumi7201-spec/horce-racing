@@ -72,6 +72,7 @@ function scenario(seed) {
   try { skip = IK.rivalSkip(p, 2, '2026-11-08'); } catch { /* 勝っていない */ }
   IK.rollQuests(p, '2026-11-08');
   const e3 = IK.eventRace(p, h.id, 'arima1990', 2);
+  const e4 = IK.eventRace(p, h.id, 'arima2000', 3);
   const b2 = IK.battleNpc(p, h.id, 'arima-kinen', 'legend');
   const qs2 = IK.questState(p, '2026-11-08');
   const hall = [IK.setHall(p, h.id, true), IK.hallOf(p)];
@@ -85,6 +86,9 @@ function scenario(seed) {
     rec: ['runs', 'starts', 'wins', 'giWins', 'goals', 'battles', 'battleWins', 'rank', 'rankw', 'rival', 'rivalw', 'rival3w', 'event', 'eventw'].map((k) => rec[k] ?? 0),
     best: rec.best, fast: Object.keys(rec.fast ?? {}).sort().map((k) => [k, Math.round(rec.fast[k].t * 100), rec.fast[k].horse, rec.fast[k].race, rec.fast[k].mode, rec.fast[k].ground]),
     hall, rel, stage: IK.stageLabel('nakayama|芝|2500'),
+    // 期間限定：開催中の 200 回の引き（LM の一部がテイエムオペラオーになる）と、2000 年の有馬記念
+    limited: (() => { const q = IK.newProfile(seed + 100); q.coins = 999; return IK.pull(q, 200, 'ALL', '2026-11-20').map((g) => g.card.id); })(),
+    event4: [orders(e4.result), e4.reward?.card.id ?? null],
     // 天井：引いた回数の点、足りないと断る、100 点で PICK UP と交換
     pity: (() => { const p0 = IK.pityOf(p); let no = 0; try { IK.exchangePity(p, IK.PICKUP[0]); } catch { no = 1; } p.pity = 107;
       const x = IK.exchangePity(p, IK.PICKUP[2]); return [p0, no, IK.pityOf(p), x.card.id, x.isNew, x.awaken, p.cards[IK.PICKUP[2]]]; })(),

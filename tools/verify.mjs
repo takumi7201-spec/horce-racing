@@ -1074,8 +1074,8 @@ section('カード育成モード');
   const I = await import('../src/sim/ikusei.js');
   const { peekHorseId } = await import('../src/sim/horse.js');
   const ids = new Set(I.CARDS.map((c) => c.id));
-  check(`カード ${I.CARDS.length} 枚（第 1 弾 40・第 2 弾 40・第 3 弾 3・第 4 弾 40・イベント 3、id が重ならない）`,
-    I.CARDS.length === 126 && ids.size === 126 && I.CARDS.filter((c) => c.pack === 'P4').length === 40 && I.CARDS.filter((c) => c.pack === 'P1').length === 40 && I.CARDS.filter((c) => c.pack === 'P2').length === 40
+  check(`カード ${I.CARDS.length} 枚（第 1 弾 40・第 2 弾 40・第 3 弾 3・第 4 弾 40・イベント 3・期間限定 1、id が重ならない）`,
+    I.CARDS.length === 127 && ids.size === 127 && I.CARDS.filter((c) => c.pack === 'LT').length === 1 && I.CARDS.filter((c) => c.pack === 'P4').length === 40 && I.CARDS.filter((c) => c.pack === 'P1').length === 40 && I.CARDS.filter((c) => c.pack === 'P2').length === 40
     && I.CARDS.filter((c) => c.pack === 'P3').length === 3 && I.CARDS.filter((c) => c.pack === 'EV').length === 3);
   // 第 4 弾は牝馬だけ。配分は過去の弾と同じ（LM 10・SSR 6・SR 6・R 8・N 10）、全カードに二つ名、LM と SSR の看板は牡馬混合の GI
   const p4 = I.CARDS.filter((c) => c.pack === 'P4');
@@ -1516,6 +1516,29 @@ section('カード育成モード');
     check(`LM の固有スキル：${lms.length} 枚が ${kinds.size} 種の型（条件の型 8 種は条件が合うときだけ発動、場面の型は好スタート ${s0.at}m・鬼脚 ${Math.round(k0.at)}m・ロングスパート ${Math.round(l0.at)}m で発動）`,
       kinds.size === 16 && Object.keys(I.UNIQUE_KINDS).length === 16 && cond.every(Boolean) && scenes
       && I.uniqueOf(I.cardById('P4-01')).desc.startsWith('【王者の風格】') && peekHorseId() === idBefore);
+  }
+  // 期間限定：テイエムオペラオー（LT-01）は開催中だけガチャに出て（LM のうち rate の割合）、天井で交換でき、かけらでは交換できない。
+  // 開催の外では以前と同じ順に出る。イベント 2000 年の有馬記念の初勝利でも手に入る
+  {
+    const lt = I.cardById('LT-01');
+    const draw = (today) => { const q = rich(I.newProfile(5)); return I.pull(q, 3000, 'ALL', today).map((g) => g.card.id); };
+    const inW = draw('2026-11-20'), outW = draw('2027-02-01'), none = draw(null);
+    const nLt = inW.filter((x) => x === 'LT-01').length, nLm = inW.filter((x) => I.cardById(x).rar === 'LM').length;
+    const pp = rich(I.newProfile(6));
+    pp.pity = 100;
+    let outside = false;
+    try { I.exchangePity(pp, 'LT-01', '2027-02-01'); } catch { outside = true; }
+    const got = I.exchangePity(pp, 'LT-01', '2026-12-31');
+    pp.shards = 9999;
+    const ev = I.EVENTS.find((e) => e.id === 'arima2000');
+    const ep = rich(I.newProfile(7));
+    ep.finished.push({ ...h, id: 996, battles: 0, battleWins: 0, stats: Object.fromEntries(I.STATS.map((k) => [k, 1200])) });
+    let rw = null;
+    for (let t = 0; t < 8 && !rw; t++) rw = I.eventRace(ep, 996, 'arima2000', 1).reward;
+    check(`期間限定 ${lt.name}「${lt.epithet}」：開催中は 3000 回で ${nLt} 枚（LM ${nLm} 枚のうち）、開催の外は出ず順も同じ、天井で交換・かけらは不可、固有は【${I.UNIQUE_KINDS[I.uniqueKindOf(lt)].name}】、イベント（${ev.field.length} 頭・中山 芝2500m）の初勝利でも手に入る`,
+      lt.rar === 'LM' && I.isLimitedCard(lt) && !I.isEventCard(lt) && nLt > 0 && nLt < nLm && !outW.includes('LT-01') && JSON.stringify(outW) === JSON.stringify(none)
+      && outside && got.card.id === 'LT-01' && !!I.canBuyWithShards(pp, 'LT-01') && I.uniqueKindOf(lt) === 'kick'
+      && ev.field.length === 16 && ev.reward === 'LT-01' && rw?.card.id === 'LT-01' && peekHorseId() === idBefore);
   }
   // 夏合宿・サポートの連続イベント・ガチャの天井
   {

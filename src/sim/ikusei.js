@@ -5,7 +5,7 @@
 // 乱数は Math.random を使わない（プロフィールのシード＋引いた回数・ターンから導く）。
 // 状態はすべてプロフィール（JSON にそのまま書ける素の値）に持ち、画面は ikusei.js の関数だけを通す。
 
-import { CARDS, PACKS, EVENT_PACKS } from './data/cards.js';
+import { CARDS, PACKS, EVENT_PACKS, LIMITED_PACKS, LIMITED } from './data/cards.js';
 import { EVENTS, STAR_D } from './data/events.js';
 import { TRAIN_EVENTS } from './data/train-events.js';
 import { SUPPORT_STORIES } from './data/support-stories.js';
@@ -174,9 +174,14 @@ export function finishedCard(h) {
 }
 
 /** 弾の名前（ガチャの弾とイベント）。 */
-export const PACK_NAMES = { ...PACKS, ...EVENT_PACKS };
+export const PACK_NAMES = { ...PACKS, ...EVENT_PACKS, ...LIMITED_PACKS };
 /** イベントの報酬だけで手に入るカード。 */
 export const isEventCard = (c) => !!c && c.pack in EVENT_PACKS;
+/** 期間限定のカード（その期間だけガチャに出る）。 */
+export const isLimitedCard = (c) => !!c && c.pack in LIMITED_PACKS;
+export { LIMITED, LIMITED_PACKS };
+/** いま開催中の期間限定（today は端末の今日 'YYYY-MM-DD'。sim は日付を作らない。無ければ開催なし）。 */
+export const limitedNow = (today) => (typeof today === 'string' ? LIMITED.filter((l) => today >= l.from && today <= l.to) : []);
 export const STATS = ['speed', 'stamina', 'power', 'guts', 'wit'];
 export const STAT_LABEL = { speed: 'スピード', stamina: 'スタミナ', power: 'パワー', guts: '根性', wit: '賢さ' };
 export const STAT_SHORT = { speed: 'スピ', stamina: 'スタ', power: 'パワ', guts: '根性', wit: '賢さ' };
@@ -263,7 +268,8 @@ export const RATES = { LM: 0.02, SSR: 0.06, SR: 0.15, R: 0.27, N: 0.50 };
  * 乱数は (シード, 引いた通算回数) から 1 回ずつ作る。引く前に何を見ても結果は変わらない。
  * 1 回 1 枚のウイコインを使う（足りなければ引かない）。
  */
-export function pull(profile, n = 1, pack = 'ALL') {
+export function pull(profile, n = 1, pack = 'ALL', today = null) {
+  const lim = limitedNow(today);
   if (coinsOf(profile) < n) throw new Error(`ウイコインが足りない（あと ${n - coinsOf(profile)} 枚）`);
   profile.coins = coinsOf(profile) - n;
   profile.pity = pityOf(profile) + n;
@@ -275,7 +281,9 @@ export function pull(profile, n = 1, pack = 'ALL') {
     for (const k of RARITIES) { if (r < RATES[k]) { rar = k; break; } r -= RATES[k]; }
     // イベントのカードはガチャに出さない（足したときに母集団が変わって、引く順番がずれないように弾の中だけで引く）
     const pool = CARDS.filter((c) => c.rar === rar && c.pack in PACKS && (pack === 'ALL' || c.pack === pack));
-    const c = pool[rng.int(pool.length)];
+    // 期間限定は開催中だけ、LM を引いたときに rate の割合でそのカード（乱数を 1 回足して引くのはこの場合だけ。開催していなければ以前と同じ順）
+    const lc = rar === 'LM' && lim.length ? limitedPick(rng, lim) : null;
+    const c = lc ?? pool[rng.int(pool.length)];
     const isNew = !profile.cards[c.id];
     profile.cards[c.id] = (profile.cards[c.id] ?? 0) + 1;
     // 2〜5 枚目は覚醒が 1 段上がる（6 枚目からは上がらない）
@@ -283,6 +291,13 @@ export function pull(profile, n = 1, pack = 'ALL') {
     got.push({ card: c, isNew, awaken: n >= 2 && n <= AWAKEN.max + 1 ? n - 1 : 0 });
   }
   return got;
+}
+
+function limitedPick(rng, lim) {
+  const r = rng.next();
+  let acc = 0;
+  for (const l of lim) { acc += l.rate / lim.length; if (r < acc) return cardById(l.id); }
+  return null;
 }
 
 // ---------------------------------------------------------------- ガチャの天井（PICK UP との交換）
@@ -293,8 +308,10 @@ export const PITY_COST = 100;
 /** いまの PICK UP（画面のガチャのバナーと同じ）。 */
 export const PICKUP = ['P4-01', 'P4-07', 'P4-04'];
 export const pityOf = (profile) => profile.pity ?? 0;
-export function exchangePity(profile, id) {
-  if (!PICKUP.includes(id)) throw new Error('PICK UP のカードではない');
+/** いまの PICK UP（開催中の期間限定を先頭に）。 */
+export const pickupOf = (today = null) => [...limitedNow(today).map((l) => l.id), ...PICKUP];
+export function exchangePity(profile, id, today = null) {
+  if (!pickupOf(today).includes(id)) throw new Error('PICK UP のカードではない');
   if (pityOf(profile) < PITY_COST) throw new Error(`天井の点が足りない（あと ${PITY_COST - pityOf(profile)} 点）`);
   profile.pity = pityOf(profile) - PITY_COST;
   const c = cardById(id);
@@ -346,6 +363,7 @@ export function canBuyWithShards(profile, id) {
   const c = cardById(id);
   if (!c) return 'そのカードは無い';
   if (isEventCard(c)) return 'イベントの報酬でだけ手に入る';
+  if (isLimitedCard(c)) return '期間限定のガチャとイベントでだけ手に入る';
   if ((profile.cards[id] ?? 0) >= KEEP) return 'もう覚醒 MAX';
   if (shardsOf(profile) < SHARD_COST[c.rar]) return `かけらが足りない（あと ${SHARD_COST[c.rar] - shardsOf(profile)}）`;
   return null;

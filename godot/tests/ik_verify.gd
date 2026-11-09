@@ -90,6 +90,7 @@ func scenario(seed: int) -> Dictionary:
 	var skip := IK.rival_skip(p, 2, "2026-11-08")
 	IK.roll_quests(p, "2026-11-08")
 	var e3 := IK.event_race(p, h.id, "arima1990", 2)
+	var e4 := IK.event_race(p, h.id, "arima2000", 3)
 	var b2 := IK.battle_npc(p, h.id, "arima-kinen", "legend")
 	var qs2 := IK.quest_state(p, "2026-11-08")
 	var hall := [IK.set_hall(p, h.id, true) == "", IK.hall_of(p)]
@@ -114,6 +115,7 @@ func scenario(seed: int) -> Dictionary:
 		ladder = [b.rank, b2.rank, IK.ladder_state(p)], quests = [qv.call(qs), qs.ready, claimed, qv.call(qs2), qs2.weekLeft, IK.week_number("2026-11-08"), IK.day_number("2026-11-08")],
 		rec = rk, best = rec.get("best"), fast = fast, hall = hall, rel = rel, stage = IK.stage_label("nakayama|芝|2500"),
 		uniq = _uniq(),
+		limited = _limited(seed), event4 = [orders(e4.result), e4.reward.card.id if e4.get("reward") != null else null],
 		pity = _pity(p), story = [steps.filter(func(x): return x[0] == "event" and String(x[1]).begins_with("story:")).size(), run.get("chain")],
 	}
 	return {pulls = pulls, steps = steps, stats = h.stats, rating = h.rating, skills = h.skills, name = h.name, sex = h.sex, coat = h.coat,
@@ -173,3 +175,9 @@ func _uniq() -> Array:
 			ats.append(null if r.get("uqAt") == null else IK.jround(float(r.uqAt) * 1000.0) / 1000.0)
 		out.append([u[0], orders(res), ats, fired.size()])
 	return out
+
+
+func _limited(seed: int) -> Array:
+	var q := IK.new_profile(seed + 100)
+	q.coins = 999
+	return IK.pull(q, 200, "2026-11-20").map(func(g): return g.card.id)

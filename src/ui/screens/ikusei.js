@@ -398,7 +398,7 @@ function gachaView(app, go) {
   const coins = I.coinsOf(p);
   const pull = (n) => {
     let got;
-    try { got = I.pull(p, n, 'ALL'); } catch (e) { return toast(e.message, { bad: true }); }
+    try { got = I.pull(p, n, 'ALL', todayKey()); } catch (e) { return toast(e.message, { bad: true }); }
     save(app);
     app.ikLast = got;
     if (got.some((g) => g.isNew)) app.ikNew = true;   // 下のボタン列の「カード」に NEW を付ける（図鑑を開くまで）
@@ -407,6 +407,7 @@ function gachaView(app, go) {
     go('gacha');
   };
   return [
+    ...I.limitedNow(todayKey()).map((l) => limitedBanner(app, l)),
     gachaBanner(app),
     card('ガチャ', [
       el('div.ik-gbtns', [
@@ -433,7 +434,7 @@ function pityPanel(app, go) {
     if (!ready) return toast(`天井まであと ${I.PITY_COST - pt} 回`, { bad: true });
     if (!await ask(`天井の ${I.PITY_COST} 点で${c.name}（${c.rar}）と交換する？`, { ok: '交換する', cancel: 'やめる' })) return;
     let got;
-    try { got = I.exchangePity(p, c.id); } catch (e) { return toast(e.message, { bad: true }); }
+    try { got = I.exchangePity(p, c.id, todayKey()); } catch (e) { return toast(e.message, { bad: true }); }
     save(app);
     if (got.isNew) app.ikNew = true;
     sound.play('bell');
@@ -446,7 +447,7 @@ function pityPanel(app, go) {
       el('span.bar', [el('i', { style: `width:${Math.min(1, pt / I.PITY_COST) * 100}%` })]),
       el('small', { text: `${Math.min(pt, I.PITY_COST)} / ${I.PITY_COST} 点${pt > I.PITY_COST ? `（+${pt - I.PITY_COST}）` : ''}` }),
     ]),
-    el('div.ik-pity-cards', I.PICKUP.map((id) => {
+    el('div.ik-pity-cards', I.pickupOf(todayKey()).map((id) => {
       const c = I.cardById(id);
       const f = el('span.ik-pity-face');
       whenVisible(f, () => stickerInto(f, c, { mode: 'face', zoom: 2.4 }));
@@ -545,6 +546,31 @@ function pulledGrid(app, got) {
  * ガチャのバナー。ガチャは一つなので、新しく入ったカード（PICK UP：第 4 弾【女傑たちの凱歌】の LM 3 頭）の一枚絵を背景に、切り抜きを並べ、
  * 収録の LM の顔・収録数と所持数・排出率を載せる。絵はカードの一枚絵を使い回す（cardArt。WebGL を増やさない：落とし穴 23）。
  */
+/**
+ * 期間限定のバナー（開催中だけ）。カードの一枚絵を背景に切り抜きを 1 頭、期間と出る割合。押すとそのカードを大きく見る。
+ * 期間は端末の今日で見る（sim の limitedNow）。
+ */
+function limitedBanner(app, l) {
+  const c = I.cardById(l.id);
+  const bg = el('span.ikev-bg');
+  bgInto(bg, c);
+  const hero = el('img.ikev-hero.iklt-h', { alt: c.name, draggable: false });
+  stickerInto(hero, c, { mode: 'img' });
+  const ev = I.EVENTS.find((e) => e.id === l.event);
+  const md = (d) => `${+d.slice(5, 7)}/${+d.slice(8, 10)}`;
+  return el('div.ikev-banner.ikgb.iklt', { onclick: () => showCard(app, c) }, [
+    bg, el('span.ikev-shade'), hero,
+    el('div.ikev-tx', [
+      el('span.ikev-tag.limited', { text: '期間限定' }),
+      el('small.ikev-en', { text: `LIMITED ${md(l.from)} – ${md(l.to)}` }),
+      el('b.ikev-ttl', { text: l.title }),
+      el('span.ikev-sub', { text: `LM ${c.name}「${c.epithet}」が出る（LM のうち ${Math.round(l.rate * 100)}%・全体の ${+(I.RATES.LM * l.rate * 100).toFixed(1)}%）` }),
+      el('span.ikev-rw', [el('i', { text: 'PICK UP' }), el('span', { text: `固有【${I.UNIQUE_KINDS[I.uniqueKindOf(c)].name}】` })]),
+      ev ? el('span.ikgb-foot.iklt-foot', { text: `イベント「${ev.name}」の初勝利でも手に入る　天井で交換できる` }) : null,
+    ]),
+  ]);
+}
+
 function gachaBanner(app) {
   const inPool = (c) => c.pack in I.PACKS;
   const picks = I.PICKUP.map((id) => I.cardById(id)).filter(Boolean);

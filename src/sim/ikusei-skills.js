@@ -112,7 +112,7 @@ export const UNIQUE_KINDS = {
   crowd: { name: '多頭数', desc: '14 頭以上のレースで、賢さとパワーを中心に能力が上がる' },
   start: { name: '好スタート', desc: '出遅れず、最初の 200m で前へ出る' },
   shadow: { name: '影も踏ませず', desc: '道中で先頭を走ると、余力が減りにくい' },
-  kick: { name: '鬼脚', desc: '残り 400m で最高速が上がる' },
+  kick: { name: '鬼脚', desc: '最後の直線（残り 400m）で脚が伸び、最高速が上がる' },
   again: { name: '二の脚', desc: '最後の 600m で抜かれると、抜き返す脚を使う' },
   grit: { name: '執念', desc: '余力が尽きかけても失速しにくい' },
   long: { name: 'ロングスパート', desc: '残り 800m から仕掛け、速さを長く保つ' },
@@ -137,6 +137,8 @@ const UNIQUE_OF = {
   'P4-10': 'long', 'P1-08': 'long',
   'P4-08': 'hill', 'P1-01': 'hill',
   'P4-06': 'inside', 'P1-10': 'inside',
+  // 期間限定：テイエムオペラオー（2000 年の有馬記念、包まれた馬群をこじ開けて最後の直線で伸びた）
+  'LT-01': 'kick',
 };
 /** LM の固有スキルの型（カードの uniqueKind、表、既定は王者の風格）。 */
 export const uniqueKindOf = (card) => (card?.uniqueKind in UNIQUE_KINDS ? card.uniqueKind : UNIQUE_OF[card?.id] ?? 'king');
@@ -168,6 +170,8 @@ const FX_OF = {
   'EV-01': 'frost', 'P4-08': 'frost', 'EV-03': 'radiance',
   // 一度も背を見せず＝誰も追いつけない流れ星
   'P4-07': 'comet',
+  // 世紀末覇王は竜と昇る＝竜巻
+  'LT-01': 'gale',
 };
 /** カード（LM）の固有スキルのエフェクト。カードの fx、手で決めた表、id のハッシュの順。LM でなければ null。 */
 export function uniqueFxOf(card) {

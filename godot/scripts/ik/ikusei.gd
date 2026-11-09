@@ -129,7 +129,34 @@ static func in_packs(c: Dictionary) -> bool:
 
 
 static func is_event_card(c) -> bool:
-	return c != null and not in_packs(c)
+	return c != null and not in_packs(c) and not is_limited_card(c)
+
+
+## 期間限定のカード（JS の isLimitedCard）
+static func is_limited_card(c) -> bool:
+	return c != null and (data().limitedPacks as Dictionary).has(c.pack)
+
+
+## いま開催中の期間限定（today は端末の今日 "YYYY-MM-DD"。空なら開催なし。JS の limitedNow）
+static func limited_now(today: String) -> Array:
+	if today == "":
+		return []
+	return (data().limited as Array).filter(func(l): return today >= String(l.from) and today <= String(l.to))
+
+
+static func _limited_pick(rng, lim: Array) -> Variant:
+	var r: float = rng.next()
+	var acc := 0.0
+	for l in lim:
+		acc += float(l.rate) / lim.size()
+		if r < acc:
+			return card(l.id)
+	return null
+
+
+## いまの PICK UP（開催中の期間限定を先頭に）
+static func pickup_of(today := "") -> Array:
+	return limited_now(today).map(func(l): return String(l.id)) + (data().pickup as Array)
 
 
 static func plus_of(c: Dictionary) -> Dictionary:
@@ -388,6 +415,8 @@ static func can_buy_with_shards(p: Dictionary, id: String) -> String:
 		return "そのカードは無い"
 	if is_event_card(c):
 		return "イベントの報酬でだけ手に入る"
+	if is_limited_card(c):
+		return "期間限定のガチャとイベントでだけ手に入る"
 	if count_of(p, id) >= keep():
 		return "もう覚醒 MAX"
 	var cost := int(data().shardCost[c.rar])
@@ -461,7 +490,8 @@ static func migrate_profile(p: Dictionary) -> Dictionary:
 # ------------------------------------------------------------------ ガチャ
 
 ## n 回引く。乱数は (シード, 引いた通算回数) から 1 回ずつ（引く前に何を見ても結果は変わらない）。
-static func pull(p: Dictionary, n := 1) -> Array:
+static func pull(p: Dictionary, n := 1, today := "") -> Array:
+	var lim := limited_now(today)
 	# 1 回 1 枚のウイコイン（足りなければ引かない）
 	if coins_of(p) < n:
 		return []
@@ -481,7 +511,9 @@ static func pull(p: Dictionary, n := 1) -> Array:
 			r -= rate
 		# イベントのカードはガチャに出さない（母集団が変わると引く順番が全部ずれる）
 		var pool := cards().filter(func(c): return c.rar == rar and in_packs(c))
-		var c: Dictionary = pool[rng.int_n(pool.size())]
+		# 期間限定は開催中だけ、LM を引いたときに rate の割合でそのカード（乱数を 1 回足すのはこの場合だけ）
+		var lc = _limited_pick(rng, lim) if rar == "LM" and not lim.is_empty() else null
+		var c: Dictionary = lc if lc != null else pool[rng.int_n(pool.size())]
 		var is_new := count_of(p, c.id) == 0
 		p.cards[c.id] = count_of(p, c.id) + 1
 		var cnt := count_of(p, c.id)
@@ -496,8 +528,8 @@ static func pity_of(p: Dictionary) -> int:
 
 
 ## 天井の点で PICK UP のカードと交換する。できなければ理由の文字列、できれば {card, isNew, awaken}
-static func exchange_pity(p: Dictionary, id: String) -> Variant:
-	if not (data().pickup as Array).has(id):
+static func exchange_pity(p: Dictionary, id: String, today := "") -> Variant:
+	if not pickup_of(today).has(id):
 		return "PICK UP のカードではない"
 	var cost := int(data().pityCost)
 	if pity_of(p) < cost:

@@ -2601,7 +2601,7 @@ button.ik-rectier, button.ik-recbest { cursor: pointer; }
 .ik-pity-h .bar { flex: 1; height: 10px; border-radius: 999px; background: #0002; overflow: hidden; }
 .ik-pity-h .bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--leaf), var(--sun)); }
 .ik-pity-h small { font: 700 12px/1 var(--font); color: var(--ink); white-space: nowrap; }
-.ik-pity-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; }
+.ik-pity-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 8px; margin-top: 10px; }
 .ik-pity-c { display: grid; justify-items: center; gap: 3px; padding: 6px 4px 8px; border-radius: 12px; border: 2px solid var(--ink); background: #fff;
   font-family: inherit; color: var(--ink); cursor: pointer; }
 .ik-pity-c:disabled { opacity: .55; cursor: default; }
@@ -2610,3 +2610,10 @@ button.ik-rectier, button.ik-recbest { cursor: pointer; }
 .ik-pity-c small { font: 700 10px/1 var(--font); opacity: .75; }
 .ik-pity-face { width: 54px; height: 54px; border-radius: 50%; overflow: hidden; border: 2px solid var(--ink); background: #e8efe9 center / cover no-repeat; display: block; }
 .ik-pity-face img, .ik-pity-face canvas { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+/* ---- 期間限定のガチャのバナー ---- */
+.iklt { cursor: pointer; margin-bottom: 14px; }
+.iklt .iklt-h { right: -1%; height: 100%; max-width: 48%; bottom: -4%; }
+.ikev-tag.limited { background: #e8358c; color: #fff; }
+.iklt .ikev-tx { max-width: 54%; }
+@media (max-width: 560px) { .iklt .iklt-h { max-width: 58%; height: 70%; } .iklt .ikev-tx { max-width: 66%; } .iklt-foot { display: none; } }

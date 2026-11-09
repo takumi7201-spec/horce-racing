@@ -1087,6 +1087,8 @@ func _gacha() -> Control:
 	var page := UI.vbox(18)
 	var got: Array = opts.get("got", [])
 	if got.is_empty():
+		for l in IK.limited_now(_today()):
+			page.add_child(_limited_banner(l))
 		page.add_child(_gacha_banner())
 	var v := UI.vbox(12)
 	if not got.is_empty():
@@ -1128,7 +1130,7 @@ func _pity_panel() -> Control:
 	h.add_child(UI.label("%d / %d 点%s" % [mini(pt, cost), cost, ("（+%d）" % (pt - cost)) if pt > cost else ""], 13, INK, "black"))
 	v.add_child(h)
 	var row := UI.hbox(10, BoxContainer.ALIGNMENT_CENTER)
-	for id in IK.data().pickup:
+	for id in IK.pickup_of(_today()):
 		var c: Dictionary = IK.card(id)
 		var cv := UI.vbox(2)
 		cv.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -1159,7 +1161,7 @@ func _ask_pity(c: Dictionary) -> void:
 	v.add_child(UI.label("天井の %d 点で%s（%s）と交換する？" % [cost, c.name, c.rar], 18, INK, "title"))
 	var bh := UI.hbox(12, BoxContainer.ALIGNMENT_CENTER)
 	bh.add_child(UI.button("交換する", func() -> void:
-		var r = IK.exchange_pity(p, c.id)
+		var r = IK.exchange_pity(p, c.id, _today())
 		close_modal(w)
 		if r is String:
 			toast(r)
@@ -1170,6 +1172,51 @@ func _ask_pity(c: Dictionary) -> void:
 	bh.add_child(UI.button("やめる", func() -> void: close_modal(w), "paper", 17))
 	v.add_child(bh)
 	w = modal(v, 560)
+
+
+## 期間限定のバナー（ゲームの limitedBanner）。開催中だけ。カードの一枚絵に切り抜きを 1 頭、期間と出る割合。押すとカードを大きく見る
+func _limited_banner(l: Dictionary) -> Control:
+	var c: Dictionary = IK.card(l.id)
+	var lay := Control.new()
+	lay.custom_minimum_size.y = 300
+	var bg := _img(_bg_tex(c.id), true)
+	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	lay.add_child(bg)
+	lay.add_child(_shade(0.92, 0.0))
+	var st := _img(_sticker_tex(c.id))
+	st.size = Vector2(300 * 1.3, 300)
+	st.position = Vector2(W() * 0.58, 4)
+	st.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	lay.add_child(st)
+	var v := UI.vbox(5)
+	v.position = Vector2(20, 14)
+	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var chip := UI.box({c = [Color("#e8358c")], radius = 6.0, border = 0.0, shadow = Vector2.ZERO, pad = Vector4(8, 1, 8, 2)})
+	chip.add_child(UI.label("期間限定", 13, Color.WHITE, "title"))
+	chip.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	chip.rotation = -0.04
+	v.add_child(chip)
+	var md := func(d: String) -> String: return "%d/%d" % [int(d.substr(5, 2)), int(d.substr(8, 2))]
+	v.add_child(UI.label("LIMITED %s – %s" % [md.call(String(l.from)), md.call(String(l.to))], 10, LEAF2, "black"))
+	v.add_child(UI.outlined(String(l.title), 46, Color("#fff4dc"), "title", Color("#0d2a2e"), 6))
+	var pct := snappedf(float(IK.data().rates.LM) * float(l.rate) * 100.0, 0.1)
+	v.add_child(UI.outlined("LM %s「%s」が出る（LM のうち %d%%・全体の %s%%）" % [c.name, c.epithetText, IK.jround(float(l.rate) * 100.0), str(pct)], 15, Color.WHITE, "black", Color("#0d2a2e"), 4))
+	var uq: Dictionary = IK.skills_of(c).unique
+	v.add_child(UI.outlined(String(uq.desc), 13, Color("#ffd36a"), "black", Color("#0d2a2e"), 4))
+	var ev = null
+	for e in IK.data().events:
+		if e.id == l.get("event"):
+			ev = e
+	if ev != null:
+		v.add_child(UI.label("イベント「%s」の初勝利でも手に入る　天井で交換できる" % ev.name, 11, Color("#e8f0d0"), "black"))
+	lay.add_child(v)
+	var hit := Button.new()
+	hit.flat = true
+	hit.set_anchors_preset(Control.PRESET_FULL_RECT)
+	hit.pressed.connect(func() -> void: _show_card(c))
+	lay.add_child(hit)
+	return _framed(lay)
 
 
 ## ガチャのバナー（ゲームの gachaBanner）：PICK UP の背景と切り抜き、題、LM の顔の列、収録数
@@ -1276,7 +1323,7 @@ func _do_pull(n: int) -> void:
 	if IK.coins_of(p) < n:
 		toast("ウイコインが足りない（あと %d 枚）" % (n - IK.coins_of(p)))
 		return
-	var got := IK.pull(p, n)
+	var got := IK.pull(p, n, _today())
 	save()
 	go("gacha", {got = got, reveal = true, k = p.pulls})
 

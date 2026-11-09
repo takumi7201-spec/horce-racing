@@ -7,7 +7,7 @@ import { cardArt } from '../render3d/cardart.js';
 import { plusOf, cardPower, distCat, STATS, STAT_SHORT, PACKS, CARDS } from '../sim/ikusei.js';
 
 /** 弾の見出し（イベントの報酬は弾ではないので「イベント報酬」）。 */
-const packLine = (c) => (c.myCard ? 'マイカード' : c.pack in PACKS ? `第${c.pack.slice(1)}弾【${PACKS[c.pack]}】` : 'イベント報酬');
+const packLine = (c) => (c.myCard ? 'マイカード' : c.pack in PACKS ? `第${c.pack.slice(1)}弾【${PACKS[c.pack]}】` : c.pack === 'LT' ? '期間限定' : 'イベント報酬');
 
 const THEME = {
   N: { frame: 'linear-gradient(135deg,#d9f5c8 0%,#5fae4a 20%,#c8eeb0 38%,#3f8a34 56%,#a6dc8a 74%,#2f6e28 90%,#9fd682 100%)', line: '#9fdc84', glow: '#7fd06a33', ink: '#e8ffd8', sparks: 0, rays: 0, sun: 0.25, badge: 'linear-gradient(#e6ffd6,#5cae48)', badgeInk: '#103a10' },
