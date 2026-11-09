@@ -1291,8 +1291,10 @@ function trainView(app, go) {
           const m = I.resolveEvent(run, i);
           save(app);
           sound.play('ok');
-          toast(m, { bad: /機嫌を損ね|ぶり返/.test(m) });
           go('run');
+          // カードのイベントは選んだ後の反応（展開）を見せる。ほかの出来事は今までどおり知らせの札だけ
+          if (c.reply) modal(ev.title, [el('p.ik-tev-reply', { text: c.reply }), el('p.note', { text: m })]);
+          else toast(m, { bad: /機嫌を損ね|ぶり返/.test(m) });
         },
       }, [el('b', { text: c.label }), el('small', { text: c.hint }), c.risk ? el('i', { text: c.risk }) : null]))),
     ]);

@@ -1546,7 +1546,8 @@ section('カード育成モード');
       + `サポートに編成するとカードのイベント ${eps.length} 話（${eps.map((x) => x[2].split('「')[1]?.replace('」', '')).join('・')}）`,
       lt.rar === 'LM' && I.isLimitedCard(lt) && !I.isEventCard(lt) && nLt > 0 && nLt < nLm && !outW.includes('LT-01') && JSON.stringify(outW) === JSON.stringify(none)
       && outside && got.card.id === 'LT-01' && !!I.canBuyWithShards(pp, 'LT-01') && I.uniqueKindOf(lt) === 'kick'
-      && eps.length === 3 && eps.every((x, k) => x[0] === `story:LT-01:${k}` && x[1]) && taught && !I.EVENTS.some((e) => e.reward === 'LT-01') && peekHorseId() === idBefore);
+      && eps.length === 3 && eps.every((x, k) => x[0] === `story:LT-01:${k}` && x[1]) && taught
+      && I.CARD_STORIES['LT-01'].every((e) => e.choices.every((c) => c.reply)) && eps[2][2].includes('世紀末の覇王') && !I.EVENTS.some((e) => e.reward === 'LT-01') && peekHorseId() === idBefore);
   }
   // 夏合宿・サポートの連続イベント・ガチャの天井
   {

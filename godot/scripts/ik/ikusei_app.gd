@@ -2214,7 +2214,11 @@ func _train() -> Control:
 				var m := IK.resolve_event(run, i)
 				save()
 				render(false)
-				toast(m))
+				# カードのイベントは選んだ後の反応（展開）を見せる。ほかの出来事は知らせの札だけ
+				if ec.get("reply") != null:
+					_show_reply(String(ev.title), String(ec.reply), m)
+				else:
+					toast(m))
 			chs.add_child(cb)
 		evv.add_child(chs)
 		page.add_child(UI.section("サポートの話" if ev.get("story") != null else "出来事", evv))
@@ -3941,3 +3945,16 @@ func _combo_panel(ids: Array) -> Control:
 		v.add_child(f)
 	b.add_child(v)
 	return b
+
+
+## カードのイベントで選んだ後の反応（ゲームの modal(ev.title, reply)）
+func _show_reply(title: String, reply: String, note: String) -> void:
+	var w: Control
+	var v := UI.vbox(12)
+	v.add_child(UI.label(title, 20, INK, "title"))
+	v.add_child(_wrap(reply, 16, 640, INK))
+	v.add_child(_wrap(note, 12, 640, Color("#4a5b58")))
+	var b := UI.button("閉じる", func() -> void: close_modal(w), "primary", 16)
+	b.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	v.add_child(b)
+	w = modal(v, 700)

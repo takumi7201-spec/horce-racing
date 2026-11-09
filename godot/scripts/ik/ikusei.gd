@@ -1165,7 +1165,7 @@ static func _story_now(run: Dictionary) -> Variant:
 		var def: Dictionary = (data().cardStories[skey] if is_card else data().supportStories[skey])[step]
 		var choices := []
 		for x in def.choices:
-			choices.append({label = x.label, hint = x.hint, risk = null})
+			choices.append({label = x.label, hint = x.hint, risk = null, reply = x.get("reply")})
 		return {
 			id = "story:%s:%d" % [skey, step], title = "%s 第%d話「%s」" % [c.name, step + 1, def.title],
 			text = String(def.text).replace("{support}", c.name), support = i, story = step, choices = choices, cardStory = is_card,

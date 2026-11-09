@@ -932,7 +932,7 @@ function storyNow(run) {
     const def = (CARD_STORIES[key] ?? SUPPORT_STORIES[key])[step];
     return {
       id: `story:${key}:${step}`, title: `${c.name} 第${step + 1}話「${def.title}」`, text: def.text.replaceAll('{support}', c.name), support: i, story: step, cardStory: !!CARD_STORIES[c.id],
-      choices: def.choices.map((x) => ({ label: x.label, hint: effectText(x.effects), risk: null })),
+      choices: def.choices.map((x) => ({ label: x.label, hint: effectText(x.effects), risk: null, reply: x.reply ?? null })),
     };
   }
   return null;
