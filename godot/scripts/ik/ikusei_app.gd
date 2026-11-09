@@ -2559,8 +2559,15 @@ func _watch(res: Dictionary, mine: Array, fired: Dictionary, after: Callable) ->
 			fxk = IK.fx_of_card(IK.trainee_card(p.run))
 		elif fs.get("cardId") != null:
 			fxk = IK.fx_of_card(IK.card(fs.cardId))
+		# 固有は型ごとにレースの中で発動した地点（結果の uqAt）で見せる
+		var uq_at = null
+		for row in res.results:
+			if row.horseId == id:
+				uq_at = row.get("uqAt")
 		for nm in names:
 			var cue := IK.skill_cue(nm, float(res.distance))
+			if cue.unique and uq_at != null:
+				cue.at = maxf(40.0, float(uq_at))
 			var is_mine := mine.has(id)
 			# 相手の札は固有だけ（全部出すと読めない）
 			if is_mine or cue.unique:

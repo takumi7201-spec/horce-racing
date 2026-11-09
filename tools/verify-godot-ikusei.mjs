@@ -11,6 +11,11 @@ import { readFileSync } from 'node:fs';
 import * as IK from '../src/sim/ikusei.js';
 
 const GODOT = process.env.GODOT ?? '/tmp/godot/Godot_v4.7.2-stable_linux.x86_64';
+// 固有スキルの型ごとの舞台（ik_verify.gd の UQ と同じ）
+const UQ = [['king', { grade: 'GI' }, {}], ['mud', { ground: '不良' }, {}], ['stayer', { distance: 2400 }, {}], ['flash', { distance: 1400 }, {}],
+  ['abroad', { courseId: 'longchamp', distance: 2400 }, {}], ['stage', {}, { battle: true }], ['queen', {}, { sex: '牝' }], ['crowd', {}, { n: 16 }],
+  ['start', {}, { style: 0.15 }], ['shadow', {}, { style: 0.1 }], ['kick', {}, { style: 0.65 }], ['again', {}, { style: 0.4 }],
+  ['grit', { distance: 2400 }, {}], ['long', { distance: 2400 }, { style: 0.6 }], ['hill', { courseId: 'nakayama' }, {}], ['inside', {}, { style: 0.65 }]];
 const orders = (res) => res.results.map((r) => [r.horseId, Math.round(r.time * 1000) / 1000]);
 
 function scenario(seed) {
@@ -83,6 +88,15 @@ function scenario(seed) {
     // 天井：引いた回数の点、足りないと断る、100 点で PICK UP と交換
     pity: (() => { const p0 = IK.pityOf(p); let no = 0; try { IK.exchangePity(p, IK.PICKUP[0]); } catch { no = 1; } p.pity = 107;
       const x = IK.exchangePity(p, IK.PICKUP[2]); return [p0, no, IK.pityOf(p), x.card.id, x.isNew, x.awaken, p.cards[IK.PICKUP[2]]]; })(),
+    // 固有スキルの型 16 種：型ごとの条件のレースを走らせ、着順・時計・発動した地点まで比べる
+    uniq: UQ.map(([kind, race, o]) => {
+      const fired = [];
+      const base = (id, sex, style) => ({ id, name: `U${id}`, sex, coat: '鹿毛', ab: { speed: 0.75, stamina: 0.75, power: 0.75, guts: 0.75, wit: 0.75 }, dist: 2000, range: 600, turf: 0.9, dirt: 0.9, firm: 0.8, soft: 0.6, style });
+      const field = [{ ...base(1, o.sex ?? '牡', o.style ?? 0.5), uniq: { kind, k: 1.16, region: o.region ?? 'JP', battle: !!o.battle, name: '固有', fired } }];
+      for (let i = 2; i <= (o.n ?? 12); i++) field.push(base(i, '牡', ((i * 37) % 100) / 100));
+      const res = IK.runRace({ id: 'u', name: 'u', grade: '', ground: '良', courseId: 'tokyo', surface: '芝', distance: 2000, ...race }, field, `uq:${kind}`);
+      return [kind, orders(res), res.results.map((r) => (r.uqAt == null ? null : Math.round(r.uqAt * 1000) / 1000)), fired.length];
+    }),
     // 夏合宿と連続イベントは筋書きの練習・出来事（steps）に出る。話の数と合宿の練習の数も見る
     story: [steps.filter((x) => x[0] === 'event' && String(x[1]).startsWith('story:')).length, run.chain ?? null],
   };

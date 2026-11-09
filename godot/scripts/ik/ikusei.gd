@@ -580,12 +580,10 @@ static func apply_race_skills(spec: Dictionary, skills: Array, race: Dictionary,
 		if d.get("soft") != null:
 			s.soft = maxf(float(s.get("soft", 0.5) if s.get("soft") != null else 0.5), float(d.soft))
 		fired.append(d.name)
+	# 固有は型ごとにレースの計算の中で判定する（race_sim.gd）。発動したら run_race が fired に名前を足す（同じ配列を渡しておく）
 	if unique_of != null:
-		var surf := "芝" if unique_of.turf >= unique_of.dirt else "ダート"
-		if race.surface == surf and absf(float(race.distance) - float(unique_of.dist)) <= 400:
-			for a in STATS:
-				s.ab[a] = minf(0.95, float(s.ab[a]) + 0.022 * (1.0 + float(data().awaken.skill) * aw))
-			fired.append(unique_of.epithetText)
+		s.uniq = {kind = String(unique_of.get("uniqueKind", "king")), k = 1.0 + float(data().awaken.skill) * aw,
+			region = String(unique_of.get("region", "JP")), battle = battle, name = unique_of.epithetText, fired = fired}
 	return {spec = s, fired = fired}
 
 
@@ -1233,7 +1231,8 @@ static func _runner_horse(f: Dictionary, year: int, rng) -> Dictionary:
 		turf = float(f.turf), dirt = float(f.dirt), firm = float(f.get("firm", 0.8)) if f.get("firm") != null else 0.8,
 		soft = float(f.get("soft")) if f.get("soft") != null else 0.5, style = float(f.get("style")) if f.get("style") != null else 0.5,
 		temper = 0.6, spirit = 0.6, fit = 1.0, cond = 0.7, fatigue = 0.0,
-	}.merged({raceGear = f.gear, gearTemper = GEAR_TEMPER} if (f.get("gear") is Dictionary and not (f.gear as Dictionary).is_empty()) else {})
+	}.merged({raceGear = f.gear, gearTemper = GEAR_TEMPER} if (f.get("gear") is Dictionary and not (f.gear as Dictionary).is_empty()) else {}) \
+		.merged({uniq = {kind = f.uniq.kind, k = f.uniq.k, region = f.uniq.region, battle = f.uniq.battle}} if f.get("uniq") != null else {})
 
 
 static func _npc_horse(rng, i: int, level: float, race: Dictionary) -> Dictionary:
@@ -1267,7 +1266,14 @@ static func run_race(race: Dictionary, field: Array, seed_key: String, year := 2
 		entries[j].horse = tmp
 	var course: Dictionary = data().courses[race.courseId]
 	var res := Sim.simulate({name = race.name, courseId = race.courseId, surface = race.surface, distance = int(race.distance),
-		ground = race.get("ground", "良"), year = year, entries = entries}, rng, data().params, course, true)
+		ground = race.get("ground", "良"), grade = String(race.get("grade", "")) if race.get("grade") != null else "", year = year, entries = entries}, rng, data().params, course, true)
+	# 固有スキルは走ってみて発動したものだけ、そのスキルの並び（_with_skills が返した fired と同じ配列）に足す
+	for f in field:
+		if f.get("uniq") == null:
+			continue
+		for row in res.results:
+			if row.horseId == f.id and row.get("uqAt") != null:
+				(f.uniq.fired as Array).append(f.uniq.name)
 	res.field = field
 	res.race = race
 	return res

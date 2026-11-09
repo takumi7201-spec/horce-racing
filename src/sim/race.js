@@ -37,9 +37,41 @@ const BODY_LEN = 2.4;
  * ここで能力・適性・斤量をすべて速度と HP に畳んでおき、
  * メインループでは物理だけを回す。
  */
+// カード育成モードの LM の固有スキル（horse.uniq = { kind, k, region, battle }）。世界の馬は持たないので何も変わらない。
+// A（条件で能力を上げる型）は走る前に判定して能力に足す。B（場面で効く型）は走っている間に判定する（simulateRace）。
+// 乱数は引かない（固有が無い馬と乱数の流れを同じにする）。発動した地点（走った距離）を結果の uqAt に返し、観戦の演出に使う。
+const UNIQ_ADD = {
+  king: { all: 0.022 }, abroad: { all: 0.02 }, stage: { all: 0.02 }, queen: { all: 0.022 },
+  mud: { all: 0.03 }, stayer: { speed: 0.02, stamina: 0.05, guts: 0.04 }, flash: { speed: 0.035 }, crowd: { speed: 0.02, wit: 0.05, power: 0.04 },
+};
+const VENUE_REGION = { US: 'US', FR: 'EU' };
+function uniqActive(u, spec, horse) {
+  switch (u.kind) {
+    case 'king': return spec.grade === 'GI';
+    case 'mud': return spec.ground === '重' || spec.ground === '不良';
+    case 'stayer': return spec.distance >= 2400;
+    case 'flash': return spec.distance <= 1400;
+    case 'abroad': return (VENUE_REGION[getCourse(spec.courseId).abroad] ?? 'JP') !== u.region;
+    case 'stage': return !!u.battle;
+    case 'queen': return horse.sex === '牝' && spec.entries.some((e) => e.horse.sex !== '牝');
+    case 'crowd': return spec.entries.length >= 14;
+    default: return false;
+  }
+}
+
 function prepareRunner(entry, spec, rng) {
   const { horse, jockey, weight } = entry;
   const eff = effectiveAbility(horse, spec.year);
+  const uq = horse.uniq ?? null;
+  let uqAt = null;
+  if (uq && UNIQ_ADD[uq.kind]) {
+    if (uniqActive(uq, spec, horse)) {
+      for (const [a, v] of Object.entries(UNIQ_ADD[uq.kind])) {
+        for (const b of a === 'all' ? Object.keys(eff) : [a]) eff[b] = Math.min(0.95, eff[b] + v * uq.k);
+      }
+      uqAt = Math.max(spec.distance * 0.5, spec.distance - 380);
+    }
+  }
   const gi = Math.max(0, GROUNDS.indexOf(spec.ground));
   const ge = (GROUND_EFFECT[spec.surface] ?? GROUND_EFFECT['芝'])[gi];
 
@@ -83,10 +115,12 @@ function prepareRunner(entry, spec, rng) {
 
   // 仕掛けどころ。後ろの馬は直線まで待つ。賢い馬ほどぶれない。
   const wisdom = eff.wit * 0.6 + jk.skill * 0.4;
-  const spurtRem = clamp(
+  let spurtRem = clamp(
     lerp(430, 700, wantStyle) + rng.normal(0, lerp(100, 25, wisdom)),
     240, Math.min(1000, spec.distance - 180),
   );
+  // ロングスパート：残り 800m から仕掛ける（乱数は同じだけ引いてから）
+  if (uq?.kind === 'long') spurtRem = Math.max(spurtRem, Math.min(640, spec.distance - 180));
 
   // 馬具（世界のレースは entry.gear、育成モードは馬の raceGear。持たない馬は何も変わらない）。
   // 効き目は気性に足す量で、気性の悪い馬ほど効く（gear.js）。育成モードの馬は気性を持たない（一律 0.6）ので、
@@ -94,9 +128,11 @@ function prepareRunner(entry, spec, rng) {
   const gx = gearEffect(entry.gear ?? horse.raceGear, horse.gearTemper ?? horse.temper);
 
   // ゲート。気性と騎手で出遅れる（メンコ・シャドーロールで音や影に驚かない）。
-  const gateDelay = Math.max(0, PHYS.GATE_BASE
+  let gateDelay = Math.max(0, PHYS.GATE_BASE
     + rng.normal(0, 0.17) * (1.6 - (horse.temper + gx.start))
     - (jk.skill - 0.5) * 0.12);
+  // 好スタート：出遅れない（乱数は同じだけ引いてから縮める）
+  if (uq?.kind === 'start') gateDelay *= 0.6;
 
   return {
     id: horse.id, horse, jockey: jk, weight,
@@ -113,6 +149,7 @@ function prepareRunner(entry, spec, rng) {
     // 状態
     p: 0, v: 0, s: 0, off: 0, hpLeft: hp, busted: false, bustT: 0,
     finishT: Infinity, order: 0, dnf: false,
+    uq: uq ? uq.kind : null, uk: uq ? uq.k : 0, uqAt, ahead: -1, againT: -1,
     blockT: 0, wideT: 0, pulledT: 0, offSum: 0, offN: 0,
     last3fStart: -1, last3fTime: 0,
     styleLabel: entry.styleOrder || styleLabel(horse),
@@ -209,13 +246,37 @@ export function simulateRace(spec, rng, opts = {}) {
       const hpRatio = clamp01(r.hpLeft / r.hp0);
       // 余力が半分あるうちはほとんど落ちず、尽きかけてから一気に落ちる。
       // ここを緩い曲線にすると、格下の馬まで一様に遅くなって着差が開きすぎる。
-      let fade = 1 - PHYS.FADE_K * Math.pow(1 - hpRatio, PHYS.FADE_POW);
-      if (r.busted) fade -= PHYS.BUST_RATE * (t - r.bustT);
+      // 執念：余力が尽きかけても落ち方を弱める
+      const gritK = r.uq === 'grit' && hpRatio < 0.5 ? Math.max(0, 1 - 0.8 * r.uk) : 1;
+      if (gritK < 1 && r.uqAt == null) r.uqAt = r.s;
+      let fade = 1 - PHYS.FADE_K * Math.pow(1 - hpRatio, PHYS.FADE_POW) * gritK;
+      if (r.busted) fade -= PHYS.BUST_RATE * (t - r.bustT) * (r.uq === 'grit' ? Math.max(0, 1 - 0.6 * r.uk) : 1);
       fade = Math.max(PHYS.BUST_FLOOR, fade);
 
+      // 坂巧者：上り坂で速さを落とさない
+      const hillK = r.uq === 'hill' && grade > 0 ? Math.max(0, 1 - 0.7 * r.uk) : 1;
+      if (hillK < 1 && r.uqAt == null && r.s > 0) r.uqAt = r.s;
       let vCap = r.vMax * fade
         * (1 - k * PHYS.CORNER_SLOW)
-        * (1 - grade * PHYS.GRADE_SLOW);
+        * (1 - grade * PHYS.GRADE_SLOW * hillK);
+      if (r.uq) {
+        // 好スタート：最初の 200m で前へ
+        if (r.uq === 'start' && r.s < 200) { vCap *= 1 + 0.004 * r.uk; if (r.uqAt == null) r.uqAt = 40; }
+        // 鬼脚：残り 400m で最高速を引き上げる
+        if (r.uq === 'kick' && rem < 400) { vCap *= 1 + 0.035 * r.uk * (1 - rem / 400); if (r.uqAt == null) r.uqAt = r.s; }
+        // 影も踏ませず：道中で一度先頭に立ったら、最後まで速さを保つ（余力だけ残しても、尽きない限り速くならなかった）
+        if (r.uq === 'shadow' && r.uqAt != null) vCap *= 1 + 0.012 * r.uk;
+        // 内を突く：最後の直線で内を通って距離を詰める
+        if (r.uq === 'inside' && rem < 500) { vCap *= 1 + 0.018 * r.uk; if (r.uqAt == null) r.uqAt = r.s; }
+        // 二の脚：最後の 600m で抜かれたら、4 秒だけ抜き返す脚を使う（1 度だけ）
+        if (r.uq === 'again') {
+          let ahead = 0;
+          for (const o of runners) if (o !== r && o.s > r.s) ahead++;
+          if (rem < 600 && r.ahead >= 0 && ahead > r.ahead && r.againT < 0) { r.againT = t + 4; r.uqAt = r.s; }
+          r.ahead = ahead;
+          if (r.againT >= 0 && t < r.againT) vCap *= 1 + 0.13 * r.uk;
+        }
+      }
 
       // 残り 400m は根性と底力で粘る。
       if (rem < 400) {
@@ -282,7 +343,8 @@ export function simulateRace(spec, rng, opts = {}) {
       }
       const shift = PHYS.LANE_SHIFT * TICK;
       if (blocker && vDes > blocker.v) {
-        const skill = 0.6 + r.eff.wit * 0.5 + r.jockey.skill * 0.5;
+        // 内を突く：最後の直線で前が詰まっても、進路を素早く切り替える
+        const skill = (0.6 + r.eff.wit * 0.5 + r.jockey.skill * 0.5) * (r.uq === 'inside' && rem < 500 ? 2 : 1);
         if (!occupied(r.off + BODY_W) && r.off + BODY_W <= maxOff) {
           r.off = Math.min(maxOff, r.off + shift * skill);
           if (k > 0) r.wideT += TICK;
@@ -309,10 +371,15 @@ export function simulateRace(spec, rng, opts = {}) {
       let drain = PHYS.HP_BASE_DRAIN;
       if (r.v > vEco) drain += PHYS.HP_DRAIN_K * (r.v - vEco) * (r.v - vEco);
       if (k > 0) drain += PHYS.HP_CORNER_K * k * (r.v / r.vMax);
-      if (grade > 0) drain += PHYS.HP_GRADE_K * grade;
+      if (grade > 0) drain += PHYS.HP_GRADE_K * grade * (r.uq === 'hill' ? Math.max(0, 1 - 0.6 * r.uk) : 1);
       // 隊列のどこに居るか。先頭は損、後方で我慢した馬は脚が溜まる。
       drain *= lerp(PHYS.LEAD_DRAIN, PHYS.BACK_DRAIN,
         clamp01((leadS - r.s) / PHYS.DRAIN_POS_SPAN));
+      // 影も踏ませず：道中に先頭（3m 以内）に立てば余力が減りにくい。ロングスパート：残り 800m からの消費を抑える
+      // （影も踏ませずは、道中で一度先頭に立てば残り 400m まで効く。先頭を奪い合う間だけでは効き目が無かった）
+      if (r.uq === 'shadow' && r.uqAt == null && leadS - r.s < 3 && r.s > 200 && rem > 400) r.uqAt = r.s;
+      if (r.uq === 'shadow' && r.uqAt != null && rem > 400) drain *= 1 - 0.3 * r.uk;
+      if (r.uq === 'long' && rem < 800) { drain *= 1 - 0.02 * r.uk; if (r.uqAt == null) r.uqAt = r.s; }
       r.hpLeft -= drain * TICK;
       if (r.hpLeft <= 0 && !r.busted) {
         r.busted = true;
@@ -409,6 +476,7 @@ export function simulateRace(spec, rng, opts = {}) {
       avgOff: r.offN ? r.offSum / r.offN : 0,
       blockT: r.blockT, wideT: r.wideT, pulledT: r.pulledT,
       gateDelay: r.gateDelay,
+      ...(r.uq ? { uqAt: r.uqAt } : {}),
     };
   });
 

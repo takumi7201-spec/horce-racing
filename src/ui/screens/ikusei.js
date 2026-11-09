@@ -1465,7 +1465,9 @@ function skillEffects(R, race, fx, view) {
   for (const [hid, list] of Object.entries(R.fired ?? {})) {
     const id = Number(hid);
     if (!names.has(id)) continue;
-    for (const n of list ?? []) { const q = I.skillCue(n, race.distance); cues.push({ id, name: n, mine: mine.has(id), unique: q.unique, at: q.at, done: false }); }
+    // 固有は型ごとにレースの中で発動した地点（結果の uqAt）で見せる（好スタートはゲート、鬼脚は残り 400m、二の脚は抜かれた瞬間）
+    const uqAt = race.results.find((r) => r.horseId === id)?.uqAt;
+    for (const n of list ?? []) { const q = I.skillCue(n, race.distance); cues.push({ id, name: n, mine: mine.has(id), unique: q.unique, at: q.unique && uqAt != null ? Math.max(40, uqAt) : q.at, done: false }); }
   }
   cues.sort((a, b) => a.at - b.at);
   // 固有スキルのカットインに馬の切り抜きを出す（撮ってある絵だけ）。エフェクトの形はここで読んでおく（prepHorseFx）

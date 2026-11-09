@@ -44,6 +44,8 @@ const cards = IK.CARDS.map((c) => ({
   skills: [0, 1, 2, 3, 4].map((a) => IK.skillsOf(c, a)),
   // 固有スキルの発動のエフェクト（LM だけ。見た目だけなので JS で決めて渡す。Godot にハッシュの表を二重に持たない）
   fx: IK.uniqueFxOf(c),
+  // 固有スキルの型（落とし穴 122。判定と効き目は race_sim.gd）
+  uniqueKind: c.rar === 'LM' ? IK.uniqueKindOf(c) : null,
 }));
 const combos = [...new Map(GRADED.filter((r) => !r.abroad).map((r) => [`${r.courseId}|${r.surface}|${r.distance}`, r])).values()]
   .map((r) => ({ courseId: r.courseId, surface: r.surface, distance: r.distance }));

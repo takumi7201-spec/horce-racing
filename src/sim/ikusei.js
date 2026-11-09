@@ -20,6 +20,7 @@ import { distCatOf } from './ikusei-util.js';
 import { courseName } from './course.js';
 
 export { skillsOf, skillInfo, AWAKEN };
+export { UNIQUE_KINDS, uniqueKindOf } from './ikusei-skills.js';
 /** カードの覚醒（持っている枚数から）。 */
 export const awakenOfCard = (profile, id) => awakenOf(profile.cards[id]);
 export { skillCue } from './ikusei-skills.js';
@@ -981,7 +982,7 @@ export function rest(run) {
 // ---------------------------------------------------------------- レース
 
 /** 育成中・完成馬・NPC をレースの計算に渡す馬にする。birthYear はレースの年で 4 歳にそろえる（成長曲線を 1 に近づける）。 */
-function runnerHorse({ id, name, sex, coat, ab, dist, range, turf, dirt, firm, soft, style, gear }, year, rng) {
+function runnerHorse({ id, name, sex, coat, ab, dist, range, turf, dirt, firm, soft, style, gear, uniq }, year, rng) {
   const h = createHorse(rng, { name, sex, birthYear: year - 4 });
   h.id = id;
   h.coat = coat ?? h.coat;
@@ -994,6 +995,8 @@ function runnerHorse({ id, name, sex, coat, ab, dist, range, turf, dirt, firm, s
   h.fit = 1; h.cond = 0.7; h.fatigue = 0;
   // 馬具（gear.js）。育成モードの馬は気性を持たないので、馬具の効き目は気性 0.35 の馬として測る（race.js）
   if (gear && Object.keys(gear).length) { h.raceGear = gear; h.gearTemper = GEAR_TEMPER; }
+  // LM の固有スキル（型・強さ・所属の地域・対戦か）。判定と効き目は race.js
+  if (uniq) h.uniq = { kind: uniq.kind, k: uniq.k, region: uniq.region, battle: uniq.battle };
   return h;
 }
 
@@ -1077,6 +1080,12 @@ export function runRace(race, field, seedKey, year = 2026) {
     raceId: race.id, name: race.name, classId: race.grade || 'cond', grade: race.grade, courseId: race.courseId, surface: race.surface,
     distance: race.distance, ground: race.ground ?? '良', weather: '晴', year, week: 20, entries, prize: 0,
   }, rng, { record: true });
+  // 固有スキルは走ってみて発動したものだけ、そのスキルの並び（withSkills が返した fired と同じ配列）に足す
+  for (const f of field) {
+    if (!f.uniq) continue;
+    const row = res.results.find((x) => x.horseId === f.id);
+    if (row?.uqAt != null) f.uniq.fired.push(f.uniq.name);
+  }
   return res;
 }
 

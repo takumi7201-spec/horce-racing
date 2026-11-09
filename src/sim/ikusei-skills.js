@@ -90,11 +90,56 @@ export function skillsOf(card, awaken = 0) {
   if ((card.rar === 'R' || card.rar === 'N') && hash(card.id) % 3 === 0) support[0] = extra[hash(`${card.id}:s`) % extra.length];
 
   const unique = card.rar === 'LM' ? {
-    name: card.epithet ?? `${card.name}の真髄`,
-    desc: `${card.turf >= card.dirt ? '芝' : 'ダート'}の${distCatOf(card.dist)}（±400m）ですべての能力が大きく上がる`,
+    name: card.epithet ?? `${card.name}の真髄`, kind: uniqueKindOf(card),
+    desc: `【${UNIQUE_KINDS[uniqueKindOf(card)].name}】${UNIQUE_KINDS[uniqueKindOf(card)].desc}`,
   } : null;
   return { race, support, unique };
 }
+
+/**
+ * LM の固有スキルの型（落とし穴 122）。名前は二つ名のまま、中身は型で決まる。判定と効き目はレースの計算（race.js の uniq）の中。
+ * A（when の付くもの）はレースの条件で能力を上げる、B はレースの途中の場面で効く。強さ（add・区間の補正）は条件の狭さで釣り合わせる。
+ * 並びを変えても何もずれない（カードは UNIQUE_OF で型の id を持つ）。
+ */
+export const UNIQUE_KINDS = {
+  king: { name: '王者の風格', desc: 'GI ですべての能力が大きく上がる' },
+  mud: { name: '不屈', desc: '重・不良の馬場で、すべての能力が大きく上がる' },
+  stayer: { name: '長距離の鬼', desc: '2400m 以上で、スタミナと根性を中心に能力が上がる' },
+  flash: { name: '電撃', desc: '1400m 以下でスピードが大きく上がる' },
+  abroad: { name: '異国の地', desc: '所属の地域の外のレースで、すべての能力が上がる' },
+  stage: { name: '大一番', desc: '対戦・イベント・ライバルレースで、すべての能力が上がる' },
+  queen: { name: '女傑', desc: '牝馬が牡馬と一緒に走るレースで、すべての能力が上がる' },
+  crowd: { name: '多頭数', desc: '14 頭以上のレースで、賢さとパワーを中心に能力が上がる' },
+  start: { name: '好スタート', desc: '出遅れず、最初の 200m で前へ出る' },
+  shadow: { name: '影も踏ませず', desc: '道中で先頭を走ると、余力が減りにくい' },
+  kick: { name: '鬼脚', desc: '残り 400m で最高速が上がる' },
+  again: { name: '二の脚', desc: '最後の 600m で抜かれると、抜き返す脚を使う' },
+  grit: { name: '執念', desc: '余力が尽きかけても失速しにくい' },
+  long: { name: 'ロングスパート', desc: '残り 800m から仕掛け、速さを長く保つ' },
+  hill: { name: '坂巧者', desc: '上り坂で速さを落とさず、余力も減りにくい' },
+  inside: { name: '内を突く', desc: '最後の直線で前が詰まっても抜け出しやすい' },
+};
+// カードごとの型（史実の勝ち方から）。表に無い LM は王者の風格
+const UNIQUE_OF = {
+  'P4-01': 'king', 'P1-02': 'king',
+  'EV-01': 'mud', 'P2-10': 'mud',
+  'P1-17': 'stayer', 'P1-40': 'stayer',
+  'P2-16': 'flash', 'P4-03': 'flash',
+  'P4-09': 'abroad', 'P1-09': 'abroad', 'P2-40': 'abroad',
+  'EV-03': 'stage', 'EV-02': 'stage',
+  'P4-02': 'queen', 'P4-04': 'queen',
+  'P1-15': 'crowd', 'P1-16': 'crowd',
+  'P2-09': 'start', 'P1-03': 'start',
+  'P2-01': 'shadow',
+  'P2-17': 'kick', 'P4-07': 'kick',
+  'P2-15': 'again', 'P2-03': 'again',
+  'P2-08': 'grit', 'P4-05': 'grit', 'P2-02': 'grit',
+  'P4-10': 'long', 'P1-08': 'long',
+  'P4-08': 'hill', 'P1-01': 'hill',
+  'P4-06': 'inside', 'P1-10': 'inside',
+};
+/** LM の固有スキルの型（カードの uniqueKind、表、既定は王者の風格）。 */
+export const uniqueKindOf = (card) => (card?.uniqueKind in UNIQUE_KINDS ? card.uniqueKind : UNIQUE_OF[card?.id] ?? 'king');
 
 /**
  * 固有スキルの発動のエフェクト（観戦の 3D とカットイン、カードエディットの絵）。見た目だけでレースには効かない。
@@ -179,12 +224,11 @@ export function applyRaceSkills(spec, skills, race, { battle = false, rar = 'N',
     if (d.soft != null) s.soft = Math.max(s.soft ?? 0.5, d.soft);
     fired.push(d.name);
   }
+  // 固有は型ごとにレースの計算の中で判定して効かせる（多頭数・女傑は出走表、B は走っている場面が要る）。
+  // 発動したら runRace が fired に名前を足す（同じ配列を渡しておく）
   if (uniqueOf) {
-    const surf = uniqueOf.turf >= uniqueOf.dirt ? '芝' : 'ダート';
-    if (race.surface === surf && Math.abs(race.distance - uniqueOf.dist) <= 400) {
-      for (const a of STATS) s.ab[a] = Math.min(0.95, s.ab[a] + 0.022 * (1 + AWAKEN.skill * awaken));
-      fired.push(uniqueOf.epithet ?? `${uniqueOf.name}の真髄`);
-    }
+    s.uniq = { kind: uniqueKindOf(uniqueOf), k: 1 + AWAKEN.skill * awaken, region: uniqueOf.region ?? 'JP', battle,
+      name: uniqueOf.epithet ?? `${uniqueOf.name}の真髄`, fired };
   }
   return { spec: s, fired };
 }

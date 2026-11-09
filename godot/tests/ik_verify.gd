@@ -113,6 +113,7 @@ func scenario(seed: int) -> Dictionary:
 		combo = [run.get("combo"), IK.combo_of(["P1-01", "P1-02", "P1-05", "P1-06", "P1-07", "P1-03"]), IK.combo_of(["EV-03", "P1-19", "P4-36", "P1-17", "P2-01", "P3-01"])],
 		ladder = [b.rank, b2.rank, IK.ladder_state(p)], quests = [qv.call(qs), qs.ready, claimed, qv.call(qs2), qs2.weekLeft, IK.week_number("2026-11-08"), IK.day_number("2026-11-08")],
 		rec = rk, best = rec.get("best"), fast = fast, hall = hall, rel = rel, stage = IK.stage_label("nakayama|芝|2500"),
+		uniq = _uniq(),
 		pity = _pity(p), story = [steps.filter(func(x): return x[0] == "event" and String(x[1]).begins_with("story:")).size(), run.get("chain")],
 	}
 	return {pulls = pulls, steps = steps, stats = h.stats, rating = h.rating, skills = h.skills, name = h.name, sex = h.sex, coat = h.coat,
@@ -140,3 +141,35 @@ func _pity(p: Dictionary) -> Array:
 	p.pity = 107
 	var x: Dictionary = IK.exchange_pity(p, IK.data().pickup[2])
 	return [p0, no, IK.pity_of(p), x.card.id, x.isNew, x.awaken, p.cards[IK.data().pickup[2]]]
+
+
+# 固有スキルの型ごとの舞台（verify-godot-ikusei.mjs の UQ と同じ）
+const UQ := [["king", {grade = "GI"}, {}], ["mud", {ground = "不良"}, {}], ["stayer", {distance = 2400}, {}], ["flash", {distance = 1400}, {}],
+	["abroad", {courseId = "longchamp", distance = 2400}, {}], ["stage", {}, {battle = true}], ["queen", {}, {sex = "牝"}], ["crowd", {}, {n = 16}],
+	["start", {}, {style = 0.15}], ["shadow", {}, {style = 0.1}], ["kick", {}, {style = 0.65}], ["again", {}, {style = 0.4}],
+	["grit", {distance = 2400}, {}], ["long", {distance = 2400}, {style = 0.6}], ["hill", {courseId = "nakayama"}, {}], ["inside", {}, {style = 0.65}]]
+
+
+func _uq_base(id: int, sex: String, style: float) -> Dictionary:
+	return {id = id, name = "U%d" % id, sex = sex, coat = "鹿毛", ab = {speed = 0.75, stamina = 0.75, power = 0.75, guts = 0.75, wit = 0.75},
+		dist = 2000, range = 600, turf = 0.9, dirt = 0.9, firm = 0.8, soft = 0.6, style = style}
+
+
+func _uniq() -> Array:
+	var out := []
+	for u in UQ:
+		var o: Dictionary = u[2]
+		var fired := []
+		var me := _uq_base(1, String(o.get("sex", "牡")), float(o.get("style", 0.5)))
+		me.uniq = {kind = u[0], k = 1.16, region = "JP", battle = bool(o.get("battle", false)), name = "固有", fired = fired}
+		var field := [me]
+		for i in range(2, int(o.get("n", 12)) + 1):
+			field.append(_uq_base(i, "牡", float((i * 37) % 100) / 100.0))
+		var race := {id = "u", name = "u", grade = "", ground = "良", courseId = "tokyo", surface = "芝", distance = 2000}
+		race.merge(u[1], true)
+		var res := IK.run_race(race, field, "uq:%s" % u[0])
+		var ats := []
+		for r in res.results:
+			ats.append(null if r.get("uqAt") == null else IK.jround(float(r.uqAt) * 1000.0) / 1000.0)
+		out.append([u[0], orders(res), ats, fired.size()])
+	return out

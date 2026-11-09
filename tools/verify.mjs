@@ -1488,6 +1488,35 @@ section('カード育成モード');
     check(`育成中の出来事：1 回の育成で ${n} 回（続けては出ない）、同じターンはいつも同じ出来事、答えると体力・気分・能力・絆が動き、表 ${I.TRAIN_EVENTS.length} 種の形が正しい`,
       n >= 2 && n <= 14 && !consec && stable && moved && shape && r.evDone.length === n && peekHorseId() === idBefore);
   }
+  // LM の固有スキルは型（16 種）で効き目が違う。条件の型は条件が合うときだけ、場面の型は走っている間に発動し、発動した地点（uqAt）を返す
+  {
+    const lms = I.CARDS.filter((c) => c.rar === 'LM');
+    const kinds = new Set(lms.map((c) => I.uniqueKindOf(c)));
+    const base = (id, sex, style) => ({ id, name: `U${id}`, sex, coat: '鹿毛', ab: Object.fromEntries(I.STATS.map((k) => [k, 0.75])), dist: 2000, range: 600, turf: 0.9, dirt: 0.9, firm: 0.8, soft: 0.6, style });
+    const go = (kind, race, { sex = '牡', style = 0.5, n = 12, battle = false, region = 'JP' } = {}) => {
+      const fired = [];
+      const me = { ...base(1, sex, style), uniq: { kind, k: 1, region, battle, name: '固有', fired } };
+      const field = [me];
+      for (let i = 2; i <= n; i++) field.push(base(i, '牡', ((i * 37) % 100) / 100));
+      const res = I.runRace({ id: 'u', name: 'u', grade: '', ground: '良', courseId: 'tokyo', surface: '芝', distance: 2000, ...race }, field, `uq:${kind}:${JSON.stringify(race)}`);
+      return { fired: fired.length === 1, at: res.results.find((r) => r.horseId === 1).uqAt, plain: res.results.filter((r) => r.horseId !== 1).every((r) => !('uqAt' in r)) };
+    };
+    const cond = [
+      go('king', { grade: 'GI' }).fired && !go('king', {}).fired,
+      go('mud', { ground: '不良' }).fired && !go('mud', {}).fired,
+      go('stayer', { distance: 2400 }).fired && !go('stayer', {}).fired,
+      go('flash', { distance: 1400 }).fired && !go('flash', {}).fired,
+      go('abroad', { courseId: 'longchamp', distance: 2400 }).fired && !go('abroad', {}).fired && !go('abroad', { courseId: 'longchamp', distance: 2400 }, { region: 'EU' }).fired,
+      go('stage', {}, { battle: true }).fired && !go('stage', {}).fired,
+      go('queen', {}, { sex: '牝' }).fired && !go('queen', {}).fired,
+      go('crowd', {}, { n: 16 }).fired && !go('crowd', {}).fired,
+    ];
+    const s0 = go('start', {}), k0 = go('kick', {}), l0 = go('long', { distance: 2400 }), h0 = go('hill', { courseId: 'nakayama' }), i0 = go('inside', {});
+    const scenes = s0.fired && s0.at === 40 && k0.fired && k0.at >= 1600 && l0.fired && l0.at >= 1600 && h0.fired && i0.fired && i0.at >= 1500 && s0.plain;
+    check(`LM の固有スキル：${lms.length} 枚が ${kinds.size} 種の型（条件の型 8 種は条件が合うときだけ発動、場面の型は好スタート ${s0.at}m・鬼脚 ${Math.round(k0.at)}m・ロングスパート ${Math.round(l0.at)}m で発動）`,
+      kinds.size === 16 && Object.keys(I.UNIQUE_KINDS).length === 16 && cond.every(Boolean) && scenes
+      && I.uniqueOf(I.cardById('P4-01')).desc.startsWith('【王者の風格】') && peekHorseId() === idBefore);
+  }
   // 夏合宿・サポートの連続イベント・ガチャの天井
   {
     const ep = rich(I.newProfile(61));

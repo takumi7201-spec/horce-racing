@@ -171,6 +171,35 @@ static func format_time(sec: float) -> String:
 
 ## spec：{courseId, surface, distance, ground, year, entries:[{horse, weight, gate, frame}], course（コースの表）}
 ## P：data.json の params。返り値は race.js と同じ形の results と、再生用の log。
+# カード育成モードの LM の固有スキル（JS の race.js の uniq と同じ）。A は走る前に能力へ足し、B は走っている間に効く
+const UNIQ_ADD := {
+	king = {all = 0.022}, abroad = {all = 0.02}, stage = {all = 0.02}, queen = {all = 0.022},
+	mud = {all = 0.03}, stayer = {speed = 0.02, stamina = 0.05, guts = 0.04}, flash = {speed = 0.035}, crowd = {speed = 0.02, wit = 0.05, power = 0.04},
+}
+
+
+static func _uniq_active(u: Dictionary, spec: Dictionary, h: Dictionary, course: Dictionary) -> bool:
+	match String(u.kind):
+		"king": return String(spec.get("grade", "")) == "GI"
+		"mud": return spec.ground == "重" or spec.ground == "不良"
+		"stayer": return float(spec.distance) >= 2400
+		"flash": return float(spec.distance) <= 1400
+		"abroad":
+			var ab = course.get("abroad")
+			var reg := "US" if ab == "US" else ("EU" if ab == "FR" else "JP")
+			return reg != String(u.region)
+		"stage": return bool(u.battle)
+		"queen":
+			if h.sex != "牝":
+				return false
+			for e in spec.entries:
+				if e.horse.sex != "牝":
+					return true
+			return false
+		"crowd": return (spec.entries as Array).size() >= 14
+	return false
+
+
 static func simulate(spec: Dictionary, rng, P: Dictionary, course: Dictionary, record := true) -> Dictionary:
 	var PH: Dictionary = P.PHYS
 	var TICK: float = P.TICK
@@ -187,6 +216,15 @@ static func simulate(spec: Dictionary, rng, P: Dictionary, course: Dictionary, r
 		var h: Dictionary = e.horse
 		var g: float = P.GROWTH[clampi(int(spec.year) - int(h.birthYear), 0, 8)]
 		var eff := effective_ability(h, g)
+		var uq = h.get("uniq")
+		var uq_at = null
+		if uq != null and UNIQ_ADD.has(String(uq.kind)) and _uniq_active(uq, spec, h, course):
+			var add: Dictionary = UNIQ_ADD[String(uq.kind)]
+			for a in add:
+				var keys: Array = eff.keys() if a == "all" else [a]
+				for b in keys:
+					eff[b] = minf(0.95, float(eff[b]) + float(add[a]) * float(uq.k))
+			uq_at = maxf(dist * 0.5, dist - 380.0)
 		var d_apt := distance_aptitude(h, dist)
 		var s_apt: float = h.dirt if spec.surface == "ダート" else h.turf
 		var g_apt := lerpf_(h.firm, h.soft, clamp01_(gi / 3.0))
@@ -203,15 +241,21 @@ static func simulate(spec: Dictionary, rng, P: Dictionary, course: Dictionary, r
 		var want: float = h.style
 		var wisdom: float = eff.wit * 0.6 + jk_skill * 0.4
 		var spurt := clampf_(lerpf_(430.0, 700.0, want) + rng.normal(0, lerpf_(100.0, 25.0, wisdom)), 240.0, minf(1000.0, dist - 180.0))
+		var ukind: String = String(uq.kind) if uq != null else ""
+		if ukind == "long":
+			spurt = maxf(spurt, minf(640.0, dist - 180.0))
 		# 馬具（src/sim/gear.js の gearEffect と同じ式・同じ足し算の順）。馬具の無い馬は何も変わらない
 		var gx := gear_effect(h.get("raceGear", {}), float(h.get("gearTemper", h.temper)))
 		var gate_delay := maxf(0.0, float(PH.GATE_BASE) + rng.normal(0, 0.17) * (1.6 - (float(h.temper) + gx.start)) - (jk_skill - 0.5) * 0.12)
+		if ukind == "start":
+			gate_delay *= 0.6
 		R.append({
 			id = h.id, horse = h, name = h.name, gate = e.gate, frame = e.frame, weight = e.weight, eff = eff,
 			vMax = vmax, hp0 = hp, want = want, spurt = spurt, gateDelay = gate_delay,
 			pull = clamp01_((0.52 - (float(h.temper) + gx.pull)) * 2.4 - jk_skill * 0.4), guts = eff.guts, spirit = float(h.spirit), focus = gx.focus,
 			accMax = float(PH.ACC_MAX_BASE) + float(PH.ACC_MAX_GAIN) * eff.power, jkSkill = jk_skill, jkAgg = 0.5,
 			styleLabel = style_label(want),
+			uq = ukind, uk = float(uq.k) if uq != null else 0.0, uqAt = uq_at, ahead = -1, againT = -1.0,
 		})
 
 	# オッズ（computeOdds）。見せるだけだが乱数を 1 頭 1 回引くので、JS と同じ順で引く
@@ -307,11 +351,44 @@ static func simulate(spec: Dictionary, rng, P: Dictionary, course: Dictionary, r
 			var grade := grade_at(track, fmod(lap - pos_in_lap, lap))
 
 			var hp_ratio := clamp01_(HP[i] / r.hp0)
-			var fade := 1.0 - float(PH.FADE_K) * pow(1.0 - hp_ratio, float(PH.FADE_POW))
+			var uk: float = r.uk
+			var grit_k := maxf(0.0, 1.0 - 0.8 * uk) if r.uq == "grit" and hp_ratio < 0.5 else 1.0
+			if grit_k < 1.0 and r.uqAt == null:
+				r.uqAt = S[i]
+			var fade := 1.0 - float(PH.FADE_K) * pow(1.0 - hp_ratio, float(PH.FADE_POW)) * grit_k
 			if BUST[i] >= 0.0:
-				fade -= float(PH.BUST_RATE) * (t - BUST[i])
+				fade -= float(PH.BUST_RATE) * (t - BUST[i]) * (maxf(0.0, 1.0 - 0.6 * uk) if r.uq == "grit" else 1.0)
 			fade = maxf(float(PH.BUST_FLOOR), fade)
-			var vcap: float = r.vMax * fade * (1.0 - k * float(PH.CORNER_SLOW)) * (1.0 - grade * float(PH.GRADE_SLOW))
+			var hill_k := maxf(0.0, 1.0 - 0.7 * uk) if r.uq == "hill" and grade > 0 else 1.0
+			if hill_k < 1.0 and r.uqAt == null and S[i] > 0:
+				r.uqAt = S[i]
+			var vcap: float = r.vMax * fade * (1.0 - k * float(PH.CORNER_SLOW)) * (1.0 - grade * float(PH.GRADE_SLOW) * hill_k)
+			if r.uq != "":
+				if r.uq == "start" and S[i] < 200:
+					vcap *= 1.0 + 0.004 * uk
+					if r.uqAt == null:
+						r.uqAt = 40.0
+				if r.uq == "kick" and rem < 400:
+					vcap *= 1.0 + 0.035 * uk * (1.0 - rem / 400.0)
+					if r.uqAt == null:
+						r.uqAt = S[i]
+				if r.uq == "shadow" and r.uqAt != null:
+					vcap *= 1.0 + 0.012 * uk
+				if r.uq == "inside" and rem < 500:
+					vcap *= 1.0 + 0.018 * uk
+					if r.uqAt == null:
+						r.uqAt = S[i]
+				if r.uq == "again":
+					var ahead := 0
+					for j in n:
+						if j != i and S[j] > S[i]:
+							ahead += 1
+					if rem < 600 and int(r.ahead) >= 0 and ahead > int(r.ahead) and float(r.againT) < 0.0:
+						r.againT = t + 4.0
+						r.uqAt = S[i]
+					r.ahead = ahead
+					if float(r.againT) >= 0.0 and t < float(r.againT):
+						vcap *= 1.0 + 0.13 * uk
 			if rem < 400:
 				vcap *= 1.0 + float(PH.GUTS_GAIN) * (r.guts * 0.7 + r.spirit * 0.3) * (1.0 - rem / 400.0)
 				if r.focus != 0.0:
@@ -351,7 +428,7 @@ static func simulate(spec: Dictionary, rng, P: Dictionary, course: Dictionary, r
 						min_gap = d
 						blocker = j
 			if blocker >= 0 and vdes > V[blocker]:
-				var skill: float = 0.6 + r.eff.wit * 0.5 + r.jkSkill * 0.5
+				var skill: float = (0.6 + r.eff.wit * 0.5 + r.jkSkill * 0.5) * (2.0 if r.uq == "inside" and rem < 500 else 1.0)
 				if not _occupied(i, OFF[i] + BODY_W, n, S, OFF, FIN) and OFF[i] + BODY_W <= max_off:
 					OFF[i] = minf(max_off, OFF[i] + shift * skill)
 					if k > 0:
@@ -377,8 +454,16 @@ static func simulate(spec: Dictionary, rng, P: Dictionary, course: Dictionary, r
 			if k > 0:
 				drain += float(PH.HP_CORNER_K) * k * (V[i] / r.vMax)
 			if grade > 0:
-				drain += float(PH.HP_GRADE_K) * grade
+				drain += float(PH.HP_GRADE_K) * grade * (maxf(0.0, 1.0 - 0.6 * uk) if r.uq == "hill" else 1.0)
 			drain *= lerpf_(float(PH.LEAD_DRAIN), float(PH.BACK_DRAIN), clamp01_((lead_s - S[i]) / float(PH.DRAIN_POS_SPAN)))
+			if r.uq == "shadow" and r.uqAt == null and lead_s - S[i] < 3 and S[i] > 200 and rem > 400:
+				r.uqAt = S[i]
+			if r.uq == "shadow" and r.uqAt != null and rem > 400:
+				drain *= 1.0 - 0.3 * uk
+			if r.uq == "long" and rem < 800:
+				drain *= 1.0 - 0.02 * uk
+				if r.uqAt == null:
+					r.uqAt = S[i]
 			HP[i] -= drain * TICK
 			if HP[i] <= 0 and BUST[i] < 0.0:
 				BUST[i] = t
@@ -447,6 +532,8 @@ static func simulate(spec: Dictionary, rng, P: Dictionary, course: Dictionary, r
 			comment = _comment(r, BUST[i] >= 0.0, left, PULLED[i], BLOCK[i], WIDE[i], dnf[i], oi, n),
 			dnf = dnf[i], avgOff = OFFSUM[i] / OFFN[i] if OFFN[i] > 0 else 0.0,
 		})
+		if r.uq != "":
+			results[results.size() - 1].uqAt = r.uqAt
 
 	var out := {
 		name = spec.get("name", ""), courseId = spec.courseId, courseName = track.courseName, surface = spec.surface,
