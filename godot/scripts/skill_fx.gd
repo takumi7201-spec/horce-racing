@@ -11,6 +11,12 @@ static var _tex := {}
 
 var kind := ""
 var age := 0.0
+## 粒と稲妻・竜巻・彗星の寿命。固有スキルの効き目が続くあいだは延ばし続ける（hold）。輪と柱は LIFE で消す
+var life := LIFE
+var hold_rr = null
+var hold_until := -1.0
+var hold_from := 0.0
+var hold_rc: Node = null
 var cols := {}
 var parts: Array[CPUParticles3D] = []
 var ring: MeshInstance3D
@@ -339,15 +345,30 @@ func _ring_and_pillar() -> void:
 	deco.add_child(pillar)
 
 
+## 固有スキルの効き目が切れるまで出し続ける（rr は観戦の馬の行、until はその馬の走った距離）。
+## 切れる（その地点を過ぎる・ゴールする・巻き戻す）と、そこから 0.6 秒で消える
+func hold(rr, from: float, until: float, rc: Node) -> void:
+	hold_rr = rr
+	hold_from = from - 1.0
+	hold_until = until
+	hold_rc = rc
+
+
 func _process(delta: float) -> void:
 	# 寿命は実時間で測る（固有スキルのスローでも同じ長さで光る）。1 コマの重さ（読み込み・カットの切り替え）で
 	# 一度に寿命を使い切らないよう、1 コマぶんは 0.1 秒で頭打ち
 	age += minf(delta, 0.1)
-	var end := LIFE - 0.6
+	if hold_rr != null:
+		var rt_now: float = float(hold_rc.get("race_t")) if is_instance_valid(hold_rc) else INF
+		if float(hold_rr.s) < hold_until and float(hold_rr.s) >= hold_from and rt_now < float(hold_rr.t_fin):
+			life = maxf(life, age + 1.2)
+		else:
+			hold_rr = null
+	var end := life - 0.6
 	if age > end:
 		for p in parts:
 			p.emitting = false
-	if age > LIFE + 0.8:
+	if age > maxf(life, LIFE) + 0.8:
 		queue_free()
 		return
 	var cam := get_viewport().get_camera_3d()
@@ -358,7 +379,7 @@ func _process(delta: float) -> void:
 	var sc := clampf(d * tan(deg_to_rad(fov) / 2.0) / 13.4, 1.0, 4.0)
 	deco.scale = Vector3.ONE * sc
 	var near := clampf((d - 8.0) / 16.0, 0.0, 1.0)
-	var k := age / LIFE
+	var k := minf(1.0, age / LIFE)
 	var rt := clampf(age / (LIFE * 0.6), 0.0, 1.0)
 	ring.scale = Vector3(1 + rt * 7, 0.02, 1 + rt * 7)
 	(ring.material_override as StandardMaterial3D).albedo_color.a = ((1.0 - rt) * 0.95 if rt < 1.0 else 0.0) * maxf(near, 0.3)
@@ -530,7 +551,7 @@ func _tornado_update(fade: float, cam: Camera3D = null) -> void:
 	# 横向きの竜巻：軸は馬の前後（z、前が +z）に胴の高さで通し、鼻先の前（an＝0）で細く、尾の後ろ（an＝1）へ開く（ゲームの makeTornado3d と同じ）
 	var T := age
 	var grow := _ease(T / 0.35)
-	var open := smoothstep(LIFE - 0.8, LIFE, T)
+	var open := smoothstep(life - 0.8, life, T)
 	var alpha := fade * (1.0 - open * 0.9)
 	var r_of := func(an: float) -> float:
 		return 0.6 + (1.65 * (1.0 + open * 0.3) - 0.6) * pow(maxf(0.0, an), 1.2)

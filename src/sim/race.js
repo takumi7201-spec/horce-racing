@@ -226,9 +226,9 @@ export function simulateRace(spec, rng, opts = {}) {
 
   while (finished < n && t < maxTicks * TICK) {
     // 先頭の位置と速度。追走の基準になる。
-    let leadS = -1, leadV = 0;
+    let leadS = -1, leadV = 0, leadR = null;
     for (const r of runners) {
-      if (r.s > leadS) { leadS = r.s; leadV = r.v; }
+      if (r.s > leadS) { leadS = r.s; leadV = r.v; leadR = r; }
     }
 
     for (let i = 0; i < n; i++) {
@@ -281,6 +281,7 @@ export function simulateRace(spec, rng, opts = {}) {
           if (rem < 600 && r.ahead >= 0 && ahead > r.ahead && r.againT < 0) { r.againT = t + 4; r.uqAt = r.s; }
           r.ahead = ahead;
           if (r.againT >= 0 && t < r.againT) vCap *= 1 + 0.13 * r.uk;
+          else if (r.againT >= 0 && r.uqEnd == null) r.uqEnd = r.s;
         }
       }
 
@@ -304,6 +305,23 @@ export function simulateRace(spec, rng, opts = {}) {
         const cruise = cruiseRatio(r, dist, frontRunners);
         if (leadS <= r.s) {
           vDes = vCap * cruise; // 自分が先頭。ペースは自分で決める
+          // 逃げではない馬（先行・差し…）が速さで先頭に出てしまったら、すぐ後ろの前へ行きたい馬（自分より逃げ寄り）に
+          // ハナを譲って番手に控える。以前は先頭に立った途端に自分でペースを作り、速い先行馬がそのまま逃げ馬になった。
+          if (r.wantStyle >= 0.22) {
+            let ref = null;
+            for (const o of runners) {
+              if (o === r || o.finishT < Infinity || o.wantStyle > r.wantStyle - 0.1 || r.s - o.s > 20) continue;
+              if (!ref || o.s > ref.s) ref = o;
+            }
+            if (ref) {
+              const rel = Math.max(2, want - targetGap(ref.wantStyle, dist, n));
+              vDes = clamp(ref.v + (ref.s - r.s - rel) * 0.55, vCap * 0.70, vCap * cruise);
+            }
+          }
+        } else if (leadR.wantStyle >= 0.22 && r.wantStyle < leadR.wantStyle - 0.1 && gap < 20) {
+          // 逃げ寄りの馬は、先頭が控えたい馬（先行・差し…）ならハナを奪いに行く。先頭の後ろに付く目標のままだと、
+          // ハナを譲ろうとする先行馬と互いに後ろへ付こうとして並んだまま進み、先行馬が先頭のままだった。
+          vDes = vCap * cruise;
         } else {
           vDes = clamp(leadV + (gap - want) * 0.55, vCap * 0.70, vCap * cruise);
         }
@@ -482,7 +500,8 @@ export function simulateRace(spec, rng, opts = {}) {
       avgOff: r.offN ? r.offSum / r.offN : 0,
       blockT: r.blockT, wideT: r.wideT, pulledT: r.pulledT,
       gateDelay: r.gateDelay,
-      ...(r.uq ? { uqAt: r.uqAt } : {}),
+      // uqEnd：固有の効き目が切れた地点（観戦のエフェクトをそこまで出す）。好スタートは最初の 200m、二の脚は 4 秒、ほかはゴールまで効く
+      ...(r.uq ? { uqAt: r.uqAt, uqEnd: r.uq === 'start' ? 200 : r.uq === 'again' ? (r.uqEnd ?? dist) : dist } : {}),
     };
   });
 

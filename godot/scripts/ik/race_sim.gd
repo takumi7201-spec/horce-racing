@@ -255,7 +255,7 @@ static func simulate(spec: Dictionary, rng, P: Dictionary, course: Dictionary, r
 			pull = clamp01_((0.52 - (float(h.temper) + gx.pull)) * 2.4 - jk_skill * 0.4), guts = eff.guts, spirit = float(h.spirit), focus = gx.focus,
 			accMax = float(PH.ACC_MAX_BASE) + float(PH.ACC_MAX_GAIN) * eff.power, jkSkill = jk_skill, jkAgg = 0.5,
 			styleLabel = style_label(want),
-			uq = ukind, uk = float(uq.k) if uq != null else 0.0, uqAt = uq_at, ahead = -1, againT = -1.0,
+			uq = ukind, uk = float(uq.k) if uq != null else 0.0, uqAt = uq_at, uqEnd = null, ahead = -1, againT = -1.0,
 		})
 
 	# オッズ（computeOdds）。見せるだけだが乱数を 1 頭 1 回引くので、JS と同じ順で引く
@@ -334,10 +334,12 @@ static func simulate(spec: Dictionary, rng, P: Dictionary, course: Dictionary, r
 	while finished < n and t < max_ticks * TICK:
 		var lead_s := -1.0
 		var lead_v := 0.0
+		var lead_i := 0
 		for i in n:
 			if S[i] > lead_s:
 				lead_s = S[i]
 				lead_v = V[i]
+				lead_i = i
 
 		for i in n:
 			if FIN[i] < INF:
@@ -395,6 +397,8 @@ static func simulate(spec: Dictionary, rng, P: Dictionary, course: Dictionary, r
 					r.ahead = ahead
 					if float(r.againT) >= 0.0 and t < float(r.againT):
 						vcap *= 1.0 + 0.13 * uk
+					elif float(r.againT) >= 0.0 and r.uqEnd == null:
+						r.uqEnd = S[i]
 			if rem < 400:
 				vcap *= 1.0 + float(PH.GUTS_GAIN) * (r.guts * 0.7 + r.spirit * 0.3) * (1.0 - rem / 400.0)
 				if r.focus != 0.0:
@@ -410,6 +414,20 @@ static func simulate(spec: Dictionary, rng, P: Dictionary, course: Dictionary, r
 				var gap := lead_s - S[i]
 				var cruise := _cruise_ratio(r, dist, front_runners)
 				if lead_s <= S[i]:
+					vdes = vcap * cruise
+					# 逃げではない馬が速さで先頭に出たら、すぐ後ろの逃げ寄りの馬にハナを譲って番手に控える（race.js と同じ）
+					if r.want >= 0.22:
+						var ref := -1
+						for j in n:
+							if j == i or FIN[j] < INF or float(R[j].want) > r.want - 0.1 or S[i] - S[j] > 20.0:
+								continue
+							if ref < 0 or S[j] > S[ref]:
+								ref = j
+						if ref >= 0:
+							var rel := maxf(2.0, want_gap - _target_gap(float(R[ref].want), dist, n))
+							vdes = clampf_(V[ref] + (S[ref] - S[i] - rel) * 0.55, vcap * 0.70, vcap * cruise)
+				elif float(R[lead_i].want) >= 0.22 and r.want < float(R[lead_i].want) - 0.1 and gap < 20.0:
+					# 逃げ寄りの馬は、先頭が控えたい馬ならハナを奪いに行く
 					vdes = vcap * cruise
 				else:
 					vdes = clampf_(lead_v + (gap - want_gap) * 0.55, vcap * 0.70, vcap * cruise)
@@ -540,6 +558,8 @@ static func simulate(spec: Dictionary, rng, P: Dictionary, course: Dictionary, r
 		})
 		if r.uq != "":
 			results[results.size() - 1].uqAt = r.uqAt
+			# 固有の効き目が切れた地点（観戦のエフェクトをそこまで出す）。好スタートは 200m、二の脚は 4 秒、ほかはゴール
+			results[results.size() - 1].uqEnd = 200.0 if r.uq == "start" else (float(r.uqEnd) if r.uq == "again" and r.uqEnd != null else float(dist))
 
 	var out := {
 		name = spec.get("name", ""), courseId = spec.courseId, courseName = track.courseName, surface = spec.surface,

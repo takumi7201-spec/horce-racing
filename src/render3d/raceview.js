@@ -406,6 +406,7 @@ export function createRaceView(canvas, race, opts = {}) {
     get focus() { return focusId; },
     /** スキル発動の光を馬に出す（見た目だけ）。 */
     flare: addFlare,
+    clearFlares,
     /** マークを付ける馬の id。 */
     setMarks(ids) { marks = new Set(ids); },
     seek(t) {
@@ -485,7 +486,8 @@ export function createRaceView(canvas, race, opts = {}) {
     columnTex = new THREE.CanvasTexture(c);
     return columnTex;
   }
-  function addFlare(id, { color = 0x5ec8ff, big = false, fx = null } = {}) {
+  // untilS：固有スキルの効き目が切れる地点（その馬の走った距離）。エフェクトはそこを過ぎるかゴールするまで出し続け、それから消える。
+  function addFlare(id, { color = 0x5ec8ff, big = false, fx = null, untilS = null } = {}) {
     const h = horses.find((x) => x.id === id);
     if (!h) return;
     // 固有スキルのエフェクト（skillfx.js）。輪と光の柱もその色にし、粒が舞い終えるまで少し長く光らせる
@@ -512,15 +514,31 @@ export function createRaceView(canvas, race, opts = {}) {
     g.add(col);
     if (fx3) g.add(fx3.group);
     h.group.add(g);
-    flares.push({ g, h, rings, col, fx3, t0: performance.now(), life: fx3 ? 3.2 : big ? 2.4 : 1.5, big });
+    const life = fx3 ? 3.2 : big ? 2.4 : 1.5;
+    // 輪と光の柱は決まった長さ（life）で消し、エフェクト（fx3）だけ効き目が切れるまで寿命を延ばし続ける（fxLife）
+    flares.push({ g, h, rings, col, fx3, t0: performance.now(), life, fxLife: life, untilS, big });
   }
-  function updateFlares() {
+  function clearFlares() {
+    for (const f of flares) {
+      f.h.group.remove(f.g);
+      if (f.fx3) { f.g.remove(f.fx3.group); f.fx3.dispose(); }
+      f.g.traverse((o) => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
+    }
+    flares.length = 0;
+  }
+  function updateFlares(st) {
     const now = performance.now();
     for (let i = flares.length - 1; i >= 0; i--) {
       const f = flares[i];
       const age = (now - f.t0) / 1000;
-      const k = age / f.life;
-      if (k >= 1) {
+      const k = Math.min(1, age / f.life);
+      if (f.fx3 && f.untilS != null) {
+        // 効き目が続いているあいだは、消え始め（寿命の 0.6 秒前）が来ないよう寿命を先へ送る
+        const me = st?.ranked.find((x) => x.id === f.h.id);
+        if (me && !me.done && me.s < f.untilS) f.fxLife = Math.max(f.fxLife, age + 1.2);
+        else f.untilS = null;   // 切れたら、そこから 0.6 秒で消える（寿命を延ばすのをやめる）
+      }
+      if (age >= Math.max(f.life, f.fxLife)) {
         f.h.group.remove(f.g);
         if (f.fx3) { f.g.remove(f.fx3.group); f.fx3.dispose(); }
         f.g.traverse((o) => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
@@ -545,7 +563,7 @@ export function createRaceView(canvas, race, opts = {}) {
       // カメラが馬のすぐ近く（ゴール前の正面・マーク）だと柱の中から見ることになり、画面が白く覆われたので薄める
       const nearK = clamp((d - 8) / 16, 0, 1);
       f.col.material.opacity = (k < 0.25 ? up : 1 - (k - 0.25) / 0.75) * (f.big ? 0.85 : 0.65) * nearK;
-      if (f.fx3) f.fx3.update(age, f.life, camera);
+      if (f.fx3) f.fx3.update(age, f.fxLife, camera);
     }
   }
 
@@ -556,7 +574,7 @@ export function createRaceView(canvas, race, opts = {}) {
     updateCamera(st);
     updateMarkers(st);
     updateWind(st);
-    updateFlares();
+    updateFlares(st);
     renderer.render(scene, camera);
     if (api.onFrame) {
       api.onFrame({

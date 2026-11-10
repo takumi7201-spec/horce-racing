@@ -1112,6 +1112,9 @@ func _show_cue(c: Dictionary, rr = null) -> void:
 		# 先に馬へ付けてから組む（オーラの粒の出どころ＝馬の体の頂点を、この組の座標へ写す）
 		rr.node.add_child(fx)
 		fx.setup(String(c.fx), fxd, int(c.gate) * 977 + int(race_t * 1000.0), rr.node)
+		# 効き目が切れる地点（その馬の走った距離）まで出し続ける。馬の行（rr.s・t_fin）を見て寿命を延ばす
+		if float(c.get("until", -1.0)) >= 0.0:
+			fx.hold(rr, float(c.at), float(c.until), self)   # 巻き戻して発動の地点より前に戻ったら止める
 	var pc := PanelContainer.new()
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = Color("#f3a332") if c.get("unique", false) else (Color("#a7cb0e") if c.mine else Color(0.07, 0.19, 0.21, 0.85))

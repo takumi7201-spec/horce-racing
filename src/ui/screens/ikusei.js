@@ -1480,8 +1480,11 @@ function skillEffects(R, race, fx, view) {
     const id = Number(hid);
     if (!names.has(id)) continue;
     // 固有は型ごとにレースの中で発動した地点（結果の uqAt）で見せる（好スタートはゲート、鬼脚は残り 400m、二の脚は抜かれた瞬間）
-    const uqAt = race.results.find((r) => r.horseId === id)?.uqAt;
-    for (const n of list ?? []) { const q = I.skillCue(n, race.distance); cues.push({ id, name: n, mine: mine.has(id), unique: q.unique, at: q.unique && uqAt != null ? Math.max(40, uqAt) : q.at, done: false }); }
+    const row = race.results.find((r) => r.horseId === id);
+    const uqAt = row?.uqAt;
+    // 固有のエフェクトは効き目が切れる地点（uqEnd：好スタートは 200m、二の脚は 4 秒後、ほかはゴール）まで出し続ける
+    const until = row?.uqEnd ?? race.distance;
+    for (const n of list ?? []) { const q = I.skillCue(n, race.distance); cues.push({ id, name: n, mine: mine.has(id), unique: q.unique, at: q.unique && uqAt != null ? Math.max(40, uqAt) : q.at, until: q.unique ? until : null, done: false }); }
   }
   cues.sort((a, b) => a.at - b.at);
   // 固有スキルのカットインに馬の切り抜きを出す（撮ってある絵だけ）。エフェクトの形はここで読んでおく（prepHorseFx）
@@ -1508,6 +1511,7 @@ function skillEffects(R, race, fx, view) {
     clearTimeout(slowTimer);
     slowUntil = 0;
     view.setSpeed(speed);
+    view.clearFlares?.();   // 「最初から」で戻したら、出し続けているエフェクトも消す（同じ地点でまた出る）
   };
   const show = (c) => {
     const kind = c.unique ? c.kind : null;
@@ -1521,7 +1525,7 @@ function skillEffects(R, race, fx, view) {
       fx.appendChild(node);
       later(() => node.remove(), 2600);
       sound.play('bell');
-      view.flare(c.id, { color: 0xffc83a, big: true, fx: kind });
+      view.flare(c.id, { color: 0xffc83a, big: true, fx: kind, untilS: c.until });
       // 一瞬だけ遅くして見せ場にする（利用者の再生速度は覚えて戻す）
       view.setSpeed(speed * 0.35);
       slowUntil = performance.now() + 1500;
@@ -1539,7 +1543,7 @@ function skillEffects(R, race, fx, view) {
     fx.appendChild(node);
     later(() => node.remove(), c.mine ? 1900 : 1500);
     if (c.mine) sound.play('win');
-    view.flare(c.id, { color: c.unique ? 0xffc83a : c.mine ? 0x5ec8ff : 0xff6a6a, big: c.unique, fx: kind });
+    view.flare(c.id, { color: c.unique ? 0xffc83a : c.mine ? 0x5ec8ff : 0xff6a6a, big: c.unique, fx: kind, untilS: c.unique ? c.until : null });
   };
   return {
     frame(st) {

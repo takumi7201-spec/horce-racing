@@ -2872,9 +2872,13 @@ func _watch(res: Dictionary, mine: Array, fired: Dictionary, after: Callable) ->
 			fxk = IK.fx_of_card(IK.card(fs.cardId))
 		# 固有は型ごとにレースの中で発動した地点（結果の uqAt）で見せる
 		var uq_at = null
+		var uq_end := float(res.distance)
 		for row in res.results:
 			if row.horseId == id:
 				uq_at = row.get("uqAt")
+				# 固有のエフェクトは効き目が切れる地点（好スタートは 200m、二の脚は 4 秒後、ほかはゴール）まで出し続ける
+				if row.get("uqEnd") != null:
+					uq_end = float(row.uqEnd)
 		for nm in names:
 			var cue := IK.skill_cue(nm, float(res.distance))
 			if cue.unique and uq_at != null:
@@ -2882,7 +2886,7 @@ func _watch(res: Dictionary, mine: Array, fired: Dictionary, after: Callable) ->
 			var is_mine := mine.has(id)
 			# 相手の札は固有だけ（全部出すと読めない）
 			if is_mine or cue.unique:
-				cues.append({at = cue.at, gate = int(lg.gates[k]), name = lg.names[k], text = nm, mine = is_mine, unique = cue.unique,
+				cues.append({at = cue.at, until = uq_end if cue.unique else -1.0, gate = int(lg.gates[k]), name = lg.names[k], text = nm, mine = is_mine, unique = cue.unique,
 					fx = fxk if cue.unique else "", fxd = IK.D.skillFx.get(fxk, {}) if cue.unique else {}})
 	var race := {id = "ik", name = res.name, course = res.courseId, surface = "dirt" if res.surface == "ダート" else "turf", distance = res.distance,
 		dt = lg.dt, frames = lg.frames, winnerTime = res.winnerTime, horses = horses}
