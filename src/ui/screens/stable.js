@@ -61,13 +61,14 @@ function stableTile(app, h, cat) {
     if (v.stable === 'stable' && !v.injury) tags.push(['', fitLabel(v.fit)]);
     if (G.myEntries(g).some((e) => e.horseId === h.id)) tags.push(['go', '出走予定']);
   } else if (cat === 'mares') {
-    sub = `${v.age}歳　産駒${v.foals.length}頭`;
+    sub = `${v.age}歳　産駒${G.offspringOf(g, h.id).all.length}頭`;
     const booked = G.myMatings(g).find((m) => m.damId === h.id);
     tags.push(v.pregnancy ? ['go', `受胎 ${v.pregnancy.sire}`]
       : booked ? ['on', `予約 ${booked.sire?.name ?? ''}`] : ['', '空胎']);
   } else if (cat === 'stallions') {
-    sub = `${v.age}歳　産駒${v.foals.length}頭`;
-    tags.push(['', `種付料 ${formatMoney(v.studFee ?? 0)}`]);
+    const o = G.offspringOf(g, h.id);
+    sub = `${v.age}歳　産駒${o.all.length}頭`;
+    tags.push(['', `種付料 ${formatMoney(v.studFee ?? 0)}`], ['on', `現役 ${o.active.length}`], ['go', `種牡馬 ${o.stallions.length}`]);
   } else {
     sub = `${h.sex}　${v.age === 0 ? '当歳' : '1歳'}`;
     tags.push(['', `父 ${v.sire}`], ['', `母 ${v.dam}`]);
@@ -77,8 +78,9 @@ function stableTile(app, h, cat) {
     tabIndex: 0,
     role: 'button',
     title: `${h.name}の詳細`,
-    onclick: () => app.go('stable', { id: h.id, cat }),
-    onkeydown: (e) => { if (e.key === 'Enter') app.go('stable', { id: h.id, cat }); },
+    // 種牡馬は産駒（現役・種牡馬になった産駒）を見に開くことが多いので、「産駒」のタブから開く
+    onclick: () => app.go('stable', { id: h.id, cat, ...(cat === 'stallions' ? { tab: 'foals' } : {}) }),
+    onkeydown: (e) => { if (e.key === 'Enter') app.go('stable', { id: h.id, cat, ...(cat === 'stallions' ? { tab: 'foals' } : {}) }); },
   }, [
     el('div.st-pic', horseImg(h.coat, { size: v.age < 2 ? 'xs' : 'sm', age: v.age, title: h.coat })),
     el('div.st-body', [
@@ -87,6 +89,10 @@ function stableTile(app, h, cat) {
       el('div.st-tags', tags.map(([c, t]) => el('i', { text: t, class: c || null }))),
     ]),
     cat === 'mares' ? button('配合', (e) => { e.stopPropagation(); app.go('farm', { damId: h.id }); }, { cls: 'sm' }) : null,
+    cat === 'stallions' ? el('div.st-btns', [
+      button('現役産駒', (e) => { e.stopPropagation(); app.go('stable', { id: h.id, cat, tab: 'foals', ff: 'active' }); }, { cls: 'sm' }),
+      button('種牡馬の産駒', (e) => { e.stopPropagation(); app.go('stable', { id: h.id, cat, tab: 'foals', ff: 'stallions' }); }, { cls: 'sm' }),
+    ]) : null,
   ]);
 }
 
@@ -171,11 +177,21 @@ function detail(app, id) {
     if (lineup.length < 2 || at < 0) return;
     const next = lineup[(at + d + lineup.length) % lineup.length];
     // 送るたびに履歴を積むと「戻る」が馬の数だけ必要になるので、差し替える。
-    app.go('stable', { ...app.params, id: next, dir: d, cat }, { replace: true });
+    // 決めて開いたタブ（tab・ff）は持ち越さない（送るたびに「産駒」へ戻されないように。いま見ているタブのまま送る）
+    const { tab: _t, ff: _f, ...rest } = app.params;
+    app.go('stable', { ...rest, id: next, dir: d, cat }, { replace: true });
   };
   app.onArrow = go;
 
-  const tabs = TABS.filter((x) => (!x.mineOnly || active) && (!x.needFoals || v.foals.length));
+  // 産駒のタブは種牡馬・繁殖牝馬にも出す（覚えている産駒は直近 80 頭だけなので、0 でも世界には産駒が居ることがある）
+  const tabs = TABS.filter((x) => (!x.mineOnly || active) && (!x.needFoals || v.foals.length || v.stallion || v.broodmare));
+  // 呼び出し元がタブを決めて開くことがある（所有馬の種牡馬は「産駒」の現役から開く）
+  // 開いたときに 1 度だけ当てる（同じ画面の描き直しでは、あとで押したタブを戻さない）
+  if (app.params.tab && !OPENED.has(app.params) && tabs.some((x) => x.id === app.params.tab)) {
+    app.detailTab = app.params.tab;
+    if (app.params.ff) app.foalsFilter = app.params.ff;
+  }
+  OPENED.add(app.params);
   if (!tabs.some((x) => x.id === app.detailTab)) app.detailTab = 'info';
   const body = el('div.hd-body');
   const tabBar = el('nav.hd-tabs');
@@ -193,7 +209,8 @@ function detail(app, id) {
 
   const stage = el('div.hd-stage', { class: app.params.dir ? (app.params.dir > 0 ? 'in-r' : 'in-l') : null }, [
     infoPanel(v, career),
-    statePanel(v),
+    // 産駒の数は世界から数える（種牡馬は直近 80 頭しか覚えないので、輪の数が産駒のタブの表と食い違った）
+    statePanel(v, v.stallion || v.broodmare ? G.offspringOf(g, id).all : null),
     lineup.length > 1 && at >= 0 ? el('div.hd-swipe', { text: '左右にスワイプで次の馬' }) : null,
     // 背景の 3D を顔のアップに切り替える（顔の作り・白斑・無口を近くで見られるように）。
     el('button.hd-face', {
@@ -399,15 +416,16 @@ function laurel(side) {
  * 現役の馬は仕上がり、繁殖に上がった馬は産駒の数を輪にする
  * （引退した馬に仕上がり 20% と出しても意味が無い）。
  */
-function statePanel(v) {
+function statePanel(v, offspring = null) {
   const young = !v.dead && !v.retired && v.age < 2;
   const racing = !v.dead && !v.retired && !v.broodmare && !v.stallion && !young;
   const fit = Math.max(0, Math.min(1, v.fit ?? 0));
-  const foals = v.foals ?? [];
+  const foals = offspring ?? v.foals ?? [];
+  const nf = foals.length;
   // 幼駒は仕上がりも産駒も無いので、育成の進み具合（2 歳の物差しで見た能力の平均）を輪にする。
   // 潜在値は見せない（生まれたては潜在の 2 割ほどなので低く出る。1 歳の 1 年で育つ）。
   const avg = ABILITIES.reduce((a, k) => a + v.values[k], 0) / ABILITIES.length;
-  const ratio = racing ? fit : young ? avg : Math.min(1, foals.length / 12);
+  const ratio = racing ? fit : young ? avg : Math.min(1, nf / 12);
   const R = 40, C = 2 * Math.PI * R;
   const ring = document.createElement('div');
   ring.className = 'hs-ring';
@@ -420,7 +438,7 @@ function statePanel(v) {
   ring.appendChild(el('div.hs-ring-t', racing
     ? [el('span', { text: '仕上がり' }), el('b', { text: `${Math.round(fit * 100)}` }), el('small', { text: '%' })]
     : young ? [el('span', { text: '育成' }), el('b', { text: rankOf(avg) })]
-      : [el('span', { text: '産駒' }), el('b', { text: String(foals.length) }), el('small', { text: '頭' })]));
+      : [el('span', { text: '産駒' }), el('b', { text: String(nf) }), el('small', { text: '頭' })]));
   const fat = v.fatigue ?? 0;
   const fatMark = fat < 0.2 ? '◎' : fat < 0.4 ? '○' : fat < 0.6 ? '△' : '▲';
   const r = (k, val, cls = null) => el('div.hs-r', [el('span', { text: k }), el('b', { text: val, class: cls })]);
@@ -598,13 +616,7 @@ function tabContent(app, tid, v, career) {
       }),
     ]);
   }
-  if (tid === 'foals') {
-    return table(['馬名', '生年', '性', '戦績', '獲得賞金'],
-      v.foals.map((f) => ({
-        cells: [f.name, f.birthYear, f.sex, `${f.starts}戦${f.wins}勝`, formatMoney(f.earnings)],
-        onclick: () => app.go('stable', { id: f.id, list: v.foals.map((x) => x.id) }),
-      })), { align: [, 'c', 'c', 'c', 'r'] });
-  }
+  if (tid === 'foals') return foalsTab(app, v);
 
   // 詳細：プロフィール ｜ 成績の内訳 ｜ 回り・主な勝鞍
   const c = career.counts;
@@ -644,6 +656,71 @@ function tabContent(app, tid, v, career) {
       v.titles.length ? el('div.badges', v.titles.map((x) => el('span.badge', { text: x }))) : null,
     ]),
   ]);
+}
+
+/** 呼び出し元が決めたタブを当て終えた画面の引数（描き直しのたびに当て直さない） */
+const OPENED = new WeakSet();
+
+/** 産駒の区分（馬の詳細の「産駒」タブの絞り込み）。 */
+const FOAL_FILTERS = [
+  { id: 'active', name: '現役' }, { id: 'stallions', name: '種牡馬' }, { id: 'mares', name: '繁殖牝馬' },
+  { id: 'young', name: '幼駒' }, { id: 'retired', name: '引退' }, { id: 'all', name: 'すべて' },
+];
+
+/**
+ * 産駒のタブ。現役・種牡馬になった産駒・繁殖牝馬…で絞って見る（「種牡馬を押すと現役馬、産駒の種牡馬を見れるように」）。
+ * 押した区分は app.foalsFilter に覚える。区分を替えても画面ごと描き直さず、表だけ描き直す（タブとスクロールが戻らない）。
+ */
+function foalsTab(app, v) {
+  const o = G.offspringOf(app.game, v.horse.id);
+  let cur = app.foalsFilter;
+  if (!o[cur]?.length) cur = FOAL_FILTERS.find((f) => o[f.id].length)?.id ?? 'all';
+  const isSire = v.horse.sex !== '牝';
+  const box = el('div');
+  const fbar = el('div.offf');
+  const draw = () => {
+    fbar.textContent = '';
+    for (const f of FOAL_FILTERS) {
+      fbar.appendChild(el('button', {
+        class: f.id === cur ? 'on' : null,
+        disabled: !o[f.id].length,
+        onclick: () => { cur = f.id; app.foalsFilter = f.id; draw(); },
+      }, [el('span', { text: f.name }), el('b', { text: String(o[f.id].length) })]));
+    }
+    box.textContent = '';
+    const rows = o[cur];
+    if (!rows.length) { box.appendChild(el('p.empty', { text: 'まだ産駒が居ない。' })); return; }
+    const list = rows.map((x) => x.id);
+    const open = (x) => () => app.go('stable', { id: x.id, list });
+    const name = (x) => el('span.sire-n', [el('b', { text: x.name }), x.mine ? el('i.realtag', { text: '所有' }) : null]);
+    // 相手の親（種牡馬なら母、繁殖牝馬なら父）
+    const mate = (x) => (isSire ? x.dam : x.sire);
+    const mateH = isSire ? '母' : '父';
+    let t;
+    if (cur === 'stallions') {
+      t = table(['馬名', '生年', mateH, '戦績', '獲得賞金', '種付料', '産駒', 'いま'],
+        rows.map((x) => ({
+          cells: [name(x), x.birthYear, mate(x), `${x.starts}戦${x.wins}勝`, formatMoney(x.earnings),
+            x.dead ? '—' : formatMoney(x.studFee), `${x.runners}頭`, x.dead ? '死亡' : '供用中'],
+          onclick: open(x), cls: x.mine ? 'mine' : null,
+        })), { align: [, 'c', , 'c', 'r', 'r', 'c', 'c'] });
+    } else if (cur === 'active') {
+      t = table(['馬名', '性齢', mateH, 'クラス', '戦績', '獲得賞金'],
+        rows.map((x) => ({
+          cells: [name(x), `${x.sex}${x.age}`, mate(x), x.className, `${x.starts}戦${x.wins}勝`, formatMoney(x.earnings)],
+          onclick: open(x), cls: x.mine ? 'mine' : null,
+        })), { align: [, 'c', , 'c', 'c', 'r'] });
+    } else {
+      t = table(['馬名', '生年', '性', mateH, '戦績', '獲得賞金'],
+        rows.map((x) => ({
+          cells: [name(x), x.birthYear, x.sex, mate(x), `${x.starts}戦${x.wins}勝`, formatMoney(x.earnings)],
+          onclick: open(x), cls: x.mine ? 'mine' : null,
+        })), { align: [, 'c', 'c', , 'c', 'r'] });
+    }
+    box.appendChild(t);
+  };
+  draw();
+  return el('div', [fbar, box]);
 }
 
 /**

@@ -776,6 +776,44 @@ export function myYoungsters(g) {
   return out.sort((a, b) => b.birthYear - a.birthYear || a.id - b.id);
 }
 
+/**
+ * 産駒を立場で分ける（馬の詳細の「産駒」タブ）。種牡馬は直近 80 頭しか覚えない（落とし穴 20）ので、
+ * 現役の産駒と種牡馬になった産駒は世界の全頭から父・母で拾う（人気の種牡馬は 2 年で 80 頭を超え、現役の産駒が欠けた）。
+ * 返り値は { active, stallions, mares, young, retired, all }。各要素は表に出す行。
+ */
+export function offspringOf(g, id) {
+  const w = g.world;
+  const out = { active: [], stallions: [], mares: [], young: [], retired: [], all: [] };
+  for (const h of w.horses.values()) {
+    if (h.sireId !== id && h.damId !== id) continue;
+    if (h.pedOnly) continue;
+    const age = w.year - h.birthYear;
+    const row = {
+      id: h.id, name: h.name, birthYear: h.birthYear, sex: h.sex, age,
+      starts: h.starts ?? 0, wins: h.wins ?? 0, earnings: h.earnings ?? 0,
+      className: className(h.classId ?? 'maiden'), studFee: h.studFee ?? 0,
+      dead: !!h.dead, mine: h.ownerId === 'player',
+      dam: h.damId != null ? w.horses.get(h.damId)?.name ?? '—' : '—',
+      sire: h.sireId != null ? w.horses.get(h.sireId)?.name ?? '—' : '—',
+      runners: h.stallion ? (h.foals ?? []).length : 0,
+    };
+    out.all.push(row);
+    if (h.stallion) out.stallions.push(row);
+    else if (h.broodmare) out.mares.push(row);
+    else if (age < 2 && !h.dead) out.young.push(row);
+    else if (!h.retired && !h.dead) out.active.push(row);
+    else out.retired.push(row);
+  }
+  const byMoney = (a, b) => b.earnings - a.earnings || b.birthYear - a.birthYear;
+  out.active.sort(byMoney);
+  out.stallions.sort((a, b) => (a.dead - b.dead) || b.studFee - a.studFee || byMoney(a, b));
+  out.mares.sort(byMoney);
+  out.young.sort((a, b) => b.birthYear - a.birthYear);
+  out.retired.sort(byMoney);
+  out.all.sort((a, b) => b.birthYear - a.birthYear || byMoney(a, b));
+  return out;
+}
+
 /** 所有馬を 4 つに分ける。現役（2 歳以上）・繁殖牝馬・種牡馬・幼駒。 */
 export function myStable(g) {
   const young = myYoungsters(g);
