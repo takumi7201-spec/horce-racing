@@ -86,6 +86,41 @@ const GATE_W := 1.05        # 発馬機の 1 枠の幅（m）
 const Broadcast := preload("res://scripts/broadcast.gd")
 var cues: Array = []        # スキルの演出：{s（その馬が走った距離）, gate, text, mine, unique, shown}
 var cue_box: VBoxContainer
+## 固有スキルのフォーカス（自分の馬が固有を発動したとき）：カメラをその馬に寄せ、少しスローにする（ゲームの raceview.js の focusShot と同じ値）。
+## {r（馬の行）, age, dur}。空なら無し。時間は実時間（一時停止の間は止まる）
+var fshot := {}
+const FS_DUR := 3.4
+const FS_SLOW := 0.45
+var fs_snap := false
+var fs_last_t := 0.0
+## 疾走感：画面の縁の集中線（最後の直線・フォーカス）と、カメラの近くの馬の後脚からの蹴り上げ（見た目だけ）
+var lines_mat: ShaderMaterial
+var lines_i := 0.0
+var real_t := 0.0
+const LINES_SHADER := """
+shader_type canvas_item;
+uniform float t = 0.0;
+uniform float inten = 0.0;
+uniform float asp = 1.6;
+float h(float n){ return fract(sin(n * 127.1) * 43758.5453); }
+void fragment(){
+	vec2 p = (UV - 0.5) * vec2(asp, 1.0);
+	float r = length(p);
+	float a = atan(p.y, p.x) / 6.2831853 + 0.5;
+	float N = 120.0;
+	float id = floor(a * N);
+	float rnd = h(id);
+	float on = step(0.62, rnd);
+	float band = abs(fract(a * N) - 0.5) * 2.0;
+	float thin = 1.0 - smoothstep(0.0, 0.25 + 0.35 * h(id + 3.1), band);
+	float seg = fract(r * 1.3 - t * (1.1 + rnd * 1.6) + rnd * 9.0);
+	float dash = smoothstep(0.0, 0.12, seg) * (1.0 - smoothstep(0.45, 0.8, seg));
+	vec2 q = (UV - 0.5) * 2.0;
+	float e = length(q * vec2(1.0, 1.15));
+	float mask = smoothstep(0.62, 1.25, e);
+	COLOR = vec4(1.0, 1.0, 1.0, thin * on * dash * mask * inten * 0.85);
+}
+"""
 
 
 func _ready() -> void:
@@ -345,6 +380,75 @@ func _add(mesh: Mesh, mat: Material, nm := "") -> MeshInstance3D:
 
 
 ## 草・砂のむら。色に掛けるので、暗くし過ぎないよう 0.82〜1.05 に収める。
+static var _detail := {}
+## 走路の細かな質感（ゲームの speedfx.js の trackDetailTexture と同じ描き方）。明るさ 0.7〜1.0、平均 0.95 で、刈り込みの縞（頂点色）に掛ける
+func _detail_tex(turf: bool) -> Texture2D:
+	var key := "t" if turf else "d"
+	if _detail.has(key):
+		return _detail[key]
+	var S := 256
+	var img := Image.create(S, S, false, Image.FORMAT_RGB8)
+	img.fill(Color(0.95, 0.95, 0.95))
+	var seed := [337 if turf else 991]
+	var rnd := func() -> float:
+		seed[0] = (seed[0] * 1664525 + 1013904223) & 0xffffffff
+		return float((seed[0] >> 8) & 0xffffff) / 16777216.0
+	# 大きなむら（踏まれて色の変わった所）
+	for i in 26:
+		var x: float = rnd.call() * S
+		var y: float = rnd.call() * S
+		var rad: float = 18.0 + rnd.call() * 34.0
+		var v := 200.0 / 255.0 if rnd.call() < 0.5 else 1.0
+		for dy in range(-int(rad), int(rad) + 1):
+			for dx in range(-int(rad), int(rad) + 1):
+				var dd := sqrt(dx * dx + dy * dy)
+				if dd > rad:
+					continue
+				var a := 0.55 * (1.0 - dd / rad)
+				var px := posmod(int(x) + dx, S)
+				var py := posmod(int(y) + dy, S)
+				var c := img.get_pixel(px, py)
+				img.set_pixel(px, py, c.lerp(Color(v, v, v), a))
+	if turf:
+		# 芝の葉：進行方向（v）に沿った線。速く流れると筋に見えて、走っている向きが読める
+		for i in 2600:
+			var v: float = (175.0 + floor(rnd.call() * 80.0)) / 255.0
+			var x: float = rnd.call() * S
+			var y: float = rnd.call() * S
+			var l: float = 6.0 + rnd.call() * 12.0
+			var sx: float = (rnd.call() - 0.5) * 3.0
+			var wdt := 2 if rnd.call() < 0.5 else 1
+			for k in int(l):
+				for ww in wdt:
+					img.set_pixel(posmod(int(x + sx * k / l) + ww, S), posmod(int(y) + k, S), Color(v, v, v))
+	else:
+		# 砂の粒と、蹄の跡のくぼみ
+		for i in 2600:
+			var v: float = (185.0 + floor(rnd.call() * 70.0)) / 255.0
+			var x := int(rnd.call() * S)
+			var y := int(rnd.call() * S)
+			var sz := 1 + int(rnd.call() * 2.5)
+			for dy in sz:
+				for dx in sz:
+					img.set_pixel(posmod(x + dx, S), posmod(y + dy, S), Color(v, v, v))
+		for i in 70:
+			var x := int(rnd.call() * S)
+			var y := int(rnd.call() * S)
+			var rx: float = 3.0 + rnd.call() * 3.0
+			var ry: float = 5.0 + rnd.call() * 3.0
+			for dy in range(-int(ry), int(ry) + 1):
+				for dx in range(-int(rx), int(rx) + 1):
+					if (dx * dx) / (rx * rx) + (dy * dy) / (ry * ry) > 1.0:
+						continue
+					var px := posmod(x + dx, S)
+					var py := posmod(y + dy, S)
+					img.set_pixel(px, py, img.get_pixel(px, py).lerp(Color(0.59, 0.59, 0.59), 0.55))
+	img.generate_mipmaps()
+	var t := ImageTexture.create_from_image(img)
+	_detail[key] = t
+	return t
+
+
 func _grain(freq: float, lo := 0.82) -> NoiseTexture2D:
 	var noise := FastNoiseLite.new()
 	noise.frequency = freq
@@ -399,7 +503,11 @@ func _build_course() -> void:
 			return c.lerp(C_TURF_WORN, clampf(1.0 - off / 4.0, 0.0, 1.0) * 0.6)
 		return (C_DIRT_A if stripe else C_DIRT_B).lerp(C_DIRT_A, clampf(off / w, 0.0, 1.0) * 0.4)
 	var surf_mat := _mat(Color.WHITE, 0.95, true)
-	surf_mat.albedo_texture = _grain(0.08 if turf else 0.18)
+	# 細かな質感（芝の葉・砂の粒・むら）。ノイズの粒だけでは寄ったカメラで地面が流れて見えず、疾走感が出なかった（ゲームの track.js と同じ絵）。
+	# 帯の uv は 4m で 1 なので、6m で一回りさせる
+	surf_mat.albedo_texture = _detail_tex(turf)
+	surf_mat.uv1_scale = Vector3(4.0 / 6.0, 4.0 / 6.0, 1.0)
+	surf_mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 	_add(_band(lanes, surf_color), surf_mat, "Surface")
 
 	# 米国の競馬場は芝がダートの内側（日本と逆）。ダートのレースでは内ラチの内に芝の帯と内ラチを描く
@@ -957,6 +1065,35 @@ func load_race_data(r: Dictionary, skins: Array, mine: Array = [], cue: Array = 
 		c.shown = false
 
 
+## 蹴り上げの粒（芝の塊・砂）。後脚の蹄のあたりから後ろ上へ飛ばす。local_coords を切って、飛んだ粒は地面に残して流れさせる
+func _kick_particles(dirt: bool) -> CPUParticles3D:
+	var kp := CPUParticles3D.new()
+	kp.amount = 26
+	kp.lifetime = 0.6
+	kp.local_coords = false
+	kp.emitting = false
+	kp.position = Vector3(0.0, 0.1, -0.85)
+	kp.direction = Vector3(0.0, 0.75, -1.0)
+	kp.spread = 28.0
+	kp.initial_velocity_min = 1.8
+	kp.initial_velocity_max = 4.2
+	kp.gravity = Vector3(0.0, -9.8, 0.0)
+	kp.scale_amount_min = 0.06
+	kp.scale_amount_max = 0.14
+	# 粒は低多角形の小さな球（芝の塊・砂の粒）。丸い布の板（ビルボード）は数画素の四角に写って積み木に見えた
+	var q := SphereMesh.new()
+	q.radius = 0.5
+	q.height = 1.0
+	q.radial_segments = 6
+	q.rings = 3
+	var m := StandardMaterial3D.new()
+	m.albedo_color = Color("#9a7650") if dirt else Color("#3d5e2a")
+	m.roughness = 1.0
+	q.material = m
+	kp.mesh = q
+	return kp
+
+
 func _start_race(r: Dictionary, build: Callable) -> void:
 	# 有馬記念は冬の午後（低い日・冬枯れの内馬場）。引数 --light=dusk でも
 	var dusk: bool = String(r.name).contains("有馬") or _args().get("light", "") == "dusk"
@@ -985,7 +1122,9 @@ func _start_race(r: Dictionary, build: Callable) -> void:
 				k_fin = k
 				break
 		var v_fin := (pos[k_fin] - pos[maxi(0, k_fin - 5)]) / (dt * mini(5, maxi(1, k_fin)))
-		runners.append({ node = node, id = h.get("id", 0), frame = int(h.get("frame", 1)), mine = false, pos = pos, off = off, name = String(h.name), gate = int(h.gate), order = int(h.order),
+		var kp := _kick_particles(String(r.surface) != "turf")
+		node.add_child(kp)
+		runners.append({ kick = kp, node = node, id = h.get("id", 0), frame = int(h.get("frame", 1)), mine = false, pos = pos, off = off, name = String(h.name), gate = int(h.gate), order = int(h.order),
 			time = float(h.time), t_fin = k_fin * dt, v_fin = v_fin, ph = randf(), yaw = 0.0, s = 0.0, v = 0.0 })
 	_build_gate(r.horses.size())
 	if bc == null:
@@ -1049,8 +1188,25 @@ func _off(arr: PackedFloat32Array, t: float, s := 999.0) -> float:
 
 
 func _update_race(delta: float, snap: bool) -> void:
+	# 巻き戻したら（最初から・一時停止中の操作）フォーカスはやめる
+	if race_t < fs_last_t - 0.05:
+		fshot = {}
+	# 固有スキルのフォーカスの間は少しスロー（0.3 秒で落とし、最後の 0.8 秒で戻す）。フォーカスの時間は実時間で進める
+	var fs_k := 1.0
+	if playing and not fshot.is_empty():
+		var a: float = fshot.age
+		var d: float = fshot.dur
+		fs_k = lerpf(1.0, FS_SLOW, smoothstep(0.0, 1.0, minf(1.0, minf(a / 0.3, (d - a) / 0.8))))
+		fshot.age = a + delta
+		if float(fshot.age) >= d:
+			fshot = {}
+			fs_snap = true
+	# 再生の速さ（中継のスロー・フォーカスのスローを含む）。脚の運びもこれで進める（以前は速さだけで、スローの間も脚が普通の速さで動いた）
+	var rate: float = play_speed * (bc.slow if bc and cam_mode == "auto" else 1.0) * fs_k
 	if playing:
-		race_t = minf(race_t + delta * play_speed * (bc.slow if bc and cam_mode == "auto" else 1.0), race_duration())
+		race_t = minf(race_t + delta * rate, race_duration())
+		real_t += delta
+	fs_last_t = race_t
 	var start: float = race.start
 	for r in runners:
 		var sv := _s_at(r, race_t)
@@ -1069,15 +1225,18 @@ func _update_race(delta: float, snap: bool) -> void:
 		# コーナーでは内へ少し倒す（遠心の釣り合い v²κ/g の 3 割、最大 0.12rad）。左回りは左（-Z 回り）へ
 		var lean := clampf(sv.y * sv.y * curvature_at(p) / 9.8 * 0.3, 0.0, 0.12)
 		var bank := -lean if track.dir == "left" else lean
-		node.pose(sv.y * delta * play_speed if playing else 0.0, sv.y, bank)
+		node.pose(sv.y * delta * rate if playing else 0.0, sv.y, bank)
 		r.s = sv.x
 		r.v = sv.y
 		r.off_now = off
 		# 目印は画面の上で同じ大きさにしたいが、fixed_size の Label3D は画角が狭いほど大きく写る（望遠の正面で画面を覆った）。画角で割り戻す
 		if r.has("mark"):
 			r.mark.pixel_size = 0.0006 * tan(deg_to_rad(camera.fov) / 2.0) / tan(deg_to_rad(25.0))
+			# フォーカスの間はその馬の目印を隠す（寄った画面の真ん中に来る。ゲームと同じ）
+			r.mark.visible = fshot.is_empty() or not is_same(fshot.get("r"), r)
 	_update_gate()
 	_update_race_camera(delta, snap)
+	_update_speed(delta, rate)
 	_update_board()
 	_update_cues()
 	if bc:
@@ -1149,11 +1308,9 @@ func _show_cue(c: Dictionary, rr = null) -> void:
 	tw.tween_interval(2.6 if c.mine else 1.6)
 	tw.tween_property(pc, "modulate:a", 0.0, 0.3)
 	tw.tween_callback(pc.queue_free)
-	# 固有スキルは 1.5 秒だけゆっくり見せる（ゲームの観戦と同じ）
-	if c.get("unique", false) and c.mine:
-		var keep := play_speed
-		play_speed = 0.35
-		get_tree().create_timer(1.5).timeout.connect(func() -> void: play_speed = keep)
+	# 固有スキルはカメラを自分の馬へ寄せ、少しスローにして見せる（ゲームの観戦と同じ。以前は 1.5 秒だけ再生を 0.35 倍にしていた）
+	if c.get("unique", false) and c.mine and rr != null:
+		fshot = _focus_plan(rr)
 
 
 func _ranked() -> Array:
@@ -1170,8 +1327,17 @@ func _ranked() -> Array:
 
 
 func _update_race_camera(delta: float, snap: bool) -> void:
+	if fs_snap:
+		snap = true
+		fs_snap = false
+		cam_eye = Vector3.ZERO
+	if not fshot.is_empty():
+		_focus_cam()
+		_shake()
+		return
 	if cam_mode == "auto":
 		bc.update_camera(delta, snap)
+		_shake()
 		return
 	if not cam_mode in ["tv", "follow", "side", "front"]:
 		return
@@ -1213,6 +1379,96 @@ func _update_race_camera(delta: float, snap: bool) -> void:
 		cam_eye = cam_eye.lerp(eye, k2)
 		cam_look = cam_look.lerp(look, k2)
 	camera.set_view(cam_eye, cam_look)
+	_shake()
+
+
+## フォーカスの撮る側を決める（ゲームの raceview.js の focusPlan と同じ）。外に並ぶ馬がいるとカメラとの間に入って自分の馬を隠したので、
+## 外が塞がっていて内に余地（内ラチから 5m 以上）があれば内から撮り、どちらも塞がっていれば高く構えて上から越して撮る
+func _focus_plan(rr: Dictionary) -> Dictionary:
+	var s0: float = float(rr.s)
+	var o0: float = float(rr.get("off_now", 3.0))
+	var out := 0
+	var inn := 0
+	for o in runners:
+		if o == rr:
+			continue
+		var ds: float = float(o.s) - s0
+		if ds < -3.0 or ds > 8.0:
+			continue
+		var dof: float = float(o.get("off_now", 0.0)) - o0
+		if dof > 0.6 and dof < 6.5:
+			out += 1
+		elif dof < -0.6 and dof > -6.5:
+			inn += 1
+	var side := 1.0
+	var lift := 0.0
+	if out > 0:
+		if inn == 0 and o0 > 5.0:
+			side = -1.0
+		else:
+			lift = 2.2
+	return {r = rr, age = 0.0, dur = FS_DUR, side = side, lift = lift}
+
+
+## 固有スキルのフォーカス：馬の外の斜め前の低い所から、走るにつれて真横へ回り込みながら寄る（画角 40° → 30°）。
+## 馬に合わせて毎コマ置き直す（寄せ遅れると画面から外れる）。縦長の画面は画角を広げて鼻先から尾まで収める
+func _focus_cam() -> void:
+	var r: Dictionary = fshot.r
+	var u := smoothstep(0.0, 1.0, float(fshot.age) / float(fshot.dur))
+	var p: float = float(race.start) + float(r.s)
+	var off: float = float(r.get("off_now", 3.0))
+	var side: float = fshot.get("side", 1.0)
+	var lift: float = fshot.get("lift", 0.0)
+	var e := at_p(p + lerpf(6.5, 0.8, u), off + side * lerpf(4.6, 6.0, u) * (1.4 if lift > 0.0 else 1.0), lerpf(1.15, 1.85, u) + lift)
+	var l := at_p(p + 0.9, off, 1.3)
+	var vs := get_viewport().get_visible_rect().size
+	camera.fov = lerpf(40.0, 30.0, u) * (1.35 if vs.x / maxf(1.0, vs.y) < 0.9 else 1.0)
+	camera.set_view(e, l)
+
+
+## カメラの揺れ（疾走感）。速さに合わせて小さく、最後の直線とフォーカスでは強く。画角に比例させる（望遠で揺れすぎない）。
+## レースの時間で作る（一時停止で止まり、スローで遅くなる）。どのカメラも毎コマ set_view し直すので、揺れは積み上がらない
+func _shake() -> void:
+	var list := _ranked()
+	var lead: Dictionary = list[0]
+	var rem: float = float(race.distance) - float(lead.s)
+	var k := clampf((float(lead.v) - 8.0) / 9.0, 0.0, 1.0) * (1.7 if rem < 450.0 and rem > -30.0 else 1.0) * (1.5 if not fshot.is_empty() else 1.0)
+	var a := deg_to_rad(camera.fov) * 0.0035 * k
+	if a <= 0.0:
+		return
+	camera.rotate_object_local(Vector3.RIGHT, a * (sin(race_t * 11.3) + 0.6 * sin(race_t * 23.7 + 1.3)))
+	camera.rotate_object_local(Vector3.UP, a * 0.6 * (sin(race_t * 9.1 + 0.4) + 0.5 * sin(race_t * 19.9)))
+
+
+## 集中線の濃さと蹴り上げ。集中線はフォーカスの間と最後の直線（先頭が残り 420m から）、実時間でなめらかに寄せる。
+## 蹴り上げは画面に大きめに写る馬（画面の縦の半分に写る幅が 16m 未満）の後脚から出す。粒の速さは再生の速さに合わせる
+func _update_speed(delta: float, rate: float) -> void:
+	var list := _ranked()
+	var lead: Dictionary = list[0]
+	var rem: float = float(race.distance) - float(lead.s)
+	var target := 0.0
+	if not fshot.is_empty():
+		target = 0.8 * minf(1.0, minf(float(fshot.age) / 0.25, (float(fshot.dur) - float(fshot.age)) / 0.5))
+	elif cam_mode in ["auto", "tv", "follow", "side", "front"] and rem < 420.0 and rem > -20.0 and float(lead.v) > 12.0:
+		target = 0.45 * smoothstep(0.0, 1.0, (420.0 - rem) / 180.0)
+	lines_i += (target - lines_i) * minf(1.0, delta * 6.0)
+	if lines_mat:
+		var vs := get_viewport().get_visible_rect().size
+		lines_mat.set_shader_parameter("t", real_t)
+		lines_mat.set_shader_parameter("inten", lines_i)
+		lines_mat.set_shader_parameter("asp", vs.x / maxf(1.0, vs.y))
+	var tn := tan(deg_to_rad(camera.fov) / 2.0)
+	var cam_t: Transform3D = camera.global_transform
+	for r in runners:
+		var kp: CPUParticles3D = r.get("kick")
+		if kp == null:
+			continue
+		var node: Node3D = r.node
+		var to := node.global_position - cam_t.origin
+		var front := to.dot(-cam_t.basis.z) > 0.0
+		var close := front and to.length() * tn < 16.0 and float(r.v) > 8.0 and playing and race_t < float(r.t_fin) + 6.0
+		kp.emitting = close
+		kp.speed_scale = maxf(0.05, rate)
 
 
 ## 枠の色（JRA）：1 白・2 黒・3 赤・4 青・5 黄・6 緑・7 橙・8 桃
@@ -1293,6 +1549,17 @@ func _build_ui() -> void:
 			theme.set_color(c, cls, UIK.INK)
 	ui.theme = theme
 	layer.add_child(ui)
+	# 集中線（画面の縁）。いちばん下に置き、ほかの札の下に描く
+	var lr := ColorRect.new()
+	lr.set_anchors_preset(Control.PRESET_FULL_RECT)
+	lr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	lines_mat = ShaderMaterial.new()
+	var sh := Shader.new()
+	sh.code = LINES_SHADER
+	lines_mat.shader = sh
+	lr.material = lines_mat
+	ui.add_child(lr)
+	ui.move_child(lr, 0)
 
 	var bar := HBoxContainer.new()
 	bar.name = "Bar"

@@ -7,6 +7,7 @@
 import * as THREE from '../../vendor/three/three.module.min.js';
 import { posToWorld, elevationAt, trackBounds, SURFACE } from '../sim/course.js';
 import { yawForXForward, yawForZForward } from './orient.js';
+import { trackDetailTexture } from './speedfx.js';
 
 /** 走路に沿って頂点を並べる刻み（m）。細かくするとコーナーがなめらかになる。 */
 const STEP = 5;
@@ -418,7 +419,12 @@ export function buildTrackMesh(track, { stand = true, surrounds = true, rng = Ma
   const group = new THREE.Group();
   group.name = 'track';
 
-  const surfMat = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide });
+  // 細かな質感（芝の葉・砂の粒・むら）を刈り込みの縞に掛ける。uv は横が走路の幅で 0..1、縦が 20m で 1 なので、約 6m で一回りさせる
+  // （2.5m で回すと 1 画素が 1cm になり、少し離れただけでミップマップに均されて 1 色に戻った）
+  const detail = trackDetailTexture(track.surface === SURFACE.DIRT).clone();
+  detail.needsUpdate = true;
+  detail.repeat.set(Math.max(3, Math.round(track.width / 6)), 20 / 6);
+  const surfMat = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide, map: detail });
   const surf = new THREE.Mesh(buildSurface(track, { surface: track.surface }), surfMat);
   surf.receiveShadow = true;
   group.add(surf);

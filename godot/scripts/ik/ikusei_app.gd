@@ -206,9 +206,17 @@ func _ready() -> void:
 		var r := IK.event_race(p, p.finished[0].id, String(args.get("evid", "arc1999")), 1)
 		_watch(r.result, [100], r.fired, func() -> void: pass)
 		watching.race_t = float(args.event)
+		watching.fs_last_t = watching.race_t
 		watching.playing = false
 		if args.has("cam"):
 			watching.set_camera(args.cam)
+		if args.has("focus"):
+			# 確かめ用：自分の馬の固有スキルのフォーカスを、その経過（--focus=秒）から走らせて撮る
+			for rr in watching.runners:
+				if int(rr.id) == 100:
+					watching.fshot = watching._focus_plan(rr)
+					watching.fshot.age = float(args.focus)
+			watching.playing = true
 	if args.has("race"):
 		# 確かめ用：レースの週まで練習を進めてレースを走り、観戦の時刻（--race=秒）で止める。--result=1 で結果の板
 		while not IK.is_race_turn(p.run):

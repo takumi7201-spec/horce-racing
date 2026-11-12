@@ -9,6 +9,7 @@ import { buildTrackMesh, trackPoint, buildGate } from './track.js';
 import { createDirector, createTvDirector, trackingFrame, trackShot } from './broadcast.js';
 import { makeHorse, makeShadowPatch, FRAME_COLORS } from './horse3d.js';
 import { makeWind } from './wind.js';
+import { makeSpeedLines, makeKickup } from './speedfx.js';
 import { createFx3d, SKILL_FX } from './skillfx.js';
 import { buildTrack, posToWorld, elevationAt, curvatureAt, trackBounds } from '../sim/course.js';
 import { sampleLog, logDuration } from '../sim/race.js';
@@ -193,6 +194,15 @@ export function createRaceView(canvas, race, opts = {}) {
   let autoSlow = 1;
   const look = new THREE.Vector3();
   const camPos = new THREE.Vector3();
+  // 固有スキルのフォーカス（自分の馬が固有を発動したとき）。カメラをその馬に寄せ、少しスローにする。
+  // 時間は実時間で進める（一時停止の間は止まる）。age・dur は秒。
+  let fshot = null;
+  const FS_DUR = 3.4, FS_SLOW = 0.45;
+  // 疾走感：集中線（画面の縁）と蹴り上げ（カメラの近くの馬の後脚から）。見た目だけ
+  const speedLines = makeSpeedLines();
+  const kick = makeKickup(race.surface === 'ダート');
+  scene.add(kick.group);
+  let lineI = 0, realLast = performance.now(), realT = 0, kickT = 0;
 
   function resize() {
     const w = canvas.clientWidth || canvas.width;
@@ -278,7 +288,7 @@ export function createRaceView(canvas, race, opts = {}) {
     camera.updateProjectionMatrix();
   }
 
-  function updateCamera(st) {
+  function baseCamera(st) {
     if (mode === 'auto') {
       const c = director.camera(time, st.snap, snapCam, camera.aspect);
       snapCam = false;
@@ -380,6 +390,68 @@ export function createRaceView(canvas, race, opts = {}) {
     }
   }
 
+  /**
+   * 固有スキルのフォーカス：馬の外の斜め前の低い所から、走るにつれて真横へ回り込みながら寄る（画角 40° → 30°）。
+   * 馬に合わせて毎コマ置き直す（馬は動き続けるので、寄せ遅れると画面から外れる）。
+   */
+  function focusCam(st) {
+    const x = st.snap.find((y) => y.id === fshot.id);
+    const h = horses.find((y) => y.id === fshot.id);
+    if (!x || !h) { fshot = null; snapCam = true; baseCamera(st); return; }
+    const u = smooth01(fshot.age / fshot.dur);
+    const p = track.start + x.s;
+    const gy = h.group.position.y;
+    const w = posToWorld(track, p + lerp(6.5, 0.8, u), x.off + fshot.side * lerp(4.6, 6.0, u) * (fshot.lift ? 1.4 : 1));
+    camera.position.set(w.x, gy + lerp(1.15, 1.85, u) + fshot.lift, w.z);
+    const a = posToWorld(track, p + 0.9, x.off);
+    look.set(a.x, gy + 1.3, a.z);
+    // 縦長の画面は横に写る幅が狭いので、画角を広げて鼻先から尾まで収める
+    setFov(lerp(40, 30, u) * (camera.aspect < 0.9 ? 1.35 : 1));
+    camera.lookAt(look);
+  }
+
+  /**
+   * フォーカスの撮る側。外に並ぶ馬がいるとカメラとの間に入って自分の馬を隠した（Godot で撮って見つけた）。
+   * 外が塞がっていて内に余地（内ラチから 5m 以上）があれば内から撮り、どちらも塞がっていれば高く構えて上から越して撮る。
+   */
+  function focusPlan(id) {
+    const st = sampleState();
+    const me = st.snap.find((y) => y.id === id);
+    if (!me) return { side: 1, lift: 0 };
+    let out = 0, inn = 0;
+    for (const o of st.snap) {
+      if (o === me) continue;
+      const ds = o.s - me.s;
+      if (ds < -3 || ds > 8) continue;
+      const dof = o.off - me.off;
+      if (dof > 0.6 && dof < 6.5) out++;
+      else if (dof < -0.6 && dof > -6.5) inn++;
+    }
+    if (out === 0) return { side: 1, lift: 0 };
+    return inn === 0 && me.off > 5 ? { side: -1, lift: 0 } : { side: 1, lift: 2.2 };
+  }
+
+  /**
+   * カメラの揺れ（疾走感）。速さに合わせて小さく、最後の直線とフォーカスでは強く。画角に比例させる（望遠で揺れすぎない）。
+   * 揺れはレースの時間で作る（一時停止で止まり、スローで遅くなる）。各カメラは毎コマ lookAt し直すので、揺れは積み上がらない。
+   */
+  function applyShake(st) {
+    if (!fshot && (mode === 'photo' || mode === 'aerial' || mode === 'finish')) return;
+    const v = st.lead.v ?? 15;
+    const rem = race.distance - st.lead.s;
+    let k = clamp((v - 8) / 9, 0, 1) * (rem < 450 && rem > -30 ? 1.7 : 1) * (fshot ? 1.5 : 1);
+    if (mode === 'jockey' && !fshot) k *= 2.2;
+    const a = (camera.fov * Math.PI / 180) * 0.0035 * k;
+    if (a <= 0) return;
+    camera.rotateX(a * (Math.sin(time * 11.3) + 0.6 * Math.sin(time * 23.7 + 1.3)));
+    camera.rotateY(a * 0.6 * (Math.sin(time * 9.1 + 0.4) + 0.5 * Math.sin(time * 19.9)));
+  }
+
+  function updateCamera(st) {
+    if (fshot) focusCam(st); else baseCamera(st);
+    applyShake(st);
+  }
+
   const api = {
     onFrame: null,          // (state) => void
     onFinish: null,
@@ -407,11 +479,17 @@ export function createRaceView(canvas, race, opts = {}) {
     /** スキル発動の光を馬に出す（見た目だけ）。 */
     flare: addFlare,
     clearFlares,
+    /** 固有スキルのフォーカス（その馬へカメラを寄せ、少しスローに）。dur は実時間の秒 */
+    focusShot(id, dur = FS_DUR) { fshot = { id, age: 0, dur, ...focusPlan(id) }; },
+    cancelFocusShot() { if (fshot) { fshot = null; snapCam = true; } },
+    get focusShotting() { return !!fshot; },
     /** マークを付ける馬の id。 */
     setMarks(ids) { marks = new Set(ids); },
     seek(t) {
       time = clamp(t, 0, duration);
       snapCam = true;
+      fshot = null;
+      kick.clear();
       director.reset(); tvDir.reset();
       draw();
     },
@@ -428,13 +506,15 @@ export function createRaceView(canvas, race, opts = {}) {
         if (Array.isArray(m)) m.forEach((x) => x.dispose());
         else if (m) m.dispose();
       });
+      speedLines.dispose();
       renderer.dispose();
     },
   };
 
   function updateMarkers(st) {
     // 騎手視点では追っている馬の目印が目の前に来て邪魔になる
-    const hide = mode === 'jockey' ? (focusId ?? st.lead.id) : null;
+    // フォーカスの間は、その馬の目印も隠す（寄った画面の真ん中に来る）
+    const hide = fshot ? fshot.id : mode === 'jockey' ? (focusId ?? st.lead.id) : null;
     for (const h of horses) {
       const isFocus = h.id === focusId;
       // 一枚絵（photo）には目印を写さない。
@@ -449,23 +529,57 @@ export function createRaceView(canvas, race, opts = {}) {
     }
   }
 
-  // 風の筋：寄ったカメラ（マーク・騎手・一枚絵）で、追っている馬の周りを後ろへ流す。
-  // 中継・俯瞰・並走・ゴール前では馬が小さく、筋が画面に散らばるだけなので出さない。流れる速さはレースの時間で測る（ゴール前のスローにも合う）。
-  // マークのカメラは 15m ほど離れるので、一枚絵より太くしないと 1〜2 ドットの線になって読めない。
-  const wind = makeWind({ count: 30, seed: 11, width: 2.2, opacity: 0.6 });
-  scene.add(wind.group);
+  // 風の筋：馬が大きく写るカメラで、その馬の周りを後ろへ流す。流れる速さはレースの時間で測る（ゴール前のスローにも合う）。
+  // 以前はマーク・騎手・一枚絵のカメラだけだった。中継の追いのカットも寄るようになった（落とし穴 108）ので、カメラごとではなく
+  // 写り方（カメラから馬までの距離 × tan(画角/2)＝画面の縦の半分に写る幅）で決める。9m 未満なら馬が画面の 1 割より大きく写る。
+  // 馬が小さく写るカメラでは出さない（筋が画面に散らばるだけ）。マークのカメラは 15m ほど離れるので一枚絵より太くする。
+  const winds = [makeWind({ count: 30, seed: 11, width: 2.2, opacity: 0.6 }), makeWind({ count: 24, seed: 23, width: 2.2, opacity: 0.5 })];
+  for (const w of winds) scene.add(w.group);
   let windT = 0;
+  const ndc = new THREE.Vector3();
+  const inView = (h) => { ndc.copy(h.group.position).setY(h.group.position.y + 1.3).project(camera); return ndc.z < 1 && Math.abs(ndc.x) < 1.05 && Math.abs(ndc.y) < 1.05; };
+  /** 画面に大きく写っている馬（近い順）。span は画面の縦の半分に写る幅（m） */
+  function closeHorses(maxSpan, n) {
+    const t = Math.tan((camera.fov * Math.PI) / 360);
+    const out = [];
+    for (const h of horses) {
+      const d = camera.position.distanceTo(h.group.position);
+      if (d * t < maxSpan && inView(h)) out.push({ h, d });
+    }
+    return out.sort((a, b) => a.d - b.d).slice(0, n).map((x) => x.h);
+  }
   function updateWind(st) {
-    const close = mode === 'mark' || mode === 'jockey' || mode === 'photo';
-    const fid = focusId ?? st.lead.id;
-    const h = close ? horses.find((x) => x.id === fid) : null;
+    camera.updateMatrixWorld();
+    let picks;
+    if (fshot) picks = horses.filter((x) => x.id === fshot.id);
+    else if (mode === 'mark' || mode === 'jockey' || mode === 'photo') { const fid = focusId ?? st.lead.id; picks = horses.filter((x) => x.id === fid); }
+    else if (mode === 'aerial') picks = [];
+    else picks = closeHorses(9, 2);
     const dt = Math.max(0, Math.min(0.1, time - windT));
     windT = time;
-    if (!h) { wind.group.visible = false; return; }
-    wind.group.position.copy(h.group.position);
-    wind.group.rotation.y = h.group.rotation.y;
-    camera.updateMatrixWorld();
-    wind.update(dt, st.snap[h.index].v, camera);
+    winds.forEach((w, i) => {
+      const h = picks[i];
+      if (!h) { w.group.visible = false; return; }
+      w.group.position.copy(h.group.position);
+      w.group.rotation.y = h.group.rotation.y;
+      w.update(dt, st.snap[h.index].v, camera);
+    });
+    // 蹴り上げ：画面に大きめに写る馬（縦の半分に 16m 未満）から 6 頭まで
+    const kdt = Math.max(0, Math.min(0.1, time - kickT));
+    kickT = time;
+    const kh = mode === 'aerial' || mode === 'photo' ? [] : closeHorses(16, 6);
+    kick.update(kdt, kh.map((h) => ({ group: h.group, id: h.id, v: st.snap[h.index].v })));
+  }
+
+  /** 集中線の濃さ：フォーカスの間と、最後の直線（先頭が残り 420m から）。実時間でなめらかに寄せる */
+  function updateLines(st, rdt) {
+    let target = 0;
+    if (fshot) target = 0.8 * Math.min(1, fshot.age / 0.25, (fshot.dur - fshot.age) / 0.5);
+    else if (mode !== 'aerial' && mode !== 'photo') {
+      const rem = race.distance - st.lead.s;
+      if (rem < 420 && rem > -20 && st.lead.v > 12) target = 0.45 * smooth01((420 - rem) / 180);
+    }
+    lineI += (target - lineI) * Math.min(1, rdt * 6);
   }
 
   // スキルの発動の光（育成モードの観戦）。馬の組に付けて一緒に動かす。見た目だけで、走行ログ（結果）には触らない。
@@ -553,7 +667,8 @@ export function createRaceView(canvas, race, opts = {}) {
       for (const r of f.rings) {
         const t = clamp((age - r.userData.delay) / (f.life * 0.6), 0, 1);
         r.scale.setScalar(1 + t * (f.big ? 7 : 5));
-        r.material.opacity = t > 0 && t < 1 ? (1 - t) * 0.95 : 0;
+        // 寄ったカメラ（固有スキルのフォーカス）では、足元に大きな白い的のように写ったので薄める
+        r.material.opacity = t > 0 && t < 1 ? (1 - t) * 0.95 * (0.1 + 0.9 * clamp((d - 10) / 16, 0, 1)) : 0;
       }
       // 光の柱は立ち上がってから細って消える
       const up = clamp(k / 0.25, 0, 1);
@@ -575,7 +690,13 @@ export function createRaceView(canvas, race, opts = {}) {
     updateMarkers(st);
     updateWind(st);
     updateFlares(st);
+    const now = performance.now();
+    const rdt = Math.min(0.1, (now - realLast) / 1000);
+    realLast = now;
+    if (playing) realT += rdt;
+    updateLines(st, rdt);
     renderer.render(scene, camera);
+    speedLines.render(renderer, realT, lineI, camera.aspect);
     if (api.onFrame) {
       api.onFrame({
         time,
@@ -604,6 +725,13 @@ export function createRaceView(canvas, race, opts = {}) {
     if (mode !== 'auto') {
       const near = race.distance - sampleState().lead.s;
       slow = near < 60 && near > 0 ? 0.55 : 1;
+    }
+    // 固有スキルのフォーカスの間は少しスロー（0.3 秒で落とし、最後の 0.8 秒で戻す）。フォーカスの時間は実時間で進める
+    if (fshot) {
+      const a = fshot.age, d = fshot.dur;
+      slow = Math.min(slow, lerp(1, FS_SLOW, smooth01(Math.min(1, a / 0.3, (d - a) / 0.8))));
+      fshot.age += dt;
+      if (fshot.age >= fshot.dur) { fshot = null; snapCam = true; }
     }
     time += dt * speed * slow;
     if (time >= duration) {

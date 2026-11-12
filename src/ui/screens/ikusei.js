@@ -1501,16 +1501,14 @@ function skillEffects(R, race, fx, view) {
       if (c.img && c.kind) prepHorseFx(c.img, c.kind, fd || ((a.sticker.focus?.x ?? 0.3) < 0.5 ? -1 : 1)).then((v) => { c.horseFx = v; });
     });
   }
-  let speed = 1, slowUntil = 0, slowTimer = 0, lastT = 0, lane = 0;
+  let lastT = 0, lane = 0;
   const timers = new Set();
   const later = (fn, ms) => { const t = setTimeout(() => { timers.delete(t); fn(); }, ms); timers.add(t); };
   const clear = () => {
     for (const t of timers) clearTimeout(t);
     timers.clear();
     fx.textContent = '';
-    clearTimeout(slowTimer);
-    slowUntil = 0;
-    view.setSpeed(speed);
+    view.cancelFocusShot?.();
     view.clearFlares?.();   // 「最初から」で戻したら、出し続けているエフェクトも消す（同じ地点でまた出る）
   };
   const show = (c) => {
@@ -1526,11 +1524,9 @@ function skillEffects(R, race, fx, view) {
       later(() => node.remove(), 2600);
       sound.play('bell');
       view.flare(c.id, { color: 0xffc83a, big: true, fx: kind, untilS: c.until });
-      // 一瞬だけ遅くして見せ場にする（利用者の再生速度は覚えて戻す）
-      view.setSpeed(speed * 0.35);
-      slowUntil = performance.now() + 1500;
-      clearTimeout(slowTimer);
-      slowTimer = setTimeout(() => { slowUntil = 0; view.setSpeed(speed); }, 1500);
+      // カメラを自分の馬へ寄せ、少しスローにして見せ場にする（raceview の focusShot。どのカメラを選んでいても寄せ、終わったら戻す）。
+      // 以前は再生の速さを 1.5 秒だけ 0.35 倍にしていた（カメラはそのままで、中継の引きの絵では誰が発動したか分からなかった）
+      view.focusShot(c.id);
       return;
     }
     const cls = c.mine ? (c.unique ? 'uniq' : 'race') : 'npc';
@@ -1556,7 +1552,7 @@ function skillEffects(R, race, fx, view) {
         show(c);
       }
     },
-    setSpeed(x) { speed = x; if (!slowUntil) view.setSpeed(x); },
+    setSpeed(x) { view.setSpeed(x); },
   };
 }
 
