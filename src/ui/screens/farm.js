@@ -6,7 +6,7 @@ import * as G from '../../sim/game.js';
 import { formatMoney } from '../../core/util.js';
 import { horseImg } from '../horse-sprite.js';
 import { icon } from '../icons.js';
-import { pedMarks, pedWithToggle } from './stable.js';
+import { pedMarks, pedWithToggle, offspringLink } from './stable.js';
 
 /**
  * 牧場のタブ（左のメニューの行き先の一覧と同じもの。app.js の sideNav が使う）。
@@ -272,15 +272,26 @@ function stallionBook(app) {
   const g = app.game;
   const ss = G.stallions(g);
   const list = ss.map((s) => s.id);
-  return card(`種牡馬名鑑（${ss.length} 頭）`, table(
-    ['種牡馬', '年齢', '系統', '因子', '種付料', '現役成績', '代表勝鞍', '獲得賞金', '産駒数'],
-    ss.map((s) => ({
-      cells: [
-        sireName(s), `${s.age}歳`, s.line, factorChips(s.factors), formatMoney(s.fee),
-        `${s.horse.starts}戦${s.horse.wins}勝`, s.bestWin ?? '—', formatMoney(s.earnings), `${s.foals}頭`,
-      ],
-      onclick: () => app.go('stable', { id: s.id, list }),
-    })), { align: [, 'c', , , 'r', 'c', , 'r', 'c'] }));
+  // 産駒の数は世界から数える（種牡馬が覚えている直近 80 頭では、人気の種牡馬の産駒が欠ける。落とし穴 134）。
+  // 「現役」「種牡馬」の頭数を押すと、その種牡馬の詳細の「産駒」タブをその区分で開く
+  const oc = G.offspringCounts(g);
+  const none = { all: 0, active: 0, stallions: 0 };
+  return card(`種牡馬名鑑（${ss.length} 頭）`, [
+    el('p.note', { text: '行を押すと種牡馬の詳細。「現役」「種牡馬」の頭数を押すと、その産駒の一覧を開く。' }),
+    table(
+      ['種牡馬', '年齢', '系統', '因子', '種付料', '現役成績', '代表勝鞍', '獲得賞金', '産駒', '現役', '種牡馬'],
+      ss.map((s) => {
+        const c = oc.get(s.id) ?? none;
+        return {
+          cells: [
+            sireName(s), `${s.age}歳`, s.line, factorChips(s.factors), formatMoney(s.fee),
+            `${s.horse.starts}戦${s.horse.wins}勝`, s.bestWin ?? '—', formatMoney(s.earnings), `${c.all}頭`,
+            offspringLink(app, s.id, list, 'active', c.active), offspringLink(app, s.id, list, 'stallions', c.stallions),
+          ],
+          onclick: () => app.go('stable', { id: s.id, list }),
+        };
+      }), { align: [, 'c', , , 'r', 'c', , 'r', 'c', 'c', 'c'] }),
+  ]);
 }
 
 /** 種牡馬名。実在の馬には小さな札を付ける（架空の馬と見分けられるように）。 */

@@ -184,7 +184,7 @@ function detail(app, id) {
   app.onArrow = go;
 
   // 産駒のタブは種牡馬・繁殖牝馬にも出す（覚えている産駒は直近 80 頭だけなので、0 でも世界には産駒が居ることがある）
-  const tabs = TABS.filter((x) => (!x.mineOnly || active) && (!x.needFoals || v.foals.length || v.stallion || v.broodmare));
+  const tabs = TABS.filter((x) => (!x.mineOnly || active) && (!x.needFoals || v.foals.length || v.stallion || v.broodmare || v.dead || v.retired));
   // 呼び出し元がタブを決めて開くことがある（所有馬の種牡馬は「産駒」の現役から開く）
   // 開いたときに 1 度だけ当てる（同じ画面の描き直しでは、あとで押したタブを戻さない）
   if (app.params.tab && !OPENED.has(app.params) && tabs.some((x) => x.id === app.params.tab)) {
@@ -210,7 +210,7 @@ function detail(app, id) {
   const stage = el('div.hd-stage', { class: app.params.dir ? (app.params.dir > 0 ? 'in-r' : 'in-l') : null }, [
     infoPanel(v, career),
     // 産駒の数は世界から数える（種牡馬は直近 80 頭しか覚えないので、輪の数が産駒のタブの表と食い違った）
-    statePanel(v, v.stallion || v.broodmare ? G.offspringOf(g, id).all : null),
+    statePanel(v, v.stallion || v.broodmare || v.dead || v.retired ? G.offspringOf(g, id).all : null),
     lineup.length > 1 && at >= 0 ? el('div.hd-swipe', { text: '左右にスワイプで次の馬' }) : null,
     // 背景の 3D を顔のアップに切り替える（顔の作り・白斑・無口を近くで見られるように）。
     el('button.hd-face', {
@@ -656,6 +656,19 @@ function tabContent(app, tid, v, career) {
       v.titles.length ? el('div.badges', v.titles.map((x) => el('span.badge', { text: x }))) : null,
     ]),
   ]);
+}
+
+/**
+ * 名鑑の表の「現役」「種牡馬」の頭数。押すとその馬の詳細を「産駒」のタブの、その区分で開く（行の押下＝詳細とは別に止める）。
+ * 0 頭は押せない。list は左右に送る並び（名鑑の並び）。
+ */
+export function offspringLink(app, id, list, ff, n) {
+  if (!n) return el('span.offl.zero', { text: '0' });
+  return el('button.offl', {
+    text: `${n}頭`,
+    title: ff === 'stallions' ? '種牡馬になった産駒を見る' : '現役の産駒を見る',
+    onclick: (e) => { e.stopPropagation(); app.go('stable', { id, list, tab: 'foals', ff }); },
+  });
 }
 
 /** 呼び出し元が決めたタブを当て終えた画面の引数（描き直しのたびに当て直さない） */

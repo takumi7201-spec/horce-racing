@@ -192,6 +192,13 @@ small.locked { color: var(--fg3); white-space: nowrap; }
 .offf button.on { background: linear-gradient(var(--green), var(--green-d)); border-color: var(--green-d); color: #fff; }
 .offf button.on b { color: #fff; }
 .offf button:disabled { opacity: .45; cursor: default; }
+/* 名鑑の「現役」「種牡馬」の頭数（押すと産駒の一覧） */
+.offl { border: 2px solid #d9e6cc; background: #fff; border-radius: 999px; padding: 1px 9px; cursor: pointer;
+  font: 800 12px/1.4 var(--font); color: var(--green-dd); white-space: nowrap; }
+.offl:hover { background: var(--green); border-color: var(--green-d); color: #fff; }
+.offl.zero { border: 0; background: none; cursor: default; color: var(--fg3); font-weight: 600; padding: 0 9px; }
+.offls { display: inline-grid; grid-template-columns: auto auto; gap: 2px 5px; align-items: center; }
+.offls small { font-size: 10px; color: var(--fg3); }
 /* 所有馬の種牡馬のタイルの「現役産駒」「種牡馬の産駒」。右の列に縦に積むと馬名と産駒の数に重なったので、タイルの下に横に並べる */
 .stile > .st-btns { grid-column: 1 / -1; display: flex; gap: 6px; }
 .stile > .st-btns .btn { flex: 1; }

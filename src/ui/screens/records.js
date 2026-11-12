@@ -4,6 +4,7 @@ import { el, card, table, tabs, button, modal, kv } from '../dom.js';
 import * as G from '../../sim/game.js';
 import { formatMoney, formatTime } from '../../core/util.js';
 import { ABILITY_LABEL } from '../../sim/params.js';
+import { offspringLink } from './stable.js';
 
 const SHORT = {
   tokyo: '東京', nakayama: '中山', hanshin: '阪神', kyoto: '京都', chukyo: '中京',
@@ -215,13 +216,23 @@ function bookList(app, all, { dec, where, opt }) {
   const count = (k) => rows.filter((x) => x.status.key === k).length;
   // 世界に居る馬だけを左右に送れる（生まれなかった馬などは id が無い）
   const ids = shown.filter((x) => x.id != null).map((x) => x.id);
+  // 産駒の「現役」「種牡馬」の頭数（種牡馬名鑑と同じ。押すとその馬の「産駒」タブをその区分で開く）
+  const oc = G.offspringCounts(g);
+  const kids = (x) => {
+    const c = x.id != null ? oc.get(x.id) : null;
+    if (!c?.all) return '—';
+    return el('span.offls', [
+      el('small', { text: '現役' }), offspringLink(app, x.id, ids, 'active', c.active),
+      el('small', { text: '種牡馬' }), offspringLink(app, x.id, ids, 'stallions', c.stallions),
+    ]);
+  };
   const title = crossDec ? `検索結果（${rows.length} 頭）` : `${decadeName(dec)}生まれの実在馬（${rows.length} 頭）`;
   return el('div', [
     el('h3.book-title', { text: title }),
     el('p.note', { text: `この世界に居る ${count('here')} 頭 ・ これから ${count('future')} 頭 ・ 故馬 ${count('dead')} 頭`
       + (count('lost') ? ` ・ 生まれなかった ${count('lost')} 頭` : '')
       + (rows.length > BOOK_LIMIT ? `（先頭の ${BOOK_LIMIT} 頭を表示。条件で絞ってください）` : '') }),
-    shown.length ? table(['馬名', '生年', '性', '脚質', '父', '母', '区分', '史実の主な勝鞍', 'この世界の成績', 'いま'],
+    shown.length ? table(['馬名', '生年', '性', '脚質', '父', '母', '区分', '史実の主な勝鞍', 'この世界の成績', '産駒', 'いま'],
       shown.map((x) => ({
         cells: [
           el('span.sire-n', [
@@ -235,6 +246,7 @@ function bookList(app, all, { dec, where, opt }) {
               title: x.bigWins.join('\n') })
             : '—',
           x.world ? `${x.world.starts}戦${x.world.wins}勝${x.world.g1 ? `（GI ${x.world.g1}勝）` : ''}` : '—',
+          kids(x),
           el('span.book-st', { text: x.status.text, class: `st-${x.status.key}` }),
         ],
         cls: x.mine ? 'mine' : null,
@@ -242,7 +254,7 @@ function bookList(app, all, { dec, where, opt }) {
         // （仮の世界に作る。世界そのものには足さない）。作れない馬だけ表の値のモーダル。
         onclick: x.id != null ? () => app.go('stable', { id: x.id, list: ids })
           : () => (G.realPreview(g, x.name) ? app.go('stable', { real: x.name }) : showRealProfile(x)),
-      })), { align: [, 'c', 'c', 'c', , , 'c'] })
+      })), { align: [, 'c', 'c', 'c', , , 'c', , , 'c'] })
       : el('p.empty', { text: '条件に合う実在馬は居ない。' }),
   ]);
 }

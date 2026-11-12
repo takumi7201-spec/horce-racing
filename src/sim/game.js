@@ -776,6 +776,37 @@ export function myYoungsters(g) {
   return out.sort((a, b) => b.birthYear - a.birthYear || a.id - b.id);
 }
 
+/** 産駒の立場（`offspringOf` の区分）。種牡馬名鑑の頭数と産駒のタブの表が同じ規則で数えるように 1 か所にまとめる */
+function offspringKind(h, age) {
+  if (h.stallion) return 'stallions';
+  if (h.broodmare) return 'mares';
+  if (age < 2 && !h.dead) return 'young';
+  if (!h.retired && !h.dead) return 'active';
+  return 'retired';
+}
+
+/**
+ * 全頭の産駒の数を立場ごとに数える（種牡馬名鑑・史実馬名鑑の「現役」「種牡馬」の列）。
+ * 名鑑の 200 頭ぶん `offspringOf` を呼ぶと 1 秒近くかかるので、世界を 1 度だけ回す。返り値は 親の id → { all, active, stallions, … }。
+ */
+export function offspringCounts(g) {
+  const w = g.world;
+  const out = new Map();
+  const add = (pid, k) => {
+    if (pid == null) return;
+    let c = out.get(pid);
+    if (!c) out.set(pid, c = { all: 0, active: 0, stallions: 0, mares: 0, young: 0, retired: 0 });
+    c.all++; c[k]++;
+  };
+  for (const h of w.horses.values()) {
+    if (h.pedOnly) continue;
+    const k = offspringKind(h, w.year - h.birthYear);
+    add(h.sireId, k);
+    if (h.damId !== h.sireId) add(h.damId, k);
+  }
+  return out;
+}
+
 /**
  * 産駒を立場で分ける（馬の詳細の「産駒」タブ）。種牡馬は直近 80 頭しか覚えない（落とし穴 20）ので、
  * 現役の産駒と種牡馬になった産駒は世界の全頭から父・母で拾う（人気の種牡馬は 2 年で 80 頭を超え、現役の産駒が欠けた）。
@@ -795,14 +826,15 @@ export function offspringOf(g, id) {
       dead: !!h.dead, mine: h.ownerId === 'player',
       dam: h.damId != null ? w.horses.get(h.damId)?.name ?? '—' : '—',
       sire: h.sireId != null ? w.horses.get(h.sireId)?.name ?? '—' : '—',
-      runners: h.stallion ? (h.foals ?? []).length : 0,
+      runners: 0,
     };
     out.all.push(row);
-    if (h.stallion) out.stallions.push(row);
-    else if (h.broodmare) out.mares.push(row);
-    else if (age < 2 && !h.dead) out.young.push(row);
-    else if (!h.retired && !h.dead) out.active.push(row);
-    else out.retired.push(row);
+    out[offspringKind(h, age)].push(row);
+  }
+  // 種牡馬になった産駒の産駒数も世界から数える（覚えている直近 80 頭では名鑑の数と食い違う）
+  if (out.stallions.length) {
+    const oc = offspringCounts(g);
+    for (const r of out.stallions) r.runners = oc.get(r.id)?.all ?? 0;
   }
   const byMoney = (a, b) => b.earnings - a.earnings || b.birthYear - a.birthYear;
   out.active.sort(byMoney);
