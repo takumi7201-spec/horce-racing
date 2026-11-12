@@ -12,17 +12,20 @@ const SHORT = {
   niigata: '新潟', sapporo: '札幌', hakodate: '函館', fukushima: '福島', kokura: '小倉',
 };
 
+/** 番組表のタブ（左のメニューの行き先の一覧と同じもの） */
+export const RACES_TABS = [
+  { id: 'week', name: '今週の番組' },
+  { id: 'ahead', name: '先の週' },
+  { id: 'graded', name: '重賞日程' },
+  { id: 'results', name: '先週の結果' },
+];
+
 export function racesScreen(app) {
   const g = app.game;
   const mode = app.params.tab ?? 'week';
   const body = el('div');
 
-  const nav = tabs([
-    { id: 'week', name: '今週の番組' },
-    { id: 'ahead', name: '先の週' },
-    { id: 'graded', name: '重賞日程' },
-    { id: 'results', name: '先週の結果' },
-  ], mode, (id) => app.go('races', { tab: id }));
+  const nav = tabs(RACES_TABS, mode, (id) => app.go('races', { tab: id }));
 
   if (mode === 'week') {
     app.raceWeek ??= 0;

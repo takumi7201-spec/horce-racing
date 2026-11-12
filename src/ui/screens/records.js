@@ -10,16 +10,19 @@ const SHORT = {
   niigata: '新潟', sapporo: '札幌', hakodate: '函館', fukushima: '福島', kokura: '小倉',
 };
 
+/** 記録のタブ（左のメニューの行き先の一覧と同じもの） */
+export const RECORDS_TABS = [
+  { id: 'leaders', name: 'リーディング' },
+  { id: 'g1', name: '歴代 GI' },
+  { id: 'awards', name: '年度代表馬' },
+  { id: 'records', name: 'コースレコード' },
+  { id: 'real', name: '史実馬名鑑' },
+];
+
 export function recordsScreen(app) {
   const g = app.game;
   const tab = app.params.tab ?? 'leaders';
-  const nav = tabs([
-    { id: 'leaders', name: 'リーディング' },
-    { id: 'g1', name: '歴代 GI' },
-    { id: 'awards', name: '年度代表馬' },
-    { id: 'records', name: 'コースレコード' },
-    { id: 'real', name: '史実馬名鑑' },
-  ], tab, (id) => app.go('records', { tab: id }));
+  const nav = tabs(RECORDS_TABS, tab, (id) => app.go('records', { tab: id }));
 
   const body = tab === 'g1' ? g1View(app)
     : tab === 'awards' ? awardsView(app)

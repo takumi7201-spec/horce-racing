@@ -16,9 +16,9 @@ import { weekLabel } from '../sim/schedule.js';
 import { titleScreen } from './screens/title.js';
 import { homeScreen } from './screens/home.js';
 import { stableScreen } from './screens/stable.js';
-import { racesScreen } from './screens/races.js';
-import { farmScreen } from './screens/farm.js';
-import { recordsScreen } from './screens/records.js';
+import { racesScreen, RACES_TABS } from './screens/races.js';
+import { farmScreen, farmTabs } from './screens/farm.js';
+import { recordsScreen, RECORDS_TABS } from './screens/records.js';
 import { raceDayScreen } from './screens/raceday.js';
 import { yearEndScreen } from './screens/yearend.js';
 import { ikuseiScreen } from './screens/ikusei.js';
@@ -465,16 +465,74 @@ function header(app) {
   ]);
 }
 
-/** 左の縦メニュー。 */
+/**
+ * 各メニューの行き先（画面の中のタブ・区分）。押すとこの一覧が開き、好きな所へ直に飛べる。
+ * 以前は押すと決まった所（牧場なら配合）へ飛び、そこからタブで移っていた。返り値は [{ name, params, on, n? }]。
+ */
+function navItems(app, id) {
+  const g = app.game;
+  const here = app.screen === id && !app.params.id && !app.params.real;
+  const tabsOf = (list, def) => list.map((t) => ({ name: t.name, params: { tab: t.id }, on: here && (app.params.tab ?? def) === t.id }));
+  if (id === 'stable') {
+    const st = G.myStable(g);
+    return G.STABLE_CATEGORIES.map((c) => ({ name: c.name, params: { cat: c.id }, n: st[c.id].length, on: here && (app.params.cat ?? app.stableCat) === c.id }));
+  }
+  if (id === 'races') return tabsOf(RACES_TABS, 'week');
+  if (id === 'farm') return tabsOf(farmTabs(g), 'mating');
+  if (id === 'records') return tabsOf(RECORDS_TABS, 'leaders');
+  return null;
+}
+
+/** 左の縦メニュー。行き先が複数ある項目は、押すと横（スマホは上）に行き先の一覧を開く。 */
 function sideNav(app) {
-  return el('nav.side', NAV.map((n) => el('button.sideb', {
-    class: app.screen === n.id ? 'on' : null,
-    title: n.name,
-    onclick: () => app.go(n.id),
-  }, [
-    el('span.sb-tile', icon(n.icon, { size: 30 })),
-    el('span.sb-label', { text: n.name }),
-  ])));
+  let openWrap = null;
+  // 外を押したら閉じる。閉じる係は開いている間だけ付ける（落とし穴 93 の育成モードのカードの一覧と同じ）
+  const close = () => {
+    openWrap?.classList.remove('open');
+    openWrap = null;
+    document.removeEventListener('click', close);
+    document.removeEventListener('keydown', onKey);
+  };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  return el('nav.side', NAV.map((n) => {
+    const items = navItems(app, n.id);
+    const btn = el('button.sideb', {
+      class: app.screen === n.id ? 'on' : null,
+      title: n.name,
+      'aria-haspopup': items ? 'menu' : null,
+      onclick: (e) => {
+        if (!items) { close(); app.go(n.id); return; }
+        e.stopPropagation();
+        const was = openWrap === wrap;
+        close();
+        if (was) return;
+        wrap.classList.add('open');
+        openWrap = wrap;
+        document.addEventListener('click', close);
+        document.addEventListener('keydown', onKey);
+      },
+    }, [
+      el('span.sb-tile', icon(n.icon, { size: 30 })),
+      el('span.sb-label', { text: n.name }),
+    ]);
+    const wrap = el('div.sidew', [
+      btn,
+      items ? el('div.sidemenu', { role: 'menu' }, [
+        el('b.sm-head', { text: n.name }),
+        ...items.map((it) => el('button.sm-item', {
+          class: it.on ? 'on' : null,
+          role: 'menuitem',
+          onclick: (e) => {
+            e.stopPropagation();
+            close();
+            if (n.id === 'stable') app.stableCat = it.params.cat;
+            app.go(n.id, it.params);
+          },
+        }, [el('span', { text: it.name }), it.n != null ? el('i', { text: String(it.n) }) : null])),
+      ]) : null,
+    ]);
+    return wrap;
+  }));
 }
 
 /** 長押しとみなす時間（ms）。短いとスクロールのつもりのタッチで開いてしまう。 */

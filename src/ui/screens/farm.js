@@ -8,12 +8,13 @@ import { horseImg } from '../horse-sprite.js';
 import { icon } from '../icons.js';
 import { pedMarks, pedWithToggle } from './stable.js';
 
-export function farmScreen(app) {
-  const g = app.game;
-  const tab = app.params.tab ?? 'mating';
-  // 開催中の行事にはタブに印を付ける（どこへ行けばいいかが一目で分かるように）。
+/**
+ * 牧場のタブ（左のメニューの行き先の一覧と同じもの。app.js の sideNav が使う）。
+ * 開催中の行事には印を付ける（どこへ行けばいいかが一目で分かるように）。
+ */
+export function farmTabs(g) {
   const mark = (open) => (open ? '（開催中）' : '');
-  const nav = tabs([
+  return [
     { id: 'mating', name: `配合${G.matingOpen(g) ? '（種付け期）' : ''}` },
     { id: 'stallions', name: '種牡馬名鑑' },
     { id: 'mares', name: `繁殖牝馬セール${mark(G.saleOpen(g, 'mare'))}` },
@@ -22,7 +23,13 @@ export function farmScreen(app) {
     { id: 'direct', name: '牧場取引（通年）' },
     { id: 'facilities', name: `施設${G.facilities(g).some((f) => f.build) ? '（建設中）' : ''}` },
     { id: 'entry', name: `入厩・馬名登録${mark(G.entryOpen(g))}` },
-  ], tab, (id) => app.go('farm', { tab: id, damId: app.params.damId }, { replace: true }));
+  ];
+}
+
+export function farmScreen(app) {
+  const g = app.game;
+  const tab = app.params.tab ?? 'mating';
+  const nav = tabs(farmTabs(g), tab, (id) => app.go('farm', { tab: id, damId: app.params.damId }, { replace: true }));
 
   const body = tab === 'stallions' ? stallionBook(app)
     : tab === 'mares' ? mareSaleView(app)

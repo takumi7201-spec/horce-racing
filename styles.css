@@ -182,6 +182,25 @@ small.locked { color: var(--fg3); white-space: nowrap; }
 .sideb:hover .sb-tile { transform: translateY(-2px); }
 .sideb.on .sb-tile { background: linear-gradient(#fff6c8, var(--gold)); color: #6b4600; }
 .sideb.on .sb-label { background: linear-gradient(var(--gold), var(--gold-d)); color: #4a3000; text-shadow: none; }
+/* 左のメニューの行き先の一覧（押すとボタンの右に開く。スマホは下の帯の上に開く） */
+.sidew { position: relative; display: flex; justify-content: center; }
+.sidemenu {
+  position: absolute; left: calc(100% + 6px); top: -4px; z-index: 30;
+  display: none; flex-direction: column; gap: 4px; min-width: 176px; padding: 8px;
+  background: #fffdf6; border: 3px solid #fff; border-radius: 16px;
+  box-shadow: 0 0 0 2px var(--green-d), var(--shadow);
+}
+.sidew.open .sidemenu { display: flex; }
+.sm-head { font-size: 11px; font-weight: 900; color: var(--green-dd); letter-spacing: .08em; padding: 2px 8px 4px; border-bottom: 2px dashed #d9e6cc; margin-bottom: 2px; }
+.sm-item {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 8px 10px; border: 0; border-radius: 10px; background: none; cursor: pointer;
+  font: 800 14px/1.2 var(--font); color: var(--fg); text-align: left; white-space: nowrap;
+}
+.sm-item:hover { background: #eef6e6; color: var(--green-dd); }
+.sm-item.on { background: linear-gradient(#fff6c8, var(--gold)); color: #4a3000; }
+.sm-item i { font-style: normal; font-size: 12px; font-weight: 900; color: var(--fg3); background: #f0eee4; border-radius: 9px; padding: 1px 7px; }
+.sm-item.on i { background: #fff8; color: #6b4600; }
 
 /* ---------------- NEXT ---------------- */
 .dock {
@@ -1027,6 +1046,10 @@ canvas.race3d { width: 100%; height: 100%; display: block; }
   .sb-tile { width: 42px; height: 42px; border-radius: 12px; border-width: 2px; }
   .sb-tile svg { width: 22px; height: 22px; }
   .sb-label { min-width: 0; font-size: 10px; padding: 0 6px; margin-top: -6px; }
+  /* 下の帯の上に開く。左右の端のボタンは画面の外へはみ出さないよう、端に寄せて開く */
+  .sidemenu { left: 50%; top: auto; bottom: calc(100% + 12px); transform: translateX(-50%); min-width: 168px; }
+  .sidew:first-child .sidemenu, .sidew:nth-child(2) .sidemenu { left: -4px; transform: none; }
+  .sidew:last-child .sidemenu, .sidew:nth-last-child(2) .sidemenu { left: auto; right: -4px; transform: none; }
   .dock { left: auto; right: 8px; bottom: 10px; width: auto; z-index: 17; }
   .nb-ring { width: 78px; height: 78px; }
   .main { left: 0; bottom: 72px; padding: 10px 10px 20px; }
@@ -2161,6 +2184,11 @@ button.ikev-banner:active { transform: translateY(3px); box-shadow: 0 3px 0 var(
   .ikd-menu { display: flex !important; visibility: hidden; opacity: 0; transform: translateY(8px) scale(.98); transform-origin: 0 100%;
     transition: opacity .16s ease-in, transform .18s ease-in, visibility 0s linear .18s; }
   .ikd-cardwrap.open .ikd-menu { visibility: visible; opacity: 1; transform: none; transition: opacity .2s ease-out, transform .28s var(--ease-in), visibility 0s; }
+  /* 左のメニューの行き先の一覧：ボタンの側から開いて、閉じるときも沈んで消える */
+  .sidemenu { display: flex !important; visibility: hidden; opacity: 0; translate: -6px 0; scale: .98; transform-origin: 0 0;
+    transition: opacity .16s ease-in, translate .18s ease-in, scale .18s ease-in, visibility 0s linear .18s; }
+  .sidew.open .sidemenu { visibility: visible; opacity: 1; translate: 0 0; scale: 1; transition: opacity .2s ease-out, translate .28s var(--ease-in), scale .28s var(--ease-in), visibility 0s; }
+  @media (max-width: 900px) { .sidemenu { translate: 0 8px; transform-origin: 50% 100%; } }
 }
 @keyframes page-rise { from { opacity: 0; transform: translateY(8px); } }
 @keyframes page-fade { from { opacity: 0; } }
