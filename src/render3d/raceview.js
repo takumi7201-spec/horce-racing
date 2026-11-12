@@ -719,13 +719,8 @@ export function createRaceView(canvas, race, opts = {}) {
     let dt = (now - last) / 1000;
     last = now;
     if (dt > 0.25) dt = 0.25;        // タブを離れたあとに飛ばさない
-    // ゴール手前は少しだけスローにする。写真判定が見えるように。
-    // 自動のカメラは中継の演出が決める（ゴール前の真横のカットだけ）。ほかのカメラは先頭が残り 60m の間
+    // ゴール前のスロー（自動のカメラのゴール前のカット、ほかのカメラの残り 60m）はやめた。スローは固有スキルのフォーカスだけ
     let slow = autoSlow;
-    if (mode !== 'auto') {
-      const near = race.distance - sampleState().lead.s;
-      slow = near < 60 && near > 0 ? 0.55 : 1;
-    }
     // 固有スキルのフォーカスの間は少しスロー（0.3 秒で落とし、最後の 0.8 秒で戻す）。フォーカスの時間は実時間で進める
     if (fshot) {
       const a = fshot.age, d = fshot.dur;

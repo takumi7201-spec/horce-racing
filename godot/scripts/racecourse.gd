@@ -752,6 +752,11 @@ func _build_finish() -> void:
 		disc.height = 0.06
 		var dm := _add(disc, _mat(ring[1], 0.4), "GoalDisc")
 		dm.transform = Transform3D(face, at(0, -1.2, 4.4) + o * ring[2])
+	# 中の縦の黒い線（決勝線の印。ゲームの track.js の goalPost と同じ形）。両面から見えるよう円板を貫く厚みにする
+	var bar := BoxMesh.new()
+	bar.size = Vector3(0.09, 1.4, 0.14)
+	var bm := _add(bar, _mat(Color(0.1, 0.1, 0.1), 0.6), "GoalBar")
+	bm.transform = Transform3D(Basis.looking_at(-o, Vector3.UP), at(0, -1.2, 4.4) + o * 0.03)
 
 
 ## 残り距離の標識（ハロン棒）。200m ごとに内ラチの内へ。数字は残り距離の百の位（JRA の標識と同じ読み方）。

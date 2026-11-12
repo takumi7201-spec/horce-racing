@@ -170,6 +170,42 @@ function elevationRange(track) {
   return { lo, hi };
 }
 
+/** ゴール板（決勝線の内ラチの内）。 */
+function goalPost(track) {
+  const g = new THREE.Group();
+  const base = posToWorld(track, 0, -1.2);
+  const out = posToWorld(track, 0, 10);
+  const y0 = elevationAt(track, 0);
+  g.position.set(base.x, y0, base.z);
+  const white = new THREE.MeshLambertMaterial({ color: 0xf4f4f0 });
+  const red = new THREE.MeshLambertMaterial({ color: 0xd8262c, side: THREE.DoubleSide });
+  const face = new THREE.MeshLambertMaterial({ color: 0xffffff, side: THREE.DoubleSide });
+  const black = new THREE.MeshBasicMaterial({ color: 0x1a1a1a, side: THREE.DoubleSide });
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 4.0, 12), white);
+  pole.position.y = 2.0;
+  g.add(pole);
+  // 円い標識：組を外（スタンドの側）へ向け、円板は組の z を軸に立てる
+  const board = new THREE.Group();
+  board.position.y = 4.35;
+  const disc = (r, h, mat, z) => {
+    const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, 40), mat);
+    m.rotation.x = Math.PI / 2;
+    m.position.z = z;
+    board.add(m);
+  };
+  disc(0.95, 0.07, red, 0);
+  disc(0.72, 0.09, face, 0);
+  // 中の縦の線（決勝線の印）。両面に貼る
+  for (const z of [0.051, -0.051]) {
+    const bar = new THREE.Mesh(new THREE.PlaneGeometry(0.09, 1.44), black);
+    bar.position.z = z;
+    board.add(bar);
+  }
+  g.add(board);
+  g.lookAt(out.x, y0, out.z);
+  return g;
+}
+
 /** ゴール板・ハロン棒・残り距離の標識。 */
 function buildMarkers(track, group) {
   const lineMat = new THREE.MeshBasicMaterial({ color: COLORS.finish });
@@ -188,6 +224,9 @@ function buildMarkers(track, group) {
     geo.computeVertexNormals();
     group.add(new THREE.Mesh(geo, lineMat));
   }
+  // ゴール板：決勝線の内ラチの内に立つ円い標識（赤い縁の白、中に黒い縦の線）。面はスタンドの側（外）へ向け、裏からも見えるようにする。
+  // 以前は決勝線の白線だけで、どこがゴールか分からなかった（Godot 版の _build_finish・撮影の舞台の finishPost と同じ形）。
+  group.add(goalPost(track));
   // ハロン棒（200m ごと）。内ラチの外側に小さな棒を立てる。
   const poleGeo = new THREE.BoxGeometry(0.22, 1.5, 0.22);
   const poleMat = new THREE.MeshLambertMaterial({ color: COLORS.furlong });

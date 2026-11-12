@@ -286,7 +286,7 @@ func tracking_fov(span: float, d: float) -> float:
 	var vp: Vector2 = rc.get_viewport().get_visible_rect().size
 	var aspect: float = vp.x / maxf(1.0, vp.y)
 	var h := atan(span * 0.5 * 1.3 / maxf(1.0, d))
-	var v := maxf(2.0 * atan(tan(h) / aspect), 2.0 * atan(3.2 / maxf(1.0, d)))
+	var v: float = maxf(2.0 * atan(tan(h) / aspect), 2.0 * atan(3.2 / maxf(1.0, d)))
 	return clampf(rad_to_deg(v), 4.0, 34.0)
 
 
@@ -360,10 +360,16 @@ func update_camera(delta: float, snap: bool) -> void:
 			fov = r[2]
 		"stand", "turn4", "post":
 			e = anchor
-			l = rc.at_p((pl if shot == "post" else gm) + 2.0, offL if shot == "post" else float(fr.off), 1.2)
+			l = rc.at_p(gm + 2.0, float(fr.off), 1.2)
 			# Godot の画角は縦（KEEP_HEIGHT）。span は画面の高さの半分に入れる大きさ（m）
-			var span: float = maxf(5.0, float(fr.span) * 0.65 / 1.6) if shot != "post" else 4.5
+			var span: float = maxf(5.0, float(fr.span) * 0.65 / 1.6)
 			fov = clampf(rad_to_deg(2.0 * atan(span / maxf(1.0, e.distance_to(l)))), 2.0, 40.0)
+			if shot == "post":
+				# ゴール前：決勝線の 22m 先、外ラチの外 4m（前庭の立ち見より内）から振り返り、先頭の馬と内のゴール板（高さ 4.4m）を一緒に収める（ゲームの broadcast.js の frameTwo と同じ）。
+				# 決勝線の真横から馬だけを見ると、板は画面の外だった
+				var r := _frame_two(e, rc.at_p(pl, offL, 1.3), rc.at_p(start + float(rc.race.distance), -1.2, 4.4))
+				l = r[0]
+				fov = r[1]
 		"head":
 			# ゴールの先から望遠で迎える（馬群が手前へ来るほど画角を広げて、横の並びを収める）
 			e = anchor
@@ -391,9 +397,8 @@ func update_camera(delta: float, snap: bool) -> void:
 		look = look.lerp(l, clampf(delta * 6.0, 0.0, 1.0))
 	rc.camera.fov = fov if (cut or snap) else lerpf(rc.camera.fov, fov, clampf(delta * 3.0, 0.0, 1.0))
 	rc.camera.set_view(eye, look)
-	# ゴール前だけ少しスロー（先頭が決勝線を過ぎて 1 秒で戻す）。スローは再生の速さに掛ける
-	var want_slow := 0.55 if (shot == "post" and rc.race_t < t_win + 1.0 and rc.race_t > t_win - 2.2) else 1.0
-	slow = lerpf(slow, want_slow, clampf(delta * 5.0, 0.0, 1.0))
+	# ゴール前のスローはやめた（「ゴール前のスローはいらない」）。スローは固有スキルのフォーカスだけ（racecourse.gd）
+	slow = 1.0
 
 
 ## 置いたまま振るカメラの位置（カットの頭で決める）
@@ -413,7 +418,20 @@ func _place_anchor() -> void:
 		"head":
 			anchor = rc.at_p(start + dist + 60.0, w * 0.35, 4.5)
 		"post":
-			anchor = rc.at_p(start + dist + 0.5, w + 13.0, 5.5)
+			anchor = rc.at_p(start + dist + 22.0, w + 4.0, 4.5)
+
+
+## 2 点（馬とゴール板）を間に見て、両方が入る画角（縦）。馬が遠くても縦の半分 4.5m より寄せない
+func _frame_two(e: Vector3, a: Vector3, b: Vector3) -> Array:
+	var l := (a + b) * 0.5
+	var asp := 1.6
+	var vp: Viewport = rc.get_viewport()
+	if vp:
+		var sz: Vector2 = vp.get_visible_rect().size
+		asp = maxf(0.5, sz.x / maxf(1.0, sz.y))
+	var h: float = maxf((a - e).angle_to(l - e), (b - e).angle_to(l - e)) * 1.25 + 0.02
+	var v: float = maxf(2.0 * atan(tan(h) / asp), 2.0 * atan(4.5 / maxf(1.0, e.distance_to(a))))
+	return [l, clampf(rad_to_deg(v), 4.0, 50.0)]
 
 
 # ------------------------------------------------------------------ 画面の表示

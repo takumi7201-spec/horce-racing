@@ -235,11 +235,19 @@ export function createDirector(track, race, runners, stateAt, at) {
     if (shot === 'stand') anchor = at(track.lap - track.homeStraight * 0.45, w + 24, 15);
     else if (shot === 'turn4') anchor = at(start + arcEnd - 20, w + 30, 12);
     else if (shot === 'head') anchor = at(start + dist + 60, w * 0.35, 4.5);
-    else if (shot === 'post') anchor = at(start + dist + 0.5, w + 13, 5.5);
+    else if (shot === 'post') anchor = at(start + dist + 22, w + 4, 4.5);
     void lead;
   }
 
   const dist3 = (a, b) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+  /** 2 点（馬とゴール板）を間に見て、両方が入る画角（縦）。馬が遠くても縦の半分 4.5m より寄せない */
+  const frameTwo = (e, a, b, aspect) => {
+    const l = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, z: (a.z + b.z) / 2 };
+    const ang = (p) => Math.acos(clamp(((p.x - e.x) * (l.x - e.x) + (p.y - e.y) * (l.y - e.y) + (p.z - e.z) * (l.z - e.z)) / (dist3(p, e) * dist3(l, e)), -1, 1));
+    const h = Math.max(ang(a), ang(b)) * 1.25 + 0.02;
+    const v = Math.max(2 * Math.atan(Math.tan(h) / Math.max(0.5, aspect)), 2 * Math.atan(4.5 / Math.max(1, dist3(e, a))));
+    return { l, fov: clamp(deg(v), 4, 50) };
+  };
   const fovFor = (e, l, half, lo, hi) => clamp(deg(2 * Math.atan(half / Math.max(1, dist3(e, l)))), lo, hi);
 
   /**
@@ -283,9 +291,15 @@ export function createDirector(track, race, runners, stateAt, at) {
       case 'aerial': ({ e, l, fov } = trackShot(arcN % 2 ? 'high' : 'curveFront', track, at, fr, aspect)); break;
       case 'stand': case 'turn4': case 'post': {
         e = anchor;
-        l = shot === 'post' ? at(pl + 2, lead.off, 1.2) : at(gm + 2, fr.off, 1.2);
-        // スタンド前・4 角も先頭の集団を画面に投影して収める（縦長の画面で 16:10 の画角を広げると、遠い置きカメラの馬が豆粒になった）
-        fov = shot === 'post' ? fovFor(e, l, 4.5, 2, 40) : fitFov(track, at, e, l, fr, aspect);
+        if (shot === 'post') {
+          // ゴール前：決勝線の 22m 先、外ラチの外 4m（前庭の立ち見より内）から振り返り、先頭の馬と内のゴール板（高さ 4.4m）を一緒に収める。
+          // 以前は決勝線の真横に置いて馬だけを見ていたので、板は画面の外（真横か上）で、ゴールの絵なのに板が写らなかった
+          ({ l, fov } = frameTwo(e, at(pl, lead.off, 1.3), at(start + race.distance, -1.2, 4.4), aspect));
+        } else {
+          l = at(gm + 2, fr.off, 1.2);
+          // スタンド前・4 角も先頭の集団を画面に投影して収める（縦長の画面で 16:10 の画角を広げると、遠い置きカメラの馬が豆粒になった）
+          fov = fitFov(track, at, e, l, fr, aspect);
+        }
         break;
       }
       case 'head': e = anchor; l = at(pl - 6, lead.off, 1.5); fov = fovFor(e, l, 5, 1.5, 30); break;
@@ -306,11 +320,10 @@ export function createDirector(track, race, runners, stateAt, at) {
       look.x = lerp(look.x, l.x, kl); look.y = lerp(look.y, l.y, kl); look.z = lerp(look.z, l.z, kl);
       fovNow = lerp(fovNow, fov, clamp(dt * 3, 0, 1));
     }
-    // ゴール前だけ少しスロー（先頭が決勝線を過ぎて 1 秒で戻す）
-    const wantSlow = shot === 'post' && t < tWin + 1 && t > tWin - 2.2 ? 0.55 : 1;
-    slow = snap ? wantSlow : lerp(slow, wantSlow, clamp(dt * 5, 0, 1));
+    // ゴール前のスローはやめた（「ゴール前のスローはいらない」）。slow は 1 のまま返す（呼び出し側の形は変えない）
+    slow = 1;
     // 追いのカットの画角は画面の縦横比で決めてある（fit）。ほかのカットは 16:10 の値で、画面側が縦長に合わせて広げる
-    return { eye, look, fov: fovNow, slow, shot, fit: shot === 'side' || shot === 'infield' || shot === 'aerial' || shot === 'stand' || shot === 'turn4' };
+    return { eye, look, fov: fovNow, slow, shot, fit: shot === 'side' || shot === 'infield' || shot === 'aerial' || shot === 'stand' || shot === 'turn4' || shot === 'post' };
   }
 
   return {
