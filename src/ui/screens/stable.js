@@ -55,16 +55,22 @@ function stableTile(app, h, cat) {
   const v = G.horseView(g, h.id);
   const tags = [];
   let sub = '';
+  let mareKids = null;
   if (cat === 'active') {
     sub = `${h.sex}${v.age}　${v.className}`;
     tags.push(v.injury ? ['bad', v.injury.name] : v.stable === 'stable' ? ['on', '在厩'] : ['', '放牧']);
     if (v.stable === 'stable' && !v.injury) tags.push(['', fitLabel(v.fit)]);
     if (G.myEntries(g).some((e) => e.horseId === h.id)) tags.push(['go', '出走予定']);
   } else if (cat === 'mares') {
-    sub = `${v.age}歳　産駒${G.offspringOf(g, h.id).all.length}頭`;
+    const o = mareKids = G.offspringOf(g, h.id);
+    sub = `${v.age}歳　産駒${o.all.length}頭`;
     const booked = G.myMatings(g).find((m) => m.damId === h.id);
     tags.push(v.pregnancy ? ['go', `受胎 ${v.pregnancy.sire}`]
       : booked ? ['on', `予約 ${booked.sire?.name ?? ''}`] : ['', '空胎']);
+    // 産駒の立場（繁殖牝馬の価値は、走る仔と繁殖に上がった仔で決まる）
+    if (o.active.length) tags.push(['on', `現役 ${o.active.length}`]);
+    if (o.mares.length) tags.push(['', `繁殖 ${o.mares.length}`]);
+    if (o.stallions.length) tags.push(['go', `種牡馬 ${o.stallions.length}`]);
   } else if (cat === 'stallions') {
     const o = G.offspringOf(g, h.id);
     sub = `${v.age}歳　産駒${o.all.length}頭`;
@@ -88,7 +94,12 @@ function stableTile(app, h, cat) {
       el('span.st-sub', { text: sub }),
       el('div.st-tags', tags.map(([c, t]) => el('i', { text: t, class: c || null }))),
     ]),
-    cat === 'mares' ? button('配合', (e) => { e.stopPropagation(); app.go('farm', { damId: h.id }); }, { cls: 'sm' }) : null,
+    // 繁殖牝馬は配合と、産駒の一覧（「繁殖牝馬からも産駒を見れるように」）。押した区分で詳細の「産駒」タブを開く
+    cat === 'mares' ? el('div.st-btns', [
+      button('配合', (e) => { e.stopPropagation(); app.go('farm', { damId: h.id }); }, { cls: 'sm' }),
+      button('現役産駒', (e) => { e.stopPropagation(); app.go('stable', { id: h.id, cat, tab: 'foals', ff: 'active' }); }, { cls: 'sm', disabled: !mareKids?.active.length }),
+      button('産駒すべて', (e) => { e.stopPropagation(); app.go('stable', { id: h.id, cat, tab: 'foals', ff: 'all' }); }, { cls: 'sm', disabled: !mareKids?.all.length }),
+    ]) : null,
     cat === 'stallions' ? el('div.st-btns', [
       button('現役産駒', (e) => { e.stopPropagation(); app.go('stable', { id: h.id, cat, tab: 'foals', ff: 'active' }); }, { cls: 'sm' }),
       button('種牡馬の産駒', (e) => { e.stopPropagation(); app.go('stable', { id: h.id, cat, tab: 'foals', ff: 'stallions' }); }, { cls: 'sm' }),
@@ -666,7 +677,7 @@ export function offspringLink(app, id, list, ff, n) {
   if (!n) return el('span.offl.zero', { text: '0' });
   return el('button.offl', {
     text: `${n}頭`,
-    title: ff === 'stallions' ? '種牡馬になった産駒を見る' : '現役の産駒を見る',
+    title: { stallions: '種牡馬になった産駒を見る', mares: '繁殖牝馬になった産駒を見る', all: '産駒をすべて見る' }[ff] ?? '現役の産駒を見る',
     onclick: (e) => { e.stopPropagation(); app.go('stable', { id, list, tab: 'foals', ff }); },
   });
 }

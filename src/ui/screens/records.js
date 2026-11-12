@@ -221,9 +221,11 @@ function bookList(app, all, { dec, where, opt }) {
   const kids = (x) => {
     const c = x.id != null ? oc.get(x.id) : null;
     if (!c?.all) return '—';
+    // 牝馬は繁殖に上がった娘も出す（牝系の続き具合が分かる）
     return el('span.offls', [
       el('small', { text: '現役' }), offspringLink(app, x.id, ids, 'active', c.active),
       el('small', { text: '種牡馬' }), offspringLink(app, x.id, ids, 'stallions', c.stallions),
+      ...(x.sex === '牝' ? [el('small', { text: '繁殖' }), offspringLink(app, x.id, ids, 'mares', c.mares)] : []),
     ]);
   };
   const title = crossDec ? `検索結果（${rows.length} 頭）` : `${decadeName(dec)}生まれの実在馬（${rows.length} 頭）`;

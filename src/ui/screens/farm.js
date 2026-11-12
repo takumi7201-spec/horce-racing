@@ -320,6 +320,7 @@ function mareSaleView(app, kind = 'mare') {
   const open = direct ? true : kind === 'pMare' ? G.saleOpen(g, 'private') : G.saleOpen(g, 'mare');
   const money = g.world.player.money;
   const list = lots.map((m) => m.id);
+  const oc = G.offspringCounts(g);
   const title = direct ? '繁殖牝馬（牧場取引）' : kind === 'pMare' ? '繁殖牝馬（庭先取引）' : '繁殖牝馬セール';
   return card(`${title}（${lots.length} 頭）`, [
     direct ? null : seasonNote(g, open, kind === 'pMare' ? '3 月・7 月・12 月' : '10 月', kind === 'pMare' ? '庭先取引' : '繁殖牝馬セール'),
@@ -327,15 +328,17 @@ function mareSaleView(app, kind = 'mare') {
       ? '値段は格と年齢、母としての実績（GI 馬の母）、受胎していれば父の種付料で決まる。'
       : direct ? '値段は格と年齢、母としての実績で決まる（相対取引なのでセールより高い）。'
         : '庭先取引の開催中だけ、ほかの牧場が手放す繁殖牝馬を直接買える。' }),
-    table(['繁殖牝馬', '年齢', '父', '母の父', '代表勝鞍', '代表産駒', '産駒', '受胎', '価格', ''],
+    table(['繁殖牝馬', '年齢', '父', '母の父', '代表勝鞍', '代表産駒', '産駒', '現役', '受胎', '価格', ''],
       lots.map((m) => ({
         cells: [
-          sireName(m), `${m.age}歳`, m.sire, m.damSire, m.bestWin ?? '—', m.bestFoal ?? '—', `${m.foals}頭`,
+          sireName(m), `${m.age}歳`, m.sire, m.damSire, m.bestWin ?? '—', m.bestFoal ?? '—',
+          // 産駒の数は世界から数え、押すとその繁殖牝馬の「産駒」タブを開く（種牡馬名鑑と同じ。落とし穴 134）
+          offspringLink(app, m.id, list, 'all', oc.get(m.id)?.all ?? 0), offspringLink(app, m.id, list, 'active', oc.get(m.id)?.active ?? 0),
           m.inFoal ?? '空胎', formatMoney(m.price),
           m.sold ? el('span.mine', { text: '落札済み' }) : buyButton(app, kind, m, open && money >= m.price),
         ],
         onclick: () => app.go('stable', { id: m.id, list }),
-      })), { align: [, 'c', , , , , 'c', , 'r'] }),
+      })), { align: [, 'c', , , , , 'c', 'c', , 'r'] }),
   ]);
 }
 
