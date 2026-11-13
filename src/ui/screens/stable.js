@@ -615,14 +615,29 @@ function tabContent(app, tid, v, career) {
     ]);
   }
   if (tid === 'train') {
+    // 2 歳の未出走馬は、入厩から新馬戦までを任せられる（落とし穴 135）。走った後は自動が終わり、手で選ぶ。
+    const auto = !!v.autoDebut;
+    const canAuto = v.isMine && v.age === 2 && (v.starts ?? 0) === 0;
+    const autoBar = canAuto ? el('div.autodebut', [
+      el('div', [
+        el('b', { text: '自動調教（新馬戦まで）' }),
+        el('span', { text: auto
+          ? '入厩させ、仕上がりと疲れを見て調教し、新馬戦に登録する。走ると自動は終わる。'
+          : '入厩から新馬戦の登録まで、調教を任せる。手で選ぶのは走った後から。' }),
+      ]),
+      button(auto ? '自動をやめる' : '自動にする', () => { G.setAutoDebut(g, id, !auto); app.render(); },
+        { cls: auto ? 'ghost sm' : 'primary sm' }),
+    ]) : null;
     return el('div', [
+      autoBar,
       el('div.menus', MENUS.map((m) => el('button.menu', {
-        class: v.menu === m.id ? 'on' : null,
-        disabled: v.stable !== 'stable' || !!v.injury,
+        class: !auto && v.menu === m.id ? 'on' : null,
+        disabled: auto || v.stable !== 'stable' || !!v.injury,
         onclick: () => { G.setTraining(g, id, m.id); app.render(); },
       }, [el('b', { text: m.name }), el('span', { text: m.desc })]))),
       el('p.note', {
-        text: v.stable !== 'stable' ? '放牧中は調教できない。入厩させると選べる。'
+        text: auto ? '自動調教の間は、メニューは仕上がりと疲れで決まる。'
+          : v.stable !== 'stable' ? '放牧中は調教できない。入厩させると選べる。'
           : v.ready.ok ? '出走できる状態。' : `出走不可：${v.ready.why}`,
       }),
     ]);

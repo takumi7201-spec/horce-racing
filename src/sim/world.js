@@ -31,7 +31,7 @@ import {
 import { simulateRace, computeOdds } from './race.js';
 import { createJockey, createTrainer, ageJockey, ageTrainer, resetPersonIds, acceptsRide } from './jockey.js';
 import { breed, canBeBroodmare, canBeStallion, studFeeOf, conceives, POP_MEAN, STALLION_FOAL_MEMORY } from './breeding.js';
-import { trainWeek, pastureWeek, nurseryWeek, autoMenu, readyToRun } from './training.js';
+import { trainWeek, pastureWeek, nurseryWeek, autoMenu, autoDebutMenu, readyToRun } from './training.js';
 import { facilityEffects, NO_EFFECT, advanceFacilities, facilityUpkeep } from './facilities.js';
 import { sireLineRoot, nicksKey, recordNicksResult, breedQuality, lineLabel, grantFactors, grantDominantFactors, establishLines } from './pedigree.js';
 import { clamp, clamp01, lerp, sum, byDesc } from '../core/util.js';
@@ -1046,6 +1046,9 @@ export function advanceWeek(world, opts = {}) {
   if (world.week === W(4, 1)) foaling(world, rng, news);
   if (world.week === W(6, 4)) covering(world, rng, news);
 
+  // --- 自動調教（入厩と新馬戦の登録） ---
+  autoDebutWeek(world, news);
+
   world.news = news;
   world.log.push({ year: world.year, week: world.week, news });
   if (world.log.length > 400) world.log.shift();
@@ -1215,8 +1218,9 @@ function weeklyHorseUpkeep(world, rng) {
       continue;
     }
     if (h.stable === 'stable') {
+      // 自動調教の馬（2 歳・未出走）は仕上がりと疲れで決める。それ以外は自分で選んだメニュー。
       const menu = h.ownerId === 'player'
-        ? (h.trainingMenu ?? 'normal')
+        ? (isAutoDebut(h, world.year) ? autoDebutMenu(h) : (h.trainingMenu ?? 'normal'))
         : autoMenu(h, rng);
       trainWeek(h, rng, { year: world.year, trainer: world.trainers.get(h.trainerId), menuId: menu, fx });
       // NPC は疲れたら放牧に出す。
@@ -1232,6 +1236,59 @@ function weeklyHorseUpkeep(world, rng) {
     }
     weeklyRecover(h, rng);
   }
+}
+
+/** 自動調教の対象か。2 歳の未出走馬だけ（新馬戦を走った時点で終わる）。 */
+export function isAutoDebut(h, year) {
+  return !!h.autoDebut && h.ownerId === 'player' && (h.starts ?? 0) === 0 && horseAge(h, year) === 2;
+}
+
+/**
+ * 自動調教（落とし穴 135）。週の終わりに、自動の馬を入厩させ、新馬戦に登録する。
+ * 登録は「まだ誰も取っていない新馬戦」のうち、2 週から 14 週先で最も早いものにする
+ * （登録は 1 レース 1 頭なので、同じ週の二頭目は次の新馬戦へ回す）。
+ * 当日の仕上がりが足りなければ、レースの時に既存の回避の仕組みで外れる。
+ * 外れて登録が消えると、次の週に次の新馬戦を取り直す。
+ */
+function autoDebutWeek(world, news) {
+  for (const h of world.horses.values()) {
+    if (!h.autoDebut || h.ownerId !== 'player') continue;
+    const age = horseAge(h, world.year);
+    if ((h.starts ?? 0) > 0 || age > 2) {
+      h.autoDebut = false;
+      if ((h.starts ?? 0) > 0) news.push(`★${h.name} が新馬戦を走ったので自動調教を終えた`);
+      continue;
+    }
+    if (h.injury) continue;
+    // 年明けの入厩（2 歳になった自分の馬は放牧で始まる）
+    if (h.stable !== 'stable') {
+      h.stable = 'stable';
+      news.push(`★${h.name} が入厩した（自動調教）`);
+    }
+    if ([...world.player.entries.values()].some((e) => e.horseId === h.id)) continue;
+    const pick = findDebutRace(world, h);
+    if (!pick) continue;
+    world.player.entries.set(pick.race.raceId, {
+      raceId: pick.race.raceId, horseId: h.id, year: pick.year, week: pick.week,
+      jockeyId: h.jockeyId ?? null, styleOrder: null,
+    });
+    news.push(`★${h.name} を${pick.year}年${pick.week}週の${pick.race.name}に自動で登録した`);
+  }
+}
+
+/** 2〜14 週先で最も早い、まだ空いている新馬戦（この馬が出られるもの）。 */
+function findDebutRace(world, h) {
+  for (let k = 2; k <= 14; k++) {
+    let wk = world.week + k, yr = world.year;
+    while (wk > WEEKS_PER_YEAR) { wk -= WEEKS_PER_YEAR; yr++; }
+    const races = weekRaces(world, wk, yr);
+    for (const r of races) {
+      if (r.classId !== 'maiden' || world.player.entries.has(r.raceId)) continue;
+      if (!eligible(r, h, yr)) continue;
+      return { race: r, year: yr, week: wk };
+    }
+  }
+  return null;
 }
 
 /** 週ごとの経費。 */

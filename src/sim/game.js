@@ -3,7 +3,7 @@
 // 画面はここだけを見る。world.js の中身を直接いじらせないことで、
 // 「セーブ可能な状態」と「表示のための導出値」を分けている。
 
-import { createWorld, advanceWeek, weekRaces, weekGround, horsesOf, stallionList, computeLeaders, retireHorse, retireOutcome as worldRetireOutcome, playerFame } from './world.js';
+import { createWorld, advanceWeek, isAutoDebut, weekRaces, weekGround, horsesOf, stallionList, computeLeaders, retireHorse, retireOutcome as worldRetireOutcome, playerFame } from './world.js';
 import { eligible, weekLabel, gradedCalendar, GRADED_BY_ID, meetingsOf, ABROAD_COST } from './schedule.js';
 import { horseAge, effectiveAbility, styleLabel, distanceAptitude, canRun, STYLE_TARGET } from './horse.js';
 import { readyToRun, MENUS, fitLabel, condLabel } from './training.js';
@@ -121,6 +121,7 @@ export function horseView(g, id) {
     titles: h.titles ?? [],
     inbreed: h.inbreedLabels ?? [],
     menu: h.trainingMenu ?? 'normal',
+    autoDebut: !!h.autoDebut && isAutoDebut(h, w.year),
     ready: readyToRun(h),
     stallion: h.stallion, broodmare: h.broodmare, studFee: h.studFee,
     dead: !!h.dead,
@@ -299,6 +300,18 @@ export function setTraining(g, horseId, menuId) {
 }
 
 export const trainingMenus = () => MENUS;
+
+/**
+ * 自動調教（2 歳の入厩から新馬戦まで）の切り替え（落とし穴 135）。
+ * 入れると、調教は仕上がりと疲れで決まり、入厩と新馬戦の登録も自動になる。
+ * 新馬戦を走った時点で自動は終わる（以後は手で調教する）。
+ */
+export function setAutoDebut(g, horseId, on) {
+  const h = g.world.horses.get(horseId);
+  if (!h || h.ownerId !== 'player') return false;
+  h.autoDebut = !!on;
+  return true;
+}
 
 /** 入厩・放牧。 */
 export function setStable(g, horseId, where) {

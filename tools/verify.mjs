@@ -1716,5 +1716,34 @@ section('カード育成モード');
   check(`プロフィールは JSON で往復できる（${(js.length / 1024).toFixed(1)}KB）`, JSON.stringify(JSON.parse(js)) === js && js.length < 64 * 1024);
 }
 
+section('自動調教（2 歳の入厩から新馬戦まで）');
+{
+  // 2 歳の自分の馬を放牧から始めて自動にすると、年明けに入厩し、新馬戦に登録され、走ると自動が終わる（落とし穴 135）
+  const gA = sideGame({ seed: 'verify-autodebut' });
+  const wA = gA.world;
+  const pick = (w, skip) => [...w.horses.values()].find((x) => !skip.has(x.id) && !x.real && !x.dead && !x.retired && x.birthYear === w.year - 2 && !x.stallion && !x.broodmare);
+  const hA = pick(wA, new Set());
+  hA.ownerId = 'player';
+  if (!wA.player.horses.includes(hA.id)) wA.player.horses.push(hA.id);
+  hA.stable = 'pasture'; hA.trainerId ??= [...wA.trainers.values()][0].id;
+  hA.fit = 0.3; hA.fatigue = 0.2; hA.starts = 0; hA.autoDebut = true;
+  // 比べる馬：同じ条件で自動の印が無い馬。登録も入厩も勝手にされない
+  const hB = pick(wA, new Set([hA.id]));
+  hB.ownerId = 'player';
+  if (!wA.player.horses.includes(hB.id)) wA.player.horses.push(hB.id);
+  hB.stable = 'pasture'; hB.trainerId ??= hA.trainerId; hB.fit = 0.3; hB.fatigue = 0.2; hB.starts = 0;
+  let enteredA = false, ranWeek = null, stableA = false;
+  for (let i = 0; i < 40 && ranWeek == null; i++) {
+    nextWeek(gA);
+    if (hA.stable === 'stable') stableA = true;
+    if ([...wA.player.entries.values()].some((x) => x.horseId === hA.id)) enteredA = true;
+    if (hA.starts > 0) ranWeek = wA.week;
+  }
+  check('自動調教：2 歳の年明けに入厩し、新馬戦に登録されて走り、走った後は自動が終わる',
+    stableA && enteredA && hA.starts === 1 && hA.autoDebut === false && ranWeek != null);
+  check('自動調教：自動の印の無い 2 歳馬は、入厩も登録もされない（放牧のまま）',
+    hB.stable === 'pasture' && ![...wA.player.entries.values()].some((x) => x.horseId === hB.id) && hB.starts === 0);
+}
+
 console.log(`\n合計 ${pass} ok / ${fail} NG`);
 process.exit(fail === 0 ? 0 : 1);

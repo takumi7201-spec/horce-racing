@@ -42,6 +42,24 @@ export const MENUS = [
 export const MENU_BY_ID = new Map(MENUS.map((m) => [m.id, m]));
 
 /**
+ * 自動調教（2 歳の入厩から新馬戦まで、落とし穴 135）の目標の仕上がり。
+ * 出走の目安（0.75）より少し上にして、登録した週に走れるようにする。
+ */
+export const DEBUT_FIT = 0.82;
+
+/**
+ * 自動調教の 1 週のメニュー。仕上がりと疲労だけを見る（乱数は使わない。
+ * 自分の馬の調教を自動にしても、ほかの馬の乱数の流れは変わらない）。
+ * 疲れを抜いてから追う。仕上がりが目標に届いたら軽めで維持する。
+ */
+export function autoDebutMenu(horse) {
+  if (horse.fatigue > 0.5) return 'rest';
+  if (horse.fit >= DEBUT_FIT) return 'light';
+  if (horse.fatigue > 0.32) return 'pool';
+  return horse.fit < 0.6 ? 'track' : 'normal';
+}
+
+/**
  * 1 週ぶんの調教を当てる。在厩馬にだけ呼ぶ。
  * @returns {{injury:object|null, grew:boolean}}
  */

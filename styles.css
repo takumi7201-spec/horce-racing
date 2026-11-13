@@ -2697,3 +2697,9 @@ button.ik-rectier, button.ik-recbest { cursor: pointer; }
 @media (max-width: 560px) { .iklt .iklt-h { max-width: 58%; height: 70%; } .iklt .ikev-tx { max-width: 66%; } .iklt-foot { display: none; } }
 .ik-tevent.cardev { background: linear-gradient(180deg, #ffe8f3, var(--paper)); border-color: #b8286c; }
 .ik-tevent.cardev .ik-tev-head small { background: #e8358c; }
+
+/* 自動調教（2 歳の入厩から新馬戦まで）の切り替え */
+.autodebut { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  padding: 10px 12px; margin: 0 0 10px; border-radius: 12px; background: #fffdf6; border: 2px dashed #cfe0bd; }
+.autodebut b { display: block; font-size: 14px; color: var(--green-dd); }
+.autodebut span { font-size: 12px; color: var(--fg2); }
