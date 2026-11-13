@@ -751,11 +751,12 @@ export const PREVIEW_ID_BASE = 1e9;
  * 馬の id は別の帯（PREVIEW_ID_BASE〜）で採ってから採番を元に戻す（セーブとロード後の 1 週を変えない。落とし穴 14・47）。
  * 乱数も世界の主乱数に触らない。
  */
-export function realPreview(world, name) {
+export function realPreview(world, name, { table = false } = {}) {
   const d = DEFS.get(name);
   if (!d || !world.real) return null;
   const have = madeHorse(world, name);
-  if (have) return { world, id: have.id };
+  // table：世界に居る馬（自分の馬など）でも、表の値（盛りの姿）の馬を仮の世界に作る（「能力を表の値で」）。
+  if (have && !table) return { world, id: have.id };
   const base = world.horses;
   const own = new Map();
   const horses = new Map();
@@ -768,6 +769,8 @@ export function realPreview(world, name) {
     real: { ids: { ...world.real.ids }, entered: [] },
     _lineMemo: null, _strongMemo: null, _lineShare: null, _raceCache: null, _preview: true,
   });
+  // 世界に居る馬を表の値で作り直すときは、その名前だけ「まだ作っていない」ことにする（make が世界の馬を返さないように）
+  if (have) delete shadow.real.ids[name];
   let seed = 7;
   for (const c of name) seed = (seed * 31 + c.charCodeAt(0)) >>> 0;
   const saved = peekHorseId();

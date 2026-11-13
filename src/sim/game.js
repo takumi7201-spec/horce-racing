@@ -678,6 +678,29 @@ export function realPreview(g, name) {
   return m.get(key);
 }
 
+/**
+ * 世界に居る実在馬（自分の馬を含む）を、表（史実）の値で見た姿。馬の詳細の能力タブの「史実の表」。
+ * 世界の馬は成長途中・仕上がり・調子で能力が動くので、表の値（4 歳の盛りの姿）と比べられるようにする。
+ * 仮の世界に作るだけで、世界には何も足さない（realPreview と同じ。同じ週のあいだは作り直さない）。
+ */
+const tableCache = new WeakMap();
+export function realTableView(g, id) {
+  const w = g.world;
+  const h = w.horses.get(id);
+  const name = h ? realNameOf(h) : null;
+  if (!name) return null;
+  const key = `${name}|${w.year}|${w.week}`;
+  let m = tableCache.get(w);
+  if (!m) tableCache.set(w, (m = new Map()));
+  if (!m.has(key)) {
+    if (m.size > 40) m.clear();
+    const r = realPreviewOf(w, name, { table: true });
+    m.set(key, r && r.world !== w ? { game: { ...g, world: r.world }, id: r.id } : null);
+  }
+  const r = m.get(key);
+  return r ? { ...horseView(r.game, r.id), game: r.game } : null;
+}
+
 /** 直近の結果一覧（重賞優先）。 */
 export function recentResults(g) {
   return g.world.results

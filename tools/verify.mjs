@@ -1757,6 +1757,14 @@ section('実在馬の表記違い（同じ馬が二頭にならない）');
   check('レインボークエストは 1 頭（レインボウクエスト・レインボウクウェストはまとめた）',
     one('レインボークエスト') === 1 && one('レインボウクエスト') === 0 && one('レインボウクウェスト') === 0);
   check('ダンチヒ・マキャヴェリアンの表記違いも 1 頭', one('ダンチヒ') === 1 && one('ダンジグ') === 0 && one('マキャベリアン') === 0);
+  {
+    const gt = sideGame({ seed: 'verify-tableview', startYear: 2026 });
+    const h = [...gt.world.horses.values()].find((x) => x.real && !x.retired && !x.dead && !x.os);
+    const n0 = gt.world.horses.size, id0 = peekHorseId();
+    const tv = h ? GG.realTableView(gt, h.id) : null;
+    check(`世界に居る実在馬も表の値で見られ、世界は変わらない（${h?.name}）`,
+      !!tv && tv.name === h.name && tv.id !== h.id && gt.world.horses.size === n0 && peekHorseId() === id0);
+  }
   const names = new Set(REAL_HORSES.map((d) => d.n));
   check('まとめた後に宙に浮く父母が無い', REAL_HORSES.every((d) => (!d.sire || names.has(d.sire)) && (!d.dam || names.has(d.dam))));
 }

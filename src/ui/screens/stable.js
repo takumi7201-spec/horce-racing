@@ -591,16 +591,27 @@ function tabContent(app, tid, v, career) {
     ]);
   }
   if (tid === 'abil') {
-    return el('div.hd-cols', [
+    // 実在馬は「この世界のいま」と「史実の表（盛りの姿）」を切り替えて見られる（自分の馬でも表の値を見たい）。
+    // 名鑑から開いた世界に居ない馬（preview）は、もともと表の値なので切り替えは出さない。
+    const tv = v.real && !v.preview && app.abilView === 'table' ? G.realTableView(g, v.horse.id) : null;
+    const sv = tv ?? v;
+    const abilSwitch = v.real && !v.preview ? el('div.offf.abil-sw', [
+      ['now', 'この世界のいま'], ['table', '史実の表（盛り）'],
+    ].map(([k, label]) => el('button', {
+      class: (tv ? 'table' : 'now') === k ? 'on' : null,
+      onclick: () => { app.abilView = k; app.render(); },
+    }, el('span', { text: label })))) : null;
+    return el('div', [abilSwitch, el('div.hd-cols', [
       el('div', [
         el('h4', { text: '能力' }),
         el('div.abil', ABILITIES.map((a) => el('div.abil-row', [
           el('span.abil-l', { text: ABILITY_LABEL[a] }),
-          el('span.abil-r', { text: v.ranks[a] }),
-          bar(v.values[a]),
+          el('span.abil-r', { text: sv.ranks[a] }),
+          bar(sv.values[a]),
         ]))),
         el('p.note', {
-          text: v.age != null && v.age < 2
+          text: tv ? '史実の表（データベース）の値で、4 歳の盛りの姿。この世界での育ち具合や仕上がりは入らない。'
+            : v.age != null && v.age < 2
             ? '評価は 2 歳の物差しで見た、いまの育ち具合。潜在能力は見えない。当歳は生まれたてで低く、1 歳の 1 年の育成で育つ（育成牧場で速まる）。2 歳からは調教と出走で近づく。'
             : '評価は「いま出せる力」。潜在能力は見えない。調教と出走で近づく。',
         }),
@@ -608,13 +619,13 @@ function tabContent(app, tid, v, career) {
       el('div', [
         el('h4', { text: '馬場' }),
         el('div.apt-surf', [
-          bar(v.turf, { label: '芝' }), bar(v.dirt, { label: 'ダート' }),
-          bar(v.firm, { label: '良' }), bar(v.soft, { label: '重' }),
+          bar(sv.turf, { label: '芝' }), bar(sv.dirt, { label: 'ダート' }),
+          bar(sv.firm, { label: '良' }), bar(sv.soft, { label: '重' }),
         ]),
-        el('h4', { text: `距離（最適 ${v.dist}m）` }),
-        distChart(g, h),
+        el('h4', { text: `距離（最適 ${sv.dist}m）` }),
+        tv ? distChart(tv.game, tv.horse) : distChart(g, h),
       ]),
-    ]);
+    ])]);
   }
   if (tid === 'train') {
     // 2 歳の未出走馬は、入厩から新馬戦までを任せられる（落とし穴 135）。走った後は自動が終わり、手で選ぶ。
