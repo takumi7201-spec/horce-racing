@@ -10,7 +10,7 @@ import { readyToRun, MENUS, fitLabel, condLabel } from './training.js';
 import {
   matingEval, pedigreeTree, nicksValue, lineLabel, breedQuality, FACTORS, factorsOf, factorBonus, vigorOf,
 } from './pedigree.js';
-import { abroadSires, realBook as realBookOf, realPreview as realPreviewOf, fillPedigreeFromTable } from './realsires.js';
+import { abroadSires, realBook as realBookOf, realPreview as realPreviewOf, fillPedigreeFromTable, realFutureKids, realNameOf } from './realsires.js';
 import { studFeeOf, canBeBroodmare } from './breeding.js';
 import { previewOdds } from './race.js';
 import { makeRng, hashSeed } from '../core/rng.js';
@@ -857,6 +857,15 @@ export function offspringOf(g, id) {
   out.retired.sort(byMoney);
   out.all.sort((a, b) => b.birthYear - a.birthYear || byMoney(a, b));
   return out;
+}
+
+/**
+ * 実在馬の、この世界にまだ居ない史実の仔（これから生まれる・海外の若駒など）。馬の詳細の「産駒」タブの「これから」。
+ * 押すと表の値で馬の詳細を開く（realPreview）。実在馬でなければ空。
+ */
+export function realFutureOffspring(g, id) {
+  const h = g.world.horses.get(id);
+  return h ? realFutureKids(g.world, realNameOf(h)) : [];
 }
 
 /** 所有馬を 4 つに分ける。現役（2 歳以上）・繁殖牝馬・種牡馬・幼駒。 */

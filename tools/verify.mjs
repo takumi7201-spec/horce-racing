@@ -512,6 +512,11 @@ section('開始年（史実の名馬）');
   check('サンデーサイレンスはまだ輸入されていない', !byName(w75, 'サンデーサイレンス'));
   const tb = byName(w75, 'トウショウボーイ');
   check('トウショウボーイが 2 歳の競走馬として居る', !!tb && !tb.retired && tb.birthYear === 1973 && !!tb.ownerId);
+  // 種牡馬入りしていない現役の実在馬でも、表にある「まだ生まれていない仔」を産駒のタブに出す
+  const tbKids = tb ? GG.realFutureOffspring(g75, tb.id) : [];
+  check(`現役の実在馬にも、まだ生まれていない史実の産駒が出る（トウショウボーイ ${tbKids.length} 頭）`,
+    tbKids.some((x) => x.name === 'ミスターシービー' && x.birthYear === 1980 && x.key === 'future')
+    && tbKids.every((x) => !byName(w75, x.name)));
   check('後の名馬の名前は予約されている', w75.nameSet.has('ディープインパクト'));
   check('昭和の種牡馬が名簿に並ぶ（パーソロン・ハイセイコー・シンザン）',
     pool.has(byName(w75, 'パーソロン')?.id) && pool.has(byName(w75, 'ハイセイコー')?.id) && pool.has(byName(w75, 'シンザン')?.id));

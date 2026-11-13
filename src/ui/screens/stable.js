@@ -194,8 +194,10 @@ function detail(app, id) {
   };
   app.onArrow = go;
 
-  // 産駒のタブは種牡馬・繁殖牝馬にも出す（覚えている産駒は直近 80 頭だけなので、0 でも世界には産駒が居ることがある）
-  const tabs = TABS.filter((x) => (!x.mineOnly || active) && (!x.needFoals || v.foals.length || v.stallion || v.broodmare || v.dead || v.retired));
+  // 産駒のタブは種牡馬・繁殖牝馬にも出す（覚えている産駒は直近 80 頭だけなので、0 でも世界には産駒が居ることがある）。
+  // 現役やこれから生まれる実在馬も、表に史実の仔が居れば出す（「これから」の区分）
+  const tabs = TABS.filter((x) => (!x.mineOnly || active) && (!x.needFoals || v.foals.length || v.stallion || v.broodmare || v.dead || v.retired
+    || G.realFutureOffspring(app.game, v.horse.id).length));
   // 呼び出し元がタブを決めて開くことがある（所有馬の種牡馬は「産駒」の現役から開く）
   // 開いたときに 1 度だけ当てる（同じ画面の描き直しでは、あとで押したタブを戻さない）
   if (app.params.tab && !OPENED.has(app.params) && tabs.some((x) => x.id === app.params.tab)) {
@@ -703,7 +705,7 @@ const OPENED = new WeakSet();
 /** 産駒の区分（馬の詳細の「産駒」タブの絞り込み）。 */
 const FOAL_FILTERS = [
   { id: 'active', name: '現役' }, { id: 'stallions', name: '種牡馬' }, { id: 'mares', name: '繁殖牝馬' },
-  { id: 'young', name: '幼駒' }, { id: 'retired', name: '引退' }, { id: 'all', name: 'すべて' },
+  { id: 'young', name: '幼駒' }, { id: 'retired', name: '引退' }, { id: 'future', name: 'これから' }, { id: 'all', name: 'すべて' },
 ];
 
 /**
@@ -712,6 +714,8 @@ const FOAL_FILTERS = [
  */
 function foalsTab(app, v) {
   const o = G.offspringOf(app.game, v.horse.id);
+  // 表にあって世界にまだ居ない史実の仔（これから生まれる・海外の若駒）。現役の名馬や生まれる前の馬でも出る
+  o.future = G.realFutureOffspring(app.game, v.horse.id);
   let cur = app.foalsFilter;
   if (!o[cur]?.length) cur = FOAL_FILTERS.find((f) => o[f.id].length)?.id ?? 'all';
   const isSire = v.horse.sex !== '牝';
@@ -736,7 +740,15 @@ function foalsTab(app, v) {
     const mate = (x) => (isSire ? x.dam : x.sire);
     const mateH = isSire ? '母' : '父';
     let t;
-    if (cur === 'stallions') {
+    if (cur === 'future') {
+      // 世界に居ない馬なので、押すと表の値で馬の詳細を開く（史実馬名鑑と同じ。落とし穴 76）
+      t = table(['馬名', '生年', '性', mateH, 'いま'],
+        rows.map((x) => ({
+          cells: [el('span.sire-n', [el('b', { text: x.name }), el('i.realtag', { text: '史実' })]), x.birthYear, x.sex, mate(x), el('small', { text: x.status })],
+          onclick: () => { if (G.realPreview(app.game, x.name)) app.go('stable', { real: x.name }); },
+        })), { align: [, 'c', 'c', , ] });
+      box.appendChild(el('p.note', { text: '表（史実）にある、この世界にまだ居ない仔。歴史が変わると生まれないこともある。押すと史実の値で詳細を見る。' }));
+    } else if (cur === 'stallions') {
       t = table(['馬名', '生年', mateH, '戦績', '獲得賞金', '種付料', '産駒', 'いま'],
         rows.map((x) => ({
           cells: [name(x), x.birthYear, mate(x), `${x.starts}戦${x.wins}勝`, formatMoney(x.earnings),

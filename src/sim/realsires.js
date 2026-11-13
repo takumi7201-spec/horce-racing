@@ -620,6 +620,38 @@ function statusOf(world, d, h, o = originOf(d)) {
 
 const realBook1 = (world, d) => statusOf(world, d, madeHorse(world, d.n));
 
+/** 表の親の名 → その子の行（表は変わらないので 1 度だけ作る） */
+let kidsByName = null;
+const tableKids = (name) => {
+  if (!kidsByName) {
+    kidsByName = new Map();
+    const add = (p, d) => { if (!p) return; let a = kidsByName.get(p); if (!a) kidsByName.set(p, a = []); a.push(d); };
+    for (const d of REAL_HORSES) { add(d.sire, d); if (d.dam !== d.sire) add(d.dam, d); }
+  }
+  return kidsByName.get(name) ?? [];
+};
+
+/**
+ * 実在馬の、表にあってこの世界にまだ居ない仔（これから生まれる・まだ種牡馬入りや繁殖入りしていない親の史実の仔・海外の若駒）。
+ * 世界の産駒（offspringOf）は世界に居る馬しか拾えないので、現役の名馬や生まれる前の馬の「産駒」が空だった
+ * （「繁殖・種牡馬入りしていない実在馬でも、まだ生まれていない産駒も表示させて」）。
+ * 状態は史実馬名鑑と同じ規則（statusOf）。歴史が変わって生まれなかった仔（lost）と、行き先の無い古い馬（none）は出さない。
+ */
+export function realFutureKids(world, name) {
+  if (!name || !world.real) return [];
+  const out = [];
+  for (const d of tableKids(name)) {
+    if (madeHorse(world, d.n)) continue;
+    const st = statusOf(world, d, null);
+    if (st.key === 'lost' || st.key === 'none') continue;
+    out.push({
+      name: d.n, birthYear: d.b, sex: d.s === '牝' ? '牝' : '牡', coat: d.c ?? '鹿毛',
+      sire: d.sire ?? '—', dam: d.dam ?? '—', status: st.text, key: st.key,
+    });
+  }
+  return out.sort((a, b) => a.birthYear - b.birthYear || (a.name < b.name ? -1 : 1));
+}
+
 export function realBook(world) {
   if (!world.real) return [];
   const y = world.year;
