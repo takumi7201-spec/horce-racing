@@ -74,8 +74,6 @@ function matingView(app) {
   });
   const search = el('input.inp', { type: 'text', placeholder: '種牡馬名で絞る' });
   const list = el('div.stallion-list');
-  const evalBox = el('div.mating-eval');
-  let sireId = null;
 
   const fm = G.fame(g);
   // 並べ替えと「自分の種牡馬だけ」。画面を作り直しても残るよう app に覚える。
@@ -99,36 +97,30 @@ function matingView(app) {
       list.appendChild(el('p.empty', { text: opt.mine ? '自分の種牡馬が居ない。重賞を勝った牡馬や実在の牡馬を引退させると種牡馬になる。' : 'その条件の種牡馬は居ない。予算を上げてみる。' }));
       return;
     }
-    // 列が多いので年齢は名前の下に添える（系統の列が細くなって 1 文字ずつ折り返していた）。
-    // 行を押すと選ぶ（「選ぶ」の列は幅を食って危険度の列がはみ出したので外した）。
-    list.appendChild(table(['種牡馬', '系統', '因子', '種付料', 'ランク', '爆発力', '危険度'],
+    // 列は 6 つに絞る。系統と年齢は名前の下に小さく添える（列を増やすと行が細くなって折り返した）。
+    // 行を押すと評価をモーダルで開く（評価を一覧の下に並べると縦に長くなり、読みにくかった）。
+    list.appendChild(table(['種牡馬', '因子', '種付料', 'ランク', '爆発力', '危険度'],
       ss.map((s) => {
         const ev = s.ev;
         return {
           cells: [
-            el('div', [sireName(s), el('small.age', { text: `${s.age}歳` })]), el('small.line', { text: s.line }), factorChips(s.factors),
+            el('div', [sireName(s), el('small.line', { text: `${s.age}歳・${s.line}` })]), factorChips(s.factors),
             s.mine ? el('span.free', { text: '無料' }) : formatMoney(s.fee),
             s.locked ? el('small.locked', { text: `名声${fm.need}〜`, title: `海外の種牡馬は名声 ${fm.need} から（いま ${fm.fame}）` })
               : ev ? rankChip(ev.rank) : '—',
             ev ? el('b.tb', { text: String(ev.burst) }) : '—',
             ev ? (ev.blocked ? el('small.locked', { text: '種付不可' }) : el('span', { text: String(ev.riskPoints), class: ev.riskPoints >= 4 ? 'tr' : null })) : '—',
           ],
-          cls: sireId === s.id ? 'sel' : null,
-          onclick: s.locked ? null : () => { sireId = s.id; renderEval(); renderList(); },
+          onclick: s.locked ? null : () => openEval(s.id),
         };
-      }), { align: [, , , 'r', 'c', 'c', 'c'] }));
+      }), { align: [, , 'r', 'c', 'c', 'c'] }));
   };
 
-  const renderEval = () => {
-    evalBox.textContent = '';
-    if (!sireId || !damId) {
-      evalBox.appendChild(el('p.empty', { text: '種牡馬を選ぶと配合の評価が出る。' }));
-      return;
-    }
+  // 種牡馬を選んだら評価を開く。種付けはこのモーダルの中で予約し、閉じて画面を描き直す。
+  const openEval = (sireId) => {
     const ev = G.evaluateMating(g, damId, sireId);
     const sire = G.getHorse(g, sireId);
-    evalBox.appendChild(el('div', [
-      el('h3', { text: `${sire.name} × ${dam.name}` }),
+    const m = modal(`${sire.name} × ${dam.name}`, el('div.mating-eval', [
       el('div.rank-line', [rankChip(ev.rank), el('div.stars.big', { text: '★'.repeat(ev.stars) + '☆'.repeat(5 - ev.stars) })]),
       kv([
         ['種付料', ev.fee === 0 ? '無料（自分の種牡馬）' : formatMoney(ev.fee)],
@@ -170,6 +162,7 @@ function matingView(app) {
         const r = G.bookMating(g, damId, sireId);
         if (!r.ok) return toast(r.why, { bad: true });
         toast(`${sire.name} との配合を予約した`);
+        m.close();
         app.render();
         return undefined;
       }, { cls: 'primary big', disabled: g.world.player.money < ev.fee || !G.matingOpen(g) || !!dam.pregnancy || !!ev.blocked }),
@@ -177,7 +170,7 @@ function matingView(app) {
         text: dam.pregnancy ? `${dam.name} は受胎している（${dv.pregnancy.year}年 4 月に出産）。`
           : '種付けは 5〜6 月。6 月末に受胎が分かり、翌年 4 月に生まれる。不受胎なら種付料は返る。',
       }),
-    ]));
+    ]), { wide: true });
   };
 
   budgetInput.addEventListener('input', renderList);
@@ -185,7 +178,6 @@ function matingView(app) {
   sortSel.addEventListener('change', renderList);
   mineBox.addEventListener('change', renderList);
   renderList();
-  renderEval();
 
   return el('div.cols2', [
     el('div.col', [
@@ -226,13 +218,12 @@ function matingView(app) {
           el('label', ['並べ替え', sortSel]),
           el('label.chk', [mineBox, '自分の種牡馬だけ（種付料無料）']),
         ]),
-        el('p.note', { text: 'ランクは S〜E（親の格・爆発力・距離の噛み合い）。爆発力は仔の素質の上振れの大きさ、危険度は丈夫さと気性を削る度合い（0〜7）。行を押すと右に評価が出る。' }),
+        el('p.note', { text: 'ランクは S〜E（親の格・爆発力・距離の噛み合い）。爆発力は仔の素質の上振れの大きさ、危険度は丈夫さと気性を削る度合い（0〜7）。行を押すと評価を開く。' }),
         list,
       ]),
     ]),
     el('div.col', [
       dv ? card(`${dv.name} の血統`, pedigreeMini(g, damId)) : null,
-      card('配合の評価', evalBox),
       card('配合理論', [
         el('p.note', { text: '「ウイニングポスト 10 2026 攻略」の配合理論に合わせた。成り立った理論は爆発力（スピードの底上げ）とサブパラを上げ、近親やラインブリードは危険度が上がる。ウマソナ・ライバル・牝系・ドラマ因子・繋養地域に関わる理論はこのゲームには無い。' }),
         el('ul.howto', G.theoryGuide().map((t) => el('li', [el('b', { text: t.name }), el('br'), el('small', { text: t.text })]))),
