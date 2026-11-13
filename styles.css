@@ -694,12 +694,15 @@ div.ev { cursor: default; }
   .mating .note-long { display: none; }
   .mating .mares-tbl th:nth-child(3), .mating .mares-tbl td:nth-child(3),
   .mating .mares-tbl th:nth-child(4), .mating .mares-tbl td:nth-child(4) { display: none; }
-  .mating .stallion-list { max-height: min(40vh, 340px); }
+  /* 一覧の下端は下のメニュー（約 150px）の上に収める。上の余白は説明文を隠して詰める。 */
+  .mating .stallion-list { max-height: max(180px, calc(100dvh - 590px)); }
   .mating .stallion-tbl th:nth-child(2), .mating .stallion-tbl td:nth-child(2) { display: none; }
   .mating .stallion-tbl td, .mating .stallion-tbl th { padding: 5px 4px; }
   .mating .stallion-tbl td:first-child { white-space: normal; }
   .mating .stallion-tbl th:not(:first-child), .mating .stallion-tbl td:not(:first-child) { white-space: nowrap; }
   .mating .stallion-tbl td:first-child { min-width: 7.5em; }
+  /* 牧場の上のタブ（配合・種牡馬名鑑…）は消す。移動は下の「牧場」の一覧から。 */
+  .shell[data-screen="farm"] nav.tabs { display: none; }
 }
 
 /* ---------------- レース当日 ---------------- */

@@ -207,7 +207,7 @@ function matingView(app) {
           }, { cls: 'sm ghost' }),
         ]), { align: [, , 'r'] })) : null,
       card('種牡馬を探す', [
-        el('p.note', { text: fm.abroadOk
+        el('p.note.note-long', { text: fm.abroadOk
           ? `名声 ${fm.fame}。海外の種牡馬にも種付けできる。`
           : `名声 ${fm.fame}。海外の種牡馬は名声 ${fm.need} から（レースに勝つと上がる。GI は +15、重賞は +5〜8）。` }),
         el('div.form-row', [
