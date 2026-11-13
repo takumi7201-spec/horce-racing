@@ -15660,4 +15660,76 @@ const FACTOR_FIX = {
 };
 const withFactorFix = (table) => table.map((d) => (FACTOR_FIX[d.n] ? { ...d, f: FACTOR_FIX[d.n] } : d));
 
-export const REAL_HORSES = withDerivedStuds(withFactorFix(withBroodmares(TABLE)));
+/**
+ * 同じ馬が表記違いで二頭（三頭）になっているのをまとめる（「レインボウクエストが被ってる。名前は統一して」）。
+ * 取り込みの段（ja.wikipedia・史実馬の一覧・Wikidata・英語版）ごとにカタカナの書き方が違い
+ * （レインボークエスト・レインボウクエスト・レインボウクウェスト）、名前で引く表では別の馬になっていた。
+ * 同じ母から同じ年に生まれるのは 1 頭なので、「母と生年が同じ・父が食い違わない・名前が近い」ものを同じ馬とする。
+ * 名前が遠いのに父母と年が同じ組は、生年の取り違えた全きょうだい（フェアリーキングとテートギャラリー）なのでまとめない。
+ * 名前は表で先に出る方（手で入れた表・ja.wikipedia の表記）を残し、空いている値は重複の側から補う。
+ * 父母の名前も書き換え、母の名がまとまるとその仔も同じ組になるので、変わらなくなるまで繰り返す。
+ */
+const KANA_FOLD = { ァ: 'ア', ィ: 'イ', ゥ: 'ウ', ェ: 'エ', ォ: 'オ', ャ: 'ヤ', ュ: 'ユ', ョ: 'ヨ', ッ: 'ツ', ヮ: 'ワ', ヴ: 'ブ', ヰ: 'イ', ヱ: 'エ', ヂ: 'ジ', ヅ: 'ズ' };
+const foldName = (s) => s.replace(/（.*?）|\(.*?\)/g, '').replace(/[ー・\s]/g, '').replace(/[ァィゥェォャュョッヮヴヰヱヂヅ]/g, (c) => KANA_FOLD[c]);
+function editDistance(a, b) {
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    prev = cur;
+  }
+  return prev[b.length];
+}
+const nameClose = (a, b) => {
+  const x = foldName(a), y = foldName(b);
+  return editDistance(x, y) <= Math.max(2, Math.floor(Math.max(x.length, y.length) * 0.5));
+};
+// 名前の近さでは拾えない、同じ馬の読み違い（Buchan・Kazzia・Campanelle）
+const SAME_HORSE = [['ブキャナン', 'バカン'], ['カッツィア', 'カジア'], ['キャンパネッリ', 'カパネッレ']];
+/** まとめて消えた名前 → 残した名前（名前で引くほかの表のため） */
+export const REAL_ALIAS = new Map();
+function withoutDupes(table) {
+  let t = table;
+  const resolve = (n) => { while (n != null && REAL_ALIAS.has(n)) n = REAL_ALIAS.get(n); return n; };
+  for (let round = 0; round < 10; round++) {
+    const groups = new Map();
+    for (const d of t) {
+      if (!d.dam) continue;
+      const k = `${d.dam}|${d.b}`;
+      let a = groups.get(k);
+      if (!a) groups.set(k, (a = []));
+      a.push(d);
+    }
+    const into = new Map(); // 消す名前 → 残す行
+    for (const a of groups.values()) {
+      if (a.length < 2) continue;
+      const base = a[0];
+      for (const d of a.slice(1)) {
+        if (d.sire && base.sire && d.sire !== base.sire) continue;
+        const forced = SAME_HORSE.some(([x, y]) => (d.n === x && base.n === y) || (d.n === y && base.n === x));
+        if (!forced && !nameClose(d.n, base.n)) continue;
+        into.set(d.n, base);
+      }
+    }
+    if (!into.size) break;
+    // 残す行へ、空いている値を補う（能力・勝鞍・供用年など、後の段で入った値が重複の側にあることがある）
+    const filled = new Map();
+    for (const [n, base] of into) {
+      const dup = t.find((d) => d.n === n);
+      const cur = filled.get(base.n) ?? { ...base };
+      for (const [k, v] of Object.entries(dup)) if (cur[k] == null && v != null) cur[k] = v;
+      cur.n = base.n;
+      filled.set(base.n, cur);
+      REAL_ALIAS.set(n, base.n);
+    }
+    t = t.filter((d) => !into.has(d.n))
+      .map((d) => {
+        const x = filled.get(d.n) ?? d;
+        const sire = resolve(x.sire), dam = resolve(x.dam);
+        return sire === x.sire && dam === x.dam && x === d ? d : { ...x, sire, dam };
+      });
+  }
+  return t;
+}
+
+export const REAL_HORSES = withDerivedStuds(withFactorFix(withBroodmares(withoutDupes(TABLE))));

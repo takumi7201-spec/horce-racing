@@ -1750,5 +1750,16 @@ section('自動調教（2 歳の入厩から新馬戦まで）');
     hB.stable === 'pasture' && ![...wA.player.entries.values()].some((x) => x.horseId === hB.id) && hB.starts === 0);
 }
 
+// ---------------------------------------------------------------- 表記違いの重複
+section('実在馬の表記違い（同じ馬が二頭にならない）');
+{
+  const one = (n) => REAL_HORSES.filter((d) => d.n === n).length;
+  check('レインボークエストは 1 頭（レインボウクエスト・レインボウクウェストはまとめた）',
+    one('レインボークエスト') === 1 && one('レインボウクエスト') === 0 && one('レインボウクウェスト') === 0);
+  check('ダンチヒ・マキャヴェリアンの表記違いも 1 頭', one('ダンチヒ') === 1 && one('ダンジグ') === 0 && one('マキャベリアン') === 0);
+  const names = new Set(REAL_HORSES.map((d) => d.n));
+  check('まとめた後に宙に浮く父母が無い', REAL_HORSES.every((d) => (!d.sire || names.has(d.sire)) && (!d.dam || names.has(d.dam))));
+}
+
 console.log(`\n合計 ${pass} ok / ${fail} NG`);
 process.exit(fail === 0 ? 0 : 1);
