@@ -113,7 +113,7 @@ function matingView(app) {
           ],
           onclick: s.locked ? null : () => openEval(s.id),
         };
-      }), { align: [, , 'r', 'c', 'c', 'c'] }));
+      }), { align: [, , 'r', 'c', 'c', 'c'], cls: 'stallion-tbl' }));
   };
 
   // 種牡馬を選んだら評価を開く。種付けはこのモーダルの中で予約し、閉じて画面を描き直す。
@@ -179,7 +179,7 @@ function matingView(app) {
   mineBox.addEventListener('change', renderList);
   renderList();
 
-  return el('div.cols2', [
+  return el('div.cols2.mating', [
     el('div.col', [
       seasonNote(g, G.matingOpen(g), '5〜6 月', '種付け'),
       card('繁殖牝馬', table(['馬名', '年齢', '父', '母の父', '戦績', '産駒', '予約・受胎'],
@@ -196,7 +196,7 @@ function matingView(app) {
             cls: m.id === damId ? 'sel' : null,
             onclick: () => app.go('farm', { tab: 'mating', damId: m.id }),
           };
-        }), { align: [, 'c', , , 'c', 'c'] })),
+        }), { align: [, 'c', , , 'c', 'c'], cls: 'mares-tbl' })),
       booked.size ? card('今年の配合予約', table(['繁殖牝馬', '種牡馬', '種付料', ''],
         [...booked.values()].map((b) => [
           b.dam.name, b.sire.name, formatMoney(b.fee),
@@ -218,7 +218,7 @@ function matingView(app) {
           el('label', ['並べ替え', sortSel]),
           el('label.chk', [mineBox, '自分の種牡馬だけ（種付料無料）']),
         ]),
-        el('p.note', { text: 'ランクは S〜E（親の格・爆発力・距離の噛み合い）。爆発力は仔の素質の上振れの大きさ、危険度は丈夫さと気性を削る度合い（0〜7）。行を押すと評価を開く。' }),
+        el('p.note.note-long', { text: 'ランクは S〜E（親の格・爆発力・距離の噛み合い）。爆発力は仔の素質の上振れの大きさ、危険度は丈夫さと気性を削る度合い（0〜7）。行を押すと評価を開く。' }),
         list,
       ]),
     ]),

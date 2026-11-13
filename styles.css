@@ -685,6 +685,22 @@ div.ev { cursor: default; }
 .stallion-list { max-height: 420px; overflow: auto; }
 .mating-eval h3 { margin: 0 0 4px; font-size: 15px; }
 .mating-eval h4 { margin: 10px 0 3px; font-size: 12px; color: var(--green-d); }
+/* 配合の画面は、スマホでは一画面に収める。表は横へ巻かず、父・母の父・因子は評価の中で見る。
+   一覧は残りの高さの中で縦に送り、フォームは 1 行に詰める（落とし穴 136 の続き）。 */
+@media (max-width: 600px) {
+  .mating .form-row { gap: 8px; margin-bottom: 6px; flex-wrap: nowrap; }
+  .mating .form-row label { flex: 1 1 0; min-width: 0; }
+  .mating .form-row label.chk { flex: 0 0 auto; white-space: nowrap; }
+  .mating .note-long { display: none; }
+  .mating .mares-tbl th:nth-child(3), .mating .mares-tbl td:nth-child(3),
+  .mating .mares-tbl th:nth-child(4), .mating .mares-tbl td:nth-child(4) { display: none; }
+  .mating .stallion-list { max-height: min(40vh, 340px); }
+  .mating .stallion-tbl th:nth-child(2), .mating .stallion-tbl td:nth-child(2) { display: none; }
+  .mating .stallion-tbl td, .mating .stallion-tbl th { padding: 5px 4px; }
+  .mating .stallion-tbl td:first-child { white-space: normal; }
+  .mating .stallion-tbl th:not(:first-child), .mating .stallion-tbl td:not(:first-child) { white-space: nowrap; }
+  .mating .stallion-tbl td:first-child { min-width: 7.5em; }
+}
 
 /* ---------------- レース当日 ---------------- */
 .raceday { max-width: 1400px; margin: 0 auto; }
