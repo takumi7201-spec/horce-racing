@@ -685,10 +685,40 @@ div.ev { cursor: default; }
 .stallion-list { max-height: 420px; overflow: auto; }
 .mating-eval h3 { margin: 0 0 4px; font-size: 15px; }
 .mating-eval h4 { margin: 10px 0 3px; font-size: 12px; color: var(--green-d); }
-/* 血統・配合理論・考え方のボタン列。PC は右の列に並ぶので出さない。 */
+/* 配合は「① 繁殖牝馬 → ② 種牡馬」の二段（落とし穴 136）。段の札は押すとその段へ移る。 */
+.mate-steps { display: flex; gap: 8px; margin-bottom: 10px; align-items: stretch; }
+.mate-step { flex: 1 1 0; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 7px 10px;
+  border: 2px solid var(--line); border-radius: 10px; background: #fffdf6; text-align: left; cursor: pointer; font: inherit; color: var(--fg); }
+.mate-step > b { flex: none; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center;
+  background: #b9c4b0; color: #fff; font-size: 12px; }
+.mate-step > span { display: flex; flex-direction: column; min-width: 0; font-weight: 700; font-size: 12px; line-height: 1.25; }
+.mate-step small { font-weight: 400; color: var(--fg3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mate-step.on { border-color: var(--green-d); background: #eef7e8; }
+.mate-step.on > b { background: var(--green-d); }
+/* 仔の血統の上の 1 行：組み合わせ・ランク・爆発力・危険度と「評価・種付け」 */
+.mate-sum { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin-bottom: 8px; font-size: 12px; }
+.mate-sum .mate-pair { font-size: 14px; }
+.mate-sum button { margin-left: auto; }
+.mate-sumhost .note { margin: 0 0 8px; }
+/* 父と母の両方に居る祖先（インブリードの元） */
+.ped.combo .ped-cell.cross { background: #fff3cc; box-shadow: inset 0 0 0 2px #e2a72a; }
+.ped.combo .ped-cell.pick { opacity: 1; border-left-color: #4f86c6; background: #f1f6fd; color: #4f86c6; font-weight: 700; }
+/* PC は右の列の血統を上に留める（左の一覧を送っても、組み合わせが見えたままにする） */
+@media (min-width: 1151px) {
+  .mating .mate-ped { position: sticky; top: 0; z-index: 2; }
+}
+/* 配合理論・考えかたのボタン（スマホだけ。PC は右の列に並ぶ） */
 .mating-more { display: none; }
+/* 一列になる幅では、段 → 血統 → 一覧の順に並べる（血統を常に見せる）。列の箱は外して子を並べ替える */
+@media (max-width: 1150px) {
+  .cols2.mating { display: flex; flex-direction: column; gap: 0; }
+  .mating > .col { display: contents; }
+  .mating .mate-steps { order: -3; }
+  .mating .mate-mares { order: -2; }
+  .mating .mate-ped { order: -1; }
+}
 /* 配合の画面は、スマホでは一画面に収める。表は横へ巻かず、父・母の父・因子は評価の中で見る。
-   一覧は残りの高さの中で縦に送り、フォームは 1 行に詰める（落とし穴 136 の続き）。 */
+   一覧は残りの高さの中で縦に送り、フォームは 1 行に詰める（落とし穴 136）。 */
 @media (max-width: 600px) {
   .mating .form-row { gap: 8px; margin-bottom: 6px; flex-wrap: nowrap; }
   .mating .form-row label { flex: 1 1 0; min-width: 0; }
@@ -696,12 +726,22 @@ div.ev { cursor: default; }
   .mating .note-long { display: none; }
   .mating .mares-tbl th:nth-child(3), .mating .mares-tbl td:nth-child(3),
   .mating .mares-tbl th:nth-child(4), .mating .mares-tbl td:nth-child(4) { display: none; }
-  /* 一覧の下端は下のメニュー（約 150px）の上に収める。上の余白は説明文を隠して詰める。 */
-  .mating .stallion-list { max-height: max(160px, calc(100dvh - 634px)); }
-  /* スマホは右の列（血統・理論・考え方）を消し、上のボタンからモーダルで開く。 */
-  .mating .mating-side { display: none; }
-  .mating-more { display: flex; gap: 6px; margin: 2px 0 8px; }
-  .mating-more button { flex: 1 1 0; }
+  /* 一覧の下端は下のメニュー（約 150px）の上に収める */
+  .mating .stallion-list { max-height: max(150px, calc(100dvh - 640px)); }
+  /* 配合理論・考えかたは段の札の右の小さなボタンからモーダルで開く */
+  .mating .mate-guide { display: none; }
+  .mating-more { display: flex; flex-direction: column; gap: 4px; flex: none; }
+  .mating-more button { padding: 2px 8px; font-size: 11px; }
+  .mate-step { padding: 5px 8px; gap: 6px; }
+  .mate-steps { margin-bottom: 8px; gap: 6px; }
+  .ped.mini.combo { height: 116px; font-size: 10px; }
+  /* 因子の切り替えと凡例の帯は高さを食うので隠す（印は出したまま。切り替えは馬の詳細の血統表で） */
+  .mate-ped .ped-bar { display: none; }
+  /* 見出しは段の札（① 繁殖牝馬・② 種牡馬）と役目が重なるので隠す。要約は 1 行に（星はランクで足りる） */
+  .mate-ped > .card-h, .mate-search > .card-h { display: none; }
+  .mate-sum { gap: 2px 8px; margin-bottom: 6px; }
+  .mate-sum .mate-pair { font-size: 13px; flex-basis: 100%; }
+  .mate-sum .stars { display: none; }
   .mating .stallion-tbl th:nth-child(2), .mating .stallion-tbl td:nth-child(2) { display: none; }
   .mating .stallion-tbl td, .mating .stallion-tbl th { padding: 5px 4px; }
   .mating .stallion-tbl td:first-child { white-space: normal; }

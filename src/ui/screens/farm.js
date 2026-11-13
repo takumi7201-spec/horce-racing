@@ -58,68 +58,31 @@ function seasonNote(g, open, when, what) {
 function matingView(app) {
   const g = app.game;
   const mares = G.myBroodmares(g);
-  const booked = new Map(G.myMatings(g).map((m) => [m.damId, m]));
-  const damId = app.params.damId ?? mares[0]?.id ?? null;
   if (!mares.length) {
     return card('配合', el('p.empty', {
       text: '繁殖牝馬が居ない。現役の牝馬を引退させると繁殖に上がる。',
     }));
   }
+  const booked = new Map(G.myMatings(g).map((m) => [m.damId, m]));
+  const damId = app.params.damId ?? mares[0].id;
   const dam = G.getHorse(g, damId);
-  const dv = damId ? G.horseView(g, damId) : null;
+  const dv = G.horseView(g, damId);
+  // 「① 繁殖牝馬を選ぶ → ② 種牡馬を選ぶ」の二段。繁殖牝馬を指定して来たとき（所有馬の「配合」など）は ② から。
+  const step = app.params.step ?? (app.params.damId != null ? 'sire' : 'dam');
+  const goStep = (s, id = damId) => app.go('farm', { tab: 'mating', damId: id, step: s }, { replace: true });
 
-  // 予算の既定は資金の 4 割。高い種牡馬ばかり見ても仕方がない。
-  const budgetInput = el('input.inp', {
-    type: 'number', value: String(Math.max(50, Math.round(g.world.player.money * 0.4))), min: '0', step: '50',
-  });
-  const search = el('input.inp', { type: 'text', placeholder: '種牡馬名で絞る' });
-  const list = el('div.stallion-list');
+  // 選んだ種牡馬。予約済み・受胎中ならその種牡馬を最初から組み合わせて見せる。
+  let sireId = booked.get(damId)?.sireId ?? dam?.pregnancy?.sireId ?? null;
 
   const fm = G.fame(g);
-  // 並べ替えと「自分の種牡馬だけ」。画面を作り直しても残るよう app に覚える。
-  const opt = app.matingOpt ??= { sort: 'fee', mine: false };
-  const sortSel = el('select.inp', [
-    ['fee', '種付料の高い順'], ['rank', 'ランクの高い順'], ['burst', '爆発力の高い順'], ['risk', '危険度の低い順'],
-  ].map(([v, t]) => el('option', { value: v, text: t, selected: opt.sort === v ? '' : null })));
-  sortSel.value = opt.sort;
-  const mineBox = el('input', { type: 'checkbox' });
-  mineBox.checked = opt.mine;
   const RANK_CLS = { S: 'rk-s', A: 'rk-a', B: 'rk-b', C: 'rk-c', D: 'rk-d', E: 'rk-e' };
   const rankChip = (r) => el(`b.rank.${RANK_CLS[r] ?? 'rk-e'}`, { text: r });
 
-  const renderList = () => {
-    list.textContent = '';
-    opt.sort = sortSel.value;
-    opt.mine = mineBox.checked;
-    const maxFee = Number(budgetInput.value) || Infinity;
-    const ss = G.matingCandidates(g, damId, { maxFee, search: search.value.trim(), mine: opt.mine, sort: opt.sort }).slice(0, 80);
-    if (!ss.length) {
-      list.appendChild(el('p.empty', { text: opt.mine ? '自分の種牡馬が居ない。重賞を勝った牡馬や実在の牡馬を引退させると種牡馬になる。' : 'その条件の種牡馬は居ない。予算を上げてみる。' }));
-      return;
-    }
-    // 列は 6 つに絞る。系統と年齢は名前の下に小さく添える（列を増やすと行が細くなって折り返した）。
-    // 行を押すと評価をモーダルで開く（評価を一覧の下に並べると縦に長くなり、読みにくかった）。
-    list.appendChild(table(['種牡馬', '因子', '種付料', 'ランク', '爆発力', '危険度'],
-      ss.map((s) => {
-        const ev = s.ev;
-        return {
-          cells: [
-            el('div', [sireName(s), el('small.line', { text: `${s.age}歳・${s.line}` })]), factorChips(s.factors),
-            s.mine ? el('span.free', { text: '無料' }) : formatMoney(s.fee),
-            s.locked ? el('small.locked', { text: `名声${fm.need}〜`, title: `海外の種牡馬は名声 ${fm.need} から（いま ${fm.fame}）` })
-              : ev ? rankChip(ev.rank) : '—',
-            ev ? el('b.tb', { text: String(ev.burst) }) : '—',
-            ev ? (ev.blocked ? el('small.locked', { text: '種付不可' }) : el('span', { text: String(ev.riskPoints), class: ev.riskPoints >= 4 ? 'tr' : null })) : '—',
-          ],
-          onclick: s.locked ? null : () => openEval(s.id),
-        };
-      }), { align: [, , 'r', 'c', 'c', 'c'], cls: 'stallion-tbl' }));
-  };
-
-  // 種牡馬を選んだら評価を開く。種付けはこのモーダルの中で予約し、閉じて画面を描き直す。
-  const openEval = (sireId) => {
-    const ev = G.evaluateMating(g, damId, sireId);
-    const sire = G.getHorse(g, sireId);
+  // 評価の詳細と種付けはモーダルで開く（一覧の下に並べると縦に長くなり、読みにくかった。落とし穴 136）。
+  const openEval = (sid) => {
+    const ev = G.evaluateMating(g, damId, sid);
+    const sire = G.getHorse(g, sid);
+    if (!ev || !sire) return;
     const m = modal(`${sire.name} × ${dam.name}`, el('div.mating-eval', [
       el('div.rank-line', [rankChip(ev.rank), el('div.stars.big', { text: '★'.repeat(ev.stars) + '☆'.repeat(5 - ev.stars) })]),
       kv([
@@ -159,7 +122,7 @@ function matingView(app) {
         : el('p.note', { text: 'インブリードは入らない（アウトブリード）。' }),
       el('p.comment', { text: ev.comment }),
       button(ev.fee === 0 ? 'この配合で種付けする（無料）' : `この配合で種付けする（${formatMoney(ev.fee)}）`, () => {
-        const r = G.bookMating(g, damId, sireId);
+        const r = G.bookMating(g, damId, sid);
         if (!r.ok) return toast(r.why, { bad: true });
         toast(`${sire.name} との配合を予約した`);
         m.close();
@@ -173,13 +136,40 @@ function matingView(app) {
     ]), { wide: true });
   };
 
-  budgetInput.addEventListener('input', renderList);
-  search.addEventListener('input', renderList);
-  sortSel.addEventListener('change', renderList);
-  mineBox.addEventListener('change', renderList);
-  renderList();
+  // ---- 仔の血統（常に見せる）。種牡馬を選び直すと、この欄だけ描き直す（一覧は作り直さない。落とし穴 50）
+  const pedHost = el('div.mate-pedhost');
+  const sumHost = el('div.mate-sumhost');
+  const sireSub = el('small', { text: '未選択' });
+  const renderPed = () => {
+    const sire = sireId != null ? G.getHorse(g, sireId) : null;
+    sireSub.textContent = sire ? sire.name : '未選択';
+    pedHost.textContent = '';
+    pedHost.appendChild(pedigreeCombo(g, sire ? sireId : null, damId));
+    sumHost.textContent = '';
+    if (!sire) {
+      sumHost.appendChild(el('p.note', { text: step === 'dam'
+        ? '繁殖牝馬を選ぶと、次に相手の種牡馬を選ぶ。'
+        : '種牡馬を選ぶと、仔の血統（父 × 母）と配合の評価がここに出る。' }));
+      return;
+    }
+    const ev = G.evaluateMating(g, damId, sireId);
+    const b = booked.get(damId);
+    sumHost.appendChild(el('div.mate-sum', [
+      el('b.mate-pair', { text: `${sire.name} × ${dam.name}` }),
+      ev ? rankChip(ev.rank) : null,
+      ev ? el('span.stars', { text: '★'.repeat(ev.stars) + '☆'.repeat(5 - ev.stars) }) : null,
+      ev ? el('span', ['爆発力 ', el('b.tb', { text: String(ev.burst) })]) : null,
+      ev ? el('span', ['危険度 ', el('b', { text: String(ev.riskPoints), class: ev.riskPoints >= 4 ? 'tr' : null })]) : null,
+      ev?.blocked ? el('small.locked', { text: '種付不可' }) : null,
+      b?.sireId === sireId ? el('span.mine', { text: '予約済み' }) : dam.pregnancy?.sireId === sireId ? el('span.win', { text: '受胎中' }) : null,
+      button('評価・種付け', () => openEval(sireId), { cls: 'sm primary' }),
+    ]));
+  };
 
-  const pedNode = () => (dv ? pedigreeMini(g, damId) : null);
+  // ---- 段の切り替え。② の札には選んだ種牡馬の名を出す
+  const stepBtn = (n, s, label, sub) => el('button.mate-step', {
+    class: step === s ? 'on' : null, onclick: () => goStep(s),
+  }, [el('b', { text: n }), el('span', [label, sub])]);
   const theoryNodes = () => [
     el('p.note', { text: '「ウイニングポスト 10 2026 攻略」の配合理論に合わせた。成り立った理論は爆発力（スピードの底上げ）とサブパラを上げ、近親やラインブリードは危険度が上がる。ウマソナ・ライバル・牝系・ドラマ因子・繋養地域に関わる理論はこのゲームには無い。' }),
     el('ul.howto', G.theoryGuide().map((t) => el('li', [el('b', { text: t.name }), el('br'), el('small', { text: t.text })]))),
@@ -191,82 +181,180 @@ function matingView(app) {
     el('li', { text: '父と母で得意距離が離れていると、中途半端な仔が出やすい。' }),
     el('li', { text: '両親の能力はそのまま伝わらない。平均へ戻る力が働く（名馬の仔が凡馬で終わることもある）。' }),
   ]);
-  // スマホだけ出すボタン列。押すと同じ内容をモーダルで開く。
-  const sideBar = el('div.mating-more', [
-    button('血統', () => { if (dv) modal(`${dv.name} の血統`, pedNode(), { wide: true }); }, { cls: 'sm' }),
-    button('配合理論', () => modal('配合理論', theoryNodes(), { wide: true }), { cls: 'sm' }),
-    button('考えかた', () => modal('配合の考えかた', howtoNode(), { wide: true }), { cls: 'sm' }),
+  const steps = el('div.mate-steps', [
+    stepBtn('1', 'dam', '繁殖牝馬', el('small', { text: dam.name })),
+    stepBtn('2', 'sire', '種牡馬', sireSub),
+    // スマホは右の列（配合理論・考えかた）を消すので、ここからモーダルで開く
+    el('div.mating-more', [
+      button('理論', () => modal('配合理論', theoryNodes(), { wide: true }), { cls: 'sm' }),
+      button('考えかた', () => modal('配合の考えかた', howtoNode(), { wide: true }), { cls: 'sm' }),
+    ]),
   ]);
 
-  return el('div.cols2.mating', [
-    el('div.col', [
-      seasonNote(g, G.matingOpen(g), '5〜6 月', '種付け'),
-      sideBar,
-      card('繁殖牝馬', table(['馬名', '年齢', '父', '母の父', '戦績', '産駒', '予約・受胎'],
-        mares.map((m) => {
-          const v = G.horseView(g, m.id);
-          const b = booked.get(m.id);
+  // ---- ① 繁殖牝馬を選ぶ
+  const maresCard = () => card('繁殖牝馬を選ぶ', table(['馬名', '年齢', '父', '母の父', '戦績', '産駒', '予約・受胎'],
+    mares.map((m) => {
+      const v = G.horseView(g, m.id);
+      const b = booked.get(m.id);
+      return {
+        cells: [
+          el('b', { text: m.name }), `${v.age}歳`, v.sire, v.damSire,
+          `${m.starts}戦${m.wins}勝`, `${(m.foals ?? []).length}頭`,
+          b ? el('span.mine', { text: `予約 ${b.sire.name}` })
+            : v.pregnancy ? el('span.win', { text: `受胎 ${v.pregnancy.sire}` }) : '—',
+        ],
+        cls: m.id === damId ? 'sel' : null,
+        onclick: () => goStep('sire', m.id),
+      };
+    }), { align: [, 'c', , , 'c', 'c'], cls: 'mares-tbl' }));
+  const bookedCard = () => (booked.size ? card('今年の配合予約', table(['繁殖牝馬', '種牡馬', '種付料', ''],
+    [...booked.values()].map((b) => [
+      b.dam.name, b.sire.name, formatMoney(b.fee),
+      button('取消', () => {
+        G.cancelMating(g, b.damId);
+        toast('予約を取り消した（種付料は返却）');
+        app.render();
+      }, { cls: 'sm ghost' }),
+    ]), { align: [, , 'r'] })) : null);
+
+  // ---- ② 種牡馬を選ぶ
+  const searchCard = () => {
+    // 予算の既定は資金の 4 割。高い種牡馬ばかり見ても仕方がない。
+    const budgetInput = el('input.inp', {
+      type: 'number', value: String(Math.max(50, Math.round(g.world.player.money * 0.4))), min: '0', step: '50',
+    });
+    const search = el('input.inp', { type: 'text', placeholder: '種牡馬名で絞る' });
+    const list = el('div.stallion-list');
+    // 並べ替えと「自分の種牡馬だけ」。画面を作り直しても残るよう app に覚える。
+    const opt = app.matingOpt ??= { sort: 'fee', mine: false };
+    const sortSel = el('select.inp', [
+      ['fee', '種付料の高い順'], ['rank', 'ランクの高い順'], ['burst', '爆発力の高い順'], ['risk', '危険度の低い順'],
+    ].map(([v, t]) => el('option', { value: v, text: t, selected: opt.sort === v ? '' : null })));
+    sortSel.value = opt.sort;
+    const mineBox = el('input', { type: 'checkbox' });
+    mineBox.checked = opt.mine;
+    const renderList = () => {
+      list.textContent = '';
+      opt.sort = sortSel.value;
+      opt.mine = mineBox.checked;
+      const maxFee = Number(budgetInput.value) || Infinity;
+      const ss = G.matingCandidates(g, damId, { maxFee, search: search.value.trim(), mine: opt.mine, sort: opt.sort }).slice(0, 80);
+      if (!ss.length) {
+        list.appendChild(el('p.empty', { text: opt.mine ? '自分の種牡馬が居ない。重賞を勝った牡馬や実在の牡馬を引退させると種牡馬になる。' : 'その条件の種牡馬は居ない。予算を上げてみる。' }));
+        return;
+      }
+      // 列は 6 つ。系統と年齢は名前の下に小さく添える。行を押すと選んだ種牡馬が変わり、上の血統が組み変わる。
+      // 選んだ印は行の class だけ付け替える（行を作り直すと押した瞬間に入れ替わってクリックが落ちる。落とし穴 50）。
+      list.appendChild(table(['種牡馬', '因子', '種付料', 'ランク', '爆発力', '危険度'],
+        ss.map((s) => {
+          const ev = s.ev;
           return {
             cells: [
-              el('b', { text: m.name }), `${v.age}歳`, v.sire, v.damSire,
-              `${m.starts}戦${m.wins}勝`, `${(m.foals ?? []).length}頭`,
-              b ? el('span.mine', { text: `予約 ${b.sire.name}` })
-                : v.pregnancy ? el('span.win', { text: `受胎 ${v.pregnancy.sire}` }) : '—',
+              el('div', [sireName(s), el('small.line', { text: `${s.age}歳・${s.line}` })]), factorChips(s.factors),
+              s.mine ? el('span.free', { text: '無料' }) : formatMoney(s.fee),
+              s.locked ? el('small.locked', { text: `名声${fm.need}〜`, title: `海外の種牡馬は名声 ${fm.need} から（いま ${fm.fame}）` })
+                : ev ? rankChip(ev.rank) : '—',
+              ev ? el('b.tb', { text: String(ev.burst) }) : '—',
+              ev ? (ev.blocked ? el('small.locked', { text: '種付不可' }) : el('span', { text: String(ev.riskPoints), class: ev.riskPoints >= 4 ? 'tr' : null })) : '—',
             ],
-            cls: m.id === damId ? 'sel' : null,
-            onclick: () => app.go('farm', { tab: 'mating', damId: m.id }),
+            cls: s.id === sireId ? 'sel' : null,
+            onclick: s.locked ? null : (e) => {
+              sireId = s.id;
+              list.querySelectorAll('tr.sel').forEach((r) => r.classList.remove('sel'));
+              e.currentTarget.classList.add('sel');
+              renderPed();
+            },
           };
-        }), { align: [, 'c', , , 'c', 'c'], cls: 'mares-tbl' })),
-      booked.size ? card('今年の配合予約', table(['繁殖牝馬', '種牡馬', '種付料', ''],
-        [...booked.values()].map((b) => [
-          b.dam.name, b.sire.name, formatMoney(b.fee),
-          button('取消', () => {
-            G.cancelMating(g, b.damId);
-            toast('予約を取り消した（種付料は返却）');
-            app.render();
-          }, { cls: 'sm ghost' }),
-        ]), { align: [, , 'r'] })) : null,
-      card('種牡馬を探す', [
-        el('p.note.note-long', { text: fm.abroadOk
-          ? `名声 ${fm.fame}。海外の種牡馬にも種付けできる。`
-          : `名声 ${fm.fame}。海外の種牡馬は名声 ${fm.need} から（レースに勝つと上がる。GI は +15、重賞は +5〜8）。` }),
-        el('div.form-row', [
-          el('label', ['予算（万円）', budgetInput]),
-          el('label', ['名前', search]),
-        ]),
-        el('div.form-row', [
-          el('label', ['並べ替え', sortSel]),
-          el('label.chk', [mineBox, '自分の種牡馬だけ（種付料無料）']),
-        ]),
-        el('p.note.note-long', { text: 'ランクは S〜E（親の格・爆発力・距離の噛み合い）。爆発力は仔の素質の上振れの大きさ、危険度は丈夫さと気性を削る度合い（0〜7）。行を押すと評価を開く。' }),
-        list,
+        }), { align: [, , 'r', 'c', 'c', 'c'], cls: 'stallion-tbl' }));
+    };
+    budgetInput.addEventListener('input', renderList);
+    search.addEventListener('input', renderList);
+    sortSel.addEventListener('change', renderList);
+    mineBox.addEventListener('change', renderList);
+    renderList();
+    return tag(card('種牡馬を選ぶ', [
+      el('p.note.note-long', { text: fm.abroadOk
+        ? `名声 ${fm.fame}。海外の種牡馬にも種付けできる。`
+        : `名声 ${fm.fame}。海外の種牡馬は名声 ${fm.need} から（レースに勝つと上がる。GI は +15、重賞は +5〜8）。` }),
+      el('div.form-row', [
+        el('label', ['予算（万円）', budgetInput]),
+        el('label', ['名前', search]),
       ]),
-    ]),
-    // 血統・配合理論・考え方は PC では右の列に並ぶ。スマホでは一画面に収めるため、
-    // 上のボタンからモーダルで開く（スクロールせずに見られる。落とし穴 136）。
-    el('div.col.mating-side', [
-      dv ? card(`${dv.name} の血統`, pedNode()) : null,
-      card('配合理論', theoryNodes()),
-      card('配合の考えかた', howtoNode()),
-    ]),
+      el('div.form-row', [
+        el('label', ['並べ替え', sortSel]),
+        el('label.chk', [mineBox, '自分の種牡馬だけ（種付料無料）']),
+      ]),
+      el('p.note.note-long', { text: 'ランクは S〜E（親の格・爆発力・距離の噛み合い）。爆発力は仔の素質の上振れの大きさ、危険度は丈夫さと気性を削る度合い（0〜7）。行を押すと上の血統が組み変わり、「評価・種付け」で詳しい評価を開く。' }),
+      list,
+    ]), 'mate-search');
+  };
+
+  renderPed();
+  const pedCard = card('仔の血統（父 × 母）', [sumHost, pedHost]);
+  pedCard.classList.add('mate-ped');
+  const guide1 = card('配合理論', theoryNodes());
+  const guide2 = card('配合の考えかた', howtoNode());
+  guide1.classList.add('mate-guide');
+  guide2.classList.add('mate-guide');
+  const left = step === 'dam'
+    ? [steps, tag(maresCard(), 'mate-mares'), bookedCard()]
+    : [steps, searchCard()];
+
+  // PC は左に段と一覧、右に血統（常に見える）と配合理論。狭い画面は一列にして、段 → 一覧の上に血統を差し込む（CSS の order）。
+  return el('div.cols2.mating', [
+    el('div.col', left),
+    el('div.col.mating-side', [pedCard, guide1, guide2]),
   ]);
 }
 
-function pedigreeMini(g, id) {
-  const tree = G.pedigree(g, id, 3);
-  if (!tree) return el('p.empty', { text: '—' });
-  const cols = [[], [], []];
-  const walk = (n, gen) => {
-    if (gen > 3) return;
-    cols[gen - 1].push(n);
-    walk(n?.sire ?? null, gen + 1);
-    walk(n?.dam ?? null, gen + 1);
+/** 要素に class を足して返す。 */
+function tag(node, cls) {
+  node.classList.add(cls);
+  return node;
+}
+
+/**
+ * 仔の血統（父＝選んだ種牡馬、母＝繁殖牝馬）を 3 代で並べる。
+ * 父の側と母の側の両方に出る祖先は印（.cross）を付ける。インブリードの元が一目で分かる。
+ */
+function pedigreeCombo(g, sireId, damId) {
+  // G.pedigree の根は父母だけを持つので、種牡馬・繁殖牝馬自身を根として付け足す
+  const root = (id) => {
+    if (id == null) return null;
+    const h = G.getHorse(g, id);
+    const t = G.pedigree(g, id, 2);
+    return h ? { id, name: h.name, sex: h.sex, factors: h.factors ?? [], head: !!h.lineHead, sire: t?.sire ?? null, dam: t?.dam ?? null } : null;
   };
-  walk(tree.sire, 1);
-  walk(tree.dam, 1);
-  const ped = el('div.ped.mini', cols.map((cells) => el('div.ped-col', cells.map((n) =>
-    el('div.ped-cell', { class: n ? (n.sex === '牡' ? 'male' : 'female') : 'blank' },
-      n ? [el('span', { text: n.name }), pedMarks(n)] : el('span', { text: '—' }))))));
+  const s = root(sireId);
+  const d = root(damId);
+  const names = (n, gen, out) => {
+    if (!n?.name || gen > 3) return out;
+    out.add(n.name);
+    names(n.sire, gen + 1, out);
+    names(n.dam, gen + 1, out);
+    return out;
+  };
+  const sn = names(s, 1, new Set());
+  const dn = names(d, 1, new Set());
+  const cols = [[], [], []];
+  const walk = (n, gen, side) => {
+    if (gen > 3) return;
+    cols[gen - 1].push({ n, side });
+    walk(n?.sire ?? null, gen + 1, side);
+    walk(n?.dam ?? null, gen + 1, side);
+  };
+  walk(s, 1, 'sire');
+  walk(d, 1, 'dam');
+  const ped = el('div.ped.mini.combo', cols.map((cells) => el('div.ped-col', cells.map(({ n, side }, i) => {
+    if (!n) {
+      // 種牡馬を選ぶ前の父の欄は案内を出す（空欄だと何が足りないか分からない）
+      const hint = side === 'sire' && !s && i === 0 && cells.length === 2;
+      return el('div.ped-cell.blank', { class: hint ? 'pick' : null }, el('span', { text: hint ? '種牡馬を選ぶ' : '—' }));
+    }
+    const cross = sn.has(n.name) && dn.has(n.name);
+    return el('div.ped-cell', { class: [n.sex === '牡' ? 'male' : 'female', cross ? 'cross' : null].filter(Boolean).join(' '), title: cross ? '父と母の両方に居る（インブリード）' : null },
+      [el('span', { text: n.name }), pedMarks(n)]);
+  }))));
   return pedWithToggle(ped);
 }
 
