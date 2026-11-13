@@ -179,9 +179,29 @@ function matingView(app) {
   mineBox.addEventListener('change', renderList);
   renderList();
 
+  const pedNode = () => (dv ? pedigreeMini(g, damId) : null);
+  const theoryNodes = () => [
+    el('p.note', { text: '「ウイニングポスト 10 2026 攻略」の配合理論に合わせた。成り立った理論は爆発力（スピードの底上げ）とサブパラを上げ、近親やラインブリードは危険度が上がる。ウマソナ・ライバル・牝系・ドラマ因子・繋養地域に関わる理論はこのゲームには無い。' }),
+    el('ul.howto', G.theoryGuide().map((t) => el('li', [el('b', { text: t.name }), el('br'), el('small', { text: t.text })]))),
+  ];
+  const howtoNode = () => el('ul.howto', [
+    el('li', { text: '3×4 のインブリード（奇跡の血量）が効く。近すぎる配合は爆発力が大きいぶん、丈夫さと気性を削る（危険度）。' }),
+    el('li', { text: '爆発力は、仔のスピードの底上げの上限。0〜(爆発力−1) の抽選で決まり、サブパラは理論ごとに上がる。' }),
+    el('li', { text: 'ニックス（父系 × 母方の系統の相性）は産駒 12 頭ぶんの実績が出るまで「？」のまま。成立すると爆発力が上がる。' }),
+    el('li', { text: '父と母で得意距離が離れていると、中途半端な仔が出やすい。' }),
+    el('li', { text: '両親の能力はそのまま伝わらない。平均へ戻る力が働く（名馬の仔が凡馬で終わることもある）。' }),
+  ]);
+  // スマホだけ出すボタン列。押すと同じ内容をモーダルで開く。
+  const sideBar = el('div.mating-more', [
+    button('血統', () => { if (dv) modal(`${dv.name} の血統`, pedNode(), { wide: true }); }, { cls: 'sm' }),
+    button('配合理論', () => modal('配合理論', theoryNodes(), { wide: true }), { cls: 'sm' }),
+    button('考えかた', () => modal('配合の考えかた', howtoNode(), { wide: true }), { cls: 'sm' }),
+  ]);
+
   return el('div.cols2.mating', [
     el('div.col', [
       seasonNote(g, G.matingOpen(g), '5〜6 月', '種付け'),
+      sideBar,
       card('繁殖牝馬', table(['馬名', '年齢', '父', '母の父', '戦績', '産駒', '予約・受胎'],
         mares.map((m) => {
           const v = G.horseView(g, m.id);
@@ -222,19 +242,12 @@ function matingView(app) {
         list,
       ]),
     ]),
-    el('div.col', [
-      dv ? card(`${dv.name} の血統`, pedigreeMini(g, damId)) : null,
-      card('配合理論', [
-        el('p.note', { text: '「ウイニングポスト 10 2026 攻略」の配合理論に合わせた。成り立った理論は爆発力（スピードの底上げ）とサブパラを上げ、近親やラインブリードは危険度が上がる。ウマソナ・ライバル・牝系・ドラマ因子・繋養地域に関わる理論はこのゲームには無い。' }),
-        el('ul.howto', G.theoryGuide().map((t) => el('li', [el('b', { text: t.name }), el('br'), el('small', { text: t.text })]))),
-      ]),
-      card('配合の考えかた', el('ul.howto', [
-        el('li', { text: '3×4 のインブリード（奇跡の血量）が効く。近すぎる配合は爆発力が大きいぶん、丈夫さと気性を削る（危険度）。' }),
-        el('li', { text: '爆発力は、仔のスピードの底上げの上限。0〜(爆発力−1) の抽選で決まり、サブパラは理論ごとに上がる。' }),
-        el('li', { text: 'ニックス（父系 × 母方の系統の相性）は産駒 12 頭ぶんの実績が出るまで「？」のまま。成立すると爆発力が上がる。' }),
-        el('li', { text: '父と母で得意距離が離れていると、中途半端な仔が出やすい。' }),
-        el('li', { text: '両親の能力はそのまま伝わらない。平均へ戻る力が働く（名馬の仔が凡馬で終わることもある）。' }),
-      ])),
+    // 血統・配合理論・考え方は PC では右の列に並ぶ。スマホでは一画面に収めるため、
+    // 上のボタンからモーダルで開く（スクロールせずに見られる。落とし穴 136）。
+    el('div.col.mating-side', [
+      dv ? card(`${dv.name} の血統`, pedNode()) : null,
+      card('配合理論', theoryNodes()),
+      card('配合の考えかた', howtoNode()),
     ]),
   ]);
 }

@@ -685,6 +685,8 @@ div.ev { cursor: default; }
 .stallion-list { max-height: 420px; overflow: auto; }
 .mating-eval h3 { margin: 0 0 4px; font-size: 15px; }
 .mating-eval h4 { margin: 10px 0 3px; font-size: 12px; color: var(--green-d); }
+/* 血統・配合理論・考え方のボタン列。PC は右の列に並ぶので出さない。 */
+.mating-more { display: none; }
 /* 配合の画面は、スマホでは一画面に収める。表は横へ巻かず、父・母の父・因子は評価の中で見る。
    一覧は残りの高さの中で縦に送り、フォームは 1 行に詰める（落とし穴 136 の続き）。 */
 @media (max-width: 600px) {
@@ -695,7 +697,11 @@ div.ev { cursor: default; }
   .mating .mares-tbl th:nth-child(3), .mating .mares-tbl td:nth-child(3),
   .mating .mares-tbl th:nth-child(4), .mating .mares-tbl td:nth-child(4) { display: none; }
   /* 一覧の下端は下のメニュー（約 150px）の上に収める。上の余白は説明文を隠して詰める。 */
-  .mating .stallion-list { max-height: max(180px, calc(100dvh - 590px)); }
+  .mating .stallion-list { max-height: max(160px, calc(100dvh - 634px)); }
+  /* スマホは右の列（血統・理論・考え方）を消し、上のボタンからモーダルで開く。 */
+  .mating .mating-side { display: none; }
+  .mating-more { display: flex; gap: 6px; margin: 2px 0 8px; }
+  .mating-more button { flex: 1 1 0; }
   .mating .stallion-tbl th:nth-child(2), .mating .stallion-tbl td:nth-child(2) { display: none; }
   .mating .stallion-tbl td, .mating .stallion-tbl th { padding: 5px 4px; }
   .mating .stallion-tbl td:first-child { white-space: normal; }
