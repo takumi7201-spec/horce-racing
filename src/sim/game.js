@@ -88,7 +88,10 @@ export function horseView(g, id) {
   // 能力がすべて G のまま（「最低ステータス」に見えた）。2 歳の年明けに見える値とつながる。
   const vy = h.preview ? h.birthYear + 4 : Math.max(w.year, h.birthYear + 2);
   const eff = effectiveAbility(h, vy);
-  const raw = effectiveAbility(h, vy, { ignoreCondition: true });
+  // 種牡馬・繁殖牝馬の「いま」は、仔に渡す値（繁殖に上がった時点で固定、実在馬は史実以上。落とし穴 151）。
+  const breeder = !h.preview && (h.stallion || h.broodmare);
+  const raw = breeder ? Object.fromEntries(ABILITIES.map((a) => [a, parentNow(h, a, w.year)]))
+    : effectiveAbility(h, vy, { ignoreCondition: true });
   return {
     horse: h,
     id: h.id, name: h.name, sex: h.sex, coat: h.coat, marks: marksOf(h), gear: gearOf(h),

@@ -74,9 +74,9 @@ export function growthFactor(horse, year) {
 
 /**
  * 仔に渡す親の能力は「いま」の値（現在値 × 種付けの年の成長曲線）。年老いた種牡馬・育ち切らなかった親ほど仔に渡る値が下がる。
- * 「いま」は潜在値より平均で低いので、そのぶんを足して世界の水準（潜在能力の中央値）を変えない（落とし穴 41・149）。値は 2026 年開始で仔の潜在の中央値を変更前（0.622）に合わせた。
+ * 「いま」は潜在値より平均で少し低いので、そのぶんを足して世界の水準（潜在能力の中央値）を変えない（落とし穴 41・149・151）。値は 2026 年開始で仔の潜在の中央値を変更前（0.622）に合わせた（繁殖に上がった時点で固定する前は 0.095）。
  */
-export const PARENT_NOW_BASE = 0.095;
+export const PARENT_NOW_BASE = 0.008;
 
 /**
  * 実在馬は繁殖に上がるとき、現在値を潜在値（表の値）にそろえる（落とし穴 150）。ゲーム中に生まれて走った実在馬は、
@@ -88,9 +88,25 @@ export function settleRealParent(h) {
   for (const a of ABILITIES) if (h.cur[a] < h.pot[a]) h.cur[a] = h.pot[a];
 }
 
-/** 仔に渡る親の能力（「この世界のいま」と同じ値。year は種付けの年）。 */
+/**
+ * 繁殖に上がった時点の年（落とし穴 151）。引退の年（retiredYear）が無い馬（世界を作るときに上がった馬・表から作った引退馬）は
+ * 5 歳の年（盛りの終わり）とする。year より先にはしない。
+ */
+export function studEntryYear(h, year) {
+  return Math.min(year, h.retiredYear ?? h.birthYear + 5);
+}
+
+/**
+ * 仔に渡る親の能力（year は種付けの年）。
+ * 繁殖に上がった馬は、上がった時点の「いま」（現在値 × その年の成長曲線）で固定し、その後は衰えない。
+ * 実在馬はそれと史実の値（表＝潜在値）の高いほう：この世界で史実を超えて育てばその値、届かなければ史実
+ * （1985 年開始のノーザンテースト〔14 歳〕がスピード F を渡していた）。まだ走っている馬は今の「いま」。
+ */
 export function parentNow(h, a, year) {
-  return clamp01((h.cur?.[a] ?? h.pot[a]) * growthFactor(h, year));
+  const cur = h.cur?.[a] ?? h.pot[a];
+  if (!(h.stallion || h.broodmare || h.retired)) return clamp01(cur * growthFactor(h, year));
+  const v = cur * growthFactor(h, studEntryYear(h, year));
+  return clamp01(h.real ? Math.max(v, h.pot[a]) : v);
 }
 
 /**

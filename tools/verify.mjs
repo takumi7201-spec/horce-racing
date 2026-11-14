@@ -3,7 +3,7 @@
 // 数字をいじったらここを必ず通す。落ちたら PHYS か world.js の母集団設定を疑う。
 
 import { makeRng } from '../src/core/rng.js';
-import { createHorse, resetHorseIds, peekHorseId, distanceAptitude, effectiveAbility } from '../src/sim/horse.js';
+import { createHorse, resetHorseIds, peekHorseId, distanceAptitude, effectiveAbility, parentNow } from '../src/sim/horse.js';
 import { simulateRace, sampleLog, logDuration } from '../src/sim/race.js';
 import {
   buildTrack, posToWorld, curvatureAt, gradeAt, allCourses, distancesOf,
@@ -514,6 +514,10 @@ section('開始年（史実の名馬）');
   const tesco = byName(w75, 'テスコボーイ');
   check(`テスコボーイが名簿に居て種付料は史実の額（${tesco?.studFee} 万）`, pool.has(tesco?.id) && tesco.studFee === 2000);
   check('サンデーサイレンスはまだ輸入されていない', !byName(w75, 'サンデーサイレンス'));
+  // 種牡馬が仔に渡す値は、繁殖に上がった時点で固定し、実在馬は史実（表）を下回らない（落とし穴 151）。
+  // 以前は年齢で衰えた「いま」を渡し、老いた名種牡馬がスピード F になっていた。
+  const tescoNow = ['speed', 'stamina', 'power', 'guts', 'wit'].map((a) => parentNow(tesco, a, 1975 + 10) - tesco.pot[a]);
+  check('実在の種牡馬は年をとっても史実の能力を仔に渡す（テスコボーイ 1985 年）', tescoNow.every((d) => d >= -1e-9));
   const tb = byName(w75, 'トウショウボーイ');
   check('トウショウボーイが 2 歳の競走馬として居る', !!tb && !tb.retired && tb.birthYear === 1973 && !!tb.ownerId);
   // 種牡馬入りしていない現役の実在馬でも、表にある「まだ生まれていない仔」を産駒のタブに出す
