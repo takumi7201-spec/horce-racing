@@ -60,6 +60,7 @@ function stableTile(app, h, cat) {
     sub = `${h.sex}${v.age}　${v.className}`;
     tags.push(v.injury ? ['bad', v.injury.name] : v.stable === 'stable' ? ['on', '在厩'] : ['', '放牧']);
     if (v.autoTrain) tags.push(['', 'オート']);
+    if (v.autoEntry) tags.push(['', 'オート出走']);
     if (G.myEntries(g).some((e) => e.horseId === h.id)) tags.push(['go', '出走予定']);
   } else if (cat === 'mares') {
     const o = mareKids = G.offspringOf(g, h.id);
@@ -460,6 +461,7 @@ function statePanel(v, offspring = null) {
   ] : racing ? [
     r('調子', v.condLabel),
     r('調教', v.autoTrain ? 'オート' : (MENUS.find((m) => m.id === v.menu)?.name ?? '—')),
+    r('出走登録', v.autoEntry ? `オート（${v.autoEntry.gap}週・${v.autoEntry.min}以上）` : '手動'),
     r('状態', v.injury ? v.injury.name : v.stable === 'stable' ? '在厩' : '放牧', v.injury ? 'bad' : null),
   ] : v.preview ? [
     r('いま', v.preview),
@@ -502,7 +504,8 @@ function actions(app, v, active) {
   const id = v.id;
   if (active) {
     return [
-      button('出走登録', () => entryModal(app, id), { cls: 'primary', disabled: !v.ready.ok, title: v.ready.ok ? '' : v.ready.why }),
+      // 放牧中・けがの間も開ける（先の週・年間プラン・オート出走登録は今の体調によらない。今週の登録は enterRace が断る）
+      button('出走登録', () => entryModal(app, id), { cls: 'primary', title: v.ready.ok ? '' : `今週は${v.ready.why}` }),
       button('調教', () => { app.detailTab = 'train'; app.render(); }),
       button('騎手', () => pickJockey(app, id)),
       v.stable === 'stable'
@@ -973,26 +976,82 @@ function pickJockey(app, id) {
     ]), { align: [, 'c', 'c', 'c', 'c'] }), { wide: true });
 }
 
+/** 勝てる見込みの印（落とし穴 152）。◎ 勝ち負け・○ 上位争い・△ 掲示板・× 厳しい */
+export function prospectMark(p) {
+  if (!p) return '—';
+  const cls = { '◎': 'pm-a', '○': 'pm-b', '△': 'pm-c', '×': 'pm-d' }[p.mark];
+  return el(`b.pmark.${cls}`, { text: p.mark, title: `見込み：${p.label}` });
+}
+
+/**
+ * 出走登録。週ごと（1 レースずつ）・年間プラン（1 年ぶんをまとめて）・オート出走登録（落とし穴 152）。
+ * 見込みは「適性込みの地力」と「そのクラスに集まる相手の強さ」の差（`entryplan.js`）。
+ */
 export function entryModal(app, id) {
   const g = app.game;
   const v = G.horseView(g, id);
   let week = 0;
+  let mode = app.entryMode ?? 'week';
+  const opt = app.entryPlanOpt ??= { ...G.AUTO_ENTRY_DEFAULT };
   const body = el('div');
   const jockeySel = el('select.inp');
   for (const j of G.availableJockeys(g, 40)) {
     jockeySel.appendChild(el('option', { value: String(j.id), text: `${j.name}（★${'★'.repeat(Math.max(1, Math.round(j.skill * 5))).length}）` }));
   }
   if (v.horse.jockeyId != null) jockeySel.value = String(v.horse.jockeyId);
+  // 主戦が一覧（腕の上位 40 人）に居ないと空欄になるので、先頭を選んでおく
+  if (jockeySel.selectedIndex < 0) jockeySel.selectedIndex = 0;
   const styleSel = el('select.inp', [
     el('option', { value: '', text: '指示なし（馬の持ち味）' }),
     ...STYLES.map((s) => el('option', { value: s, text: s })),
   ]);
   const horizon = G.ENTRY_HORIZON;
   const sch = G.schedule(g, horizon);
-  const mine = new Map(G.myEntries(g).filter((e) => e.horseId === id).map((e) => [e.raceId, e]));
+  const mineNow = () => new Map(G.myEntries(g).filter((e) => e.horseId === id).map((e) => [e.raceId, e]));
+  const enterOpts = () => ({ jockeyId: Number(jockeySel.value), styleOrder: styleSel.value || null });
+  const chips = (list, key, val, set) => el('div.at-chips', list.map((x) => el('button.at-chip', {
+    class: val === x ? 'on' : null, text: key === 'gap' ? `${x}週` : `${x}以上`,
+    onclick: () => set(x),
+  })));
 
-  const render = () => {
-    body.textContent = '';
+  // ---- オート出走登録
+  const autoBox = () => {
+    const h = G.getHorse(g, id);
+    const auto = h.autoEntry ? { ...G.AUTO_ENTRY_DEFAULT, ...h.autoEntry } : null;
+    const plan = auto ?? opt;
+    const setPlan = (p) => {
+      if (auto) G.setAutoEntry(g, id, p); else Object.assign(opt, p);
+      render(); app.render();
+    };
+    return el('div.autotrain', [
+      el('div.at-head', [
+        el('div', [
+          el('b', { text: 'オート出走登録' }),
+          el('span', { text: auto
+            ? `前走から ${plan.gap} 週あけて、12 週先までの見込み${plan.min}以上のレースに次の 1 走を毎週自動で登録する（走る 2 週前に入厩）。`
+            : '適性に合って勝てる見込みのあるレースに、次の 1 走を毎週自動で登録する。' }),
+        ]),
+        el('div.at-btns', [
+          button(auto ? 'オートをやめる' : 'オートにする', () => {
+            G.setAutoEntry(g, id, auto ? null : plan);
+            toast(auto ? `${v.name} のオート出走登録をやめた` : `${v.name} をオート出走登録にした`);
+            render(); app.render();
+          }, { cls: auto ? 'ghost sm' : 'primary sm' }),
+          button('所有馬すべてに', () => {
+            const n = G.setAutoEntryAll(g, plan);
+            toast(`${n} 頭をオート出走登録にした`);
+            render(); app.render();
+          }, { cls: 'ghost sm' }),
+        ]),
+      ]),
+      el('div.at-row', [el('span.at-k', { text: '間隔' }), chips(G.AUTO_ENTRY_GAPS, 'gap', plan.gap, (x) => setPlan({ ...plan, gap: x }))]),
+      el('div.at-row', [el('span.at-k', { text: '見込み' }), chips(G.AUTO_ENTRY_MINS, 'min', plan.min, (x) => setPlan({ ...plan, min: x }))]),
+    ]);
+  };
+
+  // ---- 週ごと
+  const weekView = () => {
+    const mine = mineNow();
     const races = G.racesFor(g, id, week);
     const at = sch[week];
     const sel = el('select.inp', {
@@ -1004,46 +1063,108 @@ export function entryModal(app, id) {
         text: `${i === 0 ? '今週' : `${i}週後`}　${w.year}年 ${w.label}（${n}レース）`,
       });
     }));
-    body.appendChild(el('div.week-picker', [
+    const out = [el('div.week-picker', [
       button('◀', () => { week = Math.max(0, week - 1); render(); }, { cls: 'sm', disabled: week === 0 }),
       sel,
       button('▶', () => { week = Math.min(horizon - 1, week + 1); render(); }, { cls: 'sm', disabled: week >= horizon - 1 }),
       button('今週', () => { week = 0; render(); }, { cls: 'sm ghost' }),
-    ]));
+    ])];
+    if (!races.length) {
+      out.push(el('p.empty', { text: `${at.year}年 ${at.label} に出られるレースは無い。` }));
+      return out;
+    }
+    out.push(table(
+      ['レース', '場', '条件', '距離', '賞金', '適性', '見込み', ''],
+      races.map((r) => {
+        const ent = mine.get(r.raceId);
+        return [
+          el('span', { text: r.name, class: r.grade ? 'grade' : null,
+            title: r.abroadCost ? `海外遠征（遠征費 ${formatMoney(r.abroadCost)}）` : null }),
+          r.abroadCost ? `${r.courseShort}・遠征費${formatMoney(r.abroadCost)}` : r.courseName, `${r.className}・${r.ageLabel}${r.sexLabel}`,
+          `${r.surface}${r.distance}m`,
+          formatMoney(r.prize),
+          bar(r.apt),
+          prospectMark(r.prospect),
+          ent
+            ? button('取消', () => { G.cancelEntry(g, r.raceId); render(); app.render(); }, { cls: 'sm ghost' })
+            : button('登録', () => {
+              const res = G.enterRace(g, id, r.raceId, enterOpts());
+              if (!res.ok) return toast(res.why, { bad: true });
+              toast(`${v.name} を ${r.name} に登録した（${at.year}年 ${at.label}）`);
+              render(); app.render();
+              return undefined;
+            }, { cls: 'sm primary' }),
+        ];
+      }), { align: [, 'c', 'c', 'c', 'r', 'c', 'c'] }));
+    if (week !== 0) out.push(el('p.note', { text: '先の週の登録は、その週に出走資格と体調を見直す（外れたら取り消される）。' }));
+    return out;
+  };
+
+  // ---- 年間プラン：1 年ぶんの候補を選んで、まとめて登録する
+  const yearView = () => {
+    const mine = mineNow();
+    // 間隔と見込みは上のオート出走登録の札と同じもの（オートの馬はその設定、そうでなければ下書きの設定）
+    const h0 = G.getHorse(g, id);
+    const base = h0.autoEntry ? { ...G.AUTO_ENTRY_DEFAULT, ...h0.autoEntry } : opt;
+    // 見込みの条件で 1 つも無ければ、一段ずつ緩めて組む（強い相手しか居ない馬でも 1 年の下書きを出す）
+    const mins = ['◎', '○', '△', '×'];
+    let plan = [], usedMin = base.min;
+    for (const m of mins.slice(mins.indexOf(base.min))) {
+      usedMin = m;
+      plan = G.yearPlan(g, id, { ...base, min: m });
+      if (plan.length) break;
+    }
+    const picked = new Set(plan.map((p) => p.raceId));
+    const regBtn = button('', () => {
+      const res = G.enterPlan(g, id, [...picked], enterOpts());
+      toast(res.ok ? `${v.name} を ${res.ok} レースに登録した${res.ng.length ? `（${res.ng.length} 件は登録できなかった）` : ''}` : (res.ng[0] ?? '登録できなかった'), { bad: !res.ok });
+      render(); app.render();
+    }, { cls: 'primary' });
+    const syncBtn = () => { regBtn.textContent = `選んだ ${picked.size} レースを登録`; regBtn.disabled = picked.size === 0; };
+    syncBtn();
+    const out = [];
+    if (plan.length && usedMin !== base.min) {
+      out.push(el('p.warn', { text: `見込み${base.min}以上のレースが 1 年のうちに無いので、${usedMin === '×' ? '見込みを問わず' : `${usedMin}以上で`}組んだ。` }));
+    }
+    if (!plan.length) {
+      out.push(el('p.empty', { text: 'いまのクラスで出られるレースが 1 年のうちに無い。' }));
+    } else {
+      out.push(table(['', '時期', 'レース', '場', '条件', '距離', '賞金', '見込み', ''],
+        plan.map((p) => {
+          const box = el('input', { type: 'checkbox' });
+          box.checked = true;
+          box.addEventListener('change', () => { if (box.checked) picked.add(p.raceId); else picked.delete(p.raceId); syncBtn(); });
+          return [
+            box, `${p.year}年 ${p.label}`,
+            el('span', { text: p.name, class: p.grade ? 'grade' : null }),
+            p.courseName, `${p.className}・${p.ageLabel}${p.sexLabel}`, `${p.surface}${p.distance}m`, formatMoney(p.prize),
+            prospectMark(p.prospect),
+            mine.has(p.raceId) ? el('span.mine', { text: '済', title: '登録済み' }) : '',
+          ];
+        }), { align: ['c', 'c', , 'c', 'c', 'c', 'r', 'c'], cls: 'ep-tbl' }));
+      out.push(el('div.ep-foot', [regBtn]));
+    }
+    out.push(el('p.note', { text: 'いまのクラスで出られるレースから、上の間隔をあけて見込みの高いものを 1 年先まで選んだ下書き。勝ってクラスが上がると、その週に資格を見直して外れる（オート出走登録なら次のレースを取り直す）。' }));
+    if (mine.size) {
+      out.push(el('h4', { text: `この馬の登録（${mine.size}）` }));
+      out.push(table(['時期', 'レース', '距離', ''], G.myEntries(g).filter((e) => e.horseId === id).map((e) => [
+        `${e.year}年 ${e.label}`, e.race?.name ?? e.raceId, e.race?.distance ? `${e.race.surface}${e.race.distance}m` : '',
+        button('取消', () => { G.cancelEntry(g, e.raceId); render(); app.render(); }, { cls: 'sm ghost' }),
+      ]), { align: ['c', , 'c'] }));
+      out.push(button('この馬の登録をすべて取り消す', () => { const n = G.cancelEntriesOf(g, id); toast(`${n} 件を取り消した`); render(); app.render(); }, { cls: 'ghost sm' }));
+    }
+    return out;
+  };
+
+  const render = () => {
+    body.textContent = '';
+    body.appendChild(autoBox());
+    body.appendChild(tabs([{ id: 'week', name: '週ごと' }, { id: 'year', name: '年間プラン' }], mode, (k) => { mode = k; app.entryMode = k; render(); }));
     body.appendChild(el('div.form-row', [
       el('label', ['騎手', jockeySel]),
       el('label', ['脚質指示', styleSel]),
     ]));
-    if (!races.length) {
-      body.appendChild(el('p.empty', { text: `${at.year}年 ${at.label} に出られるレースは無い。` }));
-    } else {
-      body.appendChild(table(
-        ['レース', '場', '条件', '距離', '賞金', '適性', ''],
-        races.map((r) => {
-          const ent = mine.get(r.raceId);
-          return [
-            el('span', { text: r.name, class: r.grade ? 'grade' : null,
-              title: r.abroadCost ? `海外遠征（遠征費 ${formatMoney(r.abroadCost)}）` : null }),
-            r.abroadCost ? `${r.courseShort}・遠征費${formatMoney(r.abroadCost)}` : r.courseName, `${r.className}・${r.ageLabel}${r.sexLabel}`,
-            `${r.surface}${r.distance}m`,
-            formatMoney(r.prize),
-            bar(r.apt),
-            ent
-              ? button('取消', () => { G.cancelEntry(g, r.raceId); mine.delete(r.raceId); render(); app.render(); }, { cls: 'sm ghost' })
-              : button('登録', () => {
-                const res = G.enterRace(g, id, r.raceId, {
-                  jockeyId: Number(jockeySel.value),
-                  styleOrder: styleSel.value || null,
-                });
-                if (!res.ok) return toast(res.why, { bad: true });
-                toast(`${v.name} を ${r.name} に登録した（${at.year}年 ${at.label}）`);
-                m.close();
-                app.render();
-              }, { cls: 'sm primary' }),
-          ];
-        }), { align: [, 'c', 'c', 'c', 'r', 'c'] }));
-      if (week !== 0) body.appendChild(el('p.note', { text: '先の週の登録は、その週に出走資格と体調を見直す（外れたら取り消される）。' }));
-    }
+    for (const n of (mode === 'year' ? yearView() : weekView())) if (n) body.appendChild(n);
   };
 
   const m = modal(`${v.name} の出走登録`, [body], { wide: true });

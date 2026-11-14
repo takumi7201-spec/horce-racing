@@ -4,7 +4,7 @@ import { el, card, table, button, tabs, modal, bar, toast } from '../dom.js';
 import * as G from '../../sim/game.js';
 import { formatMoney } from '../../core/util.js';
 import { weekLabel } from '../../sim/schedule.js';
-import { entryModal } from './stable.js';
+import { entryModal, prospectMark } from './stable.js';
 import { STYLES } from '../../sim/params.js';
 
 const SHORT = {
@@ -192,13 +192,13 @@ function pickHorse(app, race, cands, offset = 0) {
       el('label', ['騎手', jockeySel]),
       el('label', ['脚質指示', styleSel]),
     ]),
-    table(['馬名', '性齢', 'クラス', '疲労', '調子', '適性', ''],
+    table(['馬名', '性齢', 'クラス', '疲労', '調子', '適性', '見込み', ''],
       cands.map((h) => {
         const v = G.horseView(g, h.id);
         const r = G.racesFor(g, h.id, offset).find((x) => x.raceId === race.raceId);
         return [
           el('b', { text: h.name }), `${h.sex}${v.age}`, v.className,
-          fatigueMark(v.fatigue), v.condLabel, bar(r?.apt ?? 0),
+          fatigueMark(v.fatigue), v.condLabel, bar(r?.apt ?? 0), prospectMark(r?.prospect),
           button('登録', () => {
             const res = G.enterRace(g, h.id, race.raceId, {
               jockeyId: Number(jockeySel.value),
@@ -210,8 +210,8 @@ function pickHorse(app, race, cands, offset = 0) {
             app.render();
           }, { cls: 'sm primary' }),
         ];
-      }), { align: [, 'c', 'c', 'c', 'c', 'c'] }),
-    el('p.note', { text: '主戦騎手が決まっている馬でも、ここで別の騎手を指名できる。' }),
+      }), { align: [, 'c', 'c', 'c', 'c', 'c', 'c'] }),
+    el('p.note', { text: '主戦騎手が決まっている馬でも、ここで別の騎手を指名できる。見込みは ◎ 勝ち負け・○ 上位争い・△ 掲示板・× 厳しい。' }),
   ], { wide: true });
   // 先頭の馬の主戦騎手を初期値にする。
   if (cands[0]?.jockeyId != null) jockeySel.value = String(cands[0].jockeyId);

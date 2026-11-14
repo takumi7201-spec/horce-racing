@@ -1806,6 +1806,28 @@ section('オート調教（傾向）と仕上がりの撤去');
   check('仕上がりは馬の詳細にも馬にも無い', !('fit' in v0) && !('fitLabel' in v0) && h0.fit === undefined);
   GG.setAutoTrain(gT, h0.id, null);
   check('オート調教：やめると自分で選んだメニューに戻る', GG.horseView(gT, h0.id).autoTrain === null);
+
+  // 落とし穴 152：出走の見込み・年間プラン・オート出走登録（世界を増やさないよう同じ世界で見る）
+  const races0 = GG.racesFor(gT, h0.id, 2);
+  check('出走の候補に見込みの印（◎○△×）が付く', races0.length > 0 && races0.every((r) => ['◎', '○', '△', '×'].includes(r.prospect?.mark)));
+  const plan = GG.yearPlan(gT, h0.id, { gap: 4, min: '×' });
+  const gaps = plan.slice(1).map((p, i) => (p.year - plan[i].year) * 48 + (p.week - plan[i].week));
+  check(`年間プランは 1 年先までを間隔をあけて組む（${plan.length} レース、最短 ${Math.min(...gaps)} 週）`,
+    plan.length >= 3 && gaps.every((d) => d >= 4) && plan.every((p) => p.offset < 48));
+  const before = GG.myEntries(gT).length;
+  const reg = GG.enterPlan(gT, h0.id, plan.map((p) => p.raceId));
+  check(`年間プランをまとめて登録できる（${reg.ok} 件）`, reg.ok === plan.length && GG.myEntries(gT).length === before + reg.ok);
+  GG.cancelEntriesOf(gT, h0.id);
+  check('この馬の登録をまとめて取り消せる', !GG.myEntries(gT).some((e) => e.horseId === h0.id));
+  const nAuto = GG.setAutoEntryAll(gT, { gap: 3, min: '△' });
+  for (const h of mine) { h.injury = null; h.fatigue = 0; }
+  const starts0 = mine.map((h) => h.starts);
+  for (let i = 0; i < 16; i++) nextWeek(gT);
+  const ran = mine.filter((h, i) => h.starts > starts0[i] || GG.myEntries(gT).some((e) => e.horseId === h.id)).length;
+  const news = gT.world.log.flatMap((l) => l.news).filter((t) => t.includes('自動で登録'));
+  check(`オート出走登録：オートの馬（${nAuto} 頭）が登録されて走る（${ran} 頭、知らせ ${news.length} 件）`, nAuto === mine.length && ran >= Math.min(2, mine.length) && news.length > 0);
+  GG.setAutoEntry(gT, h0.id, null);
+  check('オート出走登録：やめると詳細の表示も手動に戻る', GG.horseView(gT, h0.id).autoEntry === null);
 }
 
 // ---------------------------------------------------------------- 表記違いの重複

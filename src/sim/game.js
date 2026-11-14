@@ -28,6 +28,8 @@ import { gearOf, setGear, GEAR, GEAR_KEYS, GEAR_COLORS, gearNames, gearEffect } 
 export { GEAR, GEAR_KEYS, GEAR_COLORS, gearNames };
 import { clamp01, sum, byDesc, formatMoney, formatTime, rankOf, rankYoung } from '../core/util.js';
 import { kickOf, flexOf } from './traits.js';
+import { prospect, pickAutoRace, yearPlan as yearPlanOf, cleanAutoEntry, AUTO_ENTRY_DEFAULT, AUTO_ENTRY_GAPS, AUTO_ENTRY_MINS } from './entryplan.js';
+export { AUTO_ENTRY_DEFAULT, AUTO_ENTRY_GAPS, AUTO_ENTRY_MINS };
 
 /** 新規ゲーム。 */
 export function newGame({ seed = Date.now() & 0xffffff, playerName = '', farmName = '', startYear = 2026, realSires = true } = {}) {
@@ -129,6 +131,7 @@ export function horseView(g, id) {
     autoDebut: !!h.autoDebut && isAutoDebut(h, w.year),
     // オート調教の傾向と、今週当たるメニュー（落とし穴 145）
     autoTrain: h.autoTrain ? cleanAutoPlan(h.autoTrain) : null,
+    autoEntry: h.autoEntry ? cleanAutoEntry(h.autoEntry) : null,
     autoMenu: (h.autoTrain || (h.autoDebut && isAutoDebut(h, w.year)))
       ? autoTrainMenu(h, h.autoTrain ?? null, { week: w.week, raceSoon: h.ownerId === 'player' && raceSoon(w, h) }) : null,
     ready: readyToRun(h),
@@ -210,7 +213,8 @@ export function racesFor(g, horseId, weekOffset = 0) {
       const apt = distanceAptitude(h, r.distance)
         * (r.surface === SURFACE.DIRT ? h.dirt : h.turf);
       const d = Math.abs(classOrder(r.classId) - ho);
-      return { ...decorate(w, r), apt, classGap: d };
+      // 勝てる見込み（落とし穴 152）。◎ 勝ち負け・○ 上位争い・△ 掲示板・× 厳しい
+      return { ...decorate(w, r), apt, classGap: d, prospect: prospect(w, h, r, yr) };
     })
     // 適性が高く、格の合うレースを上に出す。
     // 格の高さで並べると、未勝利馬の画面の一番上に重賞が来てしまう。
@@ -330,6 +334,56 @@ export function setAutoTrainAll(g, plan) {
     if (!h || h.retired || h.dead || h.stallion || h.broodmare) continue;
     if (setAutoTrain(g, id, plan)) n++;
   }
+  return n;
+}
+
+/**
+ * オート出走登録の切り替え（落とし穴 152）。plan は { gap: 前走から空ける週, min: 登録する見込みの印 }、null でやめる。
+ * やめても、もう取った登録はそのまま（取消は登録の一覧から）。
+ */
+export function setAutoEntry(g, horseId, plan) {
+  const h = g.world.horses.get(horseId);
+  if (!h || h.ownerId !== 'player' || h.retired || h.dead || h.stallion || h.broodmare) return false;
+  if (plan) h.autoEntry = cleanAutoEntry(plan); else delete h.autoEntry;
+  return true;
+}
+
+/** 現役の自分の馬すべてにオート出走登録を当てる（null で全部やめる）。当てた頭数を返す。 */
+export function setAutoEntryAll(g, plan) {
+  let n = 0;
+  for (const id of g.world.player.horses) if (setAutoEntry(g, id, plan)) n++;
+  return n;
+}
+
+/**
+ * 1 年の出走プラン（年単位の登録の下書き。落とし穴 152）。前走・プランの中で gap 週あけ、見込みが min 以上のレースを 48 週先まで選ぶ。
+ * ほかの自分の馬が取ったレースは除く。登録はしない（`enterPlan` で登録する）。
+ */
+export function yearPlan(g, horseId, plan = AUTO_ENTRY_DEFAULT) {
+  const w = g.world;
+  const h = w.horses.get(horseId);
+  if (!h) return [];
+  const taken = new Set([...w.player.entries.values()].filter((e) => e.horseId !== horseId).map((e) => e.raceId));
+  return yearPlanOf(w, h, plan, taken).map((p) => ({
+    ...decorate(w, p.race), year: p.year, week: p.week, offset: p.k, label: weekLabel(p.week), prospect: p.prospect,
+  }));
+}
+
+/** 選んだレースをまとめて登録する（年単位の登録）。登録できた数と、できなかった理由を返す。 */
+export function enterPlan(g, horseId, raceIds, opts = {}) {
+  let ok = 0;
+  const ng = [];
+  for (const rid of raceIds) {
+    const r = enterRace(g, horseId, rid, opts);
+    if (r.ok) ok++; else ng.push(r.why);
+  }
+  return { ok, ng };
+}
+
+/** この馬の先の登録をすべて取り消す。取り消した数を返す。 */
+export function cancelEntriesOf(g, horseId) {
+  let n = 0;
+  for (const [rid, e] of [...g.world.player.entries]) if (e.horseId === horseId) { g.world.player.entries.delete(rid); n++; }
   return n;
 }
 

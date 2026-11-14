@@ -13,6 +13,7 @@
 //   6. 年末ならリーディング集計・加齢・引退・配合・出産
 
 import { makeRng, hashSeed } from '../core/rng.js';
+import { pickAutoRace } from './entryplan.js';
 import { makeHorseName, makePersonName, makeFarmName, makeOwnerName, KANMEI } from '../core/names.js';
 import {
   createHorse, resetHorseIds, peekHorseId, horseAge, canRun, weeklyRecover,
@@ -1044,6 +1045,8 @@ export function advanceWeek(world, opts = {}) {
 
   // --- 自動調教（入厩と新馬戦の登録） ---
   autoDebutWeek(world, news);
+  // --- オート出走登録（落とし穴 152） ---
+  autoEntryWeek(world, news);
 
   world.news = news;
   world.log.push({ year: world.year, week: world.week, news });
@@ -1281,6 +1284,38 @@ function autoDebutWeek(world, news) {
       jockeyId: h.jockeyId ?? null, styleOrder: null,
     });
     news.push(`★${h.name} を${pick.year}年${pick.week}週の${pick.race.name}に自動で登録した`);
+  }
+}
+
+/**
+ * オート出走登録（落とし穴 152）。週の終わりに、オートの自分の馬で先の登録が無い馬に、次の 1 走を登録する。
+ * 選ぶのは前走から決めた週数をあけた 12 週先までの、適性に合って勝てる見込みのあるレース（`entryplan.js`）。
+ * 先の 1 走だけを取る（勝ってクラスが上がると先の登録は外れるので、まとめて取らない）。走るまで 2 週を切ったら入厩させる。
+ * 乱数を使わない。新馬戦まで任せている馬（落とし穴 135）はそちらに任せる。
+ */
+function autoEntryWeek(world, news) {
+  const taken = new Set(world.player.entries.keys());
+  for (const id of world.player.horses) {
+    const h = world.horses.get(id);
+    if (!h?.autoEntry || h.retired || h.dead || h.ownerId !== 'player') continue;
+    if (horseAge(h, world.year) < 2 || isAutoDebut(h, world.year)) continue;
+    const mine = [...world.player.entries.values()].filter((e) => e.horseId === h.id);
+    if (mine.length) {
+      // 近い登録があれば入厩させる（放牧のままだと当日に走れない）
+      const soon = mine.some((e) => ((e.year ?? world.year) - world.year) * WEEKS_PER_YEAR + ((e.week ?? world.week) - world.week) <= 2);
+      if (soon && h.stable === 'pasture' && !h.injury) { h.stable = 'stable'; news.push(`★${h.name} が入厩した（オート出走）`); }
+      continue;
+    }
+    if (h.injury) continue;
+    const pick = pickAutoRace(world, h, h.autoEntry, taken);
+    if (!pick) continue;
+    world.player.entries.set(pick.race.raceId, {
+      raceId: pick.race.raceId, horseId: h.id, year: pick.year, week: pick.week,
+      jockeyId: h.jockeyId ?? null, styleOrder: null,
+    });
+    taken.add(pick.race.raceId);
+    if (pick.k <= 2 && h.stable === 'pasture') h.stable = 'stable';
+    news.push(`★${h.name} を${pick.year}年${weekLabel(pick.week)}の${pick.race.name}に自動で登録した（見込み${pick.prospect.mark}）`);
   }
 }
 
