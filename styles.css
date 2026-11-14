@@ -346,7 +346,10 @@ small.locked { color: var(--fg3); white-space: nowrap; }
 .pwrap { display: grid; grid-template-rows: 1fr; min-height: 0; transition: grid-template-rows .34s var(--ease-move, ease), opacity .25s; }
 .pwrap.closed { grid-template-rows: 0fr; opacity: 0; }
 .pclip { min-height: 0; overflow: hidden; display: flex; }
-/* カードは中身の高さに合わせる（伸ばすと空のクリーム色が大きく残る）。長いときだけ中で巻く。 */
+/* 開いたときの大きさはどのページも同じ（「展開時の大きさをすべて固定」）。中身が多いページはカードの中で巻く。
+   画面の背が低いときは、上の帯・目玉レース・札の列のぶんを残して縮める */
+.pclip > .pstack { height: min(360px, calc(100vh - 300px)); }
+.pclip > .pstack > .pcard { height: 100%; }
 .pstack { width: 100%; flex: 0 1 auto; min-height: 0; display: flex; }
 .parrow {
   width: 46px; height: 22px; border-radius: 11px; cursor: pointer;
@@ -1227,6 +1230,7 @@ canvas.race3d { width: 100%; height: 100%; display: block; }
   .hd-acts .btn { min-width: 0; flex: 0 0 auto; padding: 4px 10px; font-size: 12px; }
   .hpanel { height: auto; max-height: 56%; gap: 6px; }
   .pc-b { min-height: 64px; }
+  .pclip > .pstack { height: min(300px, calc(100dvh - 400px)); }
   .rankplate { padding: 3px 10px 3px 6px; }
   .rp-v b { font-size: 24px; }
   .rp-grade { width: 42px; height: 42px; font-size: 20px; }
