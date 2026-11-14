@@ -599,7 +599,24 @@ function tabContent(app, tid, v, career) {
       ['now', 'この世界のいま'], ['table', '史実の表（盛り）'],
     ].map(([k, label]) => el('button', {
       class: (tv ? 'table' : 'now') === k ? 'on' : null,
-      onclick: () => { app.abilView = k; app.render(); },
+      // 画面ごと描き直すとタブの欄（.hd-body）が頭へ戻る。このタブの中身だけ差し替えて、スクロールの位置を残す。
+      onclick: (e) => {
+        app.abilView = k;
+        const box = e.currentTarget.closest('.hd-body');
+        if (!box) { app.render(); return; }
+        // スクロールする箱は画面の幅で違う（PC はタブの欄、スマホは本文の .main）。祖先をすべて覚えて戻す。
+        // 中身の高さも前のまま保つ（史実の表は短いので、縮むとスクロールが詰まって上へ跳んだ）。
+        const boxes = [];
+        for (let n = box; n; n = n.parentElement) if (n.scrollTop) boxes.push([n, n.scrollTop]);
+        const wy = window.scrollY;
+        const minH = Math.max(box.firstElementChild?.offsetHeight ?? 0, parseFloat(box.firstElementChild?.style.minHeight) || 0);
+        box.textContent = '';
+        const next = tabContent(app, 'abil', v, career);
+        if (minH) next.style.minHeight = `${minH}px`;
+        box.appendChild(next);
+        for (const [n, t] of boxes) n.scrollTop = t;
+        window.scrollTo(0, wy);
+      },
     }, el('span', { text: label })))) : null;
     // 史実の表：サイト（アホヌラゲーム館）の表示そのまま。字はサイトの 16 段（S+〜G）で、ゲームの評価の字（9 段）とは物差しが違う。
     if (tv?.site) {
