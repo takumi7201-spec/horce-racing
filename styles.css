@@ -2783,3 +2783,9 @@ button.ik-rectier, button.ik-recbest { cursor: pointer; }
 @media (max-width: 600px) {
   .owner-rank th:nth-child(n+7), .owner-rank td:nth-child(n+7) { display: none; }
 }
+
+/* 上場馬の詳細（血統表つきのモーダル） */
+.lot-modal .lot-head { display: flex; gap: 14px; align-items: flex-start; margin-bottom: 8px; }
+.lot-modal .lot-head .kv { flex: 1; }
+.lot-modal h4 { margin: 10px 0 6px; }
+.lot-modal .lot-act { display: flex; justify-content: flex-end; margin-top: 10px; }

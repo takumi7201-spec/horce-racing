@@ -874,7 +874,7 @@ function distChart(g, h) {
  * 血統表。父・母を 1 代目として、世代ごとに列を並べる。
  * 実際の血統表と同じ「右に行くほど古い」形にしている。
  */
-function pedigreeTable(g, id, gens = 4) {
+export function pedigreeTable(g, id, gens = 4) {
   const tree = G.pedigree(g, id, gens);
   if (!tree) return el('p.empty', { text: '血統が登録されていない' });
   const cols = [];

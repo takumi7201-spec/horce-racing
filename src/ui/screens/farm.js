@@ -6,7 +6,7 @@ import * as G from '../../sim/game.js';
 import { formatMoney } from '../../core/util.js';
 import { horseImg } from '../horse-sprite.js';
 import { icon } from '../icons.js';
-import { pedMarks, pedWithToggle, offspringLink } from './stable.js';
+import { pedMarks, pedWithToggle, offspringLink, pedigreeTable } from './stable.js';
 
 /**
  * 牧場のタブ（左のメニューの行き先の一覧と同じもの。app.js の sideNav が使う）。
@@ -434,8 +434,8 @@ function mareSaleView(app, kind = 'mare') {
   ]);
 }
 
-/** 購入ボタン。確かめてから買い、結果を通知する。 */
-function buyButton(app, kind, lot, enabled) {
+/** 購入ボタン。確かめてから買い、結果を通知する。after は買えたあと（モーダルを閉じるなど）。 */
+function buyButton(app, kind, lot, enabled, after = null) {
   return button('購入', async (e) => {
     e.stopPropagation();
     if (!await ask(`${lot.name} を ${formatMoney(lot.price)} で購入する？`, { ok: '購入する' })) return;
@@ -445,6 +445,7 @@ function buyButton(app, kind, lot, enabled) {
     toast(kind === 'private' || kind === 'dYearling'
       ? `${lot.name} を購入した。年明けに 2 歳で入厩し、現役馬に移る`
       : `${lot.name} を ${formatMoney(r.price)} で購入した`);
+    after?.();
     app.render();
   }, { cls: 'sm primary', disabled: !enabled });
 }
@@ -460,6 +461,33 @@ const SALE_TEXT = {
   dYearling: { title: '牧場取引：1 歳', note: '1 歳馬をいつでも直接買える。年明けに 2 歳で入厩し、現役馬に移る。' },
 };
 
+/**
+ * 上場馬の詳細（当歳セール・庭先取引・牧場取引）。表の 1 行では血統が父・母・母の父までしか見えないので、
+ * 押すと 4 代の血統表と買う操作を出す。能力は市場に見えない（セールと同じく血統と馬体だけ）。
+ */
+function saleLotModal(app, kind, x, enabled) {
+  const g = app.game;
+  let m = null;
+  const info = kv([
+    ['性・年齢', `${x.sex}${x.age ?? ''}${x.age != null ? '歳' : ''}`],
+    ['毛色', x.coat],
+    ['父', x.sire + (x.sireReal ? '（実在）' : '')],
+    ['母', x.dam + (x.damReal ? '（実在）' : '')],
+    ['母の父', x.damSire ?? '—'],
+    ['馬体', x.look ?? '—'],
+    ['インブリード', (x.inbreed ?? []).join(' / ') || 'なし'],
+    ['価格', formatMoney(x.price)],
+  ]);
+  m = modal(x.realName ? `${x.name}（のちの${x.realName}）` : x.name, el('div.lot-modal', [
+    el('div.lot-head', [horseImg(x.coat, { size: 'md', age: x.age, title: x.coat }), info]),
+    el('h4', { text: '血統（4 代）' }),
+    pedigreeTable(g, x.id, 4),
+    el('div.lot-act', [
+      x.sold ? el('span.mine', { text: '落札済み' }) : buyButton(app, kind, x, enabled, () => m?.close()),
+    ]),
+  ]), { wide: true });
+}
+
 function horseSaleView(app, kind) {
   const g = app.game;
   const t = SALE_TEXT[kind];
@@ -470,8 +498,9 @@ function horseSaleView(app, kind) {
   return card(t.title, [
     direct ? null : seasonNote(g, open, t.when, t.what),
     el('p.note', { text: t.note }),
+    el('p.note', { text: '行を押すと血統表（4 代）を見られる。' }),
     lots.length ? table(['', '馬名', '性', '毛色', '父', '母', '母の父', '馬体', 'インブリード', '価格', ''],
-      lots.map((x) => [
+      lots.map((x) => ({ onclick: () => saleLotModal(app, kind, x, open && money >= x.price), cells: [
         horseImg(x.coat, { size: 'sm', age: x.age, title: `${x.name}（${x.coat}）` }),
         x.realName
           ? el('span.sire-n', [el('b', { text: x.name }), el('i.realtag', { text: `のちの${x.realName}`, title: '史実の名馬になる幼駒' })])
@@ -483,7 +512,7 @@ function horseSaleView(app, kind) {
         (x.inbreed ?? []).slice(0, 2).join(' / ') || '—',
         formatMoney(x.price),
         x.sold ? el('span.mine', { text: '落札済み' }) : buyButton(app, kind, x, open && money >= x.price),
-      ]), { align: ['c', , 'c', 'c', , , , 'c', , 'r'] })
+      ] })), { align: ['c', , 'c', 'c', , , , 'c', , 'r'] })
       : el('p.empty', { text: kind === 'foal' || kind === 'dFoal' ? '上場馬が居ない（幼駒は 4 月に生まれる）。' : '上場馬が居ない。' }),
   ]);
 }
