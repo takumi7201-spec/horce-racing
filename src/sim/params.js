@@ -193,8 +193,8 @@ export const OWNER_POINTS = { GI: [100, 40, 20], GII: [50, 20, 10], GIII: [30, 1
 export const FAME_POINTS = { GI: 15, GII: 8, GIII: 5, op: 3, other: 1, abroadGI: 25 };
 export const ABROAD_FAME = 60;
 
-/** 開始時の資金（万円）。1 億 2000 万。無収入なら 4 年ほどで尽きる。 */
-export const START_MONEY = 12000;
+/** 開始時の資金（万円）。20 億（利用者の指定。以前は 1 億 2000 万で、無収入なら 4 年ほどで尽きた）。 */
+export const START_MONEY = 200000;
 
 /** 騎手の歩合（賞金に対する割合）。 */
 export const JOCKEY_CUT = 0.05;
