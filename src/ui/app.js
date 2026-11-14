@@ -13,6 +13,7 @@ import * as sound from './sound.js';
 import { createPasture } from '../render3d/pasture.js';
 import { formatMoney } from '../core/util.js';
 import { weekLabel } from '../sim/schedule.js';
+import { createRubberDock } from './rubberdock.js';
 import { titleScreen } from './screens/title.js';
 import { homeScreen } from './screens/home.js';
 import { stableScreen } from './screens/stable.js';
@@ -264,6 +265,7 @@ export function start(root) {
         sideNav(app),
         el('main.main', screen(app)),
         dock(app),
+        rubberDock(app),
       ]));
   }
 
@@ -533,6 +535,41 @@ function sideNav(app) {
     ]);
     return wrap;
   }));
+}
+
+/**
+ * スマホの下メニュー（ラバードック、`rubberdock.js`）。PC の左のメニューと同じ行き先（navItems）を持つ。
+ * 要素は一度だけ作って描き直しのたびに付け直す（ばねの途中の状態を消さない）。
+ */
+function rubberDock(app) {
+  if (!app.rdock) {
+    app.rdock = createRubberDock({
+      nav: NAV,
+      go: (id) => app.go(id),
+      head: (id) => {
+        const g = app.game;
+        if (id === 'home') { const t = G.now(g); return { title: 'ホーム', note: `${t.year}年 ${weekLabel(t.week)}` }; }
+        if (id === 'stable') return { title: '所有馬', note: `${G.myStable(g).active.length}頭が現役` };
+        return { title: NAV.find((n) => n.id === id)?.name ?? '', note: '行き先を選ぶ' };
+      },
+      items: (id) => {
+        const g = app.game;
+        if (id === 'home') {
+          const n = G.myEntriesNow(g).length;
+          return [
+            { name: '牧場のようす', sub: '今週のニュースと所有馬', go: () => app.go('home') },
+            { name: '今週の出走', sub: n ? `${n}頭が走る` : '今週は出走なし', n, go: () => app.go('races', { tab: 'week' }) },
+          ];
+        }
+        return (navItems(app, id) ?? []).map((it) => ({
+          ...it,
+          go: () => { if (id === 'stable') app.stableCat = it.params.cat; app.go(id, it.params); },
+        }));
+      },
+    });
+  }
+  app.rdock.sync(app.screen);
+  return app.rdock.el;
 }
 
 /** 長押しとみなす時間（ms）。短いとスクロールのつもりのタッチで開いてしまう。 */

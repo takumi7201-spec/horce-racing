@@ -2819,3 +2819,70 @@ button.ik-rectier, button.ik-recbest { cursor: pointer; }
 .at-chip { font: inherit; font-size: 12px; padding: 4px 10px; border-radius: 99px; border: 1px solid #0002; background: #fff; cursor: pointer; }
 .at-chip.on { background: var(--green, #2f8a35); color: #fff; border-color: transparent; }
 .autotrain .at-chip:not(.on) { opacity: .85; }
+
+/* ---------------- ラバードック（スマホの下メニュー、src/ui/rubberdock.js） ---------------- */
+/* ばねは「硬さ 減衰」。designbookmark.com の Rubber dock の tokens.css と同じ値（動きを変えないこと） */
+:root {
+  --dock-lead: 640 38;          /* ピルの進む側の縁 */
+  --dock-trail: 150 16;         /* 遅れる側の縁。低いほどよく伸びる */
+  --dock-drag-lead: 1100 56;
+  --dock-drag-trail: 320 26;
+  --dock-open-w: 340 21;        /* ドック → カード、幅 */
+  --dock-open-h: 230 21;        /* ドック → カード、高さ */
+  --dock-close: 420 30;
+  --dock-pop: 520 16;           /* 選んだアイコンの弾み */
+  --dock-expanded-w: 340;       /* px */
+}
+.rdock { display: none; }
+@media (max-width: 900px) {
+  .side { display: none; }      /* スマホは下の帯の代わりにドック（PC は左のメニューのまま） */
+  .rdock {
+    display: block; position: fixed; z-index: 18; left: 8px; bottom: calc(8px + env(safe-area-inset-bottom));
+    background: linear-gradient(#fff, #f3f7ea); overflow: hidden; will-change: width, height, transform;
+    box-shadow: 0 0 0 2px var(--green) inset, 0 18px 40px -18px #1d3a1acc, 0 2px 6px #1d3a1a33;
+    font-family: var(--font); color: var(--fg);
+  }
+  .rdock.away .rd-ind { opacity: .35; }   /* メニューの外の画面（馬の詳細・観戦）ではピルを薄く */
+  .main { bottom: 76px; }
+}
+.rd-tabs { position: absolute; left: 6px; bottom: 6px; touch-action: none; cursor: grab; }
+.rd-tabs.dragging { cursor: grabbing; }
+.rd-icons { position: absolute; inset: 0; display: flex; gap: 2px; }
+.rd-tab { width: 48px; height: 48px; flex: none; display: grid; place-items: center; align-content: center; gap: 1px; padding: 0; }
+.rd-tab .ico { display: block; line-height: 0; }
+.rd-tab small { font-size: 9.5px; font-weight: 700; letter-spacing: .02em; line-height: 1; }
+.rd-icons.base .rd-tab { background: none; border: 0; color: var(--fg2); cursor: inherit; border-radius: 24px; outline: none; font: inherit; }
+.rd-icons.base .rd-tab:focus-visible { box-shadow: 0 0 0 2px var(--gold) inset; }
+.rd-icons.top { pointer-events: none; color: #fff; }
+.rd-ind { position: absolute; left: 0; top: 0; width: 48px; height: 48px; border-radius: 24px; pointer-events: none;
+  background: linear-gradient(var(--green), var(--green-d)); box-shadow: 0 6px 14px -6px #1d5e25cc; transition: opacity .2s; }
+
+.rd-panels { position: absolute; left: 0; top: 0; }
+.rd-panel { position: absolute; left: 0; top: 0; padding: 14px 12px 4px; pointer-events: none; }
+.rd-panel.on { pointer-events: auto; }
+.rd-panel .it {
+  opacity: 0; filter: blur(5px);
+  transform: translate3d(var(--x, 0px), var(--y, 10px), 0) scale(.98);
+  transition: opacity .16s ease, transform .28s ease, filter .16s ease;
+}
+.rd-panel.on .it {
+  opacity: 1; filter: none; transform: none;
+  transition:
+    opacity .4s ease calc(var(--i, 0) * 45ms + 70ms),
+    transform .7s cubic-bezier(.16, 1, .3, 1) calc(var(--i, 0) * 45ms + 70ms),
+    filter .4s ease calc(var(--i, 0) * 45ms + 70ms);
+}
+.rd-panel.prep .it { transition: none !important; }
+.rd-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; padding: 0 4px; }
+.rd-head h3 { margin: 0; font-size: 17px; font-weight: 900; color: var(--green-dd); }
+.rd-head small { font-size: 11px; color: var(--fg3); }
+.rd-row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 10px; margin-bottom: 2px; border: 0; background: none;
+  border-radius: var(--radius); font: inherit; text-align: left; cursor: pointer; color: var(--fg); }
+.rd-row:hover { background: #eef6e6; }
+.rd-row.on { background: linear-gradient(#fff6c8, var(--gold)); color: #4a3000; }
+.rd-row .tx { flex: 1; min-width: 0; }
+.rd-row .tx b { display: block; font-size: 14px; font-weight: 700; }
+.rd-row .tx span { display: block; font-size: 11px; color: var(--fg3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rd-row i { font-style: normal; font-size: 12px; font-weight: 900; color: var(--fg3); background: #f0eee4; border-radius: 9px; padding: 1px 8px; }
+.rd-row.on i { background: #fff8; color: #6b4600; }
+@media (prefers-reduced-motion: reduce) { .rd-panel .it, .rd-panel.on .it { transition: none; filter: none; } }
