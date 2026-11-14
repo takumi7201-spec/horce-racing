@@ -713,6 +713,17 @@ section('2 年の経過');
   check(`2 年後の潜在 中央 ${pots[Math.floor(pots.length / 2)].toFixed(3)}（インフレしていない）`,
     pots[Math.floor(pots.length / 2)] > 0.42 && pots[Math.floor(pots.length / 2)] < 0.72);
   check(`年度代表馬が選ばれている（${w.awards.map((a) => a.name).join(', ')}）`, w.awards.length >= 2);
+  {
+    // 馬主ランキング：勝ちの格でポイントが積もり、年末に 1 位が残る（落とし穴 142）
+    const OR = GG.ownerRanking(game);
+    const top = OR.list[0];
+    // ここは年明け直後（今年は全員 0pt のこともある）。歴代の 1 位は 2 年ぶん残っている。
+    check(`馬主ランキング：今年のポイントで並ぶ（1 位 ${top.name} ${top.pts}pt）、歴代の 1 位 ${OR.history.map((h) => `${h.year} ${h.name} ${h.pts}pt`).join('・')}`,
+      (top.id !== 'player' || top.pts > 0) && OR.list.every((o, i) => i === 0 || OR.list[i - 1].pts >= o.pts) && OR.history.length >= 2
+      && OR.history.every((h) => h.pts > 0) && GG.ownerRank(game).rank >= 1);
+    const P = GG.OWNER_POINTS;
+    check('馬主ランキング：GI の勝ちは条件戦の勝ちより重い', P.GI[0] > P.GII[0] && P.GII[0] > P.GIII[0] && P.GIII[0] > P.op[0] && P.op[0] > P.other[0]);
+  }
 
   // 種牡馬の経済。産駒を覚えていないと種付料が現役成績だけで決まり、
   // 「走る産駒を出した翌年に跳ね上がる」という軸がまるごと死ぬ

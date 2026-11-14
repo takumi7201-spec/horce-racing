@@ -52,11 +52,11 @@ export function homeScreen(app) {
 
   return el('div.home', [
     el('aside.hpanel', [
-      el('div.rankplate', [
+      el('div.rankplate', { onclick: () => app.go('records', { tab: 'owners' }), title: '馬主ランキングを見る' }, [
         el('span.rp-ico', icon('medal', { size: 30 })),
         el('div.rp-t', [
           el('span', { text: '馬主ランキング' }),
-          el('div.rp-v', [el('b', { text: String(rank.rank) }), '位', el('small', { text: ` / ${rank.total}人` })]),
+          el('div.rp-v', [el('b', { text: String(rank.rank) }), '位', el('small', { text: ` / ${rank.total}人・${rank.pts}pt` })]),
         ]),
         el('span.rp-grade', { text: rank.grade, class: `g-${rank.grade}` }),
       ]),

@@ -3,7 +3,7 @@
 // 画面はここだけを見る。world.js の中身を直接いじらせないことで、
 // 「セーブ可能な状態」と「表示のための導出値」を分けている。
 
-import { createWorld, advanceWeek, isAutoDebut, weekRaces, weekGround, horsesOf, stallionList, computeLeaders, retireHorse, retireOutcome as worldRetireOutcome, playerFame } from './world.js';
+import { createWorld, advanceWeek, isAutoDebut, weekRaces, weekGround, horsesOf, stallionList, computeLeaders, ownerStandings, retireHorse, retireOutcome as worldRetireOutcome, playerFame } from './world.js';
 import { eligible, weekLabel, gradedCalendar, GRADED_BY_ID, meetingsOf, ABROAD_COST } from './schedule.js';
 import { horseAge, effectiveAbility, styleLabel, distanceAptitude, canRun, STYLE_TARGET } from './horse.js';
 import { readyToRun, MENUS, fitLabel, condLabel } from './training.js';
@@ -20,7 +20,7 @@ import { evaluateTheories, THEORY_GUIDE, theoryName, burstComment, riskComment }
 import * as S from './sales.js';
 import {
   ABILITIES, SEX, WEEKS_PER_YEAR, classOrder, className, standardWeight,
-  weekToMonth, STYLES, ABROAD_FAME,
+  weekToMonth, STYLES, ABROAD_FAME, OWNER_POINTS,
 } from './params.js';
 import { SURFACE, courseName, courseShort as courseShortOf, getCourse, DIR } from './course.js';
 import { marksOf } from './markings.js';
@@ -1058,21 +1058,19 @@ export function ranchHorses(g, limit = 7) {
  * computeLeaders は上位 30 人しか持たないので、圏外でも順位が出るよう全員を数える。
  */
 export function ownerRank(g) {
-  const w = g.world;
-  const score = (ids) => sum(ids, (id) => {
-    const h = w.horses.get(id);
-    return h && !h.dead && !h.retired ? h.earnings : 0;
-  });
-  const mine = score(w.player.horses);
-  let rank = 1;
-  let total = 0;
-  for (const o of w.owners.values()) {
-    total++;
-    if (o.id !== 'player' && score(o.horses) > mine) rank++;
-  }
+  const all = ownerStandings(g.world);
+  const i = all.findIndex((x) => x.id === 'player');
+  const me = all[i];
+  const rank = i + 1;
   const grade = rank <= 3 ? 'SS' : rank <= 10 ? 'S' : rank <= 25 ? 'A' : rank <= 50 ? 'B' : 'C';
-  return { rank, total, grade, earnings: mine };
+  return { rank, total: all.length, grade, pts: me?.pts ?? 0, earnings: me?.earnings ?? 0 };
 }
+
+/** 馬主ランキング（今年のポイント順の全員と、歴代の首位）。 */
+export function ownerRanking(g) {
+  return { year: g.world.year, list: ownerStandings(g.world), history: [...(g.world.ownerHistory ?? [])].reverse() };
+}
+export { OWNER_POINTS };
 
 export { formatMoney, formatTime, weekLabel, SURFACE, SEX, ABILITIES, STYLES };
 

@@ -41,6 +41,7 @@ export function serialize(g) {
     records: mapToArr(w.records),
     history: w.history,
     awards: w.awards,
+    ownerHistory: w.ownerHistory,
     news: w.news,
     log: w.log.slice(-80),
     pendingMatings: w.pendingMatings,
@@ -80,6 +81,7 @@ export function deserialize(data) {
     results: [],          // レース結果は保存しない（走行ログが巨大になる）
     history: data.history ?? [],
     awards: data.awards ?? [],
+    ownerHistory: data.ownerHistory ?? [],
     news: data.news ?? [],
     leaders: { jockeys: [], trainers: [], sires: [], owners: [] },
     log: data.log ?? [],

@@ -14,6 +14,7 @@ const SHORT = {
 /** 記録のタブ（左のメニューの行き先の一覧と同じもの） */
 export const RECORDS_TABS = [
   { id: 'leaders', name: 'リーディング' },
+  { id: 'owners', name: '馬主ランキング' },
   { id: 'g1', name: '歴代 GI' },
   { id: 'awards', name: '年度代表馬' },
   { id: 'records', name: 'コースレコード' },
@@ -25,7 +26,8 @@ export function recordsScreen(app) {
   const tab = app.params.tab ?? 'leaders';
   const nav = tabs(RECORDS_TABS, tab, (id) => app.go('records', { tab: id }));
 
-  const body = tab === 'g1' ? g1View(app)
+  const body = tab === 'owners' ? ownersView(app)
+    : tab === 'g1' ? g1View(app)
     : tab === 'awards' ? awardsView(app)
       : tab === 'records' ? recordsView(app)
       : tab === 'real' ? realBookView(app)
@@ -55,12 +57,49 @@ function leadersView(app) {
           cells: [i + 1, s.name, formatMoney(s.earnings)],
           onclick: () => app.go('stable', { id: s.id, list: L.sires.map((x) => x.id) }),
         })), { align: ['c', , 'r'] })),
-      card('馬主', table(['順', '馬主', '獲得賞金'],
+      card(`馬主（${g.world.year}年のポイント）`, table(['順', '馬主', 'pt', '重賞'],
         L.owners.map((o, i) => [
           i + 1,
           el('span', { text: o.name, class: o.id === 'player' ? 'mine' : null }),
-          formatMoney(o.earnings),
-        ]), { align: ['c', , 'r'] })),
+          o.pts, o.graded,
+        ]), { align: ['c', , 'r', 'c'] })),
+    ]),
+  ]);
+}
+
+/**
+ * 馬主ランキング（落とし穴 142）。今年のポイントの順に全員、配点、歴代の首位。
+ * ポイントは勝ちを格で数える（GI 100・GII 50・GIII 30・OP 15・条件 5、重賞は 2・3 着にも）。年末に首位を残して 0 から。
+ */
+function ownersView(app) {
+  const g = app.game;
+  const R = G.ownerRanking(g);
+  const P = G.OWNER_POINTS;
+  const mineIdx = R.list.findIndex((o) => o.id === 'player');
+  const shown = R.list.slice(0, 50);
+  if (mineIdx >= 50) shown.push(R.list[mineIdx]);
+  const rows = shown.map((o) => [
+    R.list.indexOf(o) + 1,
+    el('span', { text: o.name, class: o.id === 'player' ? 'mine' : null }),
+    el('b', { text: String(o.pts) }), o.g1, o.graded, o.wins, o.starts, formatMoney(o.earnings),
+    o.career.pts,
+  ]);
+  const rule = `1 着：GI ${P.GI[0]}・GII ${P.GII[0]}・GIII ${P.GIII[0]}・OP ${P.op[0]}・条件 ${P.other[0]}・海外 GI ${P.abroadGI[0]}。`
+    + `重賞は 2 着・3 着にも（GI ${P.GI[1]}・${P.GI[2]}、GII ${P.GII[1]}・${P.GII[2]}、GIII ${P.GIII[1]}・${P.GIII[2]}）。年末に 1 位を記録して、年が明けると 0 から。`;
+  return el('div.cols2', [
+    el('div.col', [
+      card(`${R.year}年 馬主ランキング`, [
+        table(['順', '馬主', 'pt', 'GI', '重賞', '勝', '出走', '獲得賞金', '通算pt'], rows,
+          { align: ['c', , 'r', 'c', 'c', 'c', 'c', 'r', 'r'] }),
+        el('p.note', { text: rule }),
+      ], { cls: 'owner-rank' }),
+    ]),
+    el('div.col', [
+      card('歴代の 1 位', R.history.length
+        ? table(['年', '馬主', 'pt', 'GI', '重賞', '勝'], R.history.map((h) => [
+          h.year, el('span', { text: h.name, class: h.id === 'player' ? 'mine' : null }), h.pts, h.g1, h.graded, h.wins,
+        ]), { align: ['c', , 'r', 'c', 'c', 'c'] })
+        : el('p.empty', { text: 'まだ 1 年を終えていない。年末に 1 位が記録される。' })),
     ]),
   ]);
 }

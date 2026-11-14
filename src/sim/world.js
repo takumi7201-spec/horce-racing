@@ -21,7 +21,7 @@ import {
 import {
   SEX, ABILITIES, GROWTH, GROWTH_CURVE, GROUNDS, CLASSES, CLASS_BY_ID,
   classForWins, classOrder, standardWeight, WEEKS_PER_YEAR, weekToMonth, COST,
-  JOCKEY_CUT, TRAINER_CUT, STYLES, START_MONEY, FAME_POINTS, ABROAD_FAME,
+  JOCKEY_CUT, TRAINER_CUT, STYLES, START_MONEY, FAME_POINTS, ABROAD_FAME, OWNER_POINTS,
 } from './params.js';
 import { SURFACE, allCourses, distancesOf } from './course.js';
 import {
@@ -1133,6 +1133,7 @@ function applyResult(world, race, res, rng, news) {
     if (o) {
       const net = r.prize * (1 - JOCKEY_CUT - TRAINER_CUT);
       o.money += net;
+      creditOwner(world, o, race, r);
       if (h.ownerId === 'player') {
         world.player.money += net;
         world.player.earnings += r.prize;
@@ -1315,6 +1316,14 @@ function yearEnd(world, rng) {
   const news = [];
   computeLeaders(world);
   pickAwards(world, news);
+  // 馬主ランキングの首位を残す（年が明けると今年のポイントは 0 から）。
+  const top = ownerStandings(world)[0];
+  if (top && top.pts > 0) {
+    (world.ownerHistory ??= []).push({ year: world.year, id: top.id, name: top.name, pts: top.pts, wins: top.wins, graded: top.graded, g1: top.g1 });
+    const mine = ownerStandings(world).findIndex((x) => x.id === 'player') + 1;
+    if (top.id === 'player') { news.push(`★${world.year}年の馬主ランキング 1 位（${top.pts}pt）。`); world.player.titles.push(`${world.year}年 馬主ランキング 1 位`); }
+    else if (mine) news.push(`${world.year}年の馬主ランキングは ${mine} 位（1 位は ${top.name}、${top.pts}pt）。`);
+  }
   // 誰の祖先でもなくなった馬と、古い戦績の細部を捨てる。
   // 放っておくと 10 年でセーブが数十 MB になり、ブラウザに収まらなくなる。
   pruneAncestry(world);
@@ -1409,6 +1418,31 @@ function yearEnd(world, rng) {
       young: [...world.horses.values()].filter((h) => h.ownerId === 'player' && !h.dead && horseAge(h, world.year) < 2).length,
     },
   };
+}
+
+/** 馬主ランキングのポイント（OWNER_POINTS）。着順 1〜3 着だけ。乱数を使わない。 */
+export function ownerPoints(race, order) {
+  if (order < 1 || order > 3) return 0;
+  const k = race.grade === 'GI' ? (race.abroad ? 'abroadGI' : 'GI')
+    : race.grade === 'GII' ? 'GII' : race.grade === 'GIII' ? 'GIII' : race.classId === 'op' ? 'op' : 'other';
+  return OWNER_POINTS[k][order - 1];
+}
+
+/** 馬主の今年（season）と通算（career）に、ポイント・勝ち数・重賞・GI・賞金を積む。古いセーブの馬主は 0 から始める。 */
+function creditOwner(world, o, race, r) {
+  const blank = () => ({ pts: 0, wins: 0, graded: 0, g1: 0, starts: 0, earnings: 0 });
+  if (!o.season || o.season.year !== world.year) o.season = { year: world.year, ...blank() };
+  o.career ??= blank();
+  const pts = ownerPoints(race, r.order);
+  const graded = r.order === 1 && /^G/.test(race.grade ?? '');
+  for (const s of [o.season, o.career]) {
+    s.pts += pts;
+    s.starts++;
+    s.earnings += r.prize;
+    if (r.order === 1) s.wins++;
+    if (graded) s.graded++;
+    if (r.order === 1 && race.grade === 'GI') s.g1++;
+  }
 }
 
 /** 勝ったときに上がる名声（FAME_POINTS）。 */
@@ -1600,6 +1634,22 @@ function newYear(world, rng) {
   }
 }
 
+/**
+ * 馬主ランキング：今年のポイントの順（同点は重賞・勝ち数・賞金）。年末処理（yearEnd）の中では、その年の分を見る。
+ * 以前は現役の所有馬の獲得賞金（生涯の賞金を足しただけ）で、何年たっても順位が動かず、勝っても上がらなかった。
+ */
+export function ownerStandings(world, year = world.year) {
+  const zero = { pts: 0, wins: 0, graded: 0, g1: 0, starts: 0, earnings: 0 };
+  return [...world.owners.values()]
+    .map((o) => {
+      const s = o.season?.year === year ? o.season : zero;
+      return { id: o.id, name: o.name, ...s, career: o.career ?? zero };
+    })
+    .sort((a, b) => b.pts - a.pts || b.graded - a.graded || b.wins - a.wins || b.earnings - a.earnings
+      // 全部同じ（年明けで全員 0pt）ならプレイヤーを後ろに（何もしていないのに 1 位と出さない）
+      || (a.id === 'player' ? 1 : b.id === 'player' ? -1 : 0));
+}
+
 /** リーディング集計。 */
 export function computeLeaders(world) {
   const jockeys = [...world.jockeys.values()].filter((j) => j.starts > 0)
@@ -1615,12 +1665,7 @@ export function computeLeaders(world) {
   const sires = [...sireEarn.entries()]
     .map(([id, e]) => ({ id, name: world.horses.get(id)?.name ?? '—', earnings: e }))
     .sort(byDesc((x) => x.earnings)).slice(0, 30);
-  const owners = [...world.owners.values()]
-    .map((o) => ({
-      id: o.id, name: o.name,
-      earnings: sum(o.horses, (hid) => world.horses.get(hid)?.earnings ?? 0),
-    }))
-    .sort(byDesc((x) => x.earnings)).slice(0, 30);
+  const owners = ownerStandings(world).slice(0, 30);
   world.leaders = { jockeys, trainers, sires, owners };
   return world.leaders;
 }

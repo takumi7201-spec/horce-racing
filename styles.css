@@ -2778,3 +2778,8 @@ button.ik-rectier, button.ik-recbest { cursor: pointer; }
 .site-tbl td { text-align: center; font-weight: 700; padding: 5px 2px; border: 1px solid var(--line, #ccd); background: var(--card, #fff); white-space: nowrap; }
 .site-tbl td.g-S { color: #c0392b; } .site-tbl td.g-A { color: #d4730a; } .site-tbl td.g-B { color: #b08a00; }
 .site-tbl td.g-E, .site-tbl td.g-F, .site-tbl td.g-G { color: #7a8190; }
+
+/* 馬主ランキング：狭い画面は 出走・獲得賞金・通算pt を隠す（横にはみ出した） */
+@media (max-width: 600px) {
+  .owner-rank th:nth-child(n+7), .owner-rank td:nth-child(n+7) { display: none; }
+}
