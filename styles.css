@@ -2789,3 +2789,20 @@ button.ik-rectier, button.ik-recbest { cursor: pointer; }
 .lot-modal .lot-head .kv { flex: 1; }
 .lot-modal h4 { margin: 10px 0 6px; }
 .lot-modal .lot-act { display: flex; justify-content: flex-end; margin-top: 10px; }
+
+/* 牧場の取引（落とし穴 144） */
+.trade-subs { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 10px; }
+.trade-subs button { font: inherit; font-weight: 700; padding: 8px 16px; border-radius: 999px; border: 2px solid #2f8a35; background: #fff; color: #2f6a2f; cursor: pointer; display: inline-flex; gap: 6px; align-items: center; }
+.trade-subs button.on { background: linear-gradient(#5cc05a, #2f8a35); color: #fff; }
+.trade-subs button i { font-style: normal; font-size: 11px; background: #e8582f; color: #fff; border-radius: 999px; padding: 1px 7px; }
+.trade-filter { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; padding: 10px; background: rgba(255,255,255,.85); border-radius: 12px; }
+.trade-filter .inp { width: auto; flex: 0 0 auto; margin: 0; }
+.trade-filter input[type=search].inp { min-width: 200px; flex: 1 1 220px; }
+.trade-chk { display: inline-flex; gap: 4px; align-items: center; font-size: 13px; white-space: nowrap; }
+@media (max-width: 600px) {
+  .trade-subs button { padding: 6px 12px; font-size: 13px; }
+  .trade-subs { gap: 6px; }
+  .trade-filter { gap: 6px; padding: 8px; }
+  .trade-filter input[type=search].inp { min-width: 0; flex: 1 1 100%; }
+  .trade-filter select.inp { flex: 1 1 30%; min-width: 0; font-size: 12px; padding-left: 6px; padding-right: 4px; }
+}

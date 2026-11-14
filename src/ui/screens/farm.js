@@ -17,32 +17,108 @@ export function farmTabs(g) {
   return [
     { id: 'mating', name: `配合${G.matingOpen(g) ? '（種付け期）' : ''}` },
     { id: 'stallions', name: '種牡馬名鑑' },
-    { id: 'mares', name: `繁殖牝馬セール${mark(G.saleOpen(g, 'mare'))}` },
-    { id: 'foal', name: `当歳セール${mark(G.saleOpen(g, 'foal'))}` },
-    { id: 'overseas', name: `海外・庭先${mark(G.saleOpen(g, 'overseas') || G.saleOpen(g, 'private'))}` },
-    { id: 'direct', name: '牧場取引（通年）' },
+    { id: 'trade', name: `取引${mark(TRADE_SUBS.some((s) => s.open?.(g)))}` },
     { id: 'facilities', name: `施設${G.facilities(g).some((f) => f.build) ? '（建設中）' : ''}` },
     { id: 'entry', name: `入厩・馬名登録${mark(G.entryOpen(g))}` },
   ];
 }
 
+/**
+ * 取引（落とし穴 144）。以前は 繁殖牝馬セール・当歳セール・海外・庭先・牧場取引 が牧場のタブに 4 つ並び、
+ * どこで何が買えるか探しにくかった。一つのタブにまとめ、中のボタンで切り替え、絞り込みを共通にする。
+ */
+const TRADE_SUBS = [
+  { id: 'private', name: '庭先', open: (g) => G.saleOpen(g, 'private') },
+  { id: 'overseas', name: '海外', open: (g) => G.saleOpen(g, 'overseas') },
+  { id: 'foal', name: '当歳', open: (g) => G.saleOpen(g, 'foal') },
+  { id: 'mare', name: '繁殖牝馬', open: (g) => G.saleOpen(g, 'mare') },
+  { id: 'direct', name: '牧場取引（通年）' },
+];
+// 古いタブの id（ホームの行事の案内などから来る）は取引の中のボタンへ読み替える。
+const OLD_TRADE_TAB = { mares: 'mare', foal: 'foal', overseas: 'private', direct: 'direct' };
+
 export function farmScreen(app) {
   const g = app.game;
-  const tab = app.params.tab ?? 'mating';
+  let tab = app.params.tab ?? 'mating';
+  if (OLD_TRADE_TAB[tab]) { app.tradeSub = app.params.sub ?? OLD_TRADE_TAB[tab]; tab = 'trade'; }
+  if (tab === 'trade' && app.params.sub) app.tradeSub = app.params.sub;
   const nav = tabs(farmTabs(g), tab, (id) => app.go('farm', { tab: id, damId: app.params.damId }, { replace: true }));
 
   const body = tab === 'stallions' ? stallionBook(app)
-    : tab === 'mares' ? mareSaleView(app)
-      : tab === 'foal' ? horseSaleView(app, 'foal')
-        : tab === 'overseas' ? el('div', [overseasView(app), horseSaleView(app, 'private'), mareSaleView(app, 'pMare')])
-          : tab === 'facilities' ? facilitiesView(app)
-          : tab === 'direct' ? el('div', [
-            el('p.note', { text: `セールの外でも、牧場から直接買える。相対取引なので割高（セール価格のおよそ ${G.DIRECT_PREMIUM} 倍）。顔ぶれは 12 週ごとに入れ替わる。史実の名馬になる幼駒と実在の名牝は出ない。` }),
-            horseSaleView(app, 'dFoal'), horseSaleView(app, 'dYearling'), mareSaleView(app, 'dMare'),
-          ])
-          : tab === 'entry' ? entryView(app)
-            : matingView(app);
+    : tab === 'trade' ? tradeView(app)
+      : tab === 'facilities' ? facilitiesView(app)
+        : tab === 'entry' ? entryView(app)
+          : matingView(app);
   return el('div', [nav, body]);
+}
+
+/** 取引の画面：上に切り替えのボタンと絞り込み、下に上場馬の表。絞り込みは表だけ描き直す（検索欄の焦点を外さない。落とし穴 77）。 */
+function tradeView(app) {
+  const g = app.game;
+  const sub = TRADE_SUBS.some((s) => s.id === app.tradeSub) ? app.tradeSub : 'private';
+  const opt = (app.tradeOpt ??= { q: '', sex: '', max: 0, real: false, afford: false, sort: '' });
+  const box = el('div.trade-list');
+  const draw = () => {
+    const f = tradeFilter(g, opt);
+    box.textContent = '';
+    const parts = sub === 'private' ? [horseSaleView(app, 'private', f), mareSaleView(app, 'pMare', f)]
+      : sub === 'overseas' ? [overseasView(app, f)]
+        : sub === 'foal' ? [horseSaleView(app, 'foal', f)]
+          : sub === 'mare' ? [mareSaleView(app, 'mare', f)]
+            : [el('p.note', { text: `セールの外でも、牧場から直接買える。相対取引なので割高（セール価格のおよそ ${G.DIRECT_PREMIUM} 倍）。顔ぶれは 12 週ごとに入れ替わる。史実の名馬になる幼駒と実在の名牝は出ない。` }),
+              horseSaleView(app, 'dFoal', f), horseSaleView(app, 'dYearling', f), mareSaleView(app, 'dMare', f)];
+    for (const p of parts) box.appendChild(p);
+  };
+  const subs = el('div.trade-subs', TRADE_SUBS.map((s) => el('button', {
+    class: [s.id === sub ? 'on' : null, s.open?.(g) ? 'live' : null].filter(Boolean).join(' ') || null,
+    onclick: () => { app.tradeSub = s.id; app.go('farm', { tab: 'trade', sub: s.id }, { replace: true }); },
+  }, [el('span', { text: s.name }), s.open?.(g) ? el('i', { text: '開催中' }) : null])));
+  const q = el('input.inp', { type: 'search', placeholder: '馬名・父・母で探す', value: opt.q });
+  q.addEventListener('input', () => { opt.q = q.value; draw(); });
+  const sel = (key, pairs) => {
+    const s = el('select.inp', pairs.map(([v, t]) => el('option', { value: String(v), text: t })));
+    s.value = String(opt[key]);
+    s.addEventListener('change', () => { opt[key] = key === 'max' ? Number(s.value) : s.value; draw(); });
+    return s;
+  };
+  const chk = (key, label) => {
+    const c = el('input', { type: 'checkbox' });
+    c.checked = !!opt[key];
+    c.addEventListener('change', () => { opt[key] = c.checked; draw(); });
+    return el('label.trade-chk', [c, label]);
+  };
+  const filters = el('div.trade-filter', [
+    q,
+    sel('sex', [['', '性：すべて'], ['牡', '牡'], ['牝', '牝']]),
+    sel('max', [[0, '価格：上限なし'], [1000, '〜1,000万'], [3000, '〜3,000万'], [5000, '〜5,000万'], [10000, '〜1億'], [30000, '〜3億']]),
+    sel('sort', [['', '並び：そのまま'], ['price', '安い順'], ['-price', '高い順'], ['age', '若い順']]),
+    chk('real', '実在の血統・名馬だけ'),
+    chk('afford', '買える値段だけ'),
+  ]);
+  draw();
+  return el('div.trade', [subs, filters, box]);
+}
+
+/** 絞り込みと並べ替え。上場馬の形はセールごとに違う（父は sire か sireName、性は無ければ牝＝繁殖牝馬）ので、ここで吸収する。 */
+function tradeFilter(g, opt) {
+  const money = g.world.player.money;
+  const norm = (s) => String(s ?? '').replace(/[ァ-ン]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0x60)).replace(/ー/g, '').toLowerCase();
+  const q = norm(opt.q.trim());
+  return (lots) => {
+    let out = lots.filter((x) => {
+      const sex = x.sex ?? '牝';
+      if (opt.sex && !sex.startsWith(opt.sex)) return false;
+      if (opt.max && x.price > opt.max) return false;
+      if (opt.afford && x.price > money) return false;
+      if (opt.real && !(x.realName || x.sireReal || x.damReal || x.realMare || x.real)) return false;
+      if (q && ![x.name, x.realName, x.sire, x.sireName, x.dam, x.damName, x.damSire, x.damSireName].some((s) => norm(s).includes(q))) return false;
+      return true;
+    });
+    if (opt.sort === 'price') out = [...out].sort((a, b) => a.price - b.price);
+    if (opt.sort === '-price') out = [...out].sort((a, b) => b.price - a.price);
+    if (opt.sort === 'age') out = [...out].sort((a, b) => (a.age ?? 0) - (b.age ?? 0));
+    return out;
+  };
 }
 
 /** 行事の時期の案内。開いていなければ次の時期を出す。 */
@@ -405,16 +481,17 @@ const factorChips = (list) => (list?.length
  * 実在の名牝と、ほかの牧場の繁殖牝馬。代表産駒は実在の仔
  * （イクイノックスの母ならイクイノックス）を先に出す。受胎中の馬はお腹の仔ごと買う。
  */
-function mareSaleView(app, kind = 'mare') {
+function mareSaleView(app, kind = 'mare', filter = (x) => x) {
   const g = app.game;
   const direct = kind === 'dMare';
-  const lots = kind === 'mare' ? G.mareSale(g) : G.directSale(g, kind);
+  const all = kind === 'mare' ? G.mareSale(g) : G.directSale(g, kind);
+  const lots = filter(all);
   const open = direct ? true : kind === 'pMare' ? G.saleOpen(g, 'private') : G.saleOpen(g, 'mare');
   const money = g.world.player.money;
   const list = lots.map((m) => m.id);
   const oc = G.offspringCounts(g);
   const title = direct ? '繁殖牝馬（牧場取引）' : kind === 'pMare' ? '繁殖牝馬（庭先取引）' : '繁殖牝馬セール';
-  return card(`${title}（${lots.length} 頭）`, [
+  return card(`${title}（${lots.length === all.length ? '' : `${lots.length} / `}${all.length} 頭）`, [
     direct ? null : seasonNote(g, open, kind === 'pMare' ? '3 月・7 月・12 月' : '10 月', kind === 'pMare' ? '庭先取引' : '繁殖牝馬セール'),
     el('p.note', { text: kind === 'mare'
       ? '値段は格と年齢、母としての実績（GI 馬の母）、受胎していれば父の種付料で決まる。'
@@ -488,12 +565,13 @@ function saleLotModal(app, kind, x, enabled) {
   ]), { wide: true });
 }
 
-function horseSaleView(app, kind) {
+function horseSaleView(app, kind, filter = (x) => x) {
   const g = app.game;
   const t = SALE_TEXT[kind];
   const direct = kind === 'dFoal' || kind === 'dYearling';
   const open = direct ? true : G.saleOpen(g, kind);
-  const lots = direct ? G.directSale(g, kind) : kind === 'foal' ? G.foalSale(g) : G.privateSale(g);
+  const all = direct ? G.directSale(g, kind) : kind === 'foal' ? G.foalSale(g) : G.privateSale(g);
+  const lots = filter(all);
   const money = g.world.player.money;
   return card(t.title, [
     direct ? null : seasonNote(g, open, t.when, t.what),
@@ -513,16 +591,16 @@ function horseSaleView(app, kind) {
         formatMoney(x.price),
         x.sold ? el('span.mine', { text: '落札済み' }) : buyButton(app, kind, x, open && money >= x.price),
       ] })), { align: ['c', , 'c', 'c', , , , 'c', , 'r'] })
-      : el('p.empty', { text: kind === 'foal' || kind === 'dFoal' ? '上場馬が居ない（幼駒は 4 月に生まれる）。' : '上場馬が居ない。' }),
+      : el('p.empty', { text: all.length ? '絞り込みに合う馬が居ない。' : kind === 'foal' || kind === 'dFoal' ? '上場馬が居ない（幼駒は 4 月に生まれる）。' : '上場馬が居ない。' }),
   ]);
 }
 
 // ---------------------------------------------------------------- 海外トレーニングセール（12 月 3 週）
 
-function overseasView(app) {
+function overseasView(app, filter = (x) => x) {
   const g = app.game;
   const open = G.saleOpen(g, 'overseas');
-  const lots = G.overseasSale(g);
+  const lots = filter(G.overseasSale(g));
   const money = g.world.player.money;
   return card('海外トレーニングセール', [
     seasonNote(g, open, '12 月 3 週', '海外トレーニングセール'),

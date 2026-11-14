@@ -93,12 +93,12 @@ function featureStrip(app, r) {
 const EVENT_GO = {
   foaling: ['stable', { cat: 'young' }],
   covering: ['farm', { tab: 'mating' }],
-  foalSale: ['farm', { tab: 'foal' }],
-  mareSale: ['farm', { tab: 'mares' }],
-  overseas: ['farm', { tab: 'overseas' }],
-  private: ['farm', { tab: 'overseas' }],
-  privateSpring: ['farm', { tab: 'overseas' }],
-  privateSummer: ['farm', { tab: 'overseas' }],
+  foalSale: ['farm', { tab: 'trade', sub: 'foal' }],
+  mareSale: ['farm', { tab: 'trade', sub: 'mare' }],
+  overseas: ['farm', { tab: 'trade', sub: 'overseas' }],
+  private: ['farm', { tab: 'trade', sub: 'private' }],
+  privateSpring: ['farm', { tab: 'trade', sub: 'private' }],
+  privateSummer: ['farm', { tab: 'trade', sub: 'private' }],
   entry: ['farm', { tab: 'entry' }],
 };
 
