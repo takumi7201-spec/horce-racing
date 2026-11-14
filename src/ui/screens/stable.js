@@ -616,24 +616,7 @@ function tabContent(app, tid, v, career) {
         window.scrollTo(0, wy);
       },
     }, el('span', { text: label })))) : null;
-    // 史実の表：サイト（アホヌラゲーム館）の表示そのまま。字はサイトの 16 段（S+〜G）で、ゲームの評価の字（9 段）とは物差しが違う。
-    if (tv?.site) {
-      const st = tv.site;
-      const cols = ['スピ', 'スタ', '瞬発', '根性', 'パワ', '柔軟', '健康', '精神', '賢さ', '計', '芝', 'ダ', '成長型', '成長力', '脚質'];
-      return el('div', [abilSwitch,
-        el('div.site-wrap', el('table.site-tbl', [
-          el('thead', el('tr', cols.map((k) => el('th', { text: k })))),
-          el('tbody', el('tr', cols.map((k) => el('td', { text: st[k] || '—', class: /^[SABCDEFG]\+?$/.test(st[k]) ? `g-${st[k][0]}` : null })))),
-        ])),
-        el('div.hd-cols', [
-          el('div', [
-            el('h4', { text: '馬場' }),
-            el('div.apt-surf', [bar(sv.turf, { label: '芝' }), bar(sv.dirt, { label: 'ダート' }), bar(sv.firm, { label: '良' }), bar(sv.soft, { label: '重' })]),
-          ]),
-          el('div', [el('h4', { text: `距離（最適 ${sv.dist}m）` }), distChart(tv.game, tv.horse)]),
-        ]),
-      ]);
-    }
+    // 史実の表も「この世界のいま」と同じ並び（評価の字と棒）で見せる。字は同じ 16 段（サイトと同じ物差し）で、表の数値を右に添える。
     return el('div', [abilSwitch, el('div.hd-cols', [
       el('div', [
         el('h4', { text: '能力' }),
