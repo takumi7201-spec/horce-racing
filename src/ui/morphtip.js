@@ -19,15 +19,16 @@ const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const settled = (s) => Math.abs(s.x - s.t) < 0.002 && Math.abs(s.v) < 0.002;
 
 const LEAD = [620, 36], TRAIL = [190, 19];
-// 札の大きさ。元は 52×44・間 4・内側の余白 6。お知らせの欄は幅が 340px ほどで 7〜8 枚並ぶので詰めた。
-const BW = 36, BH = 34, GAP = 2, PAD = 5;
+// 札の大きさ。元は 52×44・間 4・内側の余白 6。お知らせの欄は幅が 340px ほどで 7〜8 枚並ぶので詰めた（幅は o.bw、既定 36）。
+const BH = 34, GAP = 2, PAD = 5;
 
 /**
- * @param {{ items: {icon:string, label:string, note?:string}[], active: number, onSelect: (i:number) => void }} o
+ * @param {{ items: {icon:string, label:string, note?:string}[], active: number, bw?: number, onSelect: (i:number) => void }} o
  * @returns {HTMLElement & { setActive(i:number, announce?:boolean): void }}
  */
 export function morphTabs(o) {
   const n = o.items.length;
+  const BW = o.bw ?? 36;
   const W = PAD * 2 + n * BW + (n - 1) * GAP;
   const cx = (i) => PAD + i * (BW + GAP) + BW / 2;
 
@@ -42,6 +43,7 @@ export function morphTabs(o) {
     const b = el('button.mt-tool', { 'aria-label': it.label, 'aria-pressed': String(i === o.active) }, icon(it.icon, { size: 18 }));
     return { el: b, ic: b.firstElementChild, p: S(1, 520, 16) };
   });
+  tools.forEach((t) => { t.el.style.width = `${BW}px`; });
   const bar = el('div.mt-bar', { role: 'toolbar', 'aria-label': 'お知らせのページ' }, [hl, ...tools.map((t) => t.el)]);
   const root = el('div.mt-tools', { style: `width:${W}px;height:${BH + PAD * 2}px` }, [tail, tip, bar]);
 

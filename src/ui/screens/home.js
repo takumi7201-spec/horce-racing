@@ -36,14 +36,31 @@ export function homeScreen(app) {
 
   const stack = el('div.pstack');
   // ページの札（以前は小さな点）。乗せる・押すと、札の上をモーフツールチップがページの名前を出して渡る（morphtip.js）。
+  // 札の列は欄の外（スマホは下のメニューの「ホーム」の上、PC は欄の下）に置く。たたんだ欄で札を押すと開く。
+  const narrow = typeof matchMedia === 'function' && matchMedia('(max-width: 900px)').matches;
   const dots = morphTabs({
     items: pages.map((p) => ({ icon: p.dataset.ic, label: p.dataset.title })),
     active: app.homePage,
-    onSelect: (i) => { app.homePage = i; show(); },
+    // スマホは右下の NEXT に掛からない幅に詰める（8 枚で 280px）
+    bw: narrow ? 32 : 36,
+    onSelect: (i) => { app.homePage = i; show(); setOpen(true); },
   });
+  // 欄の開け閉め（見る人の好みなので app に覚える。描き直しても戻らない）
+  const wrap = el('div.pwrap', { class: app.homeCollapsed ? 'closed' : null }, el('div.pclip', stack));
+  const toggle = el('button.ptoggle');
+  function setOpen(v) {
+    app.homeCollapsed = !v;
+    wrap.classList.toggle('closed', !v);
+    toggle.textContent = '';
+    toggle.append(el('span', { text: v ? 'たたむ' : 'お知らせを開く' }), icon(v ? 'up' : 'down', { size: 16 }));
+    toggle.title = v ? 'お知らせをたたむ' : 'お知らせを開く';
+  }
+  toggle.addEventListener('click', () => setOpen(!!app.homeCollapsed));
+  setOpen(!app.homeCollapsed);
   const flip = (d) => {
     app.homePage = (app.homePage + d + n) % n;
     show();
+    setOpen(true);
     dots.setActive(app.homePage, true);
   };
   function show() {
@@ -57,12 +74,16 @@ export function homeScreen(app) {
       featureStrip(app, graded[0]),
       eventStrip(app),
       el('div.pcards', [
-        el('button.parrow', { onclick: () => flip(-1), title: '前へ' }, icon('up', { size: 20 })),
-        stack,
-        el('button.parrow', { onclick: () => flip(1), title: '次へ' }, icon('down', { size: 20 })),
-        dots,
+        // 前・開け閉め・次を 1 段にまとめた（下の矢印はツールチップと重なり、札の列との間が空いた）
+        el('div.pctl', [
+          el('button.parrow', { onclick: () => flip(-1), title: '前のお知らせ' }, icon('up', { size: 18 })),
+          toggle,
+          el('button.parrow', { onclick: () => flip(1), title: '次のお知らせ' }, icon('down', { size: 18 })),
+        ]),
+        wrap,
       ]),
     ]),
+    el('div.hbar', dots),
   ]);
 }
 

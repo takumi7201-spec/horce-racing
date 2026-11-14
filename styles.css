@@ -286,9 +286,11 @@ small.locked { color: var(--fg3); white-space: nowrap; }
 .home { position: absolute; inset: 0; pointer-events: none; }
 .home > * { pointer-events: auto; }
 .hpanel {
-  position: absolute; right: 14px; top: 12px; bottom: 92px; width: 372px;
-  display: flex; flex-direction: column; gap: 10px;
+  /* 下の札の列（.hbar）の上に積む。中身の高さだけ取り、空いた所を残さない（たたむと縮む）。 */
+  position: absolute; right: 14px; bottom: 70px; width: 372px; max-height: calc(100% - 82px);
+  display: flex; flex-direction: column; gap: 8px;
 }
+.hbar { position: absolute; right: 14px; bottom: 16px; width: 372px; display: flex; justify-content: center; }
 .rankplate {
   display: flex; align-items: center; gap: 10px;
   background: linear-gradient(#fffef6, #f7efcf); border: 3px solid #fff; border-radius: 14px;
@@ -334,7 +336,16 @@ small.locked { color: var(--fg3); white-space: nowrap; }
 .ft-n { font-size: 16px; font-weight: 900; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ft-c { margin-left: auto; font-size: 11px; font-weight: 700; opacity: .92; white-space: nowrap; }
 
-.pcards { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.pcards { flex: 0 1 auto; min-height: 0; display: flex; flex-direction: column; align-items: stretch; gap: 6px; }
+/* 前・開け閉め・次の段 */
+.pctl { display: flex; align-items: center; justify-content: center; gap: 8px; }
+.ptoggle { display: flex; align-items: center; gap: 4px; height: 24px; padding: 0 12px; border-radius: 12px; cursor: pointer; font: inherit;
+  font-size: 12px; font-weight: 800; color: var(--green-dd); background: #fffef6; border: 2px solid #fff; box-shadow: 0 2px 5px #0003; }
+.ptoggle:hover { filter: brightness(1.04); }
+/* 開け閉めは高さをイージングで（grid の行を 0fr ↔ 1fr。height: auto へは遷移できない。落とし穴 103 と同じ） */
+.pwrap { display: grid; grid-template-rows: 1fr; min-height: 0; transition: grid-template-rows .34s var(--ease-move, ease), opacity .25s; }
+.pwrap.closed { grid-template-rows: 0fr; opacity: 0; }
+.pclip { min-height: 0; overflow: hidden; display: flex; }
 /* カードは中身の高さに合わせる（伸ばすと空のクリーム色が大きく残る）。長いときだけ中で巻く。 */
 .pstack { width: 100%; flex: 0 1 auto; min-height: 0; display: flex; }
 .parrow {
@@ -1163,7 +1174,10 @@ canvas.race3d { width: 100%; height: 100%; display: block; }
   .dock { left: auto; right: 8px; bottom: 10px; width: auto; z-index: 17; }
   .nb-ring { width: 78px; height: 78px; }
   .main { left: 0; bottom: 72px; padding: 10px 10px 20px; }
-  .hpanel { left: 10px; right: 10px; width: auto; top: auto; bottom: 86px; }
+  /* スマホ：札の列は下のメニューの「ホーム」の上（左寄せ、右下の NEXT に掛からない）。欄はその上に積む。
+     .home は .main（下のメニューの上で切れている）の中なので、位置は .main の下端から測る */
+  .hpanel { left: 10px; right: 10px; width: auto; top: auto; bottom: 54px; }
+  .hbar { left: 8px; right: auto; width: auto; bottom: 4px; justify-content: flex-start; }
   .newsbar { left: 10px; right: 10px; top: 10px; bottom: auto; min-height: 0; border-radius: 18px; }
   .nb-text { font-size: 13px; }
   .nb-count { display: none; }
@@ -1211,7 +1225,7 @@ canvas.race3d { width: 100%; height: 100%; display: block; }
   .hd-back { padding: 2px 12px 2px 8px; }
   .hd-acts { order: 3; flex-basis: 100%; justify-content: flex-start; overflow-x: auto; }
   .hd-acts .btn { min-width: 0; flex: 0 0 auto; padding: 4px 10px; font-size: 12px; }
-  .hpanel { height: auto; max-height: 52%; gap: 6px; }
+  .hpanel { height: auto; max-height: 56%; gap: 6px; }
   .pc-b { min-height: 64px; }
   .rankplate { padding: 3px 10px 3px 6px; }
   .rp-v b { font-size: 24px; }
@@ -2911,9 +2925,7 @@ button.ik-rectier, button.ik-recbest { cursor: pointer; }
 @media (prefers-reduced-motion: reduce) { .rd-panel .it, .rd-panel.on .it { transition: none; filter: none; } }
 
 /* ---------------- お知らせの欄のページの札とモーフツールチップ（src/ui/morphtip.js） ---------------- */
-.mt-tools { position: relative; flex: none; margin-top: auto; }
-/* 札の列は欄の下端に留める（カードの高さで上下しない）。下の矢印との間はツールチップ（30px＋しっぽ）が収まるだけ空ける */
-.pcards > .parrow:nth-last-of-type(1) { margin-bottom: 46px; }
+.mt-tools { position: relative; flex: none; }
 .mt-bar { position: absolute; inset: 0; display: flex; gap: 2px; padding: 5px; border-radius: 999px;
   background: linear-gradient(#ffffffee, #eef4e4ee); box-shadow: 0 0 0 2px #fff inset, 0 2px 6px #1d3a1a40; }
 .mt-tool { position: relative; z-index: 1; flex: none; width: 36px; height: 34px; padding: 0; border: 0; border-radius: 999px;
