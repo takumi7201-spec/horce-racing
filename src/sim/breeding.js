@@ -5,7 +5,7 @@
 // 回帰項を入れておくと、名馬の仔がそこそこで終わることもあり、
 // 無名の牝馬から大物が出ることもある、という当たり前の揺らぎが出る。
 
-import { createHorse, resetHorseIds } from './horse.js';
+import { createHorse, resetHorseIds, parentNow, PARENT_NOW_BASE } from './horse.js';
 import { SEX, ABILITIES, GROWTH, COATS } from './params.js';
 import { clamp01, clamp, lerp } from '../core/util.js';
 import { inheritKick } from './traits.js';
@@ -57,7 +57,7 @@ export function breed(world, rng, sire, dam, { year, farmId = null, ownerId = nu
   const rolled = T.subRoll ? subAbilities[rng.irange(0, subAbilities.length - 1)] : null;
   const bonus = roll * BURST_STEP;
   for (const a of ABILITIES) {
-    const mid = sire.pot[a] * 0.5 + dam.pot[a] * 0.5;
+    const mid = parentNow(sire, a, year - 1) * 0.5 + parentNow(dam, a, year - 1) * 0.5 + PARENT_NOW_BASE;
     const regressed = lerp(mid, POP_MEAN, REGRESSION);
     // 分散は親の能力が高いほど大きい（大物も駄馬も出る）。
     const sd = 0.095 + mid * 0.075;

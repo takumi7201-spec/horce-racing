@@ -6,6 +6,7 @@
 
 import { clamp01, lerp } from '../core/util.js';
 import { ABILITIES } from './params.js';
+import { parentNow, PARENT_NOW_BASE } from './horse.js';
 
 /** 血統をたどる世代の上限。5 代までが実際の血統表の範囲。 */
 export const PED_GENS = 5;
@@ -130,6 +131,13 @@ export function breedQuality(h) {
   return clamp01(ab * 0.65 + career * 0.35);
 }
 
+/** breedQuality の能力の項を、仔に渡る「いま」の値（＋水準を合わせる分）で測る。year は種付けの年。 */
+export function breedQualityNow(h, year) {
+  const ab = ABILITIES.reduce((t, a) => t + parentNow(h, a, year), 0) / ABILITIES.length + PARENT_NOW_BASE;
+  const career = clamp01(Math.log10(1 + h.earnings / 1000) / 2.2);
+  return clamp01(ab * 0.65 + career * 0.35);
+}
+
 /**
  * インブリードの効能とリスク。
  * 3×4・4×3 がいちばん効き、2×3 のような極端な近交は能力より
@@ -213,7 +221,8 @@ export function matingEval(world, sireId, damId) {
   const ibe = inbreedEffect(ib);
   const nk = nicksValue(world, sireId, damId);
 
-  const parentPower = (breedQuality(sire) * 0.58 + breedQuality(dam) * 0.42);
+  // 親の格は仔に渡る値（「いま」。breeding.js と同じ）で測る。潜在値で測ると、衰えた老いた種牡馬が高く出る。
+  const parentPower = (breedQualityNow(sire, world.year) * 0.58 + breedQualityNow(dam, world.year) * 0.42);
   // 距離・馬場の指向が噛み合っているか。ばらばらだと中途半端な仔が出る。
   const distGap = Math.abs(sire.dist - dam.dist) / 1200;
   const coherence = clamp01(1 - distGap * 0.5);

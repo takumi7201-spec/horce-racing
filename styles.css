@@ -733,6 +733,13 @@ div.ev { cursor: default; }
 .mate-sum { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin-bottom: 8px; font-size: 12px; }
 .mate-sum .mate-pair { font-size: 14px; }
 .mate-sum button { margin-left: auto; }
+/* 両親の能力（仔に渡るのは「いま」。落とし穴 149） */
+.pa { margin: 4px 0 10px; }
+.pa-tbl { font-size: 12px; }
+.pa-tbl td, .pa-tbl th { padding: 3px 6px; white-space: nowrap; }
+.pa-v small { color: var(--muted, #889); }
+.pa-foal { color: var(--accent, #c37a1a); }
+.pa > small.note { display: block; margin-top: 4px; font-size: 11px; }
 .mate-sumhost .note { margin: 0 0 8px; }
 /* 父と母の両方に居る祖先（インブリードの元） */
 .ped.combo .ped-cell.cross { background: #fff3cc; box-shadow: inset 0 0 0 2px #e2a72a; }
@@ -776,6 +783,7 @@ div.ev { cursor: default; }
   .mate-sum { gap: 2px 8px; margin-bottom: 6px; }
   .mate-sum .mate-pair { font-size: 13px; flex-basis: 100%; }
   .mate-sum .stars { display: none; }
+  .mate-pa { display: none; }  /* スマホは一画面に収める（落とし穴 136）。評価のモーダルで見る */
   .mating .stallion-tbl th:nth-child(2), .mating .stallion-tbl td:nth-child(2) { display: none; }
   .mating .stallion-tbl td, .mating .stallion-tbl th { padding: 5px 4px; }
   .mating .stallion-tbl td:first-child { white-space: normal; }

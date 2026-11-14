@@ -171,6 +171,8 @@ function matingView(app) {
         ['危険度', el('span', [bar(ev.risk, { color: ev.riskPoints >= 4 ? '#c75' : '#687' }), el('small', { text: ` ${ev.riskComment}` })])],
       ]),
       ev.blocked ? el('p.warn', { text: ev.blocked }) : null,
+      el('h4', { text: '両親の能力（仔に渡るのは「いま」）' }),
+      parentAbilTable(g, sid, damId),
       ev.theories.length
         ? el('div', [
           el('h4', { text: `成立する配合理論（${ev.theories.length}）` }),
@@ -240,6 +242,7 @@ function matingView(app) {
       b?.sireId === sireId ? el('span.mine', { text: '予約済み' }) : dam.pregnancy?.sireId === sireId ? el('span.win', { text: '受胎中' }) : null,
       button('評価・種付け', () => openEval(sireId), { cls: 'sm primary' }),
     ]));
+    sumHost.appendChild(tag(parentAbilTable(g, sireId, damId), 'mate-pa'));
   };
 
   // ---- 段の切り替え。② の札には選んだ種牡馬の名を出す
@@ -255,6 +258,7 @@ function matingView(app) {
     el('li', { text: '爆発力は、仔のスピードの底上げの上限。0〜(爆発力−1) の抽選で決まり、サブパラは理論ごとに上がる。' }),
     el('li', { text: 'ニックス（父系 × 母方の系統の相性）は産駒 12 頭ぶんの実績が出るまで「？」のまま。成立すると爆発力が上がる。' }),
     el('li', { text: '父と母で得意距離が離れていると、中途半端な仔が出やすい。' }),
+    el('li', { text: '仔に渡るのは両親の「いま」の能力（年をとって衰えた値・育ち切らなかった値）。盛りの潜在値ではない。若いうちに種付けした親ほど強い値を渡す。' }),
     el('li', { text: '両親の能力はそのまま伝わらない。平均へ戻る力が働く（名馬の仔が凡馬で終わることもある）。' }),
   ]);
   const steps = el('div.mate-steps', [
@@ -380,6 +384,21 @@ function matingView(app) {
   return el('div.cols2.mating', [
     el('div.col', left),
     el('div.col.mating-side', [pedCard, guide1, guide2]),
+  ]);
+}
+
+/**
+ * 両親の能力（落とし穴 149）。仔に渡るのは「いま」（年齢の衰え・育ち切らなかった分を含む）。潜在（盛り）を小さく添え、
+ * 仔の目安（両親の「いま」の平均を全体の平均へ寄せた中心。配合理論の上乗せとばらつきは別）を右に出す。
+ */
+function parentAbilTable(g, sireId, damId) {
+  const rows = G.parentAbilities(g, sireId, damId);
+  const cell = (x) => (x ? el('span.pa-v', [el('b', { text: x.now.rank }), el('small', { text: ` / ${x.pot.rank}` })]) : '—');
+  return el('div.pa', [
+    table(['能力', '父 いま / 潜在', '母 いま / 潜在', '仔の目安'],
+      rows.map((r) => [r.label, cell(r.sire), cell(r.dam), r.foal ? el('b.pa-foal', { text: r.foal.rank }) : '—']),
+      { align: [, 'c', 'c', 'c'], cls: 'pa-tbl' }),
+    el('small.note', { text: '仔に渡るのは「いま」の能力（年をとった種牡馬・繁殖牝馬は衰えたぶん下がる）。仔の目安は乱数のばらつきと配合理論の上乗せの前。' }),
   ]);
 }
 

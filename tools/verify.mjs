@@ -888,7 +888,12 @@ section('自分の重賞馬の種牡馬入り');
 section('幼駒の売却');
 {
   // 幼駒はセールを待たずに売れる。値段は血統だけで決まり、乱数を使わない。
-  const gy = sideGame({ seed: 'verify-young' });
+  // 開始時に自分の繁殖牝馬が受胎しているかは乱数しだい（2 頭とも空胎の種がある）。受胎している種を選ぶ。
+  let gy = null;
+  for (const s of ['verify-young', 'verify-young-2', 'verify-young-3', 'verify-young-4']) {
+    gy = sideGame({ seed: s });
+    if (gy.world.player.broodmares.some((id) => gy.world.horses.get(id)?.pregnancy)) break;
+  }
   const w = gy.world;
   let foal = [...w.horses.values()].find((h) => h.ownerId === 'player' && w.year - h.birthYear < 2 && !h.dead);
   for (let i = 0; i < 16 && !foal; i++) { nextWeek(gy); foal = [...w.horses.values()].find((h) => h.ownerId === 'player' && w.year - h.birthYear < 2 && !h.dead); }

@@ -5,13 +5,13 @@
 
 import { createWorld, advanceWeek, isAutoDebut, raceSoon, weekRaces, weekGround, horsesOf, stallionList, computeLeaders, ownerStandings, retireHorse, retireOutcome as worldRetireOutcome, playerFame } from './world.js';
 import { eligible, weekLabel, gradedCalendar, GRADED_BY_ID, meetingsOf, ABROAD_COST } from './schedule.js';
-import { horseAge, effectiveAbility, styleLabel, distanceAptitude, canRun, STYLE_TARGET } from './horse.js';
+import { horseAge, effectiveAbility, styleLabel, distanceAptitude, canRun, STYLE_TARGET, parentNow, PARENT_NOW_BASE } from './horse.js';
 import { readyToRun, MENUS, condLabel, AUTO_FOCUS, AUTO_INTENSITY, cleanAutoPlan, autoTrainMenu } from './training.js';
 import {
   matingEval, pedigreeTree, nicksValue, lineLabel, breedQuality, FACTORS, factorsOf, factorBonus, vigorOf,
 } from './pedigree.js';
 import { abroadSires, realBook as realBookOf, realPreview as realPreviewOf, fillPedigreeFromTable, realFutureKids, realNameOf, realSiteOf } from './realsires.js';
-import { studFeeOf, canBeBroodmare } from './breeding.js';
+import { studFeeOf, canBeBroodmare, POP_MEAN, REGRESSION } from './breeding.js';
 import { previewOdds } from './race.js';
 import { makeRng, hashSeed } from '../core/rng.js';
 import { EVENTS, eventsAt, eventOpen } from './calendar.js';
@@ -20,7 +20,7 @@ import { evaluateTheories, THEORY_GUIDE, theoryName, burstComment, riskComment }
 import * as S from './sales.js';
 import {
   ABILITIES, SEX, WEEKS_PER_YEAR, classOrder, className, standardWeight,
-  weekToMonth, STYLES, ABROAD_FAME, OWNER_POINTS,
+  weekToMonth, STYLES, ABROAD_FAME, OWNER_POINTS, ABILITY_LABEL,
 } from './params.js';
 import { SURFACE, courseName, courseShort as courseShortOf, getCourse, DIR } from './course.js';
 import { marksOf } from './markings.js';
@@ -475,6 +475,29 @@ export function matingCandidates(g, damId, { maxFee = Infinity, search = '', min
 export const theoryGuide = () => THEORY_GUIDE;
 
 /** 配合の評価。プレイヤーに見せる期待度と注意点。 */
+/**
+ * 配合の両親の能力（落とし穴 149）。仔に渡るのは「いま」（現在値 × 種付けの年の成長曲線）で、潜在値（盛り）も並べる。
+ * 仔の目安は、両親の「いま」の平均を全体の平均へ寄せた中心（breed() と同じ式。乱数のばらつきと配合理論の上乗せは含まない）。
+ */
+export function parentAbilities(g, sireId, damId) {
+  const w = g.world;
+  const s = sireId != null ? w.horses.get(sireId) : null;
+  const d = damId != null ? w.horses.get(damId) : null;
+  const y = w.year;
+  const side = (h, a) => (h ? { now: parentNow(h, a, y), pot: h.pot[a] } : null);
+  return ABILITIES.map((a) => {
+    const sv = side(s, a), dv = side(d, a);
+    const foal = sv && dv ? clamp01((sv.now + dv.now) / 2 + PARENT_NOW_BASE) * (1 - REGRESSION) + POP_MEAN * REGRESSION : null;
+    const r = (v) => (v == null ? null : { v, rank: rankOf(v) });
+    return {
+      key: a, label: ABILITY_LABEL[a],
+      sire: sv && { now: r(sv.now), pot: r(sv.pot) },
+      dam: dv && { now: r(dv.now), pot: r(dv.pot) },
+      foal: r(foal),
+    };
+  });
+}
+
 export function evaluateMating(g, damId, sireId) {
   const w = g.world;
   const ev = matingEval(w, sireId, damId);
