@@ -610,7 +610,6 @@ function tabContent(app, tid, v, career) {
           el('thead', el('tr', cols.map((k) => el('th', { text: k })))),
           el('tbody', el('tr', cols.map((k) => el('td', { text: st[k] || '—', class: /^[SABCDEFG]\+?$/.test(st[k]) ? `g-${st[k][0]}` : null })))),
         ])),
-        el('p.note', { text: '史実馬の一覧（アホヌラゲーム館「Winning Post 10 2026 攻略」）の表示そのまま。この世界ではすべてを使う：スピ・パワ・根性・賢さ・健康・精神はその値（字は各段の数値の中央）、スタはスタミナ（ほかの能力と同じ帯に置き直す）と最適距離、瞬発は最後の 400m の伸び、柔軟は距離の幅。' }),
         el('div.hd-cols', [
           el('div', [
             el('h4', { text: '馬場' }),
@@ -638,9 +637,8 @@ function tabContent(app, tid, v, career) {
               tv ? el('span.abil-n', { text: String(Math.round(x * 100)) }) : null,
             ])),
         ]),
-        el('p.note', {
-          text: tv ? '史実馬の一覧（アホヌラゲーム館「Winning Post 10 2026 攻略」）の数値そのまま。スタミナは一覧に無く（距離適性の隠し値）、最適距離から導いた値。この世界での育ち具合や仕上がりは入らない。'
-            : v.age != null && v.age < 2
+        tv ? null : el('p.note', {
+          text: v.age != null && v.age < 2
             ? '評価は 2 歳の物差しで見た、いまの育ち具合。潜在能力は見えない。当歳は生まれたてで低く、1 歳の 1 年の育成で育つ（育成牧場で速まる）。2 歳からは調教と出走で近づく。'
             : '評価は「いま出せる力」。潜在能力は見えない。調教と出走で近づく。',
         }),
