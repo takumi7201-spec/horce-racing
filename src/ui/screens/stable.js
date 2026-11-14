@@ -2,7 +2,7 @@
 
 import { el, card, table, button, kv, bar, modal, toast, frameChip, tabs, ask, choose } from '../dom.js';
 import * as G from '../../sim/game.js';
-import { formatMoney, formatTime, formatSec, rankOf } from '../../core/util.js';
+import { formatMoney, formatTime, formatSec, rankOf, rankYoung } from '../../core/util.js';
 import { fitLabel, condLabel, MENUS } from '../../sim/training.js';
 import { ABILITY_LABEL, ABILITIES, STYLES } from '../../sim/params.js';
 import { horseImg } from '../horse-sprite.js';
@@ -450,7 +450,7 @@ function statePanel(v, offspring = null) {
   </svg>`;
   ring.appendChild(el('div.hs-ring-t', racing
     ? [el('span', { text: '仕上がり' }), el('b', { text: `${Math.round(fit * 100)}` }), el('small', { text: '%' })]
-    : young ? [el('span', { text: '育成' }), el('b', { text: rankOf(avg) })]
+    : young ? [el('span', { text: '育成' }), el('b', { text: rankYoung(avg) })]
       : [el('span', { text: '産駒' }), el('b', { text: String(nf) }), el('small', { text: '頭' })]));
   const fat = v.fatigue ?? 0;
   const fatMark = fat < 0.2 ? '◎' : fat < 0.4 ? '○' : fat < 0.6 ? '△' : '▲';
@@ -610,7 +610,7 @@ function tabContent(app, tid, v, career) {
           el('thead', el('tr', cols.map((k) => el('th', { text: k })))),
           el('tbody', el('tr', cols.map((k) => el('td', { text: st[k] || '—', class: /^[SABCDEFG]\+?$/.test(st[k]) ? `g-${st[k][0]}` : null })))),
         ])),
-        el('p.note', { text: '史実馬の一覧（アホヌラゲーム館「Winning Post 10 2026 攻略」）の表示そのまま。この世界ではスピ・パワ・根性・賢さ・健康・精神を使い（段階は各段の数値の中央）、スタは最適距離、柔軟は距離の幅に写している。瞬発に当たる能力は無い。' }),
+        el('p.note', { text: '史実馬の一覧（アホヌラゲーム館「Winning Post 10 2026 攻略」）の表示そのまま。この世界ではすべてを使う：スピ・パワ・根性・賢さ・健康・精神はその値（字は各段の数値の中央）、スタはスタミナ（ほかの能力と同じ帯に置き直す）と最適距離、瞬発は最後の 400m の伸び、柔軟は距離の幅。' }),
         el('div.hd-cols', [
           el('div', [
             el('h4', { text: '馬場' }),
@@ -631,10 +631,12 @@ function tabContent(app, tid, v, career) {
             // 表の値は史実馬の一覧（アホヌラゲーム館）の数値（÷100 で持っている）。スタミナは一覧に無く距離から導く。
             tv ? el('span.abil-n', { text: a === 'stamina' ? '—' : String(Math.round(sv.values[a] * 100)) }) : null,
           ])),
-          ...(tv ? [['健康', sv.sound], ['精神', sv.spirit]].map(([l, x]) => el('div.abil-row', [
-            el('span.abil-l', { text: l }), el('span.abil-r', { text: '' }), bar(x),
-            el('span.abil-n', { text: String(Math.round(x * 100)) }),
-          ])) : []),
+          // サイトにある残りの能力（瞬発・柔軟・健康・精神）。調教で伸びない馬の性質なので、いまの評価も同じ値。
+          ...[['瞬発', sv.extra?.kick], ['柔軟', sv.extra?.flex], ['健康', sv.extra?.sound], ['精神', sv.extra?.spirit]]
+            .filter(([, x]) => x != null).map(([l, x]) => el('div.abil-row.sub', [
+              el('span.abil-l', { text: l }), el('span.abil-r', { text: rankOf(x) }), bar(x),
+              tv ? el('span.abil-n', { text: String(Math.round(x * 100)) }) : null,
+            ])),
         ]),
         el('p.note', {
           text: tv ? '史実馬の一覧（アホヌラゲーム館「Winning Post 10 2026 攻略」）の数値そのまま。スタミナは一覧に無く（距離適性の隠し値）、最適距離から導いた値。この世界での育ち具合や仕上がりは入らない。'

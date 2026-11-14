@@ -309,7 +309,11 @@ section('実在の種牡馬');
   check('2026 年の最高額はキタサンブラックとイクイノックスの 2,500 万',
     kita?.studFee === 2500 && eq?.studFee === 2500 && st[0].fee === 2500, `${kita?.studFee} / ${eq?.studFee} / 先頭 ${st[0]?.name}`);
   check('実在の種牡馬が名簿に並ぶ', st.filter((s) => s.real).length >= 30, `${st.filter((s) => s.real).length} 頭`);
-  check('父系は系祖で止まる（キタサンブラックはサンデーサイレンス系）', sireLineRoot(w, kita.id) === ss.id);
+  // キタサンブラックは種によって系統が確立して自分が系祖になる（落とし穴 44）。そのときも父系をたどるとサンデーサイレンス。
+  const kRoot = w.horses.get(sireLineRoot(w, kita.id));
+  const fromSS = (h) => { for (let x = h; x; x = w.horses.get(x.sireId)) if (x.id === ss.id) return true; return false; };
+  check('父系は系祖で止まる（キタサンブラックはサンデーサイレンス系か、確立した自分の系統）',
+    kRoot?.id === ss.id || (kRoot?.lineHead && fromSS(kRoot)), kRoot?.name);
   check('サンデーサイレンスは開始時点で故馬・名簿外', ss.dead && !w.stallionPool.includes(ss.id));
   // イクイノックスは父方・母方の 4 代目にヘイローを持つ（キタサンブラック × キングヘイロー牝馬）。
   const ib = inbreedings(w, kita.id, eq.damId).map((x) => `${x.name} ${x.label}`);

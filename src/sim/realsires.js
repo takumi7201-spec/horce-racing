@@ -14,6 +14,7 @@
 // 名簿（stallionPool / marePool）への出し入れは、プレイヤーの馬には手を出さない。
 // 自分で持った実在の馬をいつ引退させ、何に付けるかはプレイヤーが決める。
 
+import { staminaOfSite, letterValue } from './traits.js';
 import { REAL_HORSES } from './data/real-horses.js';
 import { createHorse, resetHorseIds, peekHorseId } from './horse.js';
 import { makeRng } from '../core/rng.js';
@@ -29,7 +30,10 @@ const ABROAD_DEFS = REAL_HORSES.filter((d) => d.abroad);
 const SITE_KEYS = ['スピ', 'スタ', '瞬発', '根性', 'パワ', '柔軟', '健康', '精神', '賢さ', '計', '芝', 'ダ', '成長型', '成長力', '脚質'];
 /** 史実馬の一覧（アホヌラゲーム館）のサイトの表示そのまま。一覧に無い馬は null。 */
 export function realSiteOf(name) {
-  const s = DEFS.get(name)?.site;
+  return siteOf(DEFS.get(name));
+}
+function siteOf(d) {
+  const s = d?.site;
   if (!s) return null;
   const v = s.split('|');
   return Object.fromEntries(SITE_KEYS.map((k, i) => [k, v[i] ?? '']));
@@ -101,6 +105,16 @@ export function applyTraits(h, d) {
   // 史実馬の一覧の能力（d.ab）があれば、スピード・パワー・根性・賢さはその値のまま使う。
   // スタミナは一覧に対応する値が無い（距離適性の隠し値）ので、距離から導いた値のまま。
   if (d.ab) Object.assign(pot, { speed: lvl, power: d.ab.power, guts: d.ab.guts, wit: d.ab.wit });
+  // サイトの表示（d.site）があれば、スタミナはサイトの数値から（ほかの能力と同じ帯に置く）、瞬発・柔軟はサイトの字の段の値。
+  const site = siteOf(d);
+  if (site) {
+    const sta = Number(site['スタ']);
+    if (Number.isFinite(sta)) pot.stamina = staminaOfSite(sta);
+    const k = letterValue(site['瞬発']);
+    if (k != null) h.kick = k;
+    const f = letterValue(site['柔軟']);
+    if (f != null) h.flex = f;
+  }
   for (const a of ABILITIES) {
     h.pot[a] = clamp01(pot[a]);
     h.cur[a] = h.pot[a];
@@ -734,6 +748,26 @@ export function fillPedigreeFromTable(world, rootId, tree, gens) {
  * 表で因子を決めた馬（d.f）の因子を、世界の馬に写す。能力と同じく因子も馬を作るときにしか写さないので、
  * 古いセーブの馬は表に足した因子を持たない（落とし穴 60）。読み込みのたびに呼ぶ。足りない因子だけ足す。乱数は使わない。
  */
+/**
+ * 古いセーブの実在馬に、サイトの瞬発・柔軟を写す（落とし穴 60 と同じ型。作る時にしか写していなかった）。
+ * 能力（スタミナ）は写さない：ロードした世界の続きが保存前と変わる（落とし穴 14）。乱数を使わない。
+ */
+export function syncRealSite(world) {
+  if (!world.real) return 0;
+  let n = 0;
+  for (const d of REAL_HORSES) {
+    const site = d.site ? siteOf(d) : null;
+    if (!site) continue;
+    const h = madeHorse(world, d.n);
+    if (!h || h.kick != null) continue;
+    const k = letterValue(site['瞬発']), f = letterValue(site['柔軟']);
+    if (k != null) h.kick = k;
+    if (f != null) h.flex = f;
+    n++;
+  }
+  return n;
+}
+
 export function syncRealFactors(world) {
   if (!world.real) return 0;
   let n = 0;

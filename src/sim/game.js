@@ -26,7 +26,8 @@ import { SURFACE, courseName, courseShort as courseShortOf, getCourse, DIR } fro
 import { marksOf } from './markings.js';
 import { gearOf, setGear, GEAR, GEAR_KEYS, GEAR_COLORS, gearNames, gearEffect } from './gear.js';
 export { GEAR, GEAR_KEYS, GEAR_COLORS, gearNames };
-import { clamp01, sum, byDesc, formatMoney, formatTime, rankOf } from '../core/util.js';
+import { clamp01, sum, byDesc, formatMoney, formatTime, rankOf, rankYoung } from '../core/util.js';
+import { kickOf, flexOf } from './traits.js';
 
 /** 新規ゲーム。 */
 export function newGame({ seed = Date.now() & 0xffffff, playerName = '', farmName = '', startYear = 2026, realSires = true } = {}) {
@@ -101,9 +102,11 @@ export function horseView(g, id) {
     dam: h.damId != null ? w.horses.get(h.damId)?.name ?? '—' : '—',
     damSire: damSireName(w, h),
     line: h.sireId != null ? lineLabel(w, h.id) : '—',
-    ranks: Object.fromEntries(ABILITIES.map((a) => [a, rankOf(raw[a])])),
+    ranks: Object.fromEntries(ABILITIES.map((a) => [a, (!h.preview && horseAge(h, w.year) < 2 ? rankYoung : rankOf)(raw[a])])),
     values: Object.fromEntries(ABILITIES.map((a) => [a, raw[a]])),
     todays: Object.fromEntries(ABILITIES.map((a) => [a, eff[a]])),
+    // サイト（史実馬の一覧）にある残りの能力。瞬発・柔軟は馬の性質（調教で伸びない）、健康・精神も同じ。
+    extra: { kick: kickOf(h), flex: flexOf(h), sound: h.sound, spirit: h.spirit },
     growth: h.growth,
     style: styleLabel(h),
     dist: h.dist, distRange: h.distRange,

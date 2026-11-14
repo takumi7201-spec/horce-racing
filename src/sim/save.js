@@ -6,7 +6,7 @@
 
 import { makeRng, attach } from '../core/rng.js';
 import { resetHorseIds, peekHorseId } from './horse.js';
-import { healRealPedigrees, syncRealFactors } from './realsires.js';
+import { healRealPedigrees, syncRealFactors, syncRealSite } from './realsires.js';
 import { grantDominantFactors } from './pedigree.js';
 import { healNursery } from './training.js';
 
@@ -95,6 +95,7 @@ export function deserialize(data) {
   // 古いセーブの実在馬に、今の表の血統をつなぐ（新しく作る馬の id は続きから）。
   healRealPedigrees(world);
   syncRealFactors(world);
+  syncRealSite(world);
   // 古いセーブの、血統支配率の高い種牡馬（亡くなった馬も含む）に因子を付ける。付け終えた世界では何もしない。
   grantDominantFactors(world);
   // 古いセーブの幼駒と 2 歳に、受けていなかった育成を足す（落とし穴 88）。足し終えた世界では何もしない。

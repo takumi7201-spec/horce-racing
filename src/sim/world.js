@@ -41,6 +41,7 @@ import {
 import { W, ABROAD_COST } from './schedule.js';
 import { historicalRunners, foreignRunners, ghostRunners, readyAbroad, FOREIGN_JOCKEYS, isAbroadRunnerOf } from './abroad.js';
 import { gearOf, gearEffect } from './gear.js';
+import { kickOf } from './traits.js';
 
 /**
  * 1 世代あたりの産駒数。
@@ -1011,6 +1012,7 @@ export function advanceWeek(world, opts = {}) {
         frame: frameOf(i + 1, horses.length),
         styleOrder: isPlayer ? pe?.styleOrder : null,
         gear: gearOf(h),
+        kick: kickOf(h),
       };
     });
 

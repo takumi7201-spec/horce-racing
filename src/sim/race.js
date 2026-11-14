@@ -26,6 +26,7 @@ import {
 import { buildTrack, curvatureAt, gradeAt, SURFACE, posToWorld, getCourse } from './course.js';
 import { clamp, clamp01, lerp, formatMargin } from '../core/util.js';
 import { gearEffect } from './gear.js';
+import { KICK_MID } from './traits.js';
 
 /** 馬 1 頭が横に必要とする幅（m）。進路の取り合いの判定に使う。 */
 const BODY_W = 2.2;
@@ -145,6 +146,8 @@ function prepareRunner(entry, spec, rng) {
     // 「終始掛かり気味」になり、言葉として意味を失う。
     pull: clamp01((0.52 - (horse.temper + gx.pull)) * 2.4 - jk.skill * 0.4),
     guts: eff.guts, spirit: horse.spirit, focus: gx.focus,
+    // 瞬発（サイトの能力）。世界のレースだけが渡す（entry.kick）。育成モードの馬は持たず、何も変わらない。
+    kick: entry.kick ?? null,
     accMax: PHYS.ACC_MAX_BASE + PHYS.ACC_MAX_GAIN * eff.power,
     // 状態
     p: 0, v: 0, s: 0, off: 0, hpLeft: hp, busted: false, bustT: 0,
@@ -290,6 +293,8 @@ export function simulateRace(spec, rng, opts = {}) {
         vCap *= 1 + PHYS.GUTS_GAIN * (r.guts * 0.7 + r.spirit * 0.3) * (1 - rem / 400);
         // ブリンカー：前だけを見て、追ってから集中する
         if (r.focus) vCap *= 1 + r.focus * (1 - rem / 400);
+        // 瞬発：最後の 400m の伸び。平均（KICK_MID）の馬では何も変わらない（落とし穴 41 と同じく平均をゼロに）。
+        if (r.kick != null) vCap *= 1 + PHYS.KICK_GAIN * (r.kick - KICK_MID) * (1 - rem / 400);
       }
 
       // --- 目標速度 ---

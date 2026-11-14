@@ -8,6 +8,7 @@
 import { createHorse, resetHorseIds } from './horse.js';
 import { SEX, ABILITIES, GROWTH, COATS } from './params.js';
 import { clamp01, clamp, lerp } from '../core/util.js';
+import { inheritKick } from './traits.js';
 import {
   inbreedings, inbreedEffect, nicksValue, nicksKey, sireLineRoot, factorsOf, factorBonus, vigorOf,
 } from './pedigree.js';
@@ -72,6 +73,8 @@ export function breed(world, rng, sire, dam, { year, farmId = null, ownerId = nu
   foal.dist = clamp(Math.round((midDist + rng.normal(0, 260)) / 100) * 100, 1000, 3400);
   if (rng.chance(0.06)) foal.dist = clamp(foal.dist + rng.pick([-600, 600]), 1000, 3400);
   foal.distRange = clamp(Math.round((sire.distRange + dam.distRange) / 2 + rng.normal(0, 90) + (T.extra.distRange ?? 0)), 160, 900);
+  // 瞬発（サイトの能力）：両親の平均にばらつき。馬 id から決める（主乱数を使わない。traits.js）。
+  foal.kick = inheritKick(foal, sire, dam);
 
   // --- 馬場適性 ---
   foal.turf = clamp01((sire.turf + dam.turf) / 2 + rng.normal(0, 0.12));
