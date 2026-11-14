@@ -604,13 +604,21 @@ function tabContent(app, tid, v, career) {
     return el('div', [abilSwitch, el('div.hd-cols', [
       el('div', [
         el('h4', { text: '能力' }),
-        el('div.abil', ABILITIES.map((a) => el('div.abil-row', [
-          el('span.abil-l', { text: ABILITY_LABEL[a] }),
-          el('span.abil-r', { text: sv.ranks[a] }),
-          bar(sv.values[a]),
-        ]))),
+        el('div.abil', [
+          ...ABILITIES.map((a) => el('div.abil-row', [
+            el('span.abil-l', { text: ABILITY_LABEL[a] }),
+            el('span.abil-r', { text: sv.ranks[a] }),
+            bar(sv.values[a]),
+            // 表の値は史実馬の一覧（アホヌラゲーム館）の数値（÷100 で持っている）。スタミナは一覧に無く距離から導く。
+            tv ? el('span.abil-n', { text: a === 'stamina' ? '—' : String(Math.round(sv.values[a] * 100)) }) : null,
+          ])),
+          ...(tv ? [['健康', sv.sound], ['精神', sv.spirit]].map(([l, x]) => el('div.abil-row', [
+            el('span.abil-l', { text: l }), el('span.abil-r', { text: '' }), bar(x),
+            el('span.abil-n', { text: String(Math.round(x * 100)) }),
+          ])) : []),
+        ]),
         el('p.note', {
-          text: tv ? '史実の表（データベース）の値で、4 歳の盛りの姿。この世界での育ち具合や仕上がりは入らない。'
+          text: tv ? '史実馬の一覧（アホヌラゲーム館「Winning Post 10 2026 攻略」）の数値そのまま。スタミナは一覧に無く（距離適性の隠し値）、最適距離から導いた値。この世界での育ち具合や仕上がりは入らない。'
             : v.age != null && v.age < 2
             ? '評価は 2 歳の物差しで見た、いまの育ち具合。潜在能力は見えない。当歳は生まれたてで低く、1 歳の 1 年の育成で育つ（育成牧場で速まる）。2 歳からは調教と出走で近づく。'
             : '評価は「いま出せる力」。潜在能力は見えない。調教と出走で近づく。',

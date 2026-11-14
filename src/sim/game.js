@@ -698,7 +698,16 @@ export function realTableView(g, id) {
     m.set(key, r && r.world !== w ? { game: { ...g, world: r.world }, id: r.id } : null);
   }
   const r = m.get(key);
-  return r ? { ...horseView(r.game, r.id), game: r.game } : null;
+  if (!r) return null;
+  // 表の値（史実馬の一覧の数値）をそのまま見せる。horseView は 4 歳でも成長型で割り引く（持続・晩成は 4 歳で盛りの手前）ので、
+  // 潜在値＝表の値を使う。スタミナだけは一覧に対応する値が無く、距離から導いた値（落とし穴 54）。
+  const v = horseView(r.game, r.id);
+  const pot = v.horse.pot;
+  return {
+    ...v, game: r.game,
+    ranks: Object.fromEntries(ABILITIES.map((a) => [a, rankOf(pot[a])])),
+    values: Object.fromEntries(ABILITIES.map((a) => [a, pot[a]])),
+  };
 }
 
 /** 直近の結果一覧（重賞優先）。 */
