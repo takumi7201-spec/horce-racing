@@ -16,7 +16,7 @@
 
 import { staminaOfSite, letterValue } from './traits.js';
 import { REAL_HORSES } from './data/real-horses.js';
-import { createHorse, resetHorseIds, peekHorseId } from './horse.js';
+import { createHorse, resetHorseIds, peekHorseId, settleRealParent } from './horse.js';
 import { makeRng } from '../core/rng.js';
 import { breed } from './breeding.js';
 import { SEX, ABILITIES, classForWins } from './params.js';
@@ -460,6 +460,7 @@ export function realNewYear(world, rng, year, news = []) {
     const racing = !h.retired;
     if (racing) retireForStud(world, h);
     if (isStud) h.stallion = true; else h.broodmare = true;
+    settleRealParent(h);
     // 史実の年に生まれた馬と、現役で始まった馬は make() を通らず、種付料の基準が付いていない。
     // 名簿に入る年の相場から始めて、毎年 4 分の 1 ずつこの世界の値へ寄せる（落とし穴 37）。
     if (isStud && h.realFee == null && (d.fee ?? d.peak) != null) {
@@ -502,6 +503,7 @@ export function realCoverings(world, rng, birthYear) {
     if (!dam.retired) {
       retireForStud(world, dam);
       dam.broodmare = true;
+      settleRealParent(dam);
       if (!world.marePool.includes(dam.id)) world.marePool.push(dam.id);
     }
     dam.pregnancy = { sireId: sire.id, year: birthYear, real: d.n };

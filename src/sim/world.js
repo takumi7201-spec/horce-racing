@@ -16,7 +16,7 @@ import { makeRng, hashSeed } from '../core/rng.js';
 import { makeHorseName, makePersonName, makeFarmName, makeOwnerName, KANMEI } from '../core/names.js';
 import {
   createHorse, resetHorseIds, peekHorseId, horseAge, canRun, weeklyRecover,
-  applyRaceEffect, rollInjury, pastPrime, effectiveAbility, distanceAptitude,
+  applyRaceEffect, rollInjury, pastPrime, effectiveAbility, distanceAptitude, settleRealParent,
 } from './horse.js';
 import {
   SEX, ABILITIES, GROWTH, GROWTH_CURVE, GROUNDS, CLASSES, CLASS_BY_ID,
@@ -1496,6 +1496,7 @@ export function retireHorse(world, h, rng, news = [], { breed = true } = {}) {
   // （緩めると名簿が 220 頭を超える）。
   // 自分の実在馬は、史実どおり必ず種牡馬・繁殖に上がる（引退の確認で「上げない」を選んだときだけ上げない）。
   const outcome = breed ? retireOutcome(world, h) : 'none';
+  if (outcome !== 'none') settleRealParent(h);
   if (outcome === 'stallion') {
     h.stallion = true;
     h.studFee = studFeeOf(world, h, year);

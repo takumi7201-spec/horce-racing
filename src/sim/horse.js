@@ -78,6 +78,16 @@ export function growthFactor(horse, year) {
  */
 export const PARENT_NOW_BASE = 0.095;
 
+/**
+ * 実在馬は繁殖に上がるとき、現在値を潜在値（表の値）にそろえる（落とし穴 150）。ゲーム中に生まれて走った実在馬は、
+ * 育ち切らなかった分だけ現在値が低いまま繁殖に上がり、仔に渡る「いま」が史実の格より低くなっていた。
+ * 年齢の衰え（成長曲線）は今までどおり掛かる。乱数を使わない。
+ */
+export function settleRealParent(h) {
+  if (!h?.real) return;
+  for (const a of ABILITIES) if (h.cur[a] < h.pot[a]) h.cur[a] = h.pot[a];
+}
+
 /** 仔に渡る親の能力（「この世界のいま」と同じ値。year は種付けの年）。 */
 export function parentNow(h, a, year) {
   return clamp01((h.cur?.[a] ?? h.pot[a]) * growthFactor(h, year));

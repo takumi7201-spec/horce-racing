@@ -5,7 +5,7 @@
 // 乱数は状態を 4 つの整数で持っているので、セーブの途中で止めても続きが変わらない。
 
 import { makeRng, attach } from '../core/rng.js';
-import { resetHorseIds, peekHorseId } from './horse.js';
+import { resetHorseIds, peekHorseId, settleRealParent } from './horse.js';
 import { healRealPedigrees, syncRealFactors, syncRealSite } from './realsires.js';
 import { grantDominantFactors } from './pedigree.js';
 import { healNursery } from './training.js';
@@ -102,6 +102,8 @@ export function deserialize(data) {
   grantDominantFactors(world);
   // 古いセーブの幼駒と 2 歳に、受けていなかった育成を足す（落とし穴 88）。足し終えた世界では何もしない。
   healNursery(world);
+  // 古いセーブの、繁殖に上がった実在馬の現在値を潜在値にそろえる（落とし穴 150）。そろえ終えた世界では何も変わらない。
+  for (const h of world.horses.values()) if (h.real && (h.stallion || h.broodmare)) settleRealParent(h);
   return { world, version: data.v };
 }
 
