@@ -27,6 +27,7 @@ import { EW_FILL, EW_NEW } from './enwiki-parents.js';
 import { JW_FILL, JW_NEW } from './jawiki-pedigree.js';
 import { KATAKANA } from './katakana-names.js';
 import { AHO_HORSES } from './ahogame-horses.js';
+import { AHO_SITE } from './ahogame-site.js';
 import { AHO_FILL, AHO_NEW, AHO_RETIRE, AHO_BROOD, AHO_ALIAS, AHO_YEAR } from './ahogame-facts.js';
 
 /** 系統の祖と、血統をつなぐための海外の祖先。 */
@@ -15389,10 +15390,15 @@ function withAhogameHorses(table) {
   const byName = new Map();
   for (const d of table) byName.set(d.n, [...(byName.get(d.n) ?? []), d.b]);
   const rows = new Map(AHO_HORSES.map((r) => [`${r[0]}|${r[1]}`, r]));
-  const traits = ([, , , , , , , lvl, power, guts, wit, sound, spirit, surf, dist, range, style, growth]) => ({
-    lvl, ab: { power, guts, wit }, sound, spirit, surf, dist, range,
+  // サイトの表示そのまま（ahogame-site.js、同じ並び）。馬の詳細の「史実の表」でサイトと同じ字を見せる。
+  const site = new Map(AHO_HORSES.map((r, i) => [r, AHO_SITE[i]]));
+  const traits = (r) => {
+    const [, , , , , , , lvl, power, guts, wit, sound, spirit, surf, dist, range, style, growth] = r;
+    return {
+    lvl, ab: { power, guts, wit }, sound, spirit, surf, dist, range, ...(site.get(r) ? { site: site.get(r) } : {}),
     ...(style ? { style } : {}), ...(growth ? { growth } : {}),
-  });
+    };
+  };
   const out = table.map((d) => {
     const r = rows.get(`${d.n}|${d.b}`);
     if (!r) return d;

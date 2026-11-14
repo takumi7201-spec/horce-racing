@@ -454,6 +454,18 @@ ${horseRows.map(rowStr).join('\n')}
 ];
 `);
 console.error(`${HOUT} に書いた`);
+// サイトの表示そのまま（スピ・スタ・瞬発・根性・パワ・柔軟・健康・精神・賢さ・計・芝・ダ・成長型・成長力・脚質）。AHO_HORSES と同じ並び。
+// 能力の段階を「中央値の数」に直すと元の字に戻せない字がある（瞬発・柔軟とスタミナは本編の値に使っていない）ので、
+// 馬の詳細の「史実の表」でサイトと同じ字を見せるために、変換の前の字をそのまま残す。
+const ROUT = join(ROOT, 'src/sim/data/ahogame-site.js');
+const pick = (v) => [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 15, 16, 17].map((i) => String(v[i] ?? '').trim()).join('|');
+writeFileSync(ROUT, `// 史実馬の一覧のサイトの表示そのまま。tools/import-ahogame.mjs が書く（手で直さない）。ahogame-horses.js の AHO_HORSES と同じ並び。
+// 'スピ|スタ|瞬発|根性|パワ|柔軟|健康|精神|賢さ|計|芝|ダ|成長型|成長力|脚質'
+export const AHO_SITE = [
+${horseRows.map(({ r }) => `  ${q(pick(r.v))},`).join('\n')}
+];
+`);
+console.error(`${ROUT} に書いた`);
 const csvPath = opt('--csv', null);
 if (csvPath) {
   const cq = (v) => { const t = v == null ? '' : String(v); return /[",\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };

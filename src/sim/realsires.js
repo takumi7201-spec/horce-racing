@@ -25,6 +25,15 @@ import { nurseryReach } from './training.js';
 const STYLE_VALUE = { 逃: 0.1, 先: 0.32, 差: 0.62, 追: 0.86 };
 const DEFS = new Map(REAL_HORSES.map((d) => [d.n, d]));
 const ABROAD_DEFS = REAL_HORSES.filter((d) => d.abroad);
+
+const SITE_KEYS = ['スピ', 'スタ', '瞬発', '根性', 'パワ', '柔軟', '健康', '精神', '賢さ', '計', '芝', 'ダ', '成長型', '成長力', '脚質'];
+/** 史実馬の一覧（アホヌラゲーム館）のサイトの表示そのまま。一覧に無い馬は null。 */
+export function realSiteOf(name) {
+  const s = DEFS.get(name)?.site;
+  if (!s) return null;
+  const v = s.split('|');
+  return Object.fromEntries(SITE_KEYS.map((k, i) => [k, v[i] ?? '']));
+}
 /** 現役で走る年齢の上限。これより上で開始年を迎えた馬は引退済みとして作る。 */
 const RACING_AGE = 8;
 

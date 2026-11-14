@@ -601,6 +601,25 @@ function tabContent(app, tid, v, career) {
       class: (tv ? 'table' : 'now') === k ? 'on' : null,
       onclick: () => { app.abilView = k; app.render(); },
     }, el('span', { text: label })))) : null;
+    // 史実の表：サイト（アホヌラゲーム館）の表示そのまま。字はサイトの 16 段（S+〜G）で、ゲームの評価の字（9 段）とは物差しが違う。
+    if (tv?.site) {
+      const st = tv.site;
+      const cols = ['スピ', 'スタ', '瞬発', '根性', 'パワ', '柔軟', '健康', '精神', '賢さ', '計', '芝', 'ダ', '成長型', '成長力', '脚質'];
+      return el('div', [abilSwitch,
+        el('div.site-wrap', el('table.site-tbl', [
+          el('thead', el('tr', cols.map((k) => el('th', { text: k })))),
+          el('tbody', el('tr', cols.map((k) => el('td', { text: st[k] || '—', class: /^[SABCDEFG]\+?$/.test(st[k]) ? `g-${st[k][0]}` : null })))),
+        ])),
+        el('p.note', { text: '史実馬の一覧（アホヌラゲーム館「Winning Post 10 2026 攻略」）の表示そのまま。この世界ではスピ・パワ・根性・賢さ・健康・精神を使い（段階は各段の数値の中央）、スタは最適距離、柔軟は距離の幅に写している。瞬発に当たる能力は無い。' }),
+        el('div.hd-cols', [
+          el('div', [
+            el('h4', { text: '馬場' }),
+            el('div.apt-surf', [bar(sv.turf, { label: '芝' }), bar(sv.dirt, { label: 'ダート' }), bar(sv.firm, { label: '良' }), bar(sv.soft, { label: '重' })]),
+          ]),
+          el('div', [el('h4', { text: `距離（最適 ${sv.dist}m）` }), distChart(tv.game, tv.horse)]),
+        ]),
+      ]);
+    }
     return el('div', [abilSwitch, el('div.hd-cols', [
       el('div', [
         el('h4', { text: '能力' }),

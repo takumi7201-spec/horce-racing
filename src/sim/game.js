@@ -10,7 +10,7 @@ import { readyToRun, MENUS, fitLabel, condLabel } from './training.js';
 import {
   matingEval, pedigreeTree, nicksValue, lineLabel, breedQuality, FACTORS, factorsOf, factorBonus, vigorOf,
 } from './pedigree.js';
-import { abroadSires, realBook as realBookOf, realPreview as realPreviewOf, fillPedigreeFromTable, realFutureKids, realNameOf } from './realsires.js';
+import { abroadSires, realBook as realBookOf, realPreview as realPreviewOf, fillPedigreeFromTable, realFutureKids, realNameOf, realSiteOf } from './realsires.js';
 import { studFeeOf, canBeBroodmare } from './breeding.js';
 import { previewOdds } from './race.js';
 import { makeRng, hashSeed } from '../core/rng.js';
@@ -707,6 +707,8 @@ export function realTableView(g, id) {
     ...v, game: r.game,
     ranks: Object.fromEntries(ABILITIES.map((a) => [a, rankOf(pot[a])])),
     values: Object.fromEntries(ABILITIES.map((a) => [a, pot[a]])),
+    // サイトの表示そのまま（字の段階はサイトの 16 段で、ゲームの評価の字とは物差しが違う）。
+    site: realSiteOf(name),
   };
 }
 
