@@ -7,6 +7,7 @@
 import { el, button } from '../dom.js';
 import { icon } from '../icons.js';
 import { horseImg } from '../horse-sprite.js';
+import { morphTabs } from '../morphtip.js';
 import * as G from '../../sim/game.js';
 import { formatMoney, formatTime } from '../../core/util.js';
 import { condLabel } from '../../sim/training.js';
@@ -34,19 +35,20 @@ export function homeScreen(app) {
   app.homePage = ((app.homePage ?? 0) % n + n) % n;
 
   const stack = el('div.pstack');
-  const dots = el('div.pdots');
+  // ページの札（以前は小さな点）。乗せる・押すと、札の上をモーフツールチップがページの名前を出して渡る（morphtip.js）。
+  const dots = morphTabs({
+    items: pages.map((p) => ({ icon: p.dataset.ic, label: p.dataset.title })),
+    active: app.homePage,
+    onSelect: (i) => { app.homePage = i; show(); },
+  });
   const flip = (d) => {
     app.homePage = (app.homePage + d + n) % n;
     show();
+    dots.setActive(app.homePage, true);
   };
   function show() {
     stack.textContent = '';
     stack.appendChild(pages[app.homePage]);
-    dots.textContent = '';
-    pages.forEach((_, i) => dots.appendChild(el('i', {
-      class: i === app.homePage ? 'on' : null,
-      onclick: () => { app.homePage = i; show(); },
-    })));
   }
   show();
 
@@ -148,7 +150,8 @@ function yearEndPage(app) {
 
 /** 1 枚のカード。上に札と見出し、下に中身。 */
 function page(tag, ic, title, body, action = null) {
-  return el('section.pcard', [
+  // 札（お知らせの欄の下の列）が名前と絵を引けるように持たせる
+  return el('section.pcard', { 'data-ic': ic, 'data-title': title }, [
     el('header', [
       el('span.pc-tag', { text: tag }),
       el('span.pc-ico', icon(ic, { size: 18 })),
