@@ -9,6 +9,7 @@
 //   node tools/import-real-horses.mjs --offline              # キャッシュだけで回す（取得しない）
 //   node tools/import-real-horses.mjs --verify               # 表にある馬を ja.wikipedia と突き合わせる
 //   node tools/import-real-horses.mjs --report               # 推測した項目の一覧を出す
+//   node tools/import-real-horses.mjs --stubs                # 記事の無い親も名前だけの祖先として残す（血統表の欠けを埋める）
 //
 // 記事は 1 本ずつ引いて --cache（既定 .cache/wiki）に貯める。2026 年の取り込みでは
 // レース 25 本＋馬 1,000 本ほど引くので、同じ馬を二度引かないためと、
@@ -1304,12 +1305,28 @@ async function main() {
   const have = new Set([...KNOWN, ...[...horses].filter(([, h]) => h).map(([n]) => n)]);
   const bOf = (n) => horses.get(n)?.b ?? KNOWN_B.get(n) ?? null;
   let cut = 0, wrong = 0;
+  // --stubs：記事が無くて読めなかった親も、名前が分かっているなら残す（名前だけの祖先）。
+  // 親の名は子の記事に書いてあるので事実だが、生年は無いので子から推す。
+  // 親の親までは分からないので、そこで止める（間違った親を書くより良い、落とし穴 43）。
+  const cands = new Map();   // 名 → { sex: 'sire'|'dam'|'both', bs: [子の生年...] }
+  const pending = [];
+  const plausible = (n) => /^[ァ-ヶー・ヴ]{2,}$|^[A-Za-z][A-Za-z' .\-]+$/.test(n);
   for (const h of horses.values()) {
     if (!h) continue;
     for (const k of ['sire', 'dam']) {
       if (!h[k]) continue;
       h[k] = canonOf(h[k]);
-      if (!have.has(h[k])) { h[k] = null; cut++; continue; }
+      if (!have.has(h[k])) {
+        if (flag('--stubs') && plausible(h[k])) {
+          const c = cands.get(h[k]) ?? { sex: k, bs: [] };
+          if (c.sex !== k) c.sex = 'both';
+          c.bs.push(h.b);
+          cands.set(h[k], c);
+          pending.push([h, k]);
+          continue;
+        }
+        h[k] = null; cut++; continue;
+      }
       // 日本の馬名は年代をまたいで再登録される。表で同じ名を持つのが別の馬なら
       // 生年が噛み合わない（1993 年生の馬の母が「2004 年生のローブデコルテ」になる）。
       // 親子の年齢差が 2〜30 歳に収まらなければ、その親は別の馬なので結ばない。
@@ -1317,6 +1334,19 @@ async function main() {
       if (!(gap >= 2 && gap <= 30)) { h[k] = null; wrong++; }
     }
   }
+  // 名前だけの祖先を作る。父としても母としても出る名は性が決まらないので作らない。
+  let stubs = 0;
+  for (const [n, c] of cands) {
+    if (c.sex === 'both') continue;
+    const lo = Math.min(...c.bs), hi = Math.max(...c.bs);
+    let b = lo - 8;
+    if (hi - b > 30) b = hi - 30;
+    if (lo - b < 2) continue;
+    horses.set(n, { n, b, s: c.sex === 'dam' ? '牝' : '牡', c: null, sire: null, dam: null, stub: true });
+    stubs++;
+  }
+  for (const [h, k] of pending) if (!horses.get(h[k])) { h[k] = null; cut++; }
+  if (stubs) console.error(`\n記事の無い親 ${stubs} 頭を名前だけの祖先として残した（生年は子の 8 年前）`);
   if (cut) console.error(`\n表に無い父母 ${cut} 件を null にした（${DEPTH} 代で止めた先と、記事の無い海外の祖先）`);
   if (wrong) console.error(`同名の別馬だった父母 ${wrong} 件を null にした（生年が噛み合わない）`);
 
@@ -1332,7 +1362,8 @@ async function main() {
   for (const [name, h] of horses) {
     if (!h) continue;
     const [, , tag] = decadeOf(h.b);
-    const wins = winsByName.get(name);
+    // 名前だけの祖先は戦績の記事が無いので、重賞を勝っていても勝鞍は付けない（lvl を導けない）。
+    const wins = h.stub ? null : winsByName.get(name);
     // 日本で重賞を勝った馬は海外でも勝っていても日本の馬のまま（外国産馬のカフェファラオなど）。
     // 日本生まれの馬が海外で勝っただけの場合も同じ。os にすると 2026 年の世界から消えてしまう。
     if (wins && !h.japan && wins.every((w) => OS_NAMES.has(w[1]))) {
@@ -1450,4 +1481,4 @@ async function verify() {
   console.error(bad ? `\n${bad} 頭に食い違い` : '\n食い違い無し');
 }
 
-main().catch((e) => { console.error(`\n失敗: ${e.message}`); process.exit(1); });
+main().catch((e) => { console.error(`\n失敗: ${e.message}`, process.env.STACK ? e.stack : ""); process.exit(1); });

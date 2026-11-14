@@ -1,0 +1,44 @@
+{
+ "races": [
+  {
+   "id": "japancup",
+   "name": "ジャパンカップ（夢の 18 頭）",
+   "course": "tokyo",
+   "surface": "turf",
+   "distance": 2400,
+   "runners": 18
+  },
+  {
+   "id": "arima",
+   "name": "有馬記念（夢の 16 頭）",
+   "course": "nakayama",
+   "surface": "turf",
+   "distance": 2500,
+   "runners": 16
+  },
+  {
+   "id": "february",
+   "name": "フェブラリーS（夢の 16 頭）",
+   "course": "tokyo",
+   "surface": "dirt",
+   "distance": 1600,
+   "runners": 16
+  },
+  {
+   "id": "bcclassic",
+   "name": "BC クラシック（夢の 14 頭）",
+   "course": "santaanita",
+   "surface": "dirt",
+   "distance": 2000,
+   "runners": 14
+  },
+  {
+   "id": "arc1999",
+   "name": "凱旋門賞 1999（史実の 14 頭）",
+   "course": "longchamp",
+   "surface": "turf",
+   "distance": 2400,
+   "runners": 14
+  }
+ ]
+}

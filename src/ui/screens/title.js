@@ -5,6 +5,7 @@ import { newGame } from '../../sim/game.js';
 import { slotInfo } from '../../sim/save.js';
 import { formatMoney } from '../../core/util.js';
 import { weekLabel } from '../../sim/schedule.js';
+import { loadProfile, saveProfile, applyPassword } from '../../sim/ikusei.js';
 
 export function titleScreen(app) {
   const name = el('input.inp', { type: 'text', placeholder: '馬主名（例：高橋 健太）', maxLength: 12 });
@@ -59,7 +60,16 @@ export function titleScreen(app) {
   return el('div.title', [
     el('div.title-hero', [
       el('h1', { text: 'ウイニングロード' }),
+      el('small.ver', { text: 'ver 1.0.2' }),
       el('p.sub', { text: '牧場経営・配合・3D レース観戦までを一本で回す競馬シミュレーション' }),
+    ]),
+    // カード育成は牧場とは別のモード（世界を作らない）。
+    el('div.title-mode', [
+      el('button.title-ik', { onclick: () => { app.stack.length = 0; app.go('ik', { view: 'home' }, { replace: true }); } }, [
+        el('b', { text: 'カード育成モード' }),
+        el('small', { text: 'ガチャで名馬のカードを集め、5 枚の編成で 2 年育てて完成馬どうしを戦わせる' }),
+      ]),
+      ikPassword(app),
     ]),
     el('div.title-cols', [
       card('ニューゲーム', [
@@ -81,13 +91,34 @@ export function titleScreen(app) {
     ]),
     card('遊びかた', [
       el('ul.howto', [
-        el('li', { text: '所有馬を厩舎に入れ、調教メニューを当てて仕上げる。仕上がり 7 割を超えたら使える。' }),
-        el('li', { text: '番組表から出走レースを選び、騎手と脚質を決めて登録する。' }),
-        el('li', { text: '「次の週へ」で 1 週進む。長押しすると各月の 1 週や行事の週までまとめて進める。自分の馬が走る週は 3D で観戦できる。' }),
-        el('li', { text: '牧場の一年：4 月に幼駒が生まれ、5〜6 月に種付け。8 月は当歳セール、10 月は繁殖牝馬セール、12 月 3 週は海外トレーニングセール、12 月 4 週に入厩先と馬名を決めて年末処理。' }),
-        el('li', { text: '配合ではインブリードとニックスが効く。' }),
+        el('li', { text: '所有馬を厩舎に入れ、調教メニューを当てて鍛える。オート調教にすれば、伸ばしたい能力と強さを決めるだけで毎週の調教を任せられる。疲れが深いと走れない。' }),
+        el('li', { text: '番組表から出走レースを選び、騎手と脚質を決めて登録する。登録は 1 年先の番組まで先取りできる。' }),
+        el('li', { text: '「次の週へ」で 1 週進む。長押しすると各月の 1 週や行事の週まで、または 1 週〜1 年の好きな週数をまとめて進める。自分の馬が走る週は 3D で観戦できる。' }),
+        el('li', { text: '牧場の一年：4 月に幼駒が生まれ、5〜6 月に種付け。8 月は当歳セール、10 月は繁殖牝馬セール、12 月 3 週は海外トレーニングセール、12 月 4 週に入厩先と馬名を決めて年末処理。庭先取引は 3・7・12 月、セールの外でも牧場取引で幼駒と繁殖牝馬を買える。資金に余裕があれば牧場に施設を建てられる。' }),
+        el('li', { text: '配合ではインブリード・ニックスと、成り立った配合理論が効く。' }),
         el('li', { text: 'キー操作：N で週送り、S でセーブ。' }),
       ]),
     ]),
   ]);
+}
+
+/**
+ * カード育成モードのパスワード（デバッグ用）。「0000」でウイコインが無制限になる（もう一度入れると戻る。sim の applyPassword）。
+ * プロフィールは育成モードと同じ localStorage。育成モードを開いた後なら app.ik を書き換える（読み直すと開いている状態とずれる）。
+ */
+function ikPassword(app) {
+  const input = el('input.title-pw-in', { type: 'password', maxLength: 8, placeholder: 'パスワード', autocomplete: 'off', inputMode: 'numeric' });
+  const submit = () => {
+    let st = null;
+    try { st = window.localStorage; } catch { /* 保存できなくても今の画面には効かせる */ }
+    const p = app.ik ?? loadProfile(st);
+    const on = applyPassword(p, input.value);
+    input.value = '';
+    if (on == null) return toast('パスワードが違う', { bad: true });
+    app.ik = p;
+    saveProfile(p, st);
+    toast(on ? 'カード育成モード：ウイコイン無制限（デバッグ）' : 'カード育成モード：ウイコインを元に戻した');
+  };
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
+  return el('div.title-pw', [el('small', { text: 'カード育成モード専用' }), input, button('入力', submit, { cls: 'sm' })]);
 }

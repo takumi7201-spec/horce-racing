@@ -7,21 +7,22 @@
 import { el, button } from '../dom.js';
 import { icon } from '../icons.js';
 import { horseImg } from '../horse-sprite.js';
+import { morphTabs } from '../morphtip.js';
 import * as G from '../../sim/game.js';
 import { formatMoney, formatTime } from '../../core/util.js';
-import { fitLabel, condLabel } from '../../sim/training.js';
+import { condLabel } from '../../sim/training.js';
 
 const GRADE_ORDER = { GI: 0, GII: 1, GIII: 2 };
 
 export function homeScreen(app) {
   const g = app.game;
-  const rank = G.ownerRank(g);
   const week = G.schedule(g, 1)[0];
   const graded = week.races.filter((r) => /^G/.test(r.grade ?? ''))
     .sort((a, b) => (GRADE_ORDER[a.grade] ?? 9) - (GRADE_ORDER[b.grade] ?? 9));
   const pages = [
     // 年末処理を見ないまま帰ってきたとき（12 月 4 週にレースがあった）は先頭に出す。
     app.pendingYearEnd ? yearEndPage(app) : null,
+    newsPage(app),
     schedulePage(app),
     entriesPage(app),
     gradedPage(app, graded),
@@ -34,42 +35,55 @@ export function homeScreen(app) {
   app.homePage = ((app.homePage ?? 0) % n + n) % n;
 
   const stack = el('div.pstack');
-  const dots = el('div.pdots');
+  // ページの札（以前は小さな点）。乗せる・押すと、札の上をモーフツールチップがページの名前を出して渡る（morphtip.js）。
+  // 札の列は欄の外（スマホは下のメニューの「ホーム」の上、PC は欄の下）に置く。たたんだ欄で札を押すと開く。
+  const narrow = typeof matchMedia === 'function' && matchMedia('(max-width: 900px)').matches;
+  const dots = morphTabs({
+    items: pages.map((p) => ({ icon: p.dataset.ic, label: p.dataset.title })),
+    active: app.homePage,
+    // スマホは右下の NEXT に掛からない幅に詰める（8 枚で 280px）
+    bw: narrow ? 32 : 36,
+    onSelect: (i) => { app.homePage = i; show(); setOpen(true); },
+  });
+  // 欄の開け閉め（見る人の好みなので app に覚える。描き直しても戻らない）
+  const wrap = el('div.pwrap', { class: app.homeCollapsed ? 'closed' : null }, el('div.pclip', stack));
+  const toggle = el('button.ptoggle');
+  function setOpen(v) {
+    app.homeCollapsed = !v;
+    wrap.classList.toggle('closed', !v);
+    toggle.textContent = '';
+    toggle.append(el('span', { text: v ? 'たたむ' : 'お知らせを開く' }), icon(v ? 'up' : 'down', { size: 16 }));
+    toggle.title = v ? 'お知らせをたたむ' : 'お知らせを開く';
+  }
+  toggle.addEventListener('click', () => setOpen(!!app.homeCollapsed));
+  setOpen(!app.homeCollapsed);
   const flip = (d) => {
     app.homePage = (app.homePage + d + n) % n;
     show();
+    setOpen(true);
+    dots.setActive(app.homePage, true);
   };
   function show() {
     stack.textContent = '';
     stack.appendChild(pages[app.homePage]);
-    dots.textContent = '';
-    pages.forEach((_, i) => dots.appendChild(el('i', {
-      class: i === app.homePage ? 'on' : null,
-      onclick: () => { app.homePage = i; show(); },
-    })));
   }
   show();
 
   return el('div.home', [
     el('aside.hpanel', [
-      el('div.rankplate', [
-        el('span.rp-ico', icon('medal', { size: 30 })),
-        el('div.rp-t', [
-          el('span', { text: '馬主ランキング' }),
-          el('div.rp-v', [el('b', { text: String(rank.rank) }), '位', el('small', { text: ` / ${rank.total}人` })]),
-        ]),
-        el('span.rp-grade', { text: rank.grade, class: `g-${rank.grade}` }),
-      ]),
       featureStrip(app, graded[0]),
       eventStrip(app),
       el('div.pcards', [
-        el('button.parrow', { onclick: () => flip(-1), title: '前へ' }, icon('up', { size: 20 })),
-        stack,
-        el('button.parrow', { onclick: () => flip(1), title: '次へ' }, icon('down', { size: 20 })),
-        dots,
+        // 前・開け閉め・次を 1 段にまとめた（下の矢印はツールチップと重なり、札の列との間が空いた）
+        el('div.pctl', [
+          el('button.parrow', { onclick: () => flip(-1), title: '前のお知らせ' }, icon('up', { size: 18 })),
+          toggle,
+          el('button.parrow', { onclick: () => flip(1), title: '次のお知らせ' }, icon('down', { size: 18 })),
+        ]),
+        wrap,
       ]),
     ]),
-    newsBar(app),
+    el('div.hbar', dots),
   ]);
 }
 
@@ -93,10 +107,12 @@ function featureStrip(app, r) {
 const EVENT_GO = {
   foaling: ['stable', { cat: 'young' }],
   covering: ['farm', { tab: 'mating' }],
-  foalSale: ['farm', { tab: 'foal' }],
-  mareSale: ['farm', { tab: 'mares' }],
-  overseas: ['farm', { tab: 'overseas' }],
-  private: ['farm', { tab: 'overseas' }],
+  foalSale: ['farm', { tab: 'trade', sub: 'foal' }],
+  mareSale: ['farm', { tab: 'trade', sub: 'mare' }],
+  overseas: ['farm', { tab: 'trade', sub: 'overseas' }],
+  private: ['farm', { tab: 'trade', sub: 'private' }],
+  privateSpring: ['farm', { tab: 'trade', sub: 'private' }],
+  privateSummer: ['farm', { tab: 'trade', sub: 'private' }],
   entry: ['farm', { tab: 'entry' }],
 };
 
@@ -146,7 +162,8 @@ function yearEndPage(app) {
 
 /** 1 枚のカード。上に札と見出し、下に中身。 */
 function page(tag, ic, title, body, action = null) {
-  return el('section.pcard', [
+  // 札（お知らせの欄の下の列）が名前と絵を引けるように持たせる
+  return el('section.pcard', { 'data-ic': ic, 'data-title': title }, [
     el('header', [
       el('span.pc-tag', { text: tag }),
       el('span.pc-ico', icon(ic, { size: 18 })),
@@ -159,20 +176,29 @@ function page(tag, ic, title, body, action = null) {
 
 function entriesPage(app) {
   const g = app.game;
-  const entries = G.myEntries(g);
-  if (!entries.length) {
+  const all = G.myEntries(g);
+  const now = all.filter((e) => e.thisWeek);
+  const later = all.filter((e) => !e.thisWeek);
+  if (!all.length) {
     return page('出走', 'gate', '今週の出走予定', [
-      el('p.pc-empty', { text: '今週の登録は無い。番組表から選ぶか、所有馬の画面から登録する。' }),
+      el('p.pc-empty', { text: '今週の登録は無い。番組表から選ぶか、所有馬の画面から登録する。先の週（1 年先まで）にも登録できる。' }),
     ], button('番組表を開く', () => app.go('races'), { cls: 'sm primary' }));
   }
-  return page('出走', 'gate', `今週の出走予定（${entries.length}頭）`, el('ul.plist', entries.map((e) => el('li', [
+  const row = (e, withDate) => el('li', [
     el('div.pl-main', [
+      withDate ? el('small.pl-date', { text: `${e.year}年 ${e.label}` }) : null,
       el('b.mine', { text: e.horse.name }),
       el('span', { text: e.race.name, class: e.race.grade ? 'grade' : null }),
     ]),
     el('div.pl-sub', { text: `${e.race.courseName}${e.race.surface}${e.race.distance}m ／ ${e.jockeyName}` }),
     button('取消', () => { G.cancelEntry(g, e.raceId); app.render(); }, { cls: 'sm ghost' }),
-  ]))), el('span.pc-note', { text: 'NEXT で発走する' }));
+  ]);
+  const title = now.length ? `今週の出走予定（${now.length}頭）${later.length ? `・先に ${later.length} 件` : ''}` : `先の出走予定（${later.length} 件）`;
+  return page('出走', 'gate', title, [
+    now.length ? el('ul.plist', now.map((e) => row(e, false))) : el('p.pc-empty', { text: '今週の登録は無い。' }),
+    later.length ? el('ul.plist.later', later.slice(0, 4).map((e) => row(e, true))) : null,
+    later.length > 4 ? el('p.pc-note', { text: `ほか ${later.length - 4} 件` }) : null,
+  ], el('span.pc-note', { text: 'NEXT で発走する' }));
 }
 
 function gradedPage(app, graded) {
@@ -204,7 +230,7 @@ function horsesPage(app) {
   const list = shown.map((h) => h.id);
   return page('所有馬', 'horse', `所有馬の様子（${horses.length}頭）`, el('ul.plist.horses', shown.map((h) => {
     const v = G.horseView(g, h.id);
-    const state = v.injury ? v.injury.name : v.stable === 'stable' ? `在厩 ${fitLabel(v.fit)}` : '放牧';
+    const state = v.injury ? v.injury.name : v.stable === 'stable' ? `在厩${v.autoTrain ? '・オート' : ''}` : '放牧';
     return el('li', { class: 'click', onclick: () => app.go('stable', { id: h.id, list }) }, [
       horseImg(h.coat, { size: 'xs', age: v.age }),
       el('div.pl-body', [
@@ -280,59 +306,38 @@ function financePage(app) {
 }
 
 /**
- * 下の帯。今週のニュースを 1 本ずつ流す。
- * 自分の馬の名前は橙で目立たせる（名前で探すと読み飛ばさない）。
+ * ニュースのページ。以前はお知らせの欄とは別の帯（PC は下・スマホは上）で 1 本ずつ流していたが、
+ * お知らせの欄のページにまとめた（「上部のニュースもバーの中に加える」）。新しい順に並べ、自分の馬の名前は橙で目立たせる。
  */
-function newsBar(app) {
+function newsPage(app) {
   const g = app.game;
-  const w = g.world;
-  const items = (w.news ?? []).slice(0, 30);
+  const items = (g.world.news ?? []).slice(0, 30);
   const names = G.myHorses(g).map((h) => h.name)
     .concat(G.myBroodmares(g).map((h) => h.name))
     .sort((a, b) => b.length - a.length);
-  const text = el('p.nb-text');
-  const count = el('span.nb-count');
-  let i = 0;
-
-  const render = () => {
-    text.textContent = '';
-    count.textContent = items.length ? `${i + 1} / ${items.length}` : '';
-    const s = items[i] ?? 'まだニュースは無い。NEXT で週を進めよう。';
-    text.classList.toggle('mine', s.startsWith('★'));
-    // 自分の馬の名前を探して橙で包む。長い名前から当てる（短い名前が部分一致しないように）。
-    let rest = s;
-    while (rest) {
-      let hit = -1;
-      let name = '';
-      for (const nm of names) {
-        const k = rest.indexOf(nm);
-        if (k >= 0 && (hit < 0 || k < hit)) { hit = k; name = nm; }
-      }
-      if (hit < 0) { text.append(rest); break; }
-      text.append(rest.slice(0, hit), el('em', { text: name }));
-      rest = rest.slice(hit + name.length);
-    }
-  };
-  const step = (d) => {
-    if (!items.length) return;
-    i = (i + d + items.length) % items.length;
-    render();
-  };
-  render();
-
-  // 7 秒ごとに次へ。画面が入れ替わったら止める（要素が外れたかで判定する）。
-  const bar = el('div.newsbar', [
-    el('span.nb-ico', icon('news', { size: 20 })),
-    text,
-    el('div.nb-nav', [
-      count,
-      el('button', { onclick: () => step(-1), title: '前のニュース' }, icon('up', { size: 16 })),
-      el('button', { onclick: () => step(1), title: '次のニュース' }, icon('down', { size: 16 })),
-    ]),
-  ]);
-  const timer = setInterval(() => {
-    if (!bar.isConnected) { clearInterval(timer); return; }
-    step(1);
-  }, 7000);
-  return bar;
+  if (!items.length) return page('ニュース', 'news', '今週のニュース', el('p.pc-empty', { text: 'まだニュースは無い。NEXT で週を進めよう。' }));
+  return page('ニュース', 'news', `今週のニュース（${items.length}件）`, el('ul.plist.news', items.map((s) => {
+    const li = el('li', { class: s.startsWith('★') ? 'mine' : null });
+    li.append(...highlightNames(s, names));
+    return li;
+  })));
 }
+
+/** 文の中の自分の馬の名前を橙で包む。長い名前から当てる（短い名前が部分一致しないように）。 */
+function highlightNames(s, names) {
+  const out = [];
+  let rest = s;
+  while (rest) {
+    let hit = -1;
+    let name = '';
+    for (const nm of names) {
+      const k = rest.indexOf(nm);
+      if (k >= 0 && (hit < 0 || k < hit)) { hit = k; name = nm; }
+    }
+    if (hit < 0) { out.push(rest); break; }
+    out.push(rest.slice(0, hit), el('em', { text: name }));
+    rest = rest.slice(hit + name.length);
+  }
+  return out;
+}
+

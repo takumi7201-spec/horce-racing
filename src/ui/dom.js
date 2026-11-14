@@ -1,3 +1,5 @@
+import { play } from './sound.js';
+
 // DOM の小物。
 // フレームワークを入れない代わりに、ここだけで「要素を組む」語彙を揃える。
 // シミュレーション層は DOM を知らないので、変換はすべて画面側の責任。
@@ -123,8 +125,15 @@ export function tabs(items, current, onPick) {
 
 /** モーダル。close() で閉じる。 */
 export function modal(title, body, { onClose = null, wide = false } = {}) {
+  // 閉じるときは一瞬で消さず、少し沈めて消す（stageshow：何もポンと出さない・消さない）。答え（onClose）はすぐ返す
+  let closed = false;
   const close = () => {
-    wrap.remove();
+    if (closed) return;
+    closed = true;
+    wrap.classList.add('closing');
+    const rm = () => wrap.remove();
+    wrap.addEventListener('animationend', (e) => { if (e.target === wrap) rm(); });
+    setTimeout(rm, 260);
     if (onClose) onClose();
   };
   const wrap = el('div.modal-wrap', {
@@ -156,6 +165,23 @@ export function ask(message, { ok = 'はい', cancel = 'やめる' } = {}) {
   });
 }
 
+/**
+ * 選択肢のある確認。options は [{ label, value, cls }]。やめると null。
+ * ask() と同じく自前のモーダル（window.confirm は iframe で塞がれる。落とし穴 39）。
+ */
+export function choose(message, options, { cancel = 'やめる' } = {}) {
+  return new Promise((resolve) => {
+    const done = (v) => { resolve(v); m.close(); };
+    const m = modal('確認', [
+      el('p.ask-msg', { text: message }),
+      el('div.ask-btns', [
+        button(cancel, () => done(null), { cls: 'ghost' }),
+        ...options.map((o) => button(o.label, () => done(o.value), { cls: o.cls ?? 'primary' })),
+      ]),
+    ], { onClose: () => resolve(null) });
+  });
+}
+
 /** 画面下に出す短い通知。 */
 let toastTimer = 0;
 export function toast(msg, { bad = false } = {}) {
@@ -165,6 +191,7 @@ export function toast(msg, { bad = false } = {}) {
     document.body.appendChild(t);
   }
   t.textContent = msg;
+  play(bad ? 'err' : 'ok', { volume: 0.7 });
   t.className = bad ? 'show bad' : 'show';
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => { t.className = ''; }, 2600);

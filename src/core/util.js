@@ -56,9 +56,18 @@ export function formatMargin(sec) {
 }
 
 /** 0..1 の能力を A〜G の評価に落とす。生の数値を見せないほうが馬を見る目が育つ。 */
-const RANKS = ['G', 'F', 'E', 'D', 'C', 'B', 'A', 'A+', 'S'];
+// 評価の字は史実馬の一覧（アホヌラゲーム館）と同じ 16 段（S+〜G）。値 ×100 がサイトの数値で、各段の下限で切る
+// （S+ 80〜 / S 78〜 / A+ 76〜 / A 74〜 / B+ 72〜 / B 70〜 / C+ 68〜 / C 66〜 / D+ 64〜 / D 62〜 / E+ 60〜 / E 58〜 / F+ 56〜 / F 54〜 / G+ 52〜 / G）。
+// 以前は 0〜1 を 9 段に割っていて、サイトの C+〜A+ が全部 A になった（sim/traits.js と同じ物差し）。
+const RANKS = ['G', 'G+', 'F', 'F+', 'E', 'E+', 'D', 'D+', 'C', 'C+', 'B', 'B+', 'A', 'A+', 'S', 'S+'];
+const RANK_FLOOR = [52, 54, 56, 58, 60, 62, 64, 66, 68, 70, 72, 74, 76, 78, 80];
+/** 幼駒の評価。サイトの 16 段は競走馬の盛りの物差しで、育つ途中（2 歳の物差しで 0.2〜0.45）は全部 G になる。
+ *  育成の進みが字で分かるよう、当歳（0.2 前後）は G・1 歳の 12 月（0.33〜0.44）は E〜D+ に広げて見せる（以前の 9 段の見え方と同じ）。 */
+export const rankYoung = (v) => rankOf(0.40 + clamp01(v) * 0.55);
 export function rankOf(v) {
-  const i = clamp(Math.floor(clamp01(v) * 8.999), 0, 8);
+  const x = clamp01(v) * 100 + 1e-9;
+  let i = 0;
+  while (i < RANK_FLOOR.length && x >= RANK_FLOOR[i]) i++;
   return RANKS[i];
 }
 

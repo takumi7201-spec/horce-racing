@@ -50,7 +50,6 @@ export function createHorse(rng, {
     spirit: 0.5,          // 底力（大レースで踏ん張る）
     // 状態
     cond: 0.6,            // 調子
-    fit: 0.1,             // 仕上がり
     fatigue: 0,           // 疲労
     injury: null,         // { weeks, name }
     weightKg: 460,        // 馬体重
@@ -66,7 +65,7 @@ export function createHorse(rng, {
 
 export const horseAge = (horse, year) => year - horse.birthYear;
 
-/** 成長率。age に対する発現率と、仕上がり・調子を掛けた「いま出せる力」。 */
+/** 成長率。age に対する発現率と、調子を掛けた「いま出せる力」。 */
 export function growthFactor(horse, year) {
   const age = clamp(horseAge(horse, year), 0, 8);
   const curve = GROWTH_CURVE[horse.growth] || GROWTH_CURVE['普通'];
@@ -74,12 +73,57 @@ export function growthFactor(horse, year) {
 }
 
 /**
+ * 仔に渡す親の能力は「いま」の値（現在値 × 種付けの年の成長曲線）。年老いた種牡馬・育ち切らなかった親ほど仔に渡る値が下がる。
+ * 「いま」は潜在値より平均で少し低いので、そのぶんを足して世界の水準（潜在能力の中央値）を変えない（落とし穴 41・149・151）。値は 2026 年開始で仔の潜在の中央値を変更前（0.622）に合わせた（繁殖に上がった時点で固定する前は 0.095）。
+ */
+export const PARENT_NOW_BASE = 0.008;
+
+/**
+ * 実在馬は繁殖に上がるとき、現在値を潜在値（表の値）にそろえる（落とし穴 150）。ゲーム中に生まれて走った実在馬は、
+ * 育ち切らなかった分だけ現在値が低いまま繁殖に上がり、仔に渡る「いま」が史実の格より低くなっていた。
+ * 年齢の衰え（成長曲線）は今までどおり掛かる。乱数を使わない。
+ */
+export function settleRealParent(h) {
+  if (!h?.real) return;
+  for (const a of ABILITIES) if (h.cur[a] < h.pot[a]) h.cur[a] = h.pot[a];
+}
+
+/**
+ * 繁殖に上がった時点の年（落とし穴 151）。引退の年（retiredYear）が無い馬（世界を作るときに上がった馬・表から作った引退馬）は
+ * 5 歳の年（盛りの終わり）とする。year より先にはしない。
+ */
+export function studEntryYear(h, year) {
+  return Math.min(year, h.retiredYear ?? h.birthYear + 5);
+}
+
+/**
+ * 仔に渡る親の能力（year は種付けの年）。
+ * 繁殖に上がった馬は、上がった時点の「いま」（現在値 × その年の成長曲線）で固定し、その後は衰えない。
+ * 実在馬はそれと史実の値（表＝潜在値）の高いほう：この世界で史実を超えて育てばその値、届かなければ史実
+ * （1985 年開始のノーザンテースト〔14 歳〕がスピード F を渡していた）。まだ走っている馬は今の「いま」。
+ */
+export function parentNow(h, a, year) {
+  const cur = h.cur?.[a] ?? h.pot[a];
+  if (!(h.stallion || h.broodmare || h.retired)) return clamp01(cur * growthFactor(h, year));
+  const v = cur * growthFactor(h, studEntryYear(h, year));
+  return clamp01(h.real ? Math.max(v, h.pot[a]) : v);
+}
+
+/**
+ * 仕上がり（fit）を外した後の、レース当日の地力の倍率（落とし穴 145）。
+ * 以前は lerp(0.72, 1.06, 仕上がり) で、世界の出走馬の平均が 1.0456 だった（2026 年開始・30 週で 8,474 走）。
+ * GI の時計の釣り合いを変えないよう、その平均を全馬に掛ける。
+ * カード育成モードの馬は仕上がり 1（1.06）で釣り合いを取っていたので form: 1.06 を持つ（Godot と一致させる）。
+ */
+export const FORM_K = 1.0456;
+
+/**
  * レース当日に発揮される能力。
- * 現在値 × 成長率 × 仕上がり × 調子 − 疲労。
+ * 現在値 × 成長率 × 調子 − 疲労。
  */
 export function effectiveAbility(horse, year, { ignoreCondition = false } = {}) {
   const g = growthFactor(horse, year);
-  const fit = ignoreCondition ? 1 : lerp(0.72, 1.06, clamp01(horse.fit));
+  const fit = ignoreCondition ? 1 : (horse.form ?? FORM_K);
   const cond = ignoreCondition ? 1 : lerp(0.88, 1.07, clamp01(horse.cond));
   const tired = ignoreCondition ? 1 : 1 - clamp01(horse.fatigue) * 0.18;
   const k = g * fit * cond * tired;
@@ -167,7 +211,6 @@ export function applyRaceEffect(horse, rng, { year, distance, order, field, hard
   // JRA の平均は 1 頭あたり年 6 走前後。
   const load = 0.20 + (distance - 1200) / 1200 * 0.12 + (hard ? 0.09 : 0);
   horse.fatigue = clamp01(horse.fatigue + load * rng.range(0.85, 1.15));
-  horse.fit = clamp01(horse.fit - 0.1);
   // 掲示板内に入れると気分が上がる（調子に乗る）。
   horse.cond = clamp01(horse.cond + (order <= Math.max(3, field * 0.2) ? 0.05 : -0.06));
   return grew;
@@ -182,13 +225,13 @@ const INJURIES = [
   { name: '繋ぎの炎症', weeks: 8, severity: 0.2 },
   { name: '脚部不安', weeks: 4, severity: 0.1 },
 ];
-export function rollInjury(horse, rng, { extra = 0 } = {}) {
-  const risk = (0.004 + horse.fatigue * 0.055 + extra) * (1.7 - horse.sound);
+export function rollInjury(horse, rng, { extra = 0, mul = 1 } = {}) {
+  // mul はバンテージなど（gear.js）。乱数は同じだけ引く（確率の大きさだけ変える）。
+  const risk = (0.004 + horse.fatigue * 0.055 + extra) * (1.7 - horse.sound) * mul;
   if (!rng.chance(risk)) return null;
   const inj = rng.weighted(INJURIES, [14, 4, 26, 8, 20, 28]);
   horse.injury = { name: inj.name, weeks: Math.round(inj.weeks * rng.range(0.6, 1.2)) };
   horse.stable = 'pasture';
-  horse.fit = 0;
   // 重い故障は能力そのものを削る。治っても元には戻らない。
   if (inj.severity > 0.4) {
     for (const a of ABILITIES) {
@@ -214,7 +257,6 @@ export function weeklyRecover(horse, rng) {
   // 調子は 0.5 を中心にゆらぐ。放牧中は上がりやすい。
   const pull = horse.stable === 'pasture' ? 0.62 : 0.55;
   horse.cond = clamp01(horse.cond + (pull - horse.cond) * 0.22 + rng.normal(0, 0.035));
-  if (horse.stable === 'pasture') horse.fit = clamp01(horse.fit - 0.05);
 }
 
 /** 出走可能か。 */

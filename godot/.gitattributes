@@ -1,0 +1,4 @@
+# Windows で開いても改行を勝手に変えない（Godot のテキスト形式は LF）
+* text=auto eol=lf
+*.png binary
+*.jpg binary
