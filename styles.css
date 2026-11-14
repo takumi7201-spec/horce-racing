@@ -2911,3 +2911,31 @@ button.ik-rectier, button.ik-recbest { cursor: pointer; }
   place-items: center; background: #ffffff26; }
 .mt-tail { position: absolute; left: 0; bottom: calc(100% + 8px); width: 11px; height: 11px; border-radius: 3px; z-index: 5;
   background: var(--green-dd); opacity: 0; pointer-events: none; will-change: transform, opacity; }
+
+/* ---------------- お知らせの欄のページを選ぶドロップダウン（src/ui/springdropdown.js） ---------------- */
+.sd { position: relative; width: 100%; height: 40px; flex: none; z-index: 6; }
+.sd.open { z-index: 20; } /* 開いている間は NEXT（17）・下のドック（18）より上に出す */
+.sd-dot { flex: none; width: 10px; height: 10px; border-radius: 50%; background: var(--c, var(--green)); box-shadow: 0 0 0 2px #fff; }
+.sd-trig { position: absolute; inset: 0; display: flex; align-items: center; gap: 8px; padding: 0 10px 0 14px; border: 3px solid #fff;
+  border-radius: 14px; background: linear-gradient(#fffef6, #f7efcf); color: var(--fg); font: inherit; cursor: pointer;
+  box-shadow: var(--shadow); will-change: transform; -webkit-tap-highlight-color: transparent; }
+.sd-trig:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
+.sd-val { position: relative; flex: 1; height: 34px; overflow: hidden; }
+.sd-slot { position: absolute; inset: 0; display: flex; align-items: center; gap: 9px; will-change: transform, opacity; }
+.sd-slot b, .sd-opt b { font-size: 14px; font-weight: 700; letter-spacing: .02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sd-chev { flex: none; width: 18px; height: 18px; color: var(--green-d); will-change: transform; }
+.sd-menu { position: absolute; left: 0; top: 46px; width: 100%; height: 0; padding: 6px; border-radius: 16px; overflow: hidden;
+  background: #fffef8; border: 2px solid #fff; box-shadow: 0 10px 28px #1d3a1a55, 0 0 0 1px #0001; transform-origin: 50% 0;
+  visibility: hidden; will-change: transform, height, opacity; box-sizing: border-box; }
+.sd-opt { position: relative; z-index: 1; display: flex; align-items: center; gap: 9px; height: 38px; padding: 0 10px 0 12px;
+  border-radius: var(--radius); color: var(--fg); cursor: pointer; opacity: 0; will-change: transform, opacity; }
+.sd-opt b { flex: 1; }
+.sd-opt small { font-size: 11px; color: var(--fg3); }
+.sd-opt[aria-selected="true"] b { color: var(--green-dd); }
+.sd-tick { flex: none; width: 17px; height: 17px; color: var(--green-d); }
+.sd-tick path { stroke-dasharray: 22; stroke-dashoffset: 22; }
+.sd-hl { position: absolute; left: 6px; right: 6px; top: 0; border-radius: var(--radius); background: #e6f2d8; opacity: 0;
+  pointer-events: none; will-change: transform, height; }
+.plist.news li { font-size: 13px; line-height: 1.5; padding: 6px 4px; }
+.plist.news li em { font-style: normal; color: var(--mine); font-weight: 900; }
+.plist.news li.mine { font-weight: 700; }

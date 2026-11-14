@@ -8,6 +8,7 @@ import { el, button } from '../dom.js';
 import { icon } from '../icons.js';
 import { horseImg } from '../horse-sprite.js';
 import { morphTabs } from '../morphtip.js';
+import { springDropdown } from '../springdropdown.js';
 import * as G from '../../sim/game.js';
 import { formatMoney, formatTime } from '../../core/util.js';
 import { condLabel } from '../../sim/training.js';
@@ -23,6 +24,7 @@ export function homeScreen(app) {
   const pages = [
     // 年末処理を見ないまま帰ってきたとき（12 月 4 週にレースがあった）は先頭に出す。
     app.pendingYearEnd ? yearEndPage(app) : null,
+    newsPage(app),
     schedulePage(app),
     entriesPage(app),
     gradedPage(app, graded),
@@ -39,12 +41,20 @@ export function homeScreen(app) {
   const dots = morphTabs({
     items: pages.map((p) => ({ icon: p.dataset.ic, label: p.dataset.title })),
     active: app.homePage,
-    onSelect: (i) => { app.homePage = i; show(); },
+    onSelect: (i) => { app.homePage = i; show(); picker?.setValue(i); },
+  });
+  // ページを名前で選ぶドロップダウン（springdropdown.js）。札の列・矢印と同じページを指す。
+  const picker = springDropdown({
+    label: 'お知らせのページ',
+    items: pages.map((p) => ({ label: p.dataset.title, color: PAGE_COLOR[p.dataset.tag] ?? 'var(--green)' })),
+    value: app.homePage,
+    onSelect: (i) => { app.homePage = i; show(); dots.setActive(i, false); },
   });
   const flip = (d) => {
     app.homePage = (app.homePage + d + n) % n;
     show();
     dots.setActive(app.homePage, true);
+    picker.setValue(app.homePage);
   };
   function show() {
     stack.textContent = '';
@@ -65,13 +75,13 @@ export function homeScreen(app) {
       featureStrip(app, graded[0]),
       eventStrip(app),
       el('div.pcards', [
+        picker,
         el('button.parrow', { onclick: () => flip(-1), title: '前へ' }, icon('up', { size: 20 })),
         stack,
         el('button.parrow', { onclick: () => flip(1), title: '次へ' }, icon('down', { size: 20 })),
         dots,
       ]),
     ]),
-    newsBar(app),
   ]);
 }
 
@@ -151,7 +161,7 @@ function yearEndPage(app) {
 /** 1 枚のカード。上に札と見出し、下に中身。 */
 function page(tag, ic, title, body, action = null) {
   // 札（お知らせの欄の下の列）が名前と絵を引けるように持たせる
-  return el('section.pcard', { 'data-ic': ic, 'data-title': title }, [
+  return el('section.pcard', { 'data-ic': ic, 'data-title': title, 'data-tag': tag }, [
     el('header', [
       el('span.pc-tag', { text: tag }),
       el('span.pc-ico', icon(ic, { size: 18 })),
@@ -293,60 +303,45 @@ function financePage(app) {
   ], button('牧場へ', () => app.go('farm'), { cls: 'sm' }));
 }
 
+/** ドロップダウンの行の色の点（ページの種類ごと）。 */
+const PAGE_COLOR = {
+  ニュース: '#2e8fb8', 年間: 'var(--green)', 年末: 'var(--gold-d)', 出走: 'var(--mine)', 重賞: 'var(--gold)',
+  所有馬: '#4a7fd0', 結果: 'var(--bad)', 強豪: '#9a5bd0', 経営: '#8a6a3a',
+};
+
 /**
- * 下の帯。今週のニュースを 1 本ずつ流す。
- * 自分の馬の名前は橙で目立たせる（名前で探すと読み飛ばさない）。
+ * ニュースのページ。以前はお知らせの欄とは別の帯（PC は下・スマホは上）で 1 本ずつ流していたが、
+ * お知らせの欄のページにまとめた（「上部のニュースもバーの中に加える」）。新しい順に並べ、自分の馬の名前は橙で目立たせる。
  */
-function newsBar(app) {
+function newsPage(app) {
   const g = app.game;
-  const w = g.world;
-  const items = (w.news ?? []).slice(0, 30);
+  const items = (g.world.news ?? []).slice(0, 30);
   const names = G.myHorses(g).map((h) => h.name)
     .concat(G.myBroodmares(g).map((h) => h.name))
     .sort((a, b) => b.length - a.length);
-  const text = el('p.nb-text');
-  const count = el('span.nb-count');
-  let i = 0;
-
-  const render = () => {
-    text.textContent = '';
-    count.textContent = items.length ? `${i + 1} / ${items.length}` : '';
-    const s = items[i] ?? 'まだニュースは無い。NEXT で週を進めよう。';
-    text.classList.toggle('mine', s.startsWith('★'));
-    // 自分の馬の名前を探して橙で包む。長い名前から当てる（短い名前が部分一致しないように）。
-    let rest = s;
-    while (rest) {
-      let hit = -1;
-      let name = '';
-      for (const nm of names) {
-        const k = rest.indexOf(nm);
-        if (k >= 0 && (hit < 0 || k < hit)) { hit = k; name = nm; }
-      }
-      if (hit < 0) { text.append(rest); break; }
-      text.append(rest.slice(0, hit), el('em', { text: name }));
-      rest = rest.slice(hit + name.length);
-    }
-  };
-  const step = (d) => {
-    if (!items.length) return;
-    i = (i + d + items.length) % items.length;
-    render();
-  };
-  render();
-
-  // 7 秒ごとに次へ。画面が入れ替わったら止める（要素が外れたかで判定する）。
-  const bar = el('div.newsbar', [
-    el('span.nb-ico', icon('news', { size: 20 })),
-    text,
-    el('div.nb-nav', [
-      count,
-      el('button', { onclick: () => step(-1), title: '前のニュース' }, icon('up', { size: 16 })),
-      el('button', { onclick: () => step(1), title: '次のニュース' }, icon('down', { size: 16 })),
-    ]),
-  ]);
-  const timer = setInterval(() => {
-    if (!bar.isConnected) { clearInterval(timer); return; }
-    step(1);
-  }, 7000);
-  return bar;
+  if (!items.length) return page('ニュース', 'news', '今週のニュース', el('p.pc-empty', { text: 'まだニュースは無い。NEXT で週を進めよう。' }));
+  return page('ニュース', 'news', `今週のニュース（${items.length}件）`, el('ul.plist.news', items.map((s) => {
+    const li = el('li', { class: s.startsWith('★') ? 'mine' : null });
+    li.append(...highlightNames(s, names));
+    return li;
+  })));
 }
+
+/** 文の中の自分の馬の名前を橙で包む。長い名前から当てる（短い名前が部分一致しないように）。 */
+function highlightNames(s, names) {
+  const out = [];
+  let rest = s;
+  while (rest) {
+    let hit = -1;
+    let name = '';
+    for (const nm of names) {
+      const k = rest.indexOf(nm);
+      if (k >= 0 && (hit < 0 || k < hit)) { hit = k; name = nm; }
+    }
+    if (hit < 0) { out.push(rest); break; }
+    out.push(rest.slice(0, hit), el('em', { text: name }));
+    rest = rest.slice(hit + name.length);
+  }
+  return out;
+}
+
