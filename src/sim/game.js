@@ -3,10 +3,10 @@
 // 画面はここだけを見る。world.js の中身を直接いじらせないことで、
 // 「セーブ可能な状態」と「表示のための導出値」を分けている。
 
-import { createWorld, advanceWeek, isAutoDebut, weekRaces, weekGround, horsesOf, stallionList, computeLeaders, ownerStandings, retireHorse, retireOutcome as worldRetireOutcome, playerFame } from './world.js';
+import { createWorld, advanceWeek, isAutoDebut, raceSoon, weekRaces, weekGround, horsesOf, stallionList, computeLeaders, ownerStandings, retireHorse, retireOutcome as worldRetireOutcome, playerFame } from './world.js';
 import { eligible, weekLabel, gradedCalendar, GRADED_BY_ID, meetingsOf, ABROAD_COST } from './schedule.js';
 import { horseAge, effectiveAbility, styleLabel, distanceAptitude, canRun, STYLE_TARGET } from './horse.js';
-import { readyToRun, MENUS, fitLabel, condLabel } from './training.js';
+import { readyToRun, MENUS, condLabel, AUTO_FOCUS, AUTO_INTENSITY, cleanAutoPlan, autoTrainMenu } from './training.js';
 import {
   matingEval, pedigreeTree, nicksValue, lineLabel, breedQuality, FACTORS, factorsOf, factorBonus, vigorOf,
 } from './pedigree.js';
@@ -112,7 +112,6 @@ export function horseView(g, id) {
     dist: h.dist, distRange: h.distRange,
     turf: h.turf, dirt: h.dirt, firm: h.firm, soft: h.soft,
     temper: h.temper, sound: h.sound, spirit: h.spirit,
-    fit: h.fit, fitLabel: fitLabel(h.fit),
     cond: h.cond, condLabel: condLabel(h.cond),
     fatigue: h.fatigue,
     injury: h.injury,
@@ -125,6 +124,10 @@ export function horseView(g, id) {
     inbreed: h.inbreedLabels ?? [],
     menu: h.trainingMenu ?? 'normal',
     autoDebut: !!h.autoDebut && isAutoDebut(h, w.year),
+    // オート調教の傾向と、今週当たるメニュー（落とし穴 145）
+    autoTrain: h.autoTrain ? cleanAutoPlan(h.autoTrain) : null,
+    autoMenu: (h.autoTrain || (h.autoDebut && isAutoDebut(h, w.year)))
+      ? autoTrainMenu(h, h.autoTrain ?? null, { week: w.week, raceSoon: h.ownerId === 'player' && raceSoon(w, h) }) : null,
     ready: readyToRun(h),
     stallion: h.stallion, broodmare: h.broodmare, studFee: h.studFee,
     dead: !!h.dead,
@@ -303,10 +306,33 @@ export function setTraining(g, horseId, menuId) {
 }
 
 export const trainingMenus = () => MENUS;
+export { AUTO_FOCUS, AUTO_INTENSITY };
+
+/**
+ * オート調教（落とし穴 145）。傾向（伸ばしたい能力 focus × 強さ intensity）を決めると、毎週の調教を任せる。
+ * plan が null ならやめる（以後は自分で選んだメニュー）。
+ */
+export function setAutoTrain(g, horseId, plan) {
+  const h = g.world.horses.get(horseId);
+  if (!h || h.ownerId !== 'player' || h.retired || h.dead) return false;
+  if (plan) h.autoTrain = cleanAutoPlan(plan); else delete h.autoTrain;
+  return true;
+}
+
+/** 現役の自分の馬すべてに同じ傾向を当てる（null で全部やめる）。当てた頭数を返す。 */
+export function setAutoTrainAll(g, plan) {
+  let n = 0;
+  for (const id of g.world.player.horses) {
+    const h = g.world.horses.get(id);
+    if (!h || h.retired || h.dead || h.stallion || h.broodmare) continue;
+    if (setAutoTrain(g, id, plan)) n++;
+  }
+  return n;
+}
 
 /**
  * 自動調教（2 歳の入厩から新馬戦まで）の切り替え（落とし穴 135）。
- * 入れると、調教は仕上がりと疲れで決まり、入厩と新馬戦の登録も自動になる。
+ * 入れると、調教はオート調教の傾向（無ければバランス・普通）で決まり、入厩と新馬戦の登録も自動になる。
  * 新馬戦を走った時点で自動は終わる（以後は手で調教する）。
  */
 export function setAutoDebut(g, horseId, on) {

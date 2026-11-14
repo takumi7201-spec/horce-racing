@@ -42,7 +42,7 @@ export function createTrainer(rng, { year, used, region = '関東' }) {
     name: makePersonName(rng, { used }),
     age, region,
     skill: pot,
-    // 得意分野。これで「この厩舎に預けると仕上がる」が変わる。
+    // 得意分野。これで「この厩舎に預けると伸びる・疲れにくい」が変わる。
     style: rng.pick(['仕上げ上手', '素材重視', '持久型', '短距離型', 'ダート巧者', '堅実']),
     capacity: rng.irange(14, 30),
     wins: 0, starts: 0, g1: 0, earnings: 0,
@@ -52,15 +52,14 @@ export function createTrainer(rng, { year, used, region = '関東' }) {
 }
 
 /** 調教師の得意分野による補正。training.js と world.js から引く。 */
-export function trainerBonus(trainer, { surface, distance } = {}) {
-  const b = { fit: 1, growth: 1, injury: 1 };
+export function trainerBonus(trainer) {
+  // 仕上がり（fit）の仕組みは外した（落とし穴 145）。仕上げ上手は「疲れを溜めずに乗り込める」に読み替える。
+  // 持久型・短距離型・ダート巧者は以前も調教では効いていなかった（距離・馬場を渡して呼ぶところが無い）。
+  const b = { load: 1, growth: 1, injury: 1 };
   if (!trainer) return b;
   switch (trainer.style) {
-    case '仕上げ上手': b.fit = 1.18; break;
-    case '素材重視': b.growth = 1.16; b.fit = 0.94; break;
-    case '持久型': if (distance >= 2200) b.fit = 1.12; break;
-    case '短距離型': if (distance && distance <= 1600) b.fit = 1.12; break;
-    case 'ダート巧者': if (surface === 'ダート') b.fit = 1.14; break;
+    case '仕上げ上手': b.load = 0.85; break;
+    case '素材重視': b.growth = 1.16; b.load = 1.06; break;
     case '堅実': b.injury = 0.8; break;
   }
   return b;

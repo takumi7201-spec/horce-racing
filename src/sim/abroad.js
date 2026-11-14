@@ -5,7 +5,7 @@
 //   2. 史実でその年にそのレースへ遠征した日本馬（data/abroad-runs.js。ラニの 2016 年三冠など）
 //   3. 海外の実在馬（表の os。その年に走れる年齢で、馬場と距離の合う馬）
 // 海外の馬は世界に「海外で現役」の引退馬として居る（落とし穴 56）。日本の育成の週次処理を受けないので、
-// 走る週に仕上がり・調子・疲れを整えてから出す。
+// 走る週に調子・疲れを整えてから出す。
 // 選び方は主乱数を使わない（(シード, レース) から導く。番組を覗いただけで世界がずれないように）。
 
 import { REAL_HORSES } from './data/real-horses.js';
@@ -80,9 +80,8 @@ export function foreignRunners(world, race, n, exclude = new Set()) {
   return cands.sort((a, b) => b.score - a.score).slice(0, n).map((x) => x.h);
 }
 
-/** 走る週に整える。海外の馬は日本の週次の調教を受けないので、出走のたびに仕上げる。 */
+/** 走る週に整える。海外の馬は日本の週次の調教を受けないので、出走のたびに整える。 */
 export function readyAbroad(h, foreign) {
-  h.fit = Math.max(h.fit ?? 0, foreign ? 0.9 : 0.8);
   h.cond = Math.max(h.cond ?? 0, 0.7);
   if (foreign) h.fatigue = 0;
   h.stable = foreign ? h.stable : 'stable';

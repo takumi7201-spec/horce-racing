@@ -2806,3 +2806,16 @@ button.ik-rectier, button.ik-recbest { cursor: pointer; }
   .trade-filter input[type=search].inp { min-width: 0; flex: 1 1 100%; }
   .trade-filter select.inp { flex: 1 1 30%; min-width: 0; font-size: 12px; padding-left: 6px; padding-right: 4px; }
 }
+
+/* オート調教（落とし穴 145） */
+.autotrain { border: 1px solid var(--line, #0002); border-radius: 10px; padding: 10px 12px; margin-bottom: 10px; background: #f5fbef; }
+.at-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 6px; }
+.at-head b { display: block; font-size: 14px; color: var(--green-dd); }
+.at-head span { font-size: 11px; color: var(--muted, #555); }
+.at-btns { display: flex; gap: 6px; flex-wrap: wrap; }
+.at-row { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+.at-k { font-size: 11px; color: var(--muted, #555); width: 3.2em; flex: none; }
+.at-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.at-chip { font: inherit; font-size: 12px; padding: 4px 10px; border-radius: 99px; border: 1px solid #0002; background: #fff; cursor: pointer; }
+.at-chip.on { background: var(--green, #2f8a35); color: #fff; border-color: transparent; }
+.autotrain .at-chip:not(.on) { opacity: .85; }

@@ -13,6 +13,9 @@ const SHORT = {
 };
 
 /** 番組表のタブ（左のメニューの行き先の一覧と同じもの） */
+/** 疲れの印（仕上がりの代わりに出す。落とし穴 145） */
+const fatigueMark = (f = 0) => (f < 0.2 ? '◎' : f < 0.4 ? '○' : f < 0.6 ? '△' : '▲');
+
 export const RACES_TABS = [
   { id: 'week', name: '今週の番組' },
   { id: 'ahead', name: '先の週' },
@@ -189,13 +192,13 @@ function pickHorse(app, race, cands, offset = 0) {
       el('label', ['騎手', jockeySel]),
       el('label', ['脚質指示', styleSel]),
     ]),
-    table(['馬名', '性齢', 'クラス', '仕上がり', '調子', '適性', ''],
+    table(['馬名', '性齢', 'クラス', '疲労', '調子', '適性', ''],
       cands.map((h) => {
         const v = G.horseView(g, h.id);
         const r = G.racesFor(g, h.id, offset).find((x) => x.raceId === race.raceId);
         return [
           el('b', { text: h.name }), `${h.sex}${v.age}`, v.className,
-          v.fitLabel, v.condLabel, bar(r?.apt ?? 0),
+          fatigueMark(v.fatigue), v.condLabel, bar(r?.apt ?? 0),
           button('登録', () => {
             const res = G.enterRace(g, h.id, race.raceId, {
               jockeyId: Number(jockeySel.value),

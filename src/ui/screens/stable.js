@@ -3,7 +3,7 @@
 import { el, card, table, button, kv, bar, modal, toast, frameChip, tabs, ask, choose } from '../dom.js';
 import * as G from '../../sim/game.js';
 import { formatMoney, formatTime, formatSec, rankOf, rankYoung } from '../../core/util.js';
-import { fitLabel, condLabel, MENUS } from '../../sim/training.js';
+import { condLabel, MENUS } from '../../sim/training.js';
 import { ABILITY_LABEL, ABILITIES, STYLES } from '../../sim/params.js';
 import { horseImg } from '../horse-sprite.js';
 import { icon } from '../icons.js';
@@ -59,7 +59,7 @@ function stableTile(app, h, cat) {
   if (cat === 'active') {
     sub = `${h.sex}${v.age}　${v.className}`;
     tags.push(v.injury ? ['bad', v.injury.name] : v.stable === 'stable' ? ['on', '在厩'] : ['', '放牧']);
-    if (v.stable === 'stable' && !v.injury) tags.push(['', fitLabel(v.fit)]);
+    if (v.autoTrain) tags.push(['', 'オート']);
     if (G.myEntries(g).some((e) => e.horseId === h.id)) tags.push(['go', '出走予定']);
   } else if (cat === 'mares') {
     const o = mareKids = G.offspringOf(g, h.id);
@@ -426,19 +426,19 @@ function laurel(side) {
 
 /**
  * 右：輪のゲージと状態、個性。
- * 現役の馬は仕上がり、繁殖に上がった馬は産駒の数を輪にする
- * （引退した馬に仕上がり 20% と出しても意味が無い）。
+ * 現役の馬は体力（1 − 疲労）、繁殖に上がった馬は産駒の数を輪にする
+ * （仕上がりの仕組みは外した。落とし穴 145）。
  */
 function statePanel(v, offspring = null) {
   const young = !v.dead && !v.retired && v.age < 2;
   const racing = !v.dead && !v.retired && !v.broodmare && !v.stallion && !young;
-  const fit = Math.max(0, Math.min(1, v.fit ?? 0));
+  const stamina = 1 - Math.max(0, Math.min(1, v.fatigue ?? 0));
   const foals = offspring ?? v.foals ?? [];
   const nf = foals.length;
-  // 幼駒は仕上がりも産駒も無いので、育成の進み具合（2 歳の物差しで見た能力の平均）を輪にする。
+  // 幼駒は体力も産駒も無いので、育成の進み具合（2 歳の物差しで見た能力の平均）を輪にする。
   // 潜在値は見せない（生まれたては潜在の 2 割ほどなので低く出る。1 歳の 1 年で育つ）。
   const avg = ABILITIES.reduce((a, k) => a + v.values[k], 0) / ABILITIES.length;
-  const ratio = racing ? fit : young ? avg : Math.min(1, nf / 12);
+  const ratio = racing ? stamina : young ? avg : Math.min(1, nf / 12);
   const R = 40, C = 2 * Math.PI * R;
   const ring = document.createElement('div');
   ring.className = 'hs-ring';
@@ -449,11 +449,9 @@ function statePanel(v, offspring = null) {
     <defs><linearGradient id="hsg" x1="0" x2="1"><stop offset="0" stop-color="#8fd86a"/><stop offset="1" stop-color="#2f8a35"/></linearGradient></defs>
   </svg>`;
   ring.appendChild(el('div.hs-ring-t', racing
-    ? [el('span', { text: '仕上がり' }), el('b', { text: `${Math.round(fit * 100)}` }), el('small', { text: '%' })]
+    ? [el('span', { text: '体力' }), el('b', { text: `${Math.round(stamina * 100)}` }), el('small', { text: '%' })]
     : young ? [el('span', { text: '育成' }), el('b', { text: rankYoung(avg) })]
       : [el('span', { text: '産駒' }), el('b', { text: String(nf) }), el('small', { text: '頭' })]));
-  const fat = v.fatigue ?? 0;
-  const fatMark = fat < 0.2 ? '◎' : fat < 0.4 ? '○' : fat < 0.6 ? '△' : '▲';
   const r = (k, val, cls = null) => el('div.hs-r', [el('span', { text: k }), el('b', { text: val, class: cls })]);
   const rows = young ? [
     r('年齢', v.age === 0 ? '当歳' : '1歳'),
@@ -461,7 +459,7 @@ function statePanel(v, offspring = null) {
     r('成長型', v.growth),
   ] : racing ? [
     r('調子', v.condLabel),
-    r('疲労', fatMark, fat >= 0.6 ? 'bad' : null),
+    r('調教', v.autoTrain ? 'オート' : (MENUS.find((m) => m.id === v.menu)?.name ?? '—')),
     r('状態', v.injury ? v.injury.name : v.stable === 'stable' ? '在厩' : '放牧', v.injury ? 'bad' : null),
   ] : v.preview ? [
     r('いま', v.preview),
@@ -671,34 +669,7 @@ function tabContent(app, tid, v, career) {
       ]),
     ])]);
   }
-  if (tid === 'train') {
-    // 2 歳の未出走馬は、入厩から新馬戦までを任せられる（落とし穴 135）。走った後は自動が終わり、手で選ぶ。
-    const auto = !!v.autoDebut;
-    const canAuto = v.isMine && v.age === 2 && (v.starts ?? 0) === 0;
-    const autoBar = canAuto ? el('div.autodebut', [
-      el('div', [
-        el('b', { text: '自動調教（新馬戦まで）' }),
-        el('span', { text: auto
-          ? '入厩させ、仕上がりと疲れを見て調教し、新馬戦に登録する。走ると自動は終わる。'
-          : '入厩から新馬戦の登録まで、調教を任せる。手で選ぶのは走った後から。' }),
-      ]),
-      button(auto ? '自動をやめる' : '自動にする', () => { G.setAutoDebut(g, id, !auto); app.render(); },
-        { cls: auto ? 'ghost sm' : 'primary sm' }),
-    ]) : null;
-    return el('div', [
-      autoBar,
-      el('div.menus', MENUS.map((m) => el('button.menu', {
-        class: !auto && v.menu === m.id ? 'on' : null,
-        disabled: auto || v.stable !== 'stable' || !!v.injury,
-        onclick: () => { G.setTraining(g, id, m.id); app.render(); },
-      }, [el('b', { text: m.name }), el('span', { text: m.desc })]))),
-      el('p.note', {
-        text: auto ? '自動調教の間は、メニューは仕上がりと疲れで決まる。'
-          : v.stable !== 'stable' ? '放牧中は調教できない。入厩させると選べる。'
-          : v.ready.ok ? '出走できる状態。' : `出走不可：${v.ready.why}`,
-      }),
-    ]);
-  }
+  if (tid === 'train') return trainTab(app, v);
   if (tid === 'foals') return foalsTab(app, v);
 
   // 詳細：プロフィール ｜ 成績の内訳 ｜ 回り・主な勝鞍
@@ -712,7 +683,7 @@ function tabContent(app, tid, v, career) {
       ['馬主', v.owner],
       ['厩舎', `${v.trainer}${v.trainerStyle ? `（${v.trainerStyle}）` : ''}`],
       ['主戦騎手', v.jockey],
-      ['調教', v.isMine && !v.retired && v.age >= 2 ? menu : '—'],
+      ['調教', v.isMine && !v.retired && v.age >= 2 ? (v.autoTrain ? `オート（${G.AUTO_FOCUS.find((f) => f.id === v.autoTrain.focus)?.name}・${G.AUTO_INTENSITY.find((f) => f.id === v.autoTrain.intensity)?.name}）` : menu) : '—'],
       // 馬具（現役の競走馬だけ。自分の馬は押して付け替える。上の枠に置くと高さが足りず見切れた）
       ...(!v.retired && !v.dead && !v.broodmare && !v.stallion && v.age >= 2 ? [['馬具', el('span.gearline', [
         ...gearChips(v.gear),
@@ -738,6 +709,71 @@ function tabContent(app, tid, v, career) {
       ]),
       v.titles.length ? el('div.badges', v.titles.map((x) => el('span.badge', { text: x }))) : null,
     ]),
+  ]);
+}
+
+/**
+ * 調教タブ。オート調教（傾向＝伸ばしたい能力 × 強さ、落とし穴 145）と、手で選ぶメニュー。
+ * 2 歳の未出走馬は、入厩から新馬戦の登録までも任せられる（落とし穴 135。調教はオートの傾向で決まる）。
+ */
+function trainTab(app, v) {
+  const g = app.game, id = v.id;
+  const debut = !!v.autoDebut;
+  const canDebut = v.isMine && v.age === 2 && (v.starts ?? 0) === 0;
+  const auto = v.autoTrain;
+  const autoOn = !!auto || debut;
+  const plan = auto ?? { focus: 'balance', intensity: 'normal' };
+  const setPlan = (p) => { G.setAutoTrain(g, id, p); app.render(); };
+  const chips = (list, key) => el('div.at-chips', list.map((x) => el('button.at-chip', {
+    class: autoOn && plan[key] === x.id ? 'on' : null,
+    title: x.desc ?? null, text: x.name,
+    onclick: () => setPlan({ ...plan, [key]: x.id }),
+  })));
+  const curMenu = MENUS.find((m) => m.id === v.autoMenu);
+  const autoBox = v.isMine ? el('div.autotrain', [
+    el('div.at-head', [
+      el('div', [
+        el('b', { text: 'オート調教' }),
+        el('span', { text: autoOn
+          ? `傾向に沿って毎週の調教を決める。疲れが溜まればプール・休養、走る週は軽め。${curMenu ? `今週は「${curMenu.name}」。` : ''}`
+          : '伸ばしたい能力と強さを決めて、毎週の調教を任せる。' }),
+      ]),
+      el('div.at-btns', [
+        button(auto ? 'オートをやめる' : 'オートにする', () => setPlan(auto ? null : plan),
+          { cls: auto ? 'ghost sm' : 'primary sm' }),
+        button('所有馬すべてに', () => {
+          const n = G.setAutoTrainAll(g, plan);
+          app.render();
+          toast(`${n} 頭をオート調教にした`);
+        }, { cls: 'ghost sm' }),
+      ]),
+    ]),
+    el('div.at-row', [el('span.at-k', { text: '伸ばす' }), chips(G.AUTO_FOCUS, 'focus')]),
+    el('div.at-row', [el('span.at-k', { text: '強さ' }), chips(G.AUTO_INTENSITY, 'intensity')]),
+  ]) : null;
+  const debutBar = canDebut ? el('div.autodebut', [
+    el('div', [
+      el('b', { text: '新馬戦まで任せる' }),
+      el('span', { text: debut
+        ? '入厩させ、オート調教で鍛え、新馬戦に登録する。走ると任せるのは終わる（オート調教はそのまま）。'
+        : '入厩から新馬戦の登録までを任せる。調教はオート調教の傾向で決まる。' }),
+    ]),
+    button(debut ? 'やめる' : '任せる', () => { G.setAutoDebut(g, id, !debut); app.render(); },
+      { cls: debut ? 'ghost sm' : 'primary sm' }),
+  ]) : null;
+  return el('div', [
+    autoBox,
+    debutBar,
+    el('div.menus', MENUS.map((m) => el('button.menu', {
+      class: (autoOn ? v.autoMenu === m.id : v.menu === m.id) ? 'on' : null,
+      disabled: autoOn || v.stable !== 'stable' || !!v.injury,
+      onclick: () => { G.setTraining(g, id, m.id); app.render(); },
+    }, [el('b', { text: m.name }), el('span', { text: m.desc })]))),
+    el('p.note', {
+      text: autoOn ? 'オート調教の間はメニューを選べない（光っているのが今週のメニュー）。'
+        : v.stable !== 'stable' ? '放牧中は調教できない。入厩させると選べる。'
+        : v.ready.ok ? '出走できる状態。' : `出走不可：${v.ready.why}`,
+    }),
   ]);
 }
 

@@ -31,7 +31,7 @@ import {
 import { simulateRace, computeOdds } from './race.js';
 import { createJockey, createTrainer, ageJockey, ageTrainer, resetPersonIds, acceptsRide } from './jockey.js';
 import { breed, canBeBroodmare, canBeStallion, studFeeOf, conceives, POP_MEAN, STALLION_FOAL_MEMORY } from './breeding.js';
-import { trainWeek, pastureWeek, nurseryWeek, autoMenu, autoDebutMenu, readyToRun } from './training.js';
+import { trainWeek, pastureWeek, nurseryWeek, autoMenu, autoTrainMenu, readyToRun } from './training.js';
 import { facilityEffects, NO_EFFECT, advanceFacilities, facilityUpkeep } from './facilities.js';
 import { sireLineRoot, nicksKey, recordNicksResult, breedQuality, lineLabel, grantFactors, grantDominantFactors, establishLines } from './pedigree.js';
 import { clamp, clamp01, lerp, sum, byDesc } from '../core/util.js';
@@ -188,7 +188,6 @@ export function createWorld(seed, { startYear = 2026, playerName = '', farmName 
       if (age < 2) continue;
       const reach = age >= 3 ? 1 : 0.95;
       for (const a of ABILITIES) h.cur[a] = clamp01(h.pot[a] * reach);
-      h.fit = Math.max(h.fit, 0.7);
       h.cond = Math.max(h.cond, 0.7);
     }
     realCoverings(world, rng, Y0);
@@ -467,7 +466,6 @@ function paperCareer(world, horse, rng, uptoYear) {
   // 現在値は潜在値のほぼ上限まで到達したものとする。
   const reach = clamp01(0.82 + horse.starts * 0.012);
   for (const a of ABILITIES) horse.cur[a] = clamp01(horse.pot[a] * reach);
-  horse.fit = 0.2;
   horse.cond = clamp01(rng.normal(0.6, 0.12));
 }
 
@@ -660,7 +658,6 @@ function assignConnections(world, rng) {
     h.classId = h.classId ?? classForWins(h.wins);
     // 半分くらいが在厩。残りは放牧。
     h.stable = rng.chance(0.52) ? 'stable' : 'pasture';
-    if (h.stable === 'stable') h.fit = clamp01(rng.normal(0.7, 0.18));
     h.trainingMenu = 'normal';
   }
 }
@@ -713,7 +710,6 @@ function setupPlayer(world, rng, { playerName, farmName }) {
     owner.horses.push(h.id);
     world.player.horses.push(h.id);
     h.stable = 'stable';
-    h.fit = age >= 3 ? 0.6 : 0.25;
     h.trainingMenu = 'normal';
     return h;
   };
@@ -777,15 +773,13 @@ function npcCandidates(world, rng) {
   for (const h of world.horses.values()) {
     if (h.ownerId === 'player') continue;
     if (!canRun(h, world.year)) continue;
-    // 仕上がっていない馬は使わない。ここを緩めると、同じレースの時計が
-    // 年によって 10 秒ぶれる（出来の悪い馬が多数走ってペースが落ちる）。
-    if (h.fit < 0.68) continue;
     if (h.fatigue > 0.55) continue;
     const since = h.lastStartWeek == null ? 99 : weeksBetween(world, h.lastStartWeek, h.lastStartYear);
     // 条件馬は中 2 週でも使う。重賞級は間隔を取る。
     if (since < (classOrder(h.classId ?? 'nowin') >= 5 ? 4 : 3)) continue;
     // 休み明けの馬は使ってこないこともある。
-    if (!rng.chance(clamp01(0.42 + h.fit * 0.4 - h.fatigue * 0.3))) continue;
+    // 仕上がりの仕組みを外す前は 0.42 + 仕上がり×0.4（出走馬の平均で 0.8 前後）だった。
+    if (!rng.chance(clamp01(0.8 - h.fatigue * 0.3))) continue;
     out.push(h);
   }
   return out;
@@ -906,8 +900,8 @@ export function fillField(world, race, races, fields, want) {
         * (race.surface === SURFACE.DIRT ? h.dirt : h.turf)));
     for (const h of extra) {
       if (f.length >= Math.min(race.maxField, 16)) break;
-      // 放牧中の馬も急仕上げで使う。仕上がり不足のまま走るので凡走しやすい。
-      if (h.stable !== 'stable') { h.stable = 'stable'; h.fit = Math.max(h.fit, 0.72); }
+      // 放牧中の馬も急仕上げで使う。
+      if (h.stable !== 'stable') h.stable = 'stable';
       f.push(h);
       taken.add(h.id);
     }
@@ -1221,13 +1215,14 @@ function weeklyHorseUpkeep(world, rng) {
       continue;
     }
     if (h.stable === 'stable') {
-      // 自動調教の馬（2 歳・未出走）は仕上がりと疲れで決める。それ以外は自分で選んだメニュー。
+      // 自分の馬はオート調教（傾向と疲れで決める。新馬戦までの自動も同じ）か、自分で選んだメニュー。
       const menu = h.ownerId === 'player'
-        ? (isAutoDebut(h, world.year) ? autoDebutMenu(h) : (h.trainingMenu ?? 'normal'))
+        ? (h.autoTrain || isAutoDebut(h, world.year)
+          ? autoTrainMenu(h, h.autoTrain ?? null, { week: world.week, raceSoon: raceSoon(world, h) })
+          : (h.trainingMenu ?? 'normal'))
         : autoMenu(h, rng);
       trainWeek(h, rng, { year: world.year, trainer: world.trainers.get(h.trainerId), menuId: menu, fx });
       // NPC は疲れたら放牧に出す。
-      // 放牧に出すとその間に仕上がりが抜け、戻しても 5 週は使えない。
       // 軽い疲れは在厩のまま「休養」メニューで抜く（実際の調整もそうしている）。
       if (h.ownerId !== 'player' && h.fatigue > 0.88) h.stable = 'pasture';
     } else {
@@ -1241,6 +1236,16 @@ function weeklyHorseUpkeep(world, rng) {
   }
 }
 
+/** 今週か来週に登録がある（オート調教は軽めにして疲れを残さずに出す）。 */
+export function raceSoon(world, h) {
+  for (const e of world.player.entries.values()) {
+    if (e.horseId !== h.id) continue;
+    const ahead = ((e.year ?? world.year) - world.year) * WEEKS_PER_YEAR + ((e.week ?? world.week) - world.week);
+    if (ahead >= 0 && ahead <= 1) return true;
+  }
+  return false;
+}
+
 /** 自動調教の対象か。2 歳の未出走馬だけ（新馬戦を走った時点で終わる）。 */
 export function isAutoDebut(h, year) {
   return !!h.autoDebut && h.ownerId === 'player' && (h.starts ?? 0) === 0 && horseAge(h, year) === 2;
@@ -1250,7 +1255,7 @@ export function isAutoDebut(h, year) {
  * 自動調教（落とし穴 135）。週の終わりに、自動の馬を入厩させ、新馬戦に登録する。
  * 登録は「まだ誰も取っていない新馬戦」のうち、2 週から 14 週先で最も早いものにする
  * （登録は 1 レース 1 頭なので、同じ週の二頭目は次の新馬戦へ回す）。
- * 当日の仕上がりが足りなければ、レースの時に既存の回避の仕組みで外れる。
+ * 当日に疲れやけがで走れなければ、レースの時に既存の回避の仕組みで外れる。
  * 外れて登録が消えると、次の週に次の新馬戦を取り直す。
  */
 function autoDebutWeek(world, news) {

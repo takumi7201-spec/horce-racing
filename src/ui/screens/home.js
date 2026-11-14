@@ -9,7 +9,7 @@ import { icon } from '../icons.js';
 import { horseImg } from '../horse-sprite.js';
 import * as G from '../../sim/game.js';
 import { formatMoney, formatTime } from '../../core/util.js';
-import { fitLabel, condLabel } from '../../sim/training.js';
+import { condLabel } from '../../sim/training.js';
 
 const GRADE_ORDER = { GI: 0, GII: 1, GIII: 2 };
 
@@ -215,7 +215,7 @@ function horsesPage(app) {
   const list = shown.map((h) => h.id);
   return page('所有馬', 'horse', `所有馬の様子（${horses.length}頭）`, el('ul.plist.horses', shown.map((h) => {
     const v = G.horseView(g, h.id);
-    const state = v.injury ? v.injury.name : v.stable === 'stable' ? `在厩 ${fitLabel(v.fit)}` : '放牧';
+    const state = v.injury ? v.injury.name : v.stable === 'stable' ? `在厩${v.autoTrain ? '・オート' : ''}` : '放牧';
     return el('li', { class: 'click', onclick: () => app.go('stable', { id: h.id, list }) }, [
       horseImg(h.coat, { size: 'xs', age: v.age }),
       el('div.pl-body', [

@@ -4,7 +4,7 @@
 // 施設は完成後の維持費を毎週払う。効果はどれも小さく（1 段階で 5〜10% ほど）、
 // 資金の少ないうちは先に馬を買うほうが得になるように値段を付けている。
 //
-//   坂路コース     調教で能力が伸びる速さと仕上がり
+//   坂路コース     調教で能力が伸びる速さ
 //   プール         疲労の抜けと、調教での故障の減り方
 //   診療所         けがの治りが早い
 //   育成牧場       放牧中の回復と、若駒の成長
@@ -17,11 +17,11 @@ export const MAX_BUILDS = 2;      // 同時に建てられる数
 
 export const FACILITIES = [
   { id: 'slope', name: '坂路コース', icon: 'mountain',
-    desc: '調教で能力が伸びる速さと、仕上がりの伸びが増す。',
+    desc: '調教で能力が伸びる速さが増す。',
     levels: [
-      { cost: 3000, weeks: 8, upkeep: 6, text: '調教の伸び +8%・仕上がり +5%' },
-      { cost: 6500, weeks: 12, upkeep: 12, text: '調教の伸び +16%・仕上がり +10%' },
-      { cost: 12000, weeks: 16, upkeep: 20, text: '調教の伸び +25%・仕上がり +15%' },
+      { cost: 3000, weeks: 8, upkeep: 6, text: '調教の伸び +8%' },
+      { cost: 6500, weeks: 12, upkeep: 12, text: '調教の伸び +16%' },
+      { cost: 12000, weeks: 16, upkeep: 20, text: '調教の伸び +25%' },
     ] },
   { id: 'pool', name: 'プール', icon: 'water',
     desc: '疲れが抜けやすく、調教での故障が減る。',
@@ -79,7 +79,6 @@ export function facilityEffects(world) {
   const slope = L('slope'), pool = L('pool'), clinic = L('clinic'), paddock = L('paddock');
   return {
     growMul: [1, 1.08, 1.16, 1.25][slope],
-    fitMul: [1, 1.05, 1.10, 1.15][slope],
     relief: [0, 0.02, 0.04, 0.06][pool],          // 毎週の疲労の軽減
     safety: [0, 0.10, 0.20, 0.30][pool],          // 調教での故障の減り
     healShare: [0, 0.20, 0.35, 0.50][clinic],     // けがの治りに足す割合
@@ -92,7 +91,7 @@ export function facilityEffects(world) {
 
 /** 自分の馬に効く施設の効果。ほかの馬には効かない。 */
 export const NO_EFFECT = Object.freeze({
-  growMul: 1, fitMul: 1, relief: 0, safety: 0, healShare: 0, pastureMul: 1, youthMul: 1, conceiveBonus: 0, costMul: 1,
+  growMul: 1, relief: 0, safety: 0, healShare: 0, pastureMul: 1, youthMul: 1, conceiveBonus: 0, costMul: 1,
 });
 
 /** 一覧（画面用）。建設中・次のレベルの値段・建てられるかも付ける。 */

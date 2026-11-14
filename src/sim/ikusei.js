@@ -1036,7 +1036,8 @@ function runnerHorse({ id, name, sex, coat, ab, dist, range, turf, dirt, firm, s
   h.dist = dist; h.distRange = range ?? 400;
   h.turf = turf; h.dirt = dirt; h.firm = firm ?? 0.8; h.soft = soft ?? 0.5;
   h.style = style ?? 0.5; h.styleFlex = 0.5; h.temper = 0.6; h.spirit = 0.6;
-  h.fit = 1; h.cond = 0.7; h.fatigue = 0;
+  // 仕上がりの仕組みは外した（落とし穴 145）。育成モードは仕上がり 1 の倍率（1.06）で釣り合いを取っていたのでそのまま
+  h.form = 1.06; h.cond = 0.7; h.fatigue = 0;
   // 馬具（gear.js）。育成モードの馬は気性を持たないので、馬具の効き目は気性 0.35 の馬として測る（race.js）
   if (gear && Object.keys(gear).length) { h.raceGear = gear; h.gearTemper = GEAR_TEMPER; }
   // LM の固有スキル（型・強さ・所属の地域・対戦か）。判定と効き目は race.js

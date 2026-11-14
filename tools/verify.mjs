@@ -135,7 +135,7 @@ function testField(rng, n, distance, surface, year, ability) {
     h.turf = surface === SURFACE.TURF ? 0.9 : 0.5;
     h.dirt = surface === SURFACE.DIRT ? 0.9 : 0.5;
     h.firm = 0.9; h.soft = 0.6; h.temper = 0.6; h.sound = 0.7; h.spirit = 0.6;
-    h.cond = 0.7; h.fit = 0.85; h.fatigue = 0;
+    h.cond = 0.7; h.form = 1.009; h.fatigue = 0; // 仕上がり 0.85 の倍率（落とし穴 145）
     h.style = [0.08, 0.2, 0.35, 0.45, 0.55, 0.62, 0.7, 0.8, 0.9][i % 9];
     h.styleFlex = 0.6;
     out.push(h);
@@ -613,7 +613,7 @@ section('ゲーム操作');
   const races = racesFor(game, hs[0].id);
   check(`出走できるレースがある（${races.length} 件）`, races.length > 0);
   if (races.length) {
-    hs[0].stable = 'stable'; hs[0].fit = 0.8; hs[0].fatigue = 0.1;
+    hs[0].stable = 'stable'; hs[0].fatigue = 0.1;
     const r = enterRace(game, hs[0].id, races[0].raceId);
     check('出走登録ができる', r.ok, r.why);
   }
@@ -1746,12 +1746,12 @@ section('自動調教（2 歳の入厩から新馬戦まで）');
   hA.ownerId = 'player';
   if (!wA.player.horses.includes(hA.id)) wA.player.horses.push(hA.id);
   hA.stable = 'pasture'; hA.trainerId ??= [...wA.trainers.values()][0].id;
-  hA.fit = 0.3; hA.fatigue = 0.2; hA.starts = 0; hA.autoDebut = true;
+  hA.fatigue = 0.2; hA.starts = 0; hA.autoDebut = true;
   // 比べる馬：同じ条件で自動の印が無い馬。登録も入厩も勝手にされない
   const hB = pick(wA, new Set([hA.id]));
   hB.ownerId = 'player';
   if (!wA.player.horses.includes(hB.id)) wA.player.horses.push(hB.id);
-  hB.stable = 'pasture'; hB.trainerId ??= hA.trainerId; hB.fit = 0.3; hB.fatigue = 0.2; hB.starts = 0;
+  hB.stable = 'pasture'; hB.trainerId ??= hA.trainerId; hB.fatigue = 0.2; hB.starts = 0;
   let enteredA = false, ranWeek = null, stableA = false;
   for (let i = 0; i < 40 && ranWeek == null; i++) {
     nextWeek(gA);
@@ -1763,6 +1763,40 @@ section('自動調教（2 歳の入厩から新馬戦まで）');
     stableA && enteredA && hA.starts === 1 && hA.autoDebut === false && ranWeek != null);
   check('自動調教：自動の印の無い 2 歳馬は、入厩も登録もされない（放牧のまま）',
     hB.stable === 'pasture' && ![...wA.player.entries.values()].some((x) => x.horseId === hB.id) && hB.starts === 0);
+}
+
+section('オート調教（傾向）と仕上がりの撤去');
+{
+  // 落とし穴 145：仕上がりの仕組みは無い。オート調教は傾向（能力 × 強さ）と疲れで毎週のメニューを決める
+  const TR = await import('../src/sim/training.js');
+  const fake = (fatigue) => ({ fatigue });
+  check('オート調教：スピード重視はコース追い、スタミナ重視はウッド、パワー重視は坂路',
+    TR.autoTrainMenu(fake(0.1), { focus: 'speed', intensity: 'normal' }, { week: 3 }) === 'track'
+    && TR.autoTrainMenu(fake(0.1), { focus: 'stamina', intensity: 'normal' }, { week: 3 }) === 'wood'
+    && TR.autoTrainMenu(fake(0.1), { focus: 'power', intensity: 'normal' }, { week: 3 }) === 'slope');
+  check('オート調教：強さで休ませる疲れが違う（疲れ 0.55 はハードならプール、普通・軽めは休養）',
+    TR.autoTrainMenu(fake(0.55), { focus: 'speed', intensity: 'hard' }) === 'pool'
+    && TR.autoTrainMenu(fake(0.55), { focus: 'speed', intensity: 'normal' }) === 'rest'
+    && TR.autoTrainMenu(fake(0.3), { focus: 'speed', intensity: 'light' }) === 'pool');
+  check('オート調教：今週・来週に走る馬は軽め（疲れていれば休養）',
+    TR.autoTrainMenu(fake(0.1), { focus: 'speed', intensity: 'hard' }, { raceSoon: true }) === 'light'
+    && TR.autoTrainMenu(fake(0.3), { focus: 'speed', intensity: 'hard' }, { raceSoon: true }) === 'rest');
+  check('オート調教：知らない傾向は既定（バランス・普通）', JSON.stringify(TR.cleanAutoPlan({ focus: 'x', intensity: 1 })) === JSON.stringify(TR.AUTO_DEFAULT));
+  const gT = sideGame({ seed: 'verify-autotrain' });
+  const wT = gT.world;
+  const mine = wT.player.horses.map((id) => wT.horses.get(id)).filter((h) => h && !h.retired && !h.stallion && !h.broodmare);
+  const n = GG.setAutoTrainAll(gT, { focus: 'stamina', intensity: 'light' });
+  const h0 = mine[0];
+  h0.stable = 'stable'; h0.injury = null; h0.fatigue = 0;
+  const st0 = h0.cur.stamina, sp0 = h0.cur.speed;
+  for (let i = 0; i < 8; i++) nextWeek(gT);
+  const v0 = GG.horseView(gT, h0.id);
+  check(`オート調教：所有馬すべてに当たり（${n} 頭）、スタミナ重視でスタミナが速く伸びる`,
+    n === mine.length && v0.autoTrain?.focus === 'stamina' && !!v0.autoMenu
+    && (h0.cur.stamina - st0) >= (h0.cur.speed - sp0) * 0.9);
+  check('仕上がりは馬の詳細にも馬にも無い', !('fit' in v0) && !('fitLabel' in v0) && h0.fit === undefined);
+  GG.setAutoTrain(gT, h0.id, null);
+  check('オート調教：やめると自分で選んだメニューに戻る', GG.horseView(gT, h0.id).autoTrain === null);
 }
 
 // ---------------------------------------------------------------- 表記違いの重複

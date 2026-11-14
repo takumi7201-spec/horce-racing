@@ -36,7 +36,8 @@ function makeField(n, distance, surface, year) {
     h.dirt = surface === SURFACE.DIRT ? 0.9 : 0.5;
     h.firm = 0.9; h.soft = 0.6;
     h.temper = 0.6; h.sound = 0.7; h.spirit = 0.6;
-    h.cond = 0.7; h.fit = 0.85; h.fatigue = 0;
+    // 仕上がりの仕組みを外す前の「仕上がり 0.85」の倍率（0.72 + 0.34×0.85）で走らせる（物差しを変えない）
+    h.cond = 0.7; h.form = 1.009; h.fatigue = 0;
     h.style = [0.08, 0.2, 0.35, 0.45, 0.55, 0.62, 0.7, 0.8, 0.9][i % 9];
     h.styleFlex = 0.6;
     horses.push(h);
