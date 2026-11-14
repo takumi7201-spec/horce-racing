@@ -2888,7 +2888,9 @@ button.ik-rectier, button.ik-recbest { cursor: pointer; }
 @media (prefers-reduced-motion: reduce) { .rd-panel .it, .rd-panel.on .it { transition: none; filter: none; } }
 
 /* ---------------- お知らせの欄のページの札とモーフツールチップ（src/ui/morphtip.js） ---------------- */
-.mt-tools { position: relative; flex: none; margin-top: 2px; }
+.mt-tools { position: relative; flex: none; margin-top: auto; }
+/* 札の列は欄の下端に留める（カードの高さで上下しない）。下の矢印との間はツールチップ（30px＋しっぽ）が収まるだけ空ける */
+.pcards > .parrow:nth-last-of-type(1) { margin-bottom: 46px; }
 .mt-bar { position: absolute; inset: 0; display: flex; gap: 2px; padding: 5px; border-radius: 999px;
   background: linear-gradient(#ffffffee, #eef4e4ee); box-shadow: 0 0 0 2px #fff inset, 0 2px 6px #1d3a1a40; }
 .mt-tool { position: relative; z-index: 1; flex: none; width: 36px; height: 34px; padding: 0; border: 0; border-radius: 999px;
