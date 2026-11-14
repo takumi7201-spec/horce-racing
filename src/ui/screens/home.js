@@ -8,7 +8,6 @@ import { el, button } from '../dom.js';
 import { icon } from '../icons.js';
 import { horseImg } from '../horse-sprite.js';
 import { morphTabs } from '../morphtip.js';
-import { springDropdown } from '../springdropdown.js';
 import * as G from '../../sim/game.js';
 import { formatMoney, formatTime } from '../../core/util.js';
 import { condLabel } from '../../sim/training.js';
@@ -17,7 +16,6 @@ const GRADE_ORDER = { GI: 0, GII: 1, GIII: 2 };
 
 export function homeScreen(app) {
   const g = app.game;
-  const rank = G.ownerRank(g);
   const week = G.schedule(g, 1)[0];
   const graded = week.races.filter((r) => /^G/.test(r.grade ?? ''))
     .sort((a, b) => (GRADE_ORDER[a.grade] ?? 9) - (GRADE_ORDER[b.grade] ?? 9));
@@ -41,20 +39,12 @@ export function homeScreen(app) {
   const dots = morphTabs({
     items: pages.map((p) => ({ icon: p.dataset.ic, label: p.dataset.title })),
     active: app.homePage,
-    onSelect: (i) => { app.homePage = i; show(); picker?.setValue(i); },
-  });
-  // ページを名前で選ぶドロップダウン（springdropdown.js）。札の列・矢印と同じページを指す。
-  const picker = springDropdown({
-    label: 'お知らせのページ',
-    items: pages.map((p) => ({ label: p.dataset.title, color: PAGE_COLOR[p.dataset.tag] ?? 'var(--green)' })),
-    value: app.homePage,
-    onSelect: (i) => { app.homePage = i; show(); dots.setActive(i, false); },
+    onSelect: (i) => { app.homePage = i; show(); },
   });
   const flip = (d) => {
     app.homePage = (app.homePage + d + n) % n;
     show();
     dots.setActive(app.homePage, true);
-    picker.setValue(app.homePage);
   };
   function show() {
     stack.textContent = '';
@@ -64,18 +54,9 @@ export function homeScreen(app) {
 
   return el('div.home', [
     el('aside.hpanel', [
-      el('div.rankplate', { onclick: () => app.go('records', { tab: 'owners' }), title: '馬主ランキングを見る' }, [
-        el('span.rp-ico', icon('medal', { size: 30 })),
-        el('div.rp-t', [
-          el('span', { text: '馬主ランキング' }),
-          el('div.rp-v', [el('b', { text: String(rank.rank) }), '位', el('small', { text: ` / ${rank.total}人・${rank.pts}pt` })]),
-        ]),
-        el('span.rp-grade', { text: rank.grade, class: `g-${rank.grade}` }),
-      ]),
       featureStrip(app, graded[0]),
       eventStrip(app),
       el('div.pcards', [
-        picker,
         el('button.parrow', { onclick: () => flip(-1), title: '前へ' }, icon('up', { size: 20 })),
         stack,
         el('button.parrow', { onclick: () => flip(1), title: '次へ' }, icon('down', { size: 20 })),
@@ -161,7 +142,7 @@ function yearEndPage(app) {
 /** 1 枚のカード。上に札と見出し、下に中身。 */
 function page(tag, ic, title, body, action = null) {
   // 札（お知らせの欄の下の列）が名前と絵を引けるように持たせる
-  return el('section.pcard', { 'data-ic': ic, 'data-title': title, 'data-tag': tag }, [
+  return el('section.pcard', { 'data-ic': ic, 'data-title': title }, [
     el('header', [
       el('span.pc-tag', { text: tag }),
       el('span.pc-ico', icon(ic, { size: 18 })),
@@ -302,12 +283,6 @@ function financePage(app) {
     f.titles.length ? el('ul.ptitles', f.titles.slice(-4).map((t) => el('li', [icon('medal', { size: 14 }), t]))) : null,
   ], button('牧場へ', () => app.go('farm'), { cls: 'sm' }));
 }
-
-/** ドロップダウンの行の色の点（ページの種類ごと）。 */
-const PAGE_COLOR = {
-  ニュース: '#2e8fb8', 年間: 'var(--green)', 年末: 'var(--gold-d)', 出走: 'var(--mine)', 重賞: 'var(--gold)',
-  所有馬: '#4a7fd0', 結果: 'var(--bad)', 強豪: '#9a5bd0', 経営: '#8a6a3a',
-};
 
 /**
  * ニュースのページ。以前はお知らせの欄とは別の帯（PC は下・スマホは上）で 1 本ずつ流していたが、

@@ -446,6 +446,16 @@ function header(app) {
       el('div.hb-week', [el('b', { text: month }), '月', el('b', { text: wk }), '週']),
       el('div.hb-meet', G.meetings(g).map((n) => el('span', { text: n }))),
     ]),
+    // 馬主ランキング（以前はホームのお知らせの欄の上の札）。どの画面からも見え、押すとランキングへ。
+    (() => {
+      const rk = G.ownerRank(g);
+      return el('button.hb-rank', { onclick: () => app.go('records', { tab: 'owners' }), title: '馬主ランキングを見る' }, [
+        el('span.hr-ico', icon('medal', { size: 18 })),
+        el('span.hr-t', [el('small.hr-l', { text: '馬主' }), el('b', { text: String(rk.rank) }), el('small', { text: '位' }), el('small.hr-n', { text: ` / ${rk.total}` })]),
+        el('span.hr-pt', { text: `${rk.pts}pt` }),
+        el('span.hr-g', { text: rk.grade, class: `g-${rk.grade}` }),
+      ]);
+    })(),
     el('div.hb-chips', [
       chip('trophy', 'GI', f.g1),
       chip('star', '勝利', f.wins),
