@@ -9,7 +9,7 @@ import { icon } from '../icons.js';
 import { horseImg } from '../horse-sprite.js';
 import * as G from '../../sim/game.js';
 import { formatMoney, formatTime } from '../../core/util.js';
-import { fitLabel, condLabel } from '../../sim/training.js';
+import { condLabel } from '../../sim/training.js';
 
 const GRADE_ORDER = { GI: 0, GII: 1, GIII: 2 };
 
@@ -52,11 +52,11 @@ export function homeScreen(app) {
 
   return el('div.home', [
     el('aside.hpanel', [
-      el('div.rankplate', [
+      el('div.rankplate', { onclick: () => app.go('records', { tab: 'owners' }), title: '馬主ランキングを見る' }, [
         el('span.rp-ico', icon('medal', { size: 30 })),
         el('div.rp-t', [
           el('span', { text: '馬主ランキング' }),
-          el('div.rp-v', [el('b', { text: String(rank.rank) }), '位', el('small', { text: ` / ${rank.total}人` })]),
+          el('div.rp-v', [el('b', { text: String(rank.rank) }), '位', el('small', { text: ` / ${rank.total}人・${rank.pts}pt` })]),
         ]),
         el('span.rp-grade', { text: rank.grade, class: `g-${rank.grade}` }),
       ]),
@@ -93,10 +93,12 @@ function featureStrip(app, r) {
 const EVENT_GO = {
   foaling: ['stable', { cat: 'young' }],
   covering: ['farm', { tab: 'mating' }],
-  foalSale: ['farm', { tab: 'foal' }],
-  mareSale: ['farm', { tab: 'mares' }],
-  overseas: ['farm', { tab: 'overseas' }],
-  private: ['farm', { tab: 'overseas' }],
+  foalSale: ['farm', { tab: 'trade', sub: 'foal' }],
+  mareSale: ['farm', { tab: 'trade', sub: 'mare' }],
+  overseas: ['farm', { tab: 'trade', sub: 'overseas' }],
+  private: ['farm', { tab: 'trade', sub: 'private' }],
+  privateSpring: ['farm', { tab: 'trade', sub: 'private' }],
+  privateSummer: ['farm', { tab: 'trade', sub: 'private' }],
   entry: ['farm', { tab: 'entry' }],
 };
 
@@ -159,20 +161,29 @@ function page(tag, ic, title, body, action = null) {
 
 function entriesPage(app) {
   const g = app.game;
-  const entries = G.myEntries(g);
-  if (!entries.length) {
+  const all = G.myEntries(g);
+  const now = all.filter((e) => e.thisWeek);
+  const later = all.filter((e) => !e.thisWeek);
+  if (!all.length) {
     return page('出走', 'gate', '今週の出走予定', [
-      el('p.pc-empty', { text: '今週の登録は無い。番組表から選ぶか、所有馬の画面から登録する。' }),
+      el('p.pc-empty', { text: '今週の登録は無い。番組表から選ぶか、所有馬の画面から登録する。先の週（1 年先まで）にも登録できる。' }),
     ], button('番組表を開く', () => app.go('races'), { cls: 'sm primary' }));
   }
-  return page('出走', 'gate', `今週の出走予定（${entries.length}頭）`, el('ul.plist', entries.map((e) => el('li', [
+  const row = (e, withDate) => el('li', [
     el('div.pl-main', [
+      withDate ? el('small.pl-date', { text: `${e.year}年 ${e.label}` }) : null,
       el('b.mine', { text: e.horse.name }),
       el('span', { text: e.race.name, class: e.race.grade ? 'grade' : null }),
     ]),
     el('div.pl-sub', { text: `${e.race.courseName}${e.race.surface}${e.race.distance}m ／ ${e.jockeyName}` }),
     button('取消', () => { G.cancelEntry(g, e.raceId); app.render(); }, { cls: 'sm ghost' }),
-  ]))), el('span.pc-note', { text: 'NEXT で発走する' }));
+  ]);
+  const title = now.length ? `今週の出走予定（${now.length}頭）${later.length ? `・先に ${later.length} 件` : ''}` : `先の出走予定（${later.length} 件）`;
+  return page('出走', 'gate', title, [
+    now.length ? el('ul.plist', now.map((e) => row(e, false))) : el('p.pc-empty', { text: '今週の登録は無い。' }),
+    later.length ? el('ul.plist.later', later.slice(0, 4).map((e) => row(e, true))) : null,
+    later.length > 4 ? el('p.pc-note', { text: `ほか ${later.length - 4} 件` }) : null,
+  ], el('span.pc-note', { text: 'NEXT で発走する' }));
 }
 
 function gradedPage(app, graded) {
@@ -204,7 +215,7 @@ function horsesPage(app) {
   const list = shown.map((h) => h.id);
   return page('所有馬', 'horse', `所有馬の様子（${horses.length}頭）`, el('ul.plist.horses', shown.map((h) => {
     const v = G.horseView(g, h.id);
-    const state = v.injury ? v.injury.name : v.stable === 'stable' ? `在厩 ${fitLabel(v.fit)}` : '放牧';
+    const state = v.injury ? v.injury.name : v.stable === 'stable' ? `在厩${v.autoTrain ? '・オート' : ''}` : '放牧';
     return el('li', { class: 'click', onclick: () => app.go('stable', { id: h.id, list }) }, [
       horseImg(h.coat, { size: 'xs', age: v.age }),
       el('div.pl-body', [

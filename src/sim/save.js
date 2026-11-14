@@ -6,6 +6,9 @@
 
 import { makeRng, attach } from '../core/rng.js';
 import { resetHorseIds, peekHorseId } from './horse.js';
+import { healRealPedigrees, syncRealFactors, syncRealSite } from './realsires.js';
+import { grantDominantFactors } from './pedigree.js';
+import { healNursery } from './training.js';
 
 export const SAVE_VERSION = 2;
 
@@ -38,9 +41,11 @@ export function serialize(g) {
     records: mapToArr(w.records),
     history: w.history,
     awards: w.awards,
+    ownerHistory: w.ownerHistory,
     news: w.news,
     log: w.log.slice(-80),
     pendingMatings: w.pendingMatings,
+    nursery: w.nursery,
     player: {
       ...w.player,
       entries: mapToArr(w.player.entries),
@@ -76,10 +81,12 @@ export function deserialize(data) {
     results: [],          // レース結果は保存しない（走行ログが巨大になる）
     history: data.history ?? [],
     awards: data.awards ?? [],
+    ownerHistory: data.ownerHistory ?? [],
     news: data.news ?? [],
     leaders: { jockeys: [], trainers: [], sires: [], owners: [] },
     log: data.log ?? [],
     pendingMatings: data.pendingMatings ?? [],
+    nursery: data.nursery,
     player: {
       ...data.player,
       entries: arrToMap(data.player.entries),
@@ -87,6 +94,14 @@ export function deserialize(data) {
   };
   // 馬 id の採番を続きから。
   resetHorseIds(data.nextHorseId ?? 1);
+  // 古いセーブの実在馬に、今の表の血統をつなぐ（新しく作る馬の id は続きから）。
+  healRealPedigrees(world);
+  syncRealFactors(world);
+  syncRealSite(world);
+  // 古いセーブの、血統支配率の高い種牡馬（亡くなった馬も含む）に因子を付ける。付け終えた世界では何もしない。
+  grantDominantFactors(world);
+  // 古いセーブの幼駒と 2 歳に、受けていなかった育成を足す（落とし穴 88）。足し終えた世界では何もしない。
+  healNursery(world);
   return { world, version: data.v };
 }
 

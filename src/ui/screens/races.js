@@ -12,19 +12,29 @@ const SHORT = {
   niigata: '新潟', sapporo: '札幌', hakodate: '函館', fukushima: '福島', kokura: '小倉',
 };
 
+/** 番組表のタブ（左のメニューの行き先の一覧と同じもの） */
+/** 疲れの印（仕上がりの代わりに出す。落とし穴 145） */
+const fatigueMark = (f = 0) => (f < 0.2 ? '◎' : f < 0.4 ? '○' : f < 0.6 ? '△' : '▲');
+
+export const RACES_TABS = [
+  { id: 'week', name: '今週の番組' },
+  { id: 'ahead', name: '先の週' },
+  { id: 'graded', name: '重賞日程' },
+  { id: 'results', name: '先週の結果' },
+];
+
 export function racesScreen(app) {
   const g = app.game;
   const mode = app.params.tab ?? 'week';
   const body = el('div');
 
-  const nav = tabs([
-    { id: 'week', name: '今週の番組' },
-    { id: 'ahead', name: '先の週' },
-    { id: 'graded', name: '重賞日程' },
-    { id: 'results', name: '先週の結果' },
-  ], mode, (id) => app.go('races', { tab: id }));
+  const nav = tabs(RACES_TABS, mode, (id) => app.go('races', { tab: id }));
 
-  if (mode === 'week') body.appendChild(weekTable(app, 0));
+  if (mode === 'week') {
+    app.raceWeek ??= 0;
+    body.appendChild(weekPicker(app));
+    body.appendChild(weekTable(app, app.raceWeek));
+  }
   else if (mode === 'ahead') body.appendChild(ahead(app));
   else if (mode === 'graded') body.appendChild(gradedTable(app));
   else body.appendChild(resultsTable(app));
@@ -53,22 +63,22 @@ function weekTable(app, offset) {
         cells: [
           el('span', { text: r.name, class: r.grade ? 'grade' : null }),
           r.grade ?? r.className,
-          SHORT[r.courseId] ?? r.courseId,
+          SHORT[r.courseId] ?? G.courseShort(r.courseId),
           `${r.surface}${r.distance}m`,
           `${r.ageLabel}${r.sexLabel}`,
           formatMoney(r.prize),
           ent ? el('b.mine', { text: ent.horse.name }) : (cands.length ? `${cands.length}頭 可` : '—'),
           ent
             ? button('取消', () => { G.cancelEntry(g, r.raceId); app.render(); }, { cls: 'sm ghost' })
-            : (cands.length && offset === 0
-              ? button('登録', () => pickHorse(app, r, cands), { cls: 'sm primary' })
+            : (cands.length
+              ? button('登録', () => pickHorse(app, r, cands, offset), { cls: 'sm primary' })
               : null),
         ],
         cls: r.graded ? 'graded-row' : null,
       };
     });
 
-  return card(`${sch.year}年 ${sch.label} の番組（${sch.races.length} レース）`,
+  return card(`${sch.year}年 ${sch.label} の番組（${sch.races.length} レース）${offset ? `・${offset}週後` : '・今週'}`,
     table(['レース', '条件', '場', '距離', '出走資格', '1着賞金', '登録', ''], rows,
       { align: [, 'c', 'c', 'c', 'c', 'r', 'c'] }));
 }
@@ -80,7 +90,7 @@ function ahead(app) {
     table(['レース', '条件', '場', '距離', '出走資格', '1着賞金'],
       wk.races.filter((r) => r.graded).map((r) => [
         el('span', { text: r.name, class: 'grade' }),
-        r.grade, SHORT[r.courseId] ?? r.courseId, `${r.surface}${r.distance}m`,
+        r.grade, SHORT[r.courseId] ?? G.courseShort(r.courseId), `${r.surface}${r.distance}m`,
         `${r.ageLabel}${r.sexLabel}`, formatMoney(r.prize),
       ]), { align: [, 'c', 'c', 'c', 'c', 'r'] }),
   )));
@@ -102,7 +112,7 @@ function gradedTable(app) {
         weekLabel(r.week),
         el('span', { text: r.name, class: r.grade === 'GI' ? 'grade g1' : 'grade' }),
         r.grade,
-        SHORT[r.courseId] ?? r.courseId,
+        SHORT[r.courseId] ?? G.courseShort(r.courseId),
         `${r.surface}${r.distance}m`,
         r.age[1] >= 99 ? `${r.age[0]}歳以上` : `${r.age[0]}歳`,
         r.sex === '牝' ? '牝' : '',
@@ -134,7 +144,7 @@ function resultsTable(app) {
     res.map((r) => ({
       cells: [
         el('span', { text: r.name, class: r.grade ? 'grade' : null }),
-        r.grade ?? '', SHORT[r.courseId] ?? r.courseId, `${r.surface}${r.distance}`,
+        r.grade ?? '', SHORT[r.courseId] ?? G.courseShort(r.courseId), `${r.surface}${r.distance}`,
         r.ground, r.results[0].name, r.results[0].jockeyName,
         r.winnerTime.toFixed(1), r.pace?.label ?? '—',
         el('div.row-btns', [
@@ -163,7 +173,7 @@ export function showResult(r) {
   ], { wide: true });
 }
 
-function pickHorse(app, race, cands) {
+function pickHorse(app, race, cands, offset = 0) {
   const g = app.game;
   const jockeySel = el('select.inp');
   for (const j of G.availableJockeys(g, 40)) {
@@ -176,18 +186,19 @@ function pickHorse(app, race, cands) {
     el('option', { value: '', text: '指示なし（馬の持ち味）' }),
     ...STYLES.map((s) => el('option', { value: s, text: s })),
   ]);
-  const m = modal(`${race.name}（${SHORT[race.courseId]}${race.surface}${race.distance}m）に登録`, [
+  const m = modal(`${race.name}（${SHORT[race.courseId] ?? G.courseShort(race.courseId)}${race.surface}${race.distance}m）に登録`, [
+    race.abroadCost ? el('p.note', { text: `海外遠征。走るときに遠征費 ${formatMoney(race.abroadCost)} が掛かる（登録を取り消せば掛からない）。相手は海外の馬。` }) : null,
     el('div.form-row', [
       el('label', ['騎手', jockeySel]),
       el('label', ['脚質指示', styleSel]),
     ]),
-    table(['馬名', '性齢', 'クラス', '仕上がり', '調子', '適性', ''],
+    table(['馬名', '性齢', 'クラス', '疲労', '調子', '適性', ''],
       cands.map((h) => {
         const v = G.horseView(g, h.id);
-        const r = G.racesFor(g, h.id, 0).find((x) => x.raceId === race.raceId);
+        const r = G.racesFor(g, h.id, offset).find((x) => x.raceId === race.raceId);
         return [
           el('b', { text: h.name }), `${h.sex}${v.age}`, v.className,
-          v.fitLabel, v.condLabel, bar(r?.apt ?? 0),
+          fatigueMark(v.fatigue), v.condLabel, bar(r?.apt ?? 0),
           button('登録', () => {
             const res = G.enterRace(g, h.id, race.raceId, {
               jockeyId: Number(jockeySel.value),
@@ -204,4 +215,38 @@ function pickHorse(app, race, cands) {
   ], { wide: true });
   // 先頭の馬の主戦騎手を初期値にする。
   if (cands[0]?.jockeyId != null) jockeySel.value = String(cands[0].jockeyId);
+}
+
+/**
+ * 番組表の週の選択。今週から 1 年先まで、前後の送りと「重賞のある週」へのジャンプ。
+ * 先の週のレースにも登録できる（その週に出走資格と体調を見直す）。
+ */
+function weekPicker(app) {
+  const g = app.game;
+  const horizon = G.ENTRY_HORIZON;
+  const set = (n) => { app.raceWeek = Math.max(0, Math.min(horizon - 1, n)); app.render(); };
+  const weeks = G.schedule(g, horizon);
+  const sel = el('select.inp', {
+    onchange: (e) => set(Number(e.target.value)),
+  }, weeks.map((w, i) => {
+    const gr = w.races.filter((r) => r.graded).length;
+    return el('option', {
+      value: String(i), selected: i === app.raceWeek,
+      text: `${i === 0 ? '今週' : `${i}週後`}　${w.year}年 ${w.label}${gr ? `（重賞${gr}）` : ''}`,
+    });
+  }));
+  const jump = (dir) => {
+    for (let i = app.raceWeek + dir; i >= 0 && i < horizon; i += dir) {
+      if (weeks[i].races.some((r) => r.graded)) return set(i);
+    }
+    return null;
+  };
+  return el('div.week-picker', [
+    button('◀', () => set(app.raceWeek - 1), { cls: 'sm', disabled: app.raceWeek === 0 }),
+    sel,
+    button('▶', () => set(app.raceWeek + 1), { cls: 'sm', disabled: app.raceWeek >= horizon - 1 }),
+    button('前の重賞', () => jump(-1), { cls: 'sm ghost' }),
+    button('次の重賞', () => jump(1), { cls: 'sm ghost' }),
+    button('今週', () => set(0), { cls: 'sm ghost' }),
+  ]);
 }

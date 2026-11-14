@@ -1,0 +1,155 @@
+/* ウイニングロードの育成モードの配色（styles.css の .ikm）：深い青緑・若草・橙、明るい面は生成り。
+   部品はステッカー風（白い縁＋紺の輪郭＋下にずらした影）。すべてこの例の中に閉じる。 */
+.gp {
+  & .ss-stage {
+    --ink: #113035;
+    --teal2: #2c5a55;
+    --leaf: #a7cb0e;
+    --sun: #f3a332;
+    --paper: #fbf8ef;
+    --e: cubic-bezier(0.3, 0.75, 0.1, 1);
+    overflow: hidden;
+    border-radius: 14px;
+    background: linear-gradient(180deg, #eaf3ee 0%, #f6efe2 100%);
+    font-family: system-ui, "Hiragino Sans", "Noto Sans JP", sans-serif;
+  }
+
+  /* 上から一つ分の余白で吊り、下へ逃がす */
+  .gp-phone { position: absolute; top: 40px; left: 50px; }
+  .ss-stage[data-layout="compact"] .gp-phone { left: 20px; }
+
+  .gp-screen { position: absolute; inset: 0; overflow: hidden; }
+  .gp-sky {
+    position: absolute; inset: 0;
+    background:
+      radial-gradient(circle, #ffffff3a 1.1px, transparent 1.7px) 0 0 / 10px 10px,
+      linear-gradient(180deg, #c4f7ec 0%, #8ee6dc 30%, #5cc4e4 62%, #5b86dc 100%);
+  }
+
+  /* ---- 上の帯（固定） ---- */
+  .gp-head {
+    position: absolute; top: 62px; left: 0; right: 0; height: 52px;
+    display: flex; align-items: center; gap: 10px; padding: 0 16px;
+    background: linear-gradient(180deg, #b0f0e6, #a2ece2 86%, #a2ece200);
+  }
+  /* 送った中身が状態バーと上の帯の下へ透けないよう、上は空の色で塞ぐ */
+  .gp-top { position: absolute; left: 0; right: 0; top: 0; height: 62px; background: #c0f5ea; }
+  .gp-back {
+    flex: none; display: grid; place-items: center; width: 38px; height: 38px; border-radius: 50%;
+    background: var(--paper); color: var(--ink); border: 2.5px solid var(--ink); box-shadow: 0 3px 0 var(--ink);
+  }
+  .gp-htitle { font: italic 900 26px/1.3 system-ui, sans-serif; color: var(--ink); letter-spacing: 0.02em; }
+  .gp-coin {
+    margin-left: auto; display: flex; align-items: center; gap: 6px; padding: 4px 10px 4px 6px;
+    border-radius: 999px; background: var(--ink); color: #ffd23d; border: 2.5px solid #fff;
+    font: 900 18px/1.3 system-ui, sans-serif; box-shadow: 0 3px 0 #0004;
+  }
+  .gp-coin i { width: 20px; height: 20px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #fff3b0, #f3a332 70%); border: 2px solid #c47a12; }
+
+  /* ---- 送られる中身 ---- */
+  .gp-scroll { position: absolute; left: 0; right: 0; top: 0; height: 1100px; will-change: transform; transition: transform 0.9s cubic-bezier(0.45, 0, 0.2, 1); }
+
+  .gp-banner {
+    position: absolute; left: 16px; right: 16px; top: 120px; height: 250px; overflow: hidden;
+    border-radius: 20px; border: 3px solid var(--ink); box-shadow: 0 6px 0 var(--ink); background: #1d4440; color: #fff;
+  }
+  .gp-banner__bg { position: absolute; inset: -6%; background: center 40% / cover no-repeat; filter: saturate(0.85); }
+  .gp-banner__shade {
+    position: absolute; inset: 0;
+    background: linear-gradient(90deg, #113035f2 0%, #113035c8 38%, #11303530 70%, transparent 90%), linear-gradient(0deg, #113035b0, transparent 45%);
+  }
+  .gp-hero { position: absolute; object-fit: contain; filter: drop-shadow(0 6px 10px #0006); }
+  .gp-hero--1 { right: -10px; bottom: -12px; width: 200px; }
+  .gp-hero--2 { left: 8px; bottom: -8px; width: 150px; }
+  .gp-hero--3 { right: 4px; top: 16px; width: 124px; }
+  .gp-banner__tx { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 18px 18px; }
+  .gp-tag {
+    padding: 3px 10px; border-radius: 999px; background: var(--sun); color: var(--ink);
+    font: 900 12px/1.3 system-ui, sans-serif; letter-spacing: 0.08em; border: 2px solid #fff;
+  }
+  .gp-title { font: italic 900 30px/1.25 system-ui, sans-serif; text-shadow: 0 2px 0 var(--ink); }
+  .gp-sub { font: 700 14px/1.35 system-ui, sans-serif; color: #f8d5a0; }
+  .gp-rates { display: flex; gap: 8px; margin-top: 4px; }
+  .gp-bar { background: #ffffff40 !important; }
+  .gp-bar--ink { background: #11303526 !important; }
+
+  .gp-btns { position: absolute; left: 16px; right: 16px; top: 390px; height: 56px; display: grid; grid-template-columns: 1fr 1.5fr; gap: 12px; }
+  .gp-btn {
+    display: flex; align-items: center; justify-content: center; gap: 6px; border-radius: 16px;
+    background: var(--paper); color: var(--ink); border: 3px solid var(--ink); box-shadow: 0 5px 0 var(--ink);
+    font: 900 17px/1.3 system-ui, sans-serif; transition: transform 0.12s, box-shadow 0.12s; will-change: transform;
+  }
+  .gp-btn--main { background: linear-gradient(180deg, #c6e04a, var(--leaf)); }
+  .gp-btn[data-pressed] { transform: translateY(4px); box-shadow: 0 1px 0 var(--ink); }
+
+  .gp-panel {
+    position: absolute; left: 16px; right: 16px; top: 466px; height: 60px; padding: 14px 16px; display: grid; gap: 10px; align-content: center;
+    border-radius: 16px; background: var(--paper); border: 2.5px solid var(--ink); box-shadow: 0 4px 0 var(--ink);
+  }
+
+  .gp-results { position: absolute; left: 0; right: 0; top: 466px; height: 260px; }
+  .gp-rtitle {
+    position: absolute; left: 16px; top: 0; padding: 4px 14px; border-radius: 999px;
+    background: var(--ink); color: #fff; font: 900 15px/1.3 system-ui, sans-serif; border: 2px solid #fff;
+  }
+
+  /* ---- カード：裏と表を 1 枚で回す（すり替えない） ---- */
+  .gp-card { position: absolute; perspective: 600px; will-change: transform; transition: transform 0.38s var(--e), opacity 0.3s ease; }
+  .gp-card:not([data-dealt]) { transform: translateY(-14px) scale(0.94); opacity: 0; }
+  .gp-card[data-dealt] { transform: none; opacity: 1; transition-delay: 0ms; }
+  /* 配るときだけ 1 枚ずつ遅らせる（style の transitionDelay） */
+  .gp-card__in { position: absolute; inset: 0; transform-style: preserve-3d; transition: transform 0.42s var(--e); transform: rotateY(180deg); }
+  .gp-card[data-up] .gp-card__in { transform: rotateY(0deg); }
+  .gp-card__face, .gp-card__back {
+    position: absolute; inset: 0; width: 100%; height: 100%; border-radius: 5px; backface-visibility: hidden; object-fit: cover;
+    box-shadow: 0 3px 0 #11303580;
+  }
+  .gp-card__face { clip-path: inset(1px round 5px); }
+  .gp-card__back {
+    transform: rotateY(180deg);
+    background:
+      repeating-linear-gradient(45deg, #ffffff14 0 4px, transparent 4px 9px),
+      linear-gradient(160deg, var(--teal2), var(--ink));
+    border: 2px solid var(--paper); box-sizing: border-box;
+  }
+  /* 光るのは最後の 1 枚の裏だけ（めくる前の溜め） */
+  .gp-card[data-glow] .gp-card__back { animation: gp-glow 0.8s ease-in-out forwards; }
+  .gp-card--ssr[data-glow][data-up] .gp-card__in { filter: drop-shadow(0 0 7px #ffd76a); transition: transform 0.42s var(--e), filter 0.4s; }
+  .gp-card[data-gone] { opacity: 0; transition: opacity 0s; }
+  .gp-card:not([data-gone]) { transition: transform 0.38s var(--e), opacity 0s linear 0.55s; }
+  .gp-card:not([data-dealt]):not([data-gone]) { transition: transform 0.38s var(--e), opacity 0.3s ease; }
+  /* 配るときは、動きの大半を薄いまま走らせて着地の直前に濃くする */
+  .gp-card[data-dealt]:not([data-gone]) { transition: transform 0.42s var(--e), opacity 0.36s cubic-bezier(0.5, 0, 0.8, 0.4); }
+
+  .gp-new {
+    position: absolute; top: -6px; right: 4px; z-index: 2; padding: 1px 6px; border-radius: 999px;
+    background: #ff3d6e; color: #fff; border: 2px solid #fff; box-shadow: 0 0 0 1.5px var(--ink);
+    font: 900 10px/1.3 system-ui, sans-serif; opacity: 0; transform: scale(0.6); transition: opacity 0.25s, transform 0.3s var(--e);
+  }
+  .gp-card[data-up][data-glow] .gp-new { opacity: 1; transform: none; transition-delay: 0.35s; }
+
+  /* ---- 手前に来る 1 枚（格子の 1 枚から伸びる） ---- */
+  .gp-veil { position: absolute; inset: 0; background: #113035b8; opacity: 0; transition: opacity 0.45s ease; }
+  .gp-veil[data-on] { opacity: 1; }
+  .gp-big {
+    position: absolute; transform-origin: 0 0; opacity: 0; will-change: transform;
+    transition: transform 0.55s var(--e), opacity 0s linear 0.55s;
+  }
+  .gp-big[data-open] { opacity: 1; transition: transform 0.6s var(--e), opacity 0s; }
+  .gp-big img { width: 100%; height: 100%; border-radius: 14px; clip-path: inset(1px round 14px); display: block; box-shadow: 0 0 0 0 #ffd76a00; }
+  .gp-big[data-open] img { filter: drop-shadow(0 0 18px #ffd76a90) drop-shadow(0 12px 18px #0007); }
+  .gp-new--big { top: -10px; right: -8px; padding: 3px 12px; font-size: 15px; opacity: 1; transform: none; }
+  .gp-big:not([data-open]) .gp-new--big { opacity: 0; }
+
+  .gp-close {
+    position: absolute; left: 50%; top: 500px; transform: translate(-50%, 8px); padding: 10px 36px; border-radius: 999px;
+    background: var(--paper); color: var(--ink); border: 3px solid var(--ink); box-shadow: 0 4px 0 var(--ink);
+    font: 900 16px/1.3 system-ui, sans-serif; opacity: 0; transition: opacity 0.3s, transform 0.4s var(--e);
+  }
+  .gp-close[data-on] { opacity: 1; transform: translate(-50%, 0); transition-delay: 0.35s; }
+}
+
+@keyframes gp-glow {
+  0% { box-shadow: 0 3px 0 #11303580, 0 0 0 0 #ffd76a00; }
+  100% { box-shadow: 0 3px 0 #11303580, 0 0 12px 4px #ffd76a; border-color: #ffe9a8; }
+}
